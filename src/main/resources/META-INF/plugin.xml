@@ -29,7 +29,7 @@
 
     </extensions>
     <actions>
-        <action id="OllamaTestGeneratorAction" class="OllamaTestGeneratorAction" text="Zingplay Write Test"
+        <action id="GenerateTestByLlm" class="GenerateTestByLlm" text="Zingplay Write Test"
                 description="Write tests by Ollama">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>

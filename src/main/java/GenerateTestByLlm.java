@@ -1,4 +1,3 @@
-
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -15,6 +14,8 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -38,7 +39,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class OllamaTestGeneratorAction extends AnAction {
+public class GenerateTestByLlm extends AnAction {
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
     private static final String DEFAULT_API_URL = "https://ollama.zingplay.com/api/generate";
     private static final String DEFAULT_MODEL = "deepseek-r1:32b";
@@ -85,12 +86,12 @@ public class OllamaTestGeneratorAction extends AnAction {
         String className = containingClass.getName();
         String methodName = method.getName();
         String packageName = ((PsiJavaFile) psiFile).getPackageName();
-        String methodBody = method.getBody() != null ? method.getBody().getText() : "";
+        String methodBody = method.getBody() != null ? getTextOfPsiElement(method.getBody()): "";
 
         // Collect imports from the current file
         StringBuilder importBuilder = new StringBuilder();
         for (PsiImportStatement importStatement : ((PsiJavaFile) psiFile).getImportList().getImportStatements()) {
-            importBuilder.append(importStatement.getText()).append("\n");
+            importBuilder.append(getTextOfPsiElement(importStatement)).append("\n");
         }
         String imports = importBuilder.toString();
 
@@ -164,14 +165,29 @@ public class OllamaTestGeneratorAction extends AnAction {
                 // Create prompt for test generation
                 indicator.setText("Creating prompt for Ollama...");
                 indicator.setFraction(0.3);
-                String methodContext1 = OllamaTestGeneratorAction.this.collectMethodContext(project, method);
+                String methodContext1 = GenerateTestByLlm.this.collectMethodContext(project, method);
                 String prompt = createPrompt(packageName, className, methodName, methodSignature,
                         methodBody, imports, junitVersion, methodContext1);
 
                 // Call Ollama API
                 indicator.setText("Calling Ollama API...");
                 indicator.setFraction(0.5);
-                String response = callOllamaApi(prompt);
+                String response = null;
+                for (int i = 0; i < 3; ++i) {
+                    try {
+                        response = callOllamaApi(prompt);
+                        if (response != null) {
+                            indicator.setText("Calling Ollama API: SUCCESS...");
+                            indicator.setFraction(0.6);
+                            break;
+                        }
+                    } catch (IOException e) {
+                        indicator.setText("Calling Ollama API: FAILED - retry " + (i + 1));
+                        indicator.setFraction(0.6);
+                        response = null;
+                    }
+                }
+
                 if (response == null || response.isEmpty()) {
                     showMessageOnUIThread(project, "Failed to generate test code", "API Error", true);
                     return;
@@ -279,7 +295,7 @@ public class OllamaTestGeneratorAction extends AnAction {
                 // Add context around the method call
                 PsiStatement statement = PsiTreeUtil.getParentOfType(element, PsiStatement.class);
                 if (statement != null) {
-                    contextInfo.append("  Context: ").append(statement.getText()).append("\n");
+                    contextInfo.append("  Context: ").append(getTextOfPsiElement(statement)).append("\n");
                 }
             }
             refCount++;
@@ -365,8 +381,8 @@ public class OllamaTestGeneratorAction extends AnAction {
             PsiField[] fields = cls.getFields();
             if (fields.length > 0) {
                 contextInfo.append("- Fields:\n");
-                for (int i = 0; i < Math.min(5, fields.length); i++) {
-                    contextInfo.append("  ").append(fields[i].getText()).append("\n");
+                for (int i = 0; i < Math.min(10, fields.length); i++) {
+                    contextInfo.append("  ").append(getTextOfPsiElement(fields[i])).append("\n");
                 }
             }
 
@@ -376,9 +392,12 @@ public class OllamaTestGeneratorAction extends AnAction {
                 contextInfo.append("- Methods:\n");
                 int methodCount = 0;
                 for (PsiMethod m : methods) {
-                    if (methodCount >= 3) break; // Limit methods
+                    if (methodCount >= 10) break; // Limit methods
                     if (m.hasModifierProperty(PsiModifier.PUBLIC) && !m.isConstructor()) {
-                        contextInfo.append("  ```\n  ").append(m.getText()).append("\n  ```\n");
+                        String text = ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+                            return m.getText();
+                        });
+                        contextInfo.append("  ```\n  ").append(text).append("\n  ```\n");
                         methodCount++;
                     }
                 }
@@ -390,7 +409,13 @@ public class OllamaTestGeneratorAction extends AnAction {
         return contextInfo.toString();
     }
 
-    private String callOllamaApi(String prompt) {
+    private static String getTextOfPsiElement(PsiElement fields) {
+        return ApplicationManager.getApplication().runReadAction((ThrowableComputable<String, RuntimeException>) ()->{
+            return fields.getText();
+        });
+    }
+
+    private String callOllamaApi(String prompt) throws IOException {
         try {
             URL url = new URL(apiUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -444,6 +469,8 @@ public class OllamaTestGeneratorAction extends AnAction {
                 }
                 return null;
             }
+        } catch (IOException ioException) {
+            throw ioException;
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -647,20 +674,20 @@ public class OllamaTestGeneratorAction extends AnAction {
 
                         // Copy all imports from source to test
                         for (PsiImportStatement importStmt : sourceImports.getImportStatements()) {
-                            WriteCommandAction.runWriteCommandAction(project, ()->{
+                            WriteCommandAction.runWriteCommandAction(project, () -> {
                                 testImports.add(importStmt.copy());
                             });
                         }
 
                         // Copy static imports too
                         for (PsiImportStaticStatement staticImport : sourceImports.getImportStaticStatements()) {
-                            WriteCommandAction.runWriteCommandAction(project, ()->{
+                            WriteCommandAction.runWriteCommandAction(project, () -> {
                                 testImports.add(staticImport.copy());
                             });
                         }
 
                         // Optimize imports to remove unused ones
-                        WriteCommandAction.runWriteCommandAction(project, ()-> {
+                        WriteCommandAction.runWriteCommandAction(project, () -> {
 
                             JavaCodeStyleManager.getInstance(project).optimizeImports(testPsiFile);
                             JavaCodeStyleManager.getInstance(project).shortenClassReferences(testPsiFile);

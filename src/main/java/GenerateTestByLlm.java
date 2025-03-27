@@ -20,6 +20,7 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -34,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -66,27 +68,33 @@ public class GenerateTestByLlm extends AnAction {
             return;
         }
 
-        // Get the selected method
+        // First try to get the class directly from the cursor position
         PsiElement element = psiFile.findElementAt(editor.getCaretModel().getOffset());
-        PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+        PsiClass targetClass = PsiTreeUtil.getParentOfType(element,PsiClass.class);
 
-        if (method == null) {
-            Messages.showErrorDialog("Please place cursor inside a method", "No Method Selected");
+// If not found directly, try to get it from a method
+        if (targetClass == null) {
+            PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+            if (method != null) {
+                targetClass = method.getContainingClass();
+            } else {
+                targetClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+            }
+        } else {
+            targetClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+        }
+
+        if (targetClass == null) {
+            Messages.showErrorDialog("Please place cursor inside a class or method", "No Class Selected");
             return;
         }
 
-        // Extract method information
-        PsiClass containingClass = method.getContainingClass();
-        if (containingClass == null) {
-            Messages.showErrorDialog("Method is not contained in a class", "Error");
-            return;
-        }
+
 
         // Extract information needed for test generation
-        String className = containingClass.getName();
-        String methodName = method.getName();
+        String className = targetClass.getName();
+
         String packageName = ((PsiJavaFile) psiFile).getPackageName();
-        String methodBody = method.getBody() != null ? getTextOfPsiElement(method.getBody()): "";
 
         // Collect imports from the current file
         StringBuilder importBuilder = new StringBuilder();
@@ -98,61 +106,21 @@ public class GenerateTestByLlm extends AnAction {
         // Get method signature
         StringBuilder signatureBuilder = new StringBuilder();
 
-        // Add modifiers
-        PsiModifierList modifierList = method.getModifierList();
-        for (String modifier : new String[]{"public", "protected", "private", "static", "final", "abstract"}) {
-            if (modifierList.hasModifierProperty(modifier)) {
-                signatureBuilder.append(modifier).append(" ");
-            }
-        }
-
-        // Add return type
-        PsiType returnType = method.getReturnType();
-        if (returnType != null) {
-            signatureBuilder.append(returnType.getPresentableText()).append(" ");
-        }
-
-        // Add method name and parameters
-        signatureBuilder.append(methodName).append("(");
-        PsiParameter[] parameters = method.getParameterList().getParameters();
-        for (int i = 0; i < parameters.length; i++) {
-            PsiParameter parameter = parameters[i];
-            signatureBuilder.append(parameter.getType().getPresentableText())
-                    .append(" ")
-                    .append(parameter.getName());
-
-            if (i < parameters.length - 1) {
-                signatureBuilder.append(", ");
-            }
-        }
-        signatureBuilder.append(")");
-
-        // Add throws clause
-        PsiClassType[] throwsList = method.getThrowsList().getReferencedTypes();
-        if (throwsList.length > 0) {
-            signatureBuilder.append(" throws ");
-            for (int i = 0; i < throwsList.length; i++) {
-                signatureBuilder.append(throwsList[i].getPresentableText());
-                if (i < throwsList.length - 1) {
-                    signatureBuilder.append(", ");
-                }
-            }
-        }
-        String methodSignature = signatureBuilder.toString();
+        // Collect class-level information
+        PsiClass finalTargetClass = targetClass;
+        String classContext = ApplicationManager.getApplication().runReadAction((Computable<String>) ()->collectClassContext(project, finalTargetClass));
 
         // Generate test using Ollama in background
-        runTestGenerationInBackground(project, psiFile, containingClass, packageName, className,
-                methodName, methodSignature, methodBody, imports, method);
+        runTestGenerationInBackground(project, psiFile, targetClass, packageName, className, imports, classContext);
     }
-
-    private void runTestGenerationInBackground(Project project, PsiFile sourceFile, PsiClass containingClass,
-                                               String packageName, String className, String methodName,
-                                               String methodSignature, String methodBody, String imports, PsiMethod method) {
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Generating Unit Test with Ollama", true) {
+    private void runTestGenerationInBackground(Project project, PsiFile sourceFile, PsiClass targetClass,
+                                               String packageName, String className,
+                                               String imports, String classContext) {
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Generating Class Test Suite with Ollama", true) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 indicator.setIndeterminate(false);
-                indicator.setText("Preparing to generate test...");
+                indicator.setText("Preparing to generate class tests...");
                 indicator.setFraction(0.1);
 
                 // Check if project uses JUnit 4 or JUnit 5
@@ -165,9 +133,7 @@ public class GenerateTestByLlm extends AnAction {
                 // Create prompt for test generation
                 indicator.setText("Creating prompt for Ollama...");
                 indicator.setFraction(0.3);
-                String methodContext1 = GenerateTestByLlm.this.collectMethodContext(project, method);
-                String prompt = PromptDrafter.createPrompt(packageName, className, methodName, methodSignature,
-                        methodBody, imports, junitVersion, methodContext1);
+                String prompt = PromptDrafter.createPrompt(packageName, className , imports, junitVersion, classContext);
 
                 // Call Ollama API
                 indicator.setText("Calling Ollama API...");
@@ -203,9 +169,9 @@ public class GenerateTestByLlm extends AnAction {
                 }
 
                 // Create the test file
-                indicator.setText("Creating test file...");
+                indicator.setText("Creating test class file...");
                 indicator.setFraction(0.8);
-                String testFilePath = createTestFile(project, sourceFile, containingClass, testCode);
+                String testFilePath = createTestFile(project, sourceFile, targetClass, testCode);
                 if (testFilePath == null) {
                     showMessageOnUIThread(project, "Failed to create test file", "File Creation Error", true);
                     return;
@@ -216,14 +182,31 @@ public class GenerateTestByLlm extends AnAction {
                 indicator.setFraction(0.9);
                 optimizeImports(project, sourceFile, testFilePath);
 
-                indicator.setText("Test generated successfully!");
+                indicator.setText("Test class generated successfully!");
                 indicator.setFraction(1.0);
 
                 // Show success message and open the file
                 ApplicationManager.getApplication().invokeLater(() -> {
-                    Messages.showInfoMessage(project, "Test generated successfully!", "Success");
+                    // Check for missing dependencies
+                    boolean mockitoMissing = JavaPsiFacade.getInstance(project).findClass(
+                            "org.mockito.Mockito", GlobalSearchScope.allScope(project)) == null;
+                    boolean microwwwMissing = JavaPsiFacade.getInstance(project).findClass(
+                            "com.github.microwww.redis.RedisServer", GlobalSearchScope.allScope(project)) == null;
 
-                    // Refresh and open the test file
+                    StringBuilder message = new StringBuilder("Test class generated successfully!");
+                    if (mockitoMissing || microwwwMissing) {
+                        message.append("\n\nWarning: Missing dependencies detected:");
+                        if (mockitoMissing) {
+                            message.append("\n- Mockito is not in the classpath. Add it to your project dependencies.");
+                        }
+                        if (microwwwMissing) {
+                            message.append("\n- com.github.microwww.redis is not in the classpath. Add it to your project dependencies.");
+                        }
+                    }
+
+                    Messages.showInfoMessage(project, message.toString(), "Success");
+
+// Refresh and open the test file
                     VirtualFile testVFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(testFilePath);
                     if (testVFile != null) {
                         FileEditorManager.getInstance(project).openFile(testVFile, true);
@@ -232,7 +215,6 @@ public class GenerateTestByLlm extends AnAction {
             }
         });
     }
-
     private void showMessageOnUIThread(Project project, String message, String title, boolean isError) {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (isError) {
@@ -242,66 +224,74 @@ public class GenerateTestByLlm extends AnAction {
             }
         });
     }
-
-    private String collectMethodContext(Project project, PsiMethod method) {
+    private String collectClassContext(Project project, PsiClass targetClass) {
         StringBuilder contextInfo = new StringBuilder();
 
-        // Collect method references and usages
-        contextInfo.append("Method References and Usage:\n");
-        Query<PsiReference> references = ReferencesSearch.search(method, GlobalSearchScope.projectScope(project));
-        int refCount = 0;
+        // Class structure info
+        contextInfo.append("Class structure:\n```java\n");
+        contextInfo.append(getTextOfPsiElement(targetClass));
+        contextInfo.append("\n```\n\n");
 
-        for (PsiReference reference : references.findAll()) {
-            if (refCount >= 5) break; // Limit to 5 references to keep prompt size reasonable
-
-            PsiElement element = reference.getElement();
-            PsiMethod callingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
-            PsiClass callingClass = callingMethod != null ? callingMethod.getContainingClass() : null;
-
-            if (callingClass != null && callingMethod != null) {
-                contextInfo.append("- Called from: ").append(callingClass.getQualifiedName())
-                        .append(".").append(callingMethod.getName()).append("\n");
-
-                // Add context around the method call
-                PsiStatement statement = PsiTreeUtil.getParentOfType(element, PsiStatement.class);
-                if (statement != null) {
-                    contextInfo.append("  Context: ").append(getTextOfPsiElement(statement)).append("\n");
-                }
-            }
-            refCount++;
+        // Add class-level javadoc if available
+        PsiDocComment classJavadoc = targetClass.getDocComment();
+        if (classJavadoc != null) {
+            contextInfo.append("Class JavaDoc:\n```java\n");
+            contextInfo.append(getTextOfPsiElement(classJavadoc));
+            contextInfo.append("\n```\n\n");
         }
 
         // Collect and include code from related classes
-        contextInfo.append("\nRelated Classes Code:\n");
+        contextInfo.append("Related Classes:\n");
         Set<PsiClass> relatedClasses = new HashSet<>();
 
-        // Add return type class
-        PsiType returnType = method.getReturnType();
-        if (returnType instanceof PsiClassType) {
-            PsiClass returnClass = ((PsiClassType) returnType).resolve();
-            if (returnClass != null && !returnClass.getQualifiedName().startsWith("java.lang")) {
-                relatedClasses.add(returnClass);
+        // Add implemented interfaces
+        PsiClassType[] interfaces = targetClass.getImplementsListTypes();
+        for (PsiClassType interfaceType : interfaces) {
+            PsiClass interfaceClass = interfaceType.resolve();
+            if (interfaceClass != null) {
+                relatedClasses.add(interfaceClass);
             }
         }
 
-        // Add parameter type classes
-        for (PsiParameter param : method.getParameterList().getParameters()) {
-            PsiType paramType = param.getType();
-            if (paramType instanceof PsiClassType) {
-                PsiClass paramClass = ((PsiClassType) paramType).resolve();
-                if (paramClass != null && !paramClass.getQualifiedName().startsWith("java.lang")) {
-                    relatedClasses.add(paramClass);
+        // Add superclass
+        PsiClass superClass = targetClass.getSuperClass();
+            if (superClass != null && !superClass.getQualifiedName().equals("java.lang.Object")) {
+                relatedClasses.add(superClass);
+            }
+
+        // Add field types
+        PsiField[] fields = targetClass.getFields();
+        for (PsiField field : fields) {
+            PsiType fieldType = field.getType();
+            if (fieldType instanceof PsiClassType) {
+                PsiClass fieldClass = ((PsiClassType) fieldType).resolve();
+                if (fieldClass != null && !fieldClass.getQualifiedName().startsWith("java.lang")) {
+                    relatedClasses.add(fieldClass);
                 }
             }
         }
 
-        // Find classes used in method body
-        if (method.getBody() != null) {
-            method.getBody().accept(new JavaRecursiveElementVisitor() {
-                @Override
-                public void visitReferenceExpression(PsiReferenceExpression expression) {
-                    super.visitReferenceExpression(expression);
-                    PsiElement resolved = expression.resolve();
+        // Find classes used in method bodies
+        targetClass.accept(new JavaRecursiveElementVisitor() {
+            @Override
+            public void visitReferenceExpression(PsiReferenceExpression expression) {
+                super.visitReferenceExpression(expression);
+                PsiElement resolved = expression.resolve();
+                if (resolved instanceof PsiClass) {
+                    PsiClass resolvedClass = (PsiClass) resolved;
+                    if (!resolvedClass.getQualifiedName().startsWith("java.") &&
+                            !resolvedClass.getQualifiedName().startsWith("javax.")) {
+                        relatedClasses.add(resolvedClass);
+                    }
+                }
+            }
+
+            @Override
+            public void visitNewExpression(PsiNewExpression expression) {
+                super.visitNewExpression(expression);
+                PsiJavaCodeReferenceElement classRef = expression.getClassReference();
+                if (classRef != null) {
+                    PsiElement resolved = classRef.resolve();
                     if (resolved instanceof PsiClass) {
                         PsiClass resolvedClass = (PsiClass) resolved;
                         if (!resolvedClass.getQualifiedName().startsWith("java.") &&
@@ -310,70 +300,73 @@ public class GenerateTestByLlm extends AnAction {
                         }
                     }
                 }
-
-                @Override
-                public void visitNewExpression(PsiNewExpression expression) {
-                    super.visitNewExpression(expression);
-                    PsiJavaCodeReferenceElement classRef = expression.getClassReference();
-                    if (classRef != null) {
-                        PsiElement resolved = classRef.resolve();
-                        if (resolved instanceof PsiClass) {
-                            PsiClass resolvedClass = (PsiClass) resolved;
-                            if (!resolvedClass.getQualifiedName().startsWith("java.") &&
-                                    !resolvedClass.getQualifiedName().startsWith("javax.")) {
-                                relatedClasses.add(resolvedClass);
-                            }
-                        }
-                    }
-                }
-            });
-        }
+            }
+        });
 
         // Add code snippets for each related class
         for (PsiClass cls : relatedClasses) {
+            if (cls.getQualifiedName() == null) continue;
+
             contextInfo.append("Class: ").append(cls.getQualifiedName()).append("\n");
 
-            // Include constructors
-            PsiMethod[] constructors = cls.getConstructors();
-            if (constructors.length > 0) {
-                contextInfo.append("- Constructors:\n");
-                int ctorCount = 0;
-                for (PsiMethod constructor : constructors) {
-                    if (ctorCount >= 2) break; // Limit constructors
-                    if (constructor.hasModifierProperty(PsiModifier.PUBLIC)) {
-                        contextInfo.append("  ```\n  ").append(getTextOfPsiElement(constructor)).append("\n  ```\n");
-                        ctorCount++;
+            // Include class structure (simplified for related classes)
+            contextInfo.append("```java\n");
+            // Just show class declaration and method signatures for brevity
+            contextInfo.append("public ");
+            if (cls.isInterface()) contextInfo.append("interface ");
+            else contextInfo.append("class ");
+            contextInfo.append(cls.getName());
+
+            // Add extends
+            PsiClass superClassType = cls.getSuperClass();
+            if (superClassType != null && !Objects.equals(superClassType.getName(), "Object")) {
+                contextInfo.append(" extends ").append(superClassType.getName());
+            }
+
+            // Add implements
+            PsiClassType[] implementsTypes = cls.getImplementsListTypes();
+            if (implementsTypes.length > 0) {
+                contextInfo.append(" implements ");
+                for (int i = 0; i < implementsTypes.length; i++) {
+                    contextInfo.append(implementsTypes[i].getClassName());
+                    if (i < implementsTypes.length - 1) {
+                        contextInfo.append(", ");
                     }
                 }
             }
+            contextInfo.append(" {\n");
 
-            // Include fields
-            PsiField[] fields = cls.getFields();
-            if (fields.length > 0) {
-                contextInfo.append("- Fields:\n");
-                for (int i = 0; i < Math.min(10, fields.length); i++) {
-                    contextInfo.append("  ").append(getTextOfPsiElement(fields[i])).append("\n");
-                }
-            }
+            // Add method signatures
+            for (PsiMethod method : cls.getMethods()) {
+                if (!method.isConstructor() && method.hasModifierProperty(PsiModifier.PUBLIC)) {
+                    contextInfo.append("    ");
+                    if (method.hasModifierProperty(PsiModifier.PUBLIC)) contextInfo.append("public ");
+                    if (method.hasModifierProperty(PsiModifier.PROTECTED)) contextInfo.append("protected ");
+                    if (method.hasModifierProperty(PsiModifier.STATIC)) contextInfo.append("static ");
+                    if (method.hasModifierProperty(PsiModifier.FINAL)) contextInfo.append("final ");
 
-            // Include public methods that might be relevant for testing
-            PsiMethod[] methods = cls.getMethods();
-            if (methods.length > 0) {
-                contextInfo.append("- Methods:\n");
-                int methodCount = 0;
-                for (PsiMethod m : methods) {
-                    if (methodCount >= 10) break; // Limit methods
-                    if (m.hasModifierProperty(PsiModifier.PUBLIC) && !m.isConstructor()) {
-                        String text = ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
-                            return m.getText();
-                        });
-                        contextInfo.append("  ```\n  ").append(text).append("\n  ```\n");
-                        methodCount++;
+                    PsiType returnType = method.getReturnType();
+                    if (returnType != null) {
+                        contextInfo.append(returnType.getPresentableText()).append(" ");
                     }
+
+                    contextInfo.append(method.getName()).append("(");
+
+                    PsiParameter[] parameters = method.getParameterList().getParameters();
+                    for (int i = 0; i < parameters.length; i++) {
+                        PsiParameter param = parameters[i];
+                        contextInfo.append(param.getType().getPresentableText())
+                                .append(" ")
+                                .append(param.getName());
+                        if (i < parameters.length - 1) {
+                            contextInfo.append(", ");
+                        }
+                    }
+                    contextInfo.append(");\n");
                 }
             }
-
-            contextInfo.append("\n");
+            contextInfo.append("}\n");
+            contextInfo.append("```\n\n");
         }
 
         return contextInfo.toString();
@@ -634,7 +627,7 @@ public class GenerateTestByLlm extends AnAction {
         VirtualFile testFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath);
         if (testFile == null) return;
 
-        ApplicationManager.getApplication().invokeLater(() -> {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
             PsiFile psiFile = PsiManager.getInstance(project).findFile(testFile);
             if (psiFile instanceof PsiJavaFile) {
                 ApplicationManager.getApplication().runWriteAction(() -> {
@@ -696,50 +689,81 @@ public class GenerateTestByLlm extends AnAction {
             if (testPsiFile instanceof PsiJavaFile) {
                 ApplicationManager.getApplication().runWriteAction(() -> {
                     try {
-                        // Get all imports from source file
+                        // Get import lists
                         PsiImportList sourceImports = ((PsiJavaFile) sourceFile).getImportList();
                         PsiImportList testImports = ((PsiJavaFile) testPsiFile).getImportList();
+                        PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
 
-                        // Add JUnit and Mockito imports
-//                        PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
-//                        testImports.add(factory.createImportStatementOnDemand("org.junit.jupiter.api"));
-//                        testImports.add(factory.createImportStatementOnDemand("org.mockito"));
-//                        testImports.add(factory.createImportStatement(
-//                                JavaPsiFacade.getElementFactory(project).createFQClassNameReferenceElement(
-//                                        "org.mockito.Mockito", GlobalSearchScope.projectScope(project)).resolve().));
+                        // Detect JUnit version
+                        boolean isJUnit5 = JavaPsiFacade.getInstance(project).findClass(
+                                "org.junit.jupiter.api.Test", GlobalSearchScope.allScope(project)) != null;
 
-                        // Copy all imports from source to test
+                        // Add essential JUnit imports
+                        if (isJUnit5) {
+                            // JUnit 5 core imports - ensure Assertions class is imported
+                            PsiClass assertionsClass = JavaPsiFacade.getInstance(project)
+                                    .findClass("org.junit.jupiter.api.Assertions", GlobalSearchScope.allScope(project));
+                            if (assertionsClass != null) {
+                                testImports.add(factory.createImportStatement(assertionsClass));
+                            }
+
+                            // Common JUnit 5 imports
+                            addImportIfExists(testImports, factory, project, "org.junit.jupiter.api.Test");
+                            addImportIfExists(testImports, factory, project, "org.junit.jupiter.api.BeforeEach");
+                            addImportIfExists(testImports, factory, project, "org.junit.jupiter.api.AfterEach");
+                            addImportIfExists(testImports, factory, project, "org.junit.jupiter.api.DisplayName");
+                        } else {
+                            // JUnit 4 core imports - ensure Assert class is imported
+                            PsiClass assertClass = JavaPsiFacade.getInstance(project)
+                                    .findClass("org.junit.Assert", GlobalSearchScope.allScope(project));
+                            if (assertClass != null) {
+                                testImports.add(factory.createImportStatement(assertClass));
+                            }
+
+                            // Common JUnit 4 imports
+                            addImportIfExists(testImports, factory, project, "org.junit.Test");
+                            addImportIfExists(testImports, factory, project, "org.junit.Before");
+                            addImportIfExists(testImports, factory, project, "org.junit.After");
+                        }
+
+                        // Add common Mockito imports
+                        addImportIfExists(testImports, factory, project, "org.mockito.Mockito");
+                        addImportIfExists(testImports, factory, project, "org.mockito.Mock");
+
+                        // Copy source imports
                         for (PsiImportStatement importStmt : sourceImports.getImportStatements()) {
-                            WriteCommandAction.runWriteCommandAction(project, () -> {
-                                testImports.add(importStmt.copy());
-                            });
+                            testImports.add(importStmt.copy());
                         }
 
-                        // Copy static imports too
+                        // Copy source static imports
                         for (PsiImportStaticStatement staticImport : sourceImports.getImportStaticStatements()) {
-                            WriteCommandAction.runWriteCommandAction(project, () -> {
-                                testImports.add(staticImport.copy());
-                            });
+                            testImports.add(staticImport.copy());
                         }
 
-                        // Optimize imports to remove unused ones
-                        WriteCommandAction.runWriteCommandAction(project, () -> {
+                        // Optimize imports
+                        JavaCodeStyleManager.getInstance(project).optimizeImports(testPsiFile);
+                        JavaCodeStyleManager.getInstance(project).shortenClassReferences(testPsiFile);
+                        PsiDocumentManager.getInstance(project).commitDocument(
+                                PsiDocumentManager.getInstance(project).getDocument(testPsiFile));
 
-                            JavaCodeStyleManager.getInstance(project).optimizeImports(testPsiFile);
-                            JavaCodeStyleManager.getInstance(project).shortenClassReferences(testPsiFile);
-                            PsiDocumentManager.getInstance(project).commitDocument(PsiDocumentManager.getInstance(project).getDocument(testPsiFile));
+                        // Save changes
+                        FileDocumentManager.getInstance().saveDocument(
+                                FileDocumentManager.getInstance().getDocument(testFile));
 
-                            // Save changes
-                            FileDocumentManager.getInstance().saveDocument(
-                                    FileDocumentManager.getInstance().getDocument(testFile)
-                            );
-                        });
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
                 });
             }
         });
+    }
+
+    // Helper method to add an import if the class exists
+    private void addImportIfExists(PsiImportList importList, PsiElementFactory factory, Project project, String qualifiedName) {
+        PsiClass psiClass = JavaPsiFacade.getInstance(project).findClass(qualifiedName, GlobalSearchScope.allScope(project));
+        if (psiClass != null) {
+            importList.add(factory.createImportStatement(psiClass));
+        }
     }
 
     private void createDefaultConfigFile(Project project) {

@@ -166,7 +166,7 @@ public class GenerateTestByLlm extends AnAction {
                 indicator.setText("Creating prompt for Ollama...");
                 indicator.setFraction(0.3);
                 String methodContext1 = GenerateTestByLlm.this.collectMethodContext(project, method);
-                String prompt = createPrompt(packageName, className, methodName, methodSignature,
+                String prompt = PromptDrafter.createPrompt(packageName, className, methodName, methodSignature,
                         methodBody, imports, junitVersion, methodContext1);
 
                 // Call Ollama API
@@ -175,7 +175,7 @@ public class GenerateTestByLlm extends AnAction {
                 String response = null;
                 for (int i = 0; i < 3; ++i) {
                     try {
-                        response = callOllamaApi(prompt);
+                        response = callOpenWebUIApi(prompt);
                         if (response != null) {
                             indicator.setText("Calling Ollama API: SUCCESS...");
                             indicator.setFraction(0.6);
@@ -241,36 +241,6 @@ public class GenerateTestByLlm extends AnAction {
                 Messages.showInfoMessage(project, message, title);
             }
         });
-    }
-
-    private String createPrompt(String packageName, String className, String methodName,
-                                String methodSignature, String methodBody, String imports, String junitVersion, String methodContext1) {
-        StringBuilder promptBuilder = new StringBuilder();
-        promptBuilder.append("Generate a ").append(junitVersion).append(" test for the following Java method:\n\n");
-        promptBuilder.append("Package: ").append(packageName).append("\n");
-        promptBuilder.append("Class: ").append(className).append("\n");
-        promptBuilder.append("Method: ").append(methodSignature).append("\n\n");
-        promptBuilder.append("Method body:\n").append(methodBody).append("\n\n");
-        promptBuilder.append("Imports:\n").append(imports).append("\n\n");
-        String methodContext = methodContext1;
-        promptBuilder.append("Method Context:\n").append(methodContext).append("\n\n");
-        promptBuilder.append("Requirements:\n");
-        if (junitVersion.equals("JUnit 5")) {
-            promptBuilder.append("1. Use JUnit 5 annotations (@Test, @DisplayName, etc.)\n");
-        } else {
-            promptBuilder.append("1. Use JUnit 4 annotations (@Test, @Before, etc.)\n");
-        }
-        promptBuilder.append("2. Create the appropriate test class name (").append(className).append("Test)\n");
-        promptBuilder.append("3. Include all necessary imports. Prioritize the imports I give you. \n");
-        promptBuilder.append("4. Test both normal cases and edge cases\n");
-        promptBuilder.append("5. Use assertions to verify expected behavior\n");
-        promptBuilder.append("6. Include comments explaining test logic\n");
-        promptBuilder.append("7. Use Mockito if needed for dependencies\n");
-        promptBuilder.append("8. MAKE SURE THE CODE IS COMPLETE. DO NOT PROVIDE PARTIAL CODE\n\n");
-
-        promptBuilder.append("Return ONLY the complete test class code without explanations or markdown formatting.");
-
-        return promptBuilder.toString();
     }
 
     private String collectMethodContext(Project project, PsiMethod method) {
@@ -371,7 +341,7 @@ public class GenerateTestByLlm extends AnAction {
                 for (PsiMethod constructor : constructors) {
                     if (ctorCount >= 2) break; // Limit constructors
                     if (constructor.hasModifierProperty(PsiModifier.PUBLIC)) {
-                        contextInfo.append("  ```\n  ").append(constructor.getText()).append("\n  ```\n");
+                        contextInfo.append("  ```\n  ").append(getTextOfPsiElement(constructor)).append("\n  ```\n");
                         ctorCount++;
                     }
                 }
@@ -408,7 +378,73 @@ public class GenerateTestByLlm extends AnAction {
 
         return contextInfo.toString();
     }
+    private String callOpenWebUIApi(String prompt) throws IOException {
+        try {
+            URL url = new URL(apiUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            if (authToken != null && !authToken.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + authToken);
+            }
+            connection.setConnectTimeout(480_000);
+            connection.setReadTimeout(120_000);
+            connection.setDoOutput(true);
 
+            // OpenWebUI uses a different payload format compared to Ollama
+            String payload = String.format(
+                    "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false}",
+                    model,
+                    escapeJson(prompt)
+            );
+
+            try (OutputStream os = connection.getOutputStream()) {
+                byte[] input = payload.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                try (BufferedReader in = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        response.append(line);
+                    }
+
+                    // Parse the JSON response - OpenWebUI has a different response structure
+                    JsonObject jsonObject = JsonParser.parseString(response.toString()).getAsJsonObject();
+                    if (jsonObject.has("choices") && jsonObject.getAsJsonArray("choices").size() > 0) {
+                        JsonObject messageObject = jsonObject.getAsJsonArray("choices")
+                                .get(0).getAsJsonObject()
+                                .getAsJsonObject("message");
+
+                        if (messageObject.has("content")) {
+                            return messageObject.get("content").getAsString();
+                        }
+                    }
+                    return null;
+                }
+            } else {
+                try (BufferedReader in = new BufferedReader(
+                        new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        response.append(line);
+                    }
+                    System.err.println("API Error: " + response);
+                }
+                return null;
+            }
+        } catch (IOException ioException) {
+            throw ioException;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
     private static String getTextOfPsiElement(PsiElement fields) {
         return ApplicationManager.getApplication().runReadAction((ThrowableComputable<String, RuntimeException>) ()->{
             return fields.getText();
@@ -424,8 +460,8 @@ public class GenerateTestByLlm extends AnAction {
             if (authToken != null && !authToken.isEmpty()) {
                 connection.setRequestProperty("Authorization", authToken);
             }
-            connection.setConnectTimeout(100000);
-            connection.setReadTimeout(60000);
+            connection.setConnectTimeout(480_000);
+            connection.setReadTimeout(120_000);
             connection.setDoOutput(true);
 
             String payload = String.format(

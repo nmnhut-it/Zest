@@ -53,7 +53,10 @@ public class PromptDrafter {
         } else {
             promptBuilder.append("   - Consider using @Mock and MockitoAnnotations.openMocks() or @RunWith(MockitoJUnitRunner.class)\n");
         }
-
+        promptBuilder.append("\n   - Redis testing imports (include only those relevant to your project):\n");
+        promptBuilder.append("     // Redis mock library\n");
+        promptBuilder.append("     import com.github.microwww.redis.RedisServer; // For redis-mock\n");
+        promptBuilder.append("     \n");
         promptBuilder.append("7. Include comprehensive JavaDoc for the test class and detailed comments for tests explaining:\n");
         promptBuilder.append("   - Overall testing strategy for the class\n");
         promptBuilder.append("   - Explanation of test data choices\n");
@@ -249,5 +252,6 @@ public class PromptDrafter {
         promptBuilder.append("   - When you need to use assertions, import the class and call methods with class prefix\n");
         promptBuilder.append("     (e.g., 'Assertions.assertEquals()' for JUnit 5 or 'Assert.assertEquals()' for JUnit 4)\n");
         promptBuilder.append("   - Do not forget to import exception classes like IOException, IllegalArgumentException when used\n");
+        promptBuilder.append("   - MAKE SURE ALL IMPORTS FROM THE SOURCE CLASS ARE INCLUDED\n");
     }
 }

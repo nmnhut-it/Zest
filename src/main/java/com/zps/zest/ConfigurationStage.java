@@ -148,7 +148,7 @@ class ClassAnalysisStage implements PipelineStage {
 
         // Add superclass
         PsiClass superClass = targetClass.getSuperClass();
-        if (superClass != null && !superClass.getQualifiedName().equals("java.lang.Object")) {
+        if (superClass != null && !superClass.getQualifiedName().startsWith("java.")) {
             relatedClasses.add(superClass);
         }
 
@@ -158,7 +158,7 @@ class ClassAnalysisStage implements PipelineStage {
             PsiType fieldType = field.getType();
             if (fieldType instanceof PsiClassType) {
                 PsiClass fieldClass = ((PsiClassType) fieldType).resolve();
-                if (fieldClass != null && !fieldClass.getQualifiedName().startsWith("java.lang")) {
+                if (fieldClass != null && !fieldClass.getQualifiedName().startsWith("java.")) {
                     relatedClasses.add(fieldClass);
                 }
             }
@@ -194,6 +194,25 @@ class ClassAnalysisStage implements PipelineStage {
                     }
                 }
             }
+
+            @Override
+            public void visitMethod(@NotNull PsiMethod method) {
+                super.visitMethod(method);
+
+                PsiParameter[] parameters = method.getParameterList().getParameters();
+                for (PsiParameter parameter : parameters) {
+                    PsiType paramType = parameter.getType();
+                    if (paramType instanceof PsiClassType) {
+                        PsiClass paramClass = ((PsiClassType) paramType).resolve();
+                        if (paramClass != null &&
+                                !paramClass.getQualifiedName().startsWith("java.") &&
+                                !paramClass.getQualifiedName().startsWith("javax.")) {
+                            relatedClasses.add(paramClass);
+                        }
+                    }
+                }
+            }
+            
         });
 
         // Add code snippets for each related class

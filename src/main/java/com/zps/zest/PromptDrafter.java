@@ -4,7 +4,7 @@ public class PromptDrafter {
 
 
     public static String createPrompt(String packageName, String className,
-                                      String imports, String junitVersion, String classContext) {
+                                      String imports, String junitVersion, String classContext, boolean hasMockito) {
         // Validate and sanitize package name
         packageName = validatePackageName(packageName);
 
@@ -17,6 +17,7 @@ public class PromptDrafter {
         promptBuilder.append("Package: ").append(packageName).append("\n");
         promptBuilder.append("Class: ").append(className).append("\n\n");
         promptBuilder.append("Imports:\n```java\n").append(imports).append("\n```\n\n");
+        promptBuilder.append("\n\n Those imports MUST BE INCLUDED in the result\n");
         promptBuilder.append("Class Information:\n").append(classContext).append("\n\n");
 
         promptBuilder.append("Test Requirements:\n");
@@ -32,7 +33,6 @@ public class PromptDrafter {
         promptBuilder.append("   - Use descriptive test method names that explain what is being tested\n");
         promptBuilder.append("   - Follow the AAA pattern (Arrange, Act, Assert) with clear separation\n");
         promptBuilder.append("   - Initialize test data in setup methods when appropriate\n");
-        promptBuilder.append("   - Group related tests using nested classes or clear naming conventions\n");
 
         promptBuilder.append("4. Test all public methods with these scenarios:\n");
         promptBuilder.append("   - Happy path tests with normal, expected inputs\n");
@@ -40,23 +40,12 @@ public class PromptDrafter {
         promptBuilder.append("   - Error cases (if methods throw exceptions)\n");
         promptBuilder.append("   - Any specific business logic edge cases relevant to this class\n");
         promptBuilder.append("   - Integration tests for how methods interact with each other\n");
+        promptBuilder.append("   - MAKE SURE ONLY MEANINGFUL TESTS ARE INCLUDED\n");
 
         // Use version-specific assertion methods
         appendAssertionRequirements(promptBuilder, junitVersion);
+        appendMockingRequirements(promptBuilder, hasMockito);
 
-        promptBuilder.append("6. For mocking:\n");
-        promptBuilder.append("   - Avoid mocking unless necessary. If required, use Mockito for mocking dependencies\n");
-        promptBuilder.append("   - Redis is not mocked by Mockito. Use redis-mock of com.github.microwww.redis.\n");
-        promptBuilder.append("   - Set up appropriate mock behavior and verify interactions\n");
-        if (junitVersion.equals("JUnit 5")) {
-            promptBuilder.append("   - Consider using @Mock and @ExtendWith(MockitoExtension.class)\n");
-        } else {
-            promptBuilder.append("   - Consider using @Mock and MockitoAnnotations.openMocks() or @RunWith(MockitoJUnitRunner.class)\n");
-        }
-        promptBuilder.append("\n   - Redis testing imports (include only those relevant to your project):\n");
-        promptBuilder.append("     // Redis mock library\n");
-        promptBuilder.append("     import com.github.microwww.redis.RedisServer; // For redis-mock\n");
-        promptBuilder.append("     \n");
         promptBuilder.append("7. Include comprehensive JavaDoc for the test class and detailed comments for tests explaining:\n");
         promptBuilder.append("   - Overall testing strategy for the class\n");
         promptBuilder.append("   - Explanation of test data choices\n");
@@ -69,6 +58,7 @@ public class PromptDrafter {
         promptBuilder.append("   - Ensure all public methods of the class are tested\n");
         promptBuilder.append("   - Ensure all branches of conditional logic are tested\n");
         promptBuilder.append("   - Cover null handling and exception paths\n");
+        promptBuilder.append("   - MAKE SURE ONLY MEANINGFUL TESTS ARE INCLUDED\n");
         promptBuilder.append("   - Test class state and interactions between methods\n");
 
         promptBuilder.append("10. IMPORTANT: Generate complete, compilable code\n");
@@ -77,11 +67,68 @@ public class PromptDrafter {
         promptBuilder.append("    - Create realistic test data that matches class requirements\n");
         promptBuilder.append("    - Use the exact package name: ").append(packageName).append("\n");
         promptBuilder.append("    - Ensure all imports are explicit (no wildcards like org.junit.*)\n");
+        promptBuilder.append("    - MAKE SURE ALL NECESSARY IMPORTS ARE INCLUDED.\n");
         promptBuilder.append("    - Use full method signatures for assertions as specified in section 5\n\n");
 
-        promptBuilder.append("Return ONLY the complete test class code without any explanations, additional comments, or markdown formatting.");
+        promptBuilder.append("Long code responses are accepted. Return ONLY the complete test class code without any explanations, additional comments, or markdown formatting.");
 
         return promptBuilder.toString();
+    }
+    private static void appendMockingRequirements(StringBuilder promptBuilder, boolean hasMockito) {
+        promptBuilder.append("6. For mocking:\n");
+
+        if (hasMockito) {
+            promptBuilder.append("   - Use only standard Mockito functions that exist in the library. \n");
+            promptBuilder.append("   - Stick to these core Mockito functions: mock(), when(), verify(), any(), eq(), times(), never(), doReturn(), doThrow(), doAnswer(), doNothing(), and reset(). \n");
+            promptBuilder.append("   - Do not invent or hallucinate non-existing Mockito functions. \n");
+            promptBuilder.append("   - Example: \n");
+            promptBuilder.append("     ```java\n");
+            promptBuilder.append("     // Creating mocks\n");
+            promptBuilder.append("     UserRepository mockRepository = mock(UserRepository.class);\n");
+            promptBuilder.append("     \n");
+            promptBuilder.append("     // Stubbing\n");
+            promptBuilder.append("     when(mockRepository.findById(eq(1L))).thenReturn(new User(1L, \"Test User 1\"));\n");
+            promptBuilder.append("     \n");
+            promptBuilder.append("     // Verification\n");
+            promptBuilder.append("     verify(mockRepository, times(1)).save(any(User.class));\n");
+            promptBuilder.append("     ```\n");
+        } else {
+            promptBuilder.append("   - Avoid using mocking frameworks. \n");
+            promptBuilder.append("   - Instead, always use helper methods to create objects. \n");
+            promptBuilder.append("   - Always use existing constructors when creating objects. Don't invent setters or methods that don't exist. \n");
+            promptBuilder.append("   - Example: \n");
+            promptBuilder.append("     ```java\n");
+            promptBuilder.append("     private User createTestUser(long userId) {\n");
+            promptBuilder.append("         // Use existing constructor - don't invent one\n");
+            promptBuilder.append("         return new User(userId, \"Test User \" + userId);\n");
+            promptBuilder.append("     }\n");
+            promptBuilder.append("     ```\n");
+            promptBuilder.append("   - For complex dependencies, consider implementing test-specific implementations:\n");
+            promptBuilder.append("     ```java\n");
+            promptBuilder.append("     class TestUserRepository implements UserRepository {\n");
+            promptBuilder.append("         private Map<Long, User> users = new HashMap<>();\n");
+            promptBuilder.append("         private List<User> savedUsers = new ArrayList<>();\n");
+            promptBuilder.append("         \n");
+            promptBuilder.append("         @Override\n");
+            promptBuilder.append("         public User findById(Long id) {\n");
+            promptBuilder.append("             return users.get(id);\n");
+            promptBuilder.append("         }\n");
+            promptBuilder.append("         \n");
+            promptBuilder.append("         @Override\n");
+            promptBuilder.append("         public User save(User user) {\n");
+            promptBuilder.append("             savedUsers.add(user);\n");
+            promptBuilder.append("             users.put(user.getId(), user);\n");
+            promptBuilder.append("             return user;\n");
+            promptBuilder.append("         }\n");
+            promptBuilder.append("         \n");
+            promptBuilder.append("         // Helper methods for verification\n");
+            promptBuilder.append("         public List<User> getSavedUsers() {\n");
+            promptBuilder.append("             return savedUsers;\n");
+            promptBuilder.append("         }\n");
+            promptBuilder.append("     }\n");
+            promptBuilder.append("     ```\n");
+            promptBuilder.append("   - For objects that cannot be easily created, add a TODO comment explaining what needs to be implemented. DO NOT EXTENDS THE WHOLE CLASS\n");
+        }
     }
     private static String validatePackageName(String packageName) {
         // Prevent generic package names
@@ -119,8 +166,7 @@ public class PromptDrafter {
         promptBuilder.append("   - @Nested - for grouping related tests\n");
         promptBuilder.append("   - @Disabled - for temporarily disabling tests\n");
         promptBuilder.append("   - @Timeout - for specifying time limits\n");
-        promptBuilder.append("   - @ExtendWith - for extensions like MockitoExtension\n");
-    }
+     }
 
     private static void appendJUnit4Requirements(StringBuilder promptBuilder) {
         promptBuilder.append("1. Use ONLY these JUnit 4 annotations:\n");
@@ -129,8 +175,7 @@ public class PromptDrafter {
         promptBuilder.append("   - @BeforeClass, @AfterClass - for setup/teardown before/after all tests\n");
         promptBuilder.append("   - @Ignore - for temporarily disabling tests\n");
         promptBuilder.append("   - @Rule - for TestName, ExpectedException, TemporaryFolder, etc.\n");
-        promptBuilder.append("   - @RunWith - for runners like Parameterized, MockitoJUnitRunner\n");
-        promptBuilder.append("   - @Category - for categorizing tests\n");
+         promptBuilder.append("   - @Category - for categorizing tests\n");
     }
 
     private static void appendAssertionRequirements(StringBuilder promptBuilder, String junitVersion) {
@@ -166,7 +211,9 @@ public class PromptDrafter {
         promptBuilder.append("   - NEVER do: assertNotNull(result, \"Result should not be null\");\n");
     }
     private static void appendImportRequirements(StringBuilder promptBuilder, String junitVersion, String packageName) {
-        promptBuilder.append("8. Include EXACTLY these necessary imports (DO NOT use wildcard imports like .* except where specified):\n");
+        promptBuilder.append("8. Include ALL these necessary imports (DO NOT use wildcard imports like .* except where specified):\n");
+        promptBuilder.append(" - CRITICAL: INCLUDE ALL IMPORTS FROM THE SOURCE CLASS, INCLUDING WILDCARD IMPORTS.   \n");
+        promptBuilder.append(" - Redundant imports are accepted\n");
 
         if (junitVersion.equals("JUnit 5")) {
             promptBuilder.append("   - JUnit 5 core imports:\n");
@@ -210,25 +257,6 @@ public class PromptDrafter {
             promptBuilder.append("     import java.util.Collection;\n\n");
         }
 
-        promptBuilder.append("   - Mockito imports (include all these if you use Mockito):\n");
-        promptBuilder.append("     import org.mockito.Mockito;\n");
-        promptBuilder.append("     import org.mockito.Mock;\n");
-        promptBuilder.append("     import org.mockito.InjectMocks;\n");
-        promptBuilder.append("     import org.mockito.ArgumentMatchers;\n");
-        promptBuilder.append("     import static org.mockito.Mockito.when;\n");
-        promptBuilder.append("     import static org.mockito.Mockito.verify;\n");
-        promptBuilder.append("     import static org.mockito.Mockito.times;\n");
-        promptBuilder.append("     import static org.mockito.Mockito.never;\n");
-        promptBuilder.append("     import static org.mockito.Mockito.any;\n");
-        promptBuilder.append("     import static org.mockito.ArgumentMatchers.*;\n");
-
-        if (junitVersion.equals("JUnit 5")) {
-            promptBuilder.append("     import org.mockito.junit.jupiter.MockitoExtension;\n");
-            promptBuilder.append("     import org.junit.jupiter.api.extension.ExtendWith;\n");
-        } else {
-            promptBuilder.append("     import org.mockito.MockitoAnnotations;\n");
-            promptBuilder.append("     import org.mockito.junit.MockitoJUnitRunner;\n");
-        }
 
         promptBuilder.append("\n   - IMPORTANT: Import the class being tested and its dependencies:\n");
         promptBuilder.append("     import ").append(packageName).append(".").append(packageName.substring(packageName.lastIndexOf(".") + 1)).append("; // Import the specific class, not a wildcard\n");

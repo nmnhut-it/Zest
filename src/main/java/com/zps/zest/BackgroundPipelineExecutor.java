@@ -110,9 +110,9 @@ public class BackgroundPipelineExecutor {
                 .addStage(new PromptCreationStage())
                 .addStage(new LlmApiCallStage())
                 .addStage(new CodeExtractionStage())
+                .addStage(new ImportHandlingStage())  // New stage for handling imports before file creation
                 .addStage(new TestFileCreationStage())
-                .addStage(new ImportOptimizationStage())
-                .addStage(new CompilationFixingStage()); // Fixed compilation stage
+                ;
     }
 
     /**

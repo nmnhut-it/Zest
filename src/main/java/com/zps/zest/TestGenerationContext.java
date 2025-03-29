@@ -22,6 +22,7 @@ public class TestGenerationContext {
     private String junitVersion;
     private com.intellij.openapi.editor.Editor editor;
     private ConfigurationManager config;
+    private boolean isMockitoPresent;
 
     // Getters and setters
     public AnActionEvent getEvent() { return event; }
@@ -68,4 +69,12 @@ public class TestGenerationContext {
 
     public ConfigurationManager getConfig() { return config; }
     public void setConfig(ConfigurationManager config) { this.config = config; }
+
+    public void setMockitoPresent(boolean hasMockito) {
+        this.isMockitoPresent = hasMockito;
+    }
+
+    public boolean isMockitoPresent() {
+        return isMockitoPresent;
+    }
 }

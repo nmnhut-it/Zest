@@ -6,8 +6,9 @@ import com.intellij.openapi.ui.Messages; /**
  */
 public class ConfigurationManager {
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
-    private static final String DEFAULT_API_URL = "https://ollama.zingplay.com/api/generate";
-    private static final String DEFAULT_MODEL = "deepseek-r1:32b";
+    private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
+    private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
+    private static final String DEFAULT_MODEL = "qwen25-coder-custom";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
 
     private String apiUrl;
@@ -31,6 +32,9 @@ public class ConfigurationManager {
         // Try to load from config file
         try {
             java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME);
+            if (!configFile.exists()){
+                configFile =  new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
+            }
             if (configFile.exists()) {
                 java.util.Properties props = new java.util.Properties();
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
@@ -56,7 +60,7 @@ public class ConfigurationManager {
 
     private void createDefaultConfigFile() {
         try {
-            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME);
+            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
             java.util.Properties props = new java.util.Properties();
             props.setProperty("apiUrl", DEFAULT_API_URL);
             props.setProperty("model", DEFAULT_MODEL);

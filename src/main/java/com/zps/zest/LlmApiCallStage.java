@@ -73,7 +73,7 @@ public class LlmApiCallStage implements PipelineStage {
 
     private String callLlmApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
         // Determine which API format to use based on URL
-        if (apiUrl.contains("openwebui") || apiUrl.contains("zingplay")) {
+        if (apiUrl.contains("openwebui") || apiUrl.contains("chat.zingplay") || apiUrl.contains("talk.zingplay")) {
             return callOpenWebUIApi(apiUrl, model, authToken, prompt);
         } else {
             return callOllamaApi(apiUrl, model, authToken, prompt);

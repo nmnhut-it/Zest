@@ -106,55 +106,13 @@ public class ImplementTodosAction extends AnAction {
     }
 
     /**
-     * Gathers code context for the LLM to understand the surrounding code.
+     * Gathers comprehensive code context for the LLM to understand the surrounding code,
+     * including related classes used in the method or surrounding class.
      */
     private String gatherCodeContext(PsiFile psiFile, int selectionStart, int selectionEnd) {
-        return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
-            StringBuilder context = new StringBuilder();
-            PsiJavaFile javaFile = (PsiJavaFile) psiFile;
-
-            // 1. Add package
-            context.append("Package: ").append(javaFile.getPackageName()).append("\n\n");
-
-            // 2. Add imports
-            context.append("Imports:\n");
-            for (PsiImportStatement importStatement : javaFile.getImportList().getImportStatements()) {
-                context.append(importStatement.getText()).append("\n");
-            }
-            context.append("\n");
-
-            // 3. Find containing method
-            PsiElement startElement = psiFile.findElementAt(selectionStart);
-            PsiElement endElement = psiFile.findElementAt(selectionEnd - 1);
-
-            PsiMethod containingMethod = PsiTreeUtil.getParentOfType(startElement, PsiMethod.class);
-            if (containingMethod != null) {
-                PsiClass containingClass = containingMethod.getContainingClass();
-
-                // 4. Add class information
-                if (containingClass != null) {
-                    context.append("Class: ").append(containingClass.getName()).append("\n\n");
-
-                    // 5. Add relevant fields
-                    PsiField[] fields = containingClass.getFields();
-                    if (fields.length > 0) {
-                        context.append("Class fields:\n");
-                        for (PsiField field : fields) {
-                            context.append(field.getText()).append("\n");
-                        }
-                        context.append("\n");
-                    }
-
-                    // 6. Add method signature for reference
-                    context.append("Method containing TODOs:\n");
-                    context.append(getMethodSignature(containingMethod)).append("\n\n");
-                }
-            }
-
-            return context.toString();
-        });
+        // Delegate to the shared ClassAnalyzer utility
+        return ClassAnalyzer.collectSelectionContext(psiFile, selectionStart, selectionEnd);
     }
-
     /**
      * Gets just the method signature without the body.
      */

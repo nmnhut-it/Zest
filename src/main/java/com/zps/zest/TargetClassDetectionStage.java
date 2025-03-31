@@ -9,7 +9,7 @@ import com.intellij.psi.util.PsiTreeUtil; /**
  */
 public class TargetClassDetectionStage implements PipelineStage {
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         if (context.getEditor() == null || context.getPsiFile() == null) {
             throw new PipelineExecutionException("No editor or file found");
         }

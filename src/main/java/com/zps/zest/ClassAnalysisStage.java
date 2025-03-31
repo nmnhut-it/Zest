@@ -23,7 +23,7 @@ public class ClassAnalysisStage implements PipelineStage {
         });
     }
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         PsiFile psiFile = context.getPsiFile();
         PsiClass targetClass = context.getTargetClass();
         StringBuilder importBuilder = new StringBuilder();

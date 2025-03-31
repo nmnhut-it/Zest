@@ -17,7 +17,6 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.PsiErrorElementUtil;
-import kotlinx.serialization.json.Json;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -211,7 +210,8 @@ public class ImplementTodosAction extends AnAction {
         try {
             // Create configuration and context for LLM API call
             ConfigurationManager config = new ConfigurationManager(project);
-            TestGenerationContext context = new TestGenerationContext();
+            CodeContext context = new CodeContext();
+            context.useTestWrightModel(false);
             context.setProject(project);
             context.setConfig(config);
 

@@ -18,8 +18,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * A pipeline stage that compiles the generated test, collects errors,
@@ -31,7 +29,7 @@ class CompilationFixingStage implements PipelineStage {
     private static final int MAX_FIX_ATTEMPTS = 3;
 
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         Project project = context.getProject();
         String testFilePath = context.getTestFilePath();
         if (project == null || testFilePath == null) {
@@ -146,7 +144,7 @@ class CompilationFixingStage implements PipelineStage {
      * @param testFile The test file to fix
      * @param errors The compilation errors
      */
-    private void fixCompilationErrors(TestGenerationContext context, VirtualFile testFile,
+    private void fixCompilationErrors(CodeContext context, VirtualFile testFile,
                                       List<String> errors) throws PipelineExecutionException {
         for (int attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
             LOG.info("Fix attempt " + (attempt + 1) + " of " + MAX_FIX_ATTEMPTS);
@@ -161,7 +159,7 @@ class CompilationFixingStage implements PipelineStage {
             LlmApiCallStage apiCallStage = new LlmApiCallStage();
 
             // Setup a temporary context with our fix prompt
-            TestGenerationContext tempContext = new TestGenerationContext();
+            CodeContext tempContext = new CodeContext();
             tempContext.setProject(context.getProject());
             tempContext.setConfig(context.getConfig());
             tempContext.setPrompt(fixPrompt);

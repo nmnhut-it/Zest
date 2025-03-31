@@ -1,9 +1,6 @@
 package com.zps.zest;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.psi.PsiImportList;
-import com.intellij.psi.PsiImportStatement;
-import com.intellij.psi.PsiJavaFile;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -19,7 +16,7 @@ class ImportHandlingStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(ImportHandlingStage.class);
 
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         if (context.getTestCode() == null || context.getTestCode().isEmpty()) {
             throw new PipelineExecutionException("No test code available to process imports");
         }
@@ -40,7 +37,7 @@ class ImportHandlingStage implements PipelineStage {
      * @param context The test generation context
      * @return The updated test code with additional imports
      */
-    private String addImportsToTestCode(TestGenerationContext context) {
+    private String addImportsToTestCode(CodeContext context) {
         String testCode = context.getTestCode();
 
         // Extract existing imports from the test code

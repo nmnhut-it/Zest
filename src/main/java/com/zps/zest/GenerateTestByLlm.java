@@ -2,10 +2,6 @@ package com.zps.zest;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -15,7 +11,7 @@ public class GenerateTestByLlm extends AnAction {
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
         // Create the pipeline context to maintain state
-        TestGenerationContext context = new TestGenerationContext();
+        CodeContext context = new CodeContext();
         context.setEvent(e);
         context.setProject(e.getProject());
         context.setEditor(e.getData(CommonDataKeys.EDITOR));

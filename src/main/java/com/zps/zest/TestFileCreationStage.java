@@ -27,7 +27,7 @@ import java.nio.file.Paths;
  */
 class TestFileCreationStage implements PipelineStage {
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         String testFilePath = createTestFile(
                 context.getProject(),
                 context.getPsiFile(),

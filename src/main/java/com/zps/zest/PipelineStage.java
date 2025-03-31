@@ -4,5 +4,5 @@ package com.zps.zest;
  * Pipeline interface defining the execution contract for pipeline stages.
  */
 public interface PipelineStage {
-    void process(TestGenerationContext context) throws PipelineExecutionException;
+    void process(CodeContext context) throws PipelineExecutionException;
 }

@@ -574,7 +574,7 @@ public class EnhancedTodoDiffComponent {
 
             // Create configuration and context for LLM API call
             ConfigurationManager config = new ConfigurationManager(project);
-            TestGenerationContext context = new TestGenerationContext();
+            CodeContext context = new CodeContext();
             context.setProject(project);
             context.setConfig(config);
 

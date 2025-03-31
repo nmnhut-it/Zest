@@ -6,7 +6,7 @@ import java.util.regex.Pattern; /**
  */
 public class CodeExtractionStage implements PipelineStage {
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         String response = context.getApiResponse();
         if (response == null || response.isEmpty()) {
             throw new PipelineExecutionException("Empty response from LLM API");

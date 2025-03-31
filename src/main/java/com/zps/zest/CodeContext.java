@@ -6,7 +6,7 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile; /**
  * Context object to maintain state between pipeline stages.
  */
-public class TestGenerationContext {
+public class CodeContext {
     private AnActionEvent event;
     private Project project;
     private PsiFile psiFile;
@@ -23,6 +23,7 @@ public class TestGenerationContext {
     private com.intellij.openapi.editor.Editor editor;
     private ConfigurationManager config;
     private boolean isMockitoPresent;
+    private boolean useTestWrightModel = true;
 
     // Getters and setters
     public AnActionEvent getEvent() { return event; }
@@ -76,5 +77,14 @@ public class TestGenerationContext {
 
     public boolean isMockitoPresent() {
         return isMockitoPresent;
+    }
+
+    public String getModel(ConfigurationManager config) {
+        return useTestWrightModel ? config.getTestModel() : config.getCodeModel();
+
+    }
+
+    public void useTestWrightModel(boolean b) {
+        this.useTestWrightModel = b;
     }
 }

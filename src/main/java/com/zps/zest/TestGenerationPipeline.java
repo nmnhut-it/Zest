@@ -11,7 +11,7 @@ class TestGenerationPipeline {
         return this;
     }
 
-    public void execute(TestGenerationContext context) throws PipelineExecutionException {
+    public void execute(CodeContext context) throws PipelineExecutionException {
         for (PipelineStage stage : stages) {
             try {
                 stage.process(context);

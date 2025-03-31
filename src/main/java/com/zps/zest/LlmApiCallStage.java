@@ -6,16 +6,13 @@ import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationAction;
 import com.intellij.notification.NotificationGroupManager;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -26,7 +23,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Enhanced stage for making API calls to the LLM with streaming support and background processing.
@@ -45,7 +41,7 @@ public class LlmApiCallStage implements PipelineStage {
     private static final long UPDATE_THROTTLE_MS = 500; // Update HUD at most every 500ms
 
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         // Run the API call in a background task
         Project project = context.getProject();
         if (project == null) {
@@ -94,11 +90,12 @@ public class LlmApiCallStage implements PipelineStage {
                         indicator.setText("Calling LLM API (attempt " + (attempt + 1) + ")...");
                         indicator.setFraction(0.2 + (0.6 * attempt / MAX_RETRY_ATTEMPTS));
 
+                        String model = context.getModel(config);
                         if (useStreaming) {
                             // For streaming, we process chunks as they come in
                             streamLlmApi(
                                     config.getApiUrl(),
-                                    config.getModel(),
+                                    model,
                                     config.getAuthToken(),
                                     context.getPrompt(),
                                     indicator,
@@ -112,7 +109,7 @@ public class LlmApiCallStage implements PipelineStage {
                             // For non-streaming, we make a regular API call
                             response = callLlmApi(
                                     config.getApiUrl(),
-                                    config.getModel(),
+                                    model,
                                     config.getAuthToken(),
                                     context.getPrompt()
                             );
@@ -335,7 +332,7 @@ public class LlmApiCallStage implements PipelineStage {
                         // Update the notification periodically to avoid UI freezing
                         long currentTime = System.currentTimeMillis();
                         if (currentTime - lastUpdateTimestamp > UPDATE_THROTTLE_MS) {
-                            updateStreamingNotification(project, getPreviewText(streamedResponse.toString()), false);
+                            updateStreamingNotification(project, getPreviewText(streamedResponse), false);
                             lastUpdateTimestamp = currentTime;
                         }
 

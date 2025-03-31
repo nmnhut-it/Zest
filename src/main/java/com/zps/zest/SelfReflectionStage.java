@@ -1,20 +1,11 @@
 package com.zps.zest;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
-
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Pipeline stage that enhances the test code based on LLM analysis.
@@ -24,7 +15,7 @@ class SelfReflectionStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(SelfReflectionStage.class);
 
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         String testCode = context.getTestCode();
         if (testCode == null || testCode.isEmpty()) {
             throw new PipelineExecutionException("No test code available for enhancement");
@@ -78,7 +69,7 @@ class SelfReflectionStage implements PipelineStage {
     /**
      * Enhances test coverage with additional test cases and edge cases.
      */
-    private String enhanceTestCoverage(TestGenerationContext context, String testCode) {
+    private String enhanceTestCoverage(CodeContext context, String testCode) {
         try {
             // Create a prompt for enhancing test coverage
             String prompt = createEnhanceTestCoveragePrompt(
@@ -97,7 +88,7 @@ class SelfReflectionStage implements PipelineStage {
     /**
      * Checks for potential compilation issues before creating the file.
      */
-    private String checkForCompilationIssues(TestGenerationContext context, String testCode) {
+    private String checkForCompilationIssues(CodeContext context, String testCode) {
         try {
             // Create a prompt for checking potential compilation issues
             String prompt = createCompilationCheckPrompt(
@@ -116,10 +107,10 @@ class SelfReflectionStage implements PipelineStage {
     /**
      * Helper method to call the LLM for code improvement.
      */
-    private String callLlmForImprovement(TestGenerationContext context, String prompt, String operation) {
+    private String callLlmForImprovement(CodeContext context, String prompt, String operation) {
         try {
             // Create a temporary context for the API call
-            TestGenerationContext tempContext = new TestGenerationContext();
+            CodeContext tempContext = new CodeContext();
             tempContext.setProject(context.getProject());
             tempContext.setConfig(context.getConfig());
             tempContext.setPrompt(prompt);

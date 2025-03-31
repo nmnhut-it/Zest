@@ -20,7 +20,7 @@ public class BackgroundPipelineExecutor {
      * @param context The context containing information needed for test generation
      * @param silent If true, executes without showing progress UI
      */
-    public static void executeInBackground(TestGenerationContext context, boolean silent) {
+    public static void executeInBackground(CodeContext context, boolean silent) {
         Project project = context.getProject();
         if (project == null) return;
 
@@ -83,7 +83,7 @@ public class BackgroundPipelineExecutor {
      * Execute the pipeline without progress indicators.
      */
     private static void executePipelineSilently(TestGenerationPipeline pipeline,
-                                                TestGenerationContext context) throws PipelineExecutionException {
+                                                CodeContext context) throws PipelineExecutionException {
         // Execute each stage without UI updates
         int totalStages = pipeline.getStageCount();
         for (int i = 0; i < totalStages; i++) {
@@ -95,7 +95,7 @@ public class BackgroundPipelineExecutor {
     /**
      * Default execute method that shows the progress UI (for backwards compatibility)
      */
-    public static void executeInBackground(TestGenerationContext context) {
+    public static void executeInBackground(CodeContext context) {
         executeInBackground(context, true);
     }
 

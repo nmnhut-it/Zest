@@ -22,12 +22,14 @@ public class ConfigurationManager {
     private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
-    private static final String DEFAULT_MODEL = "qwen25-coder-custom";
+    private static final String DEFAULT_TEST_WRITING_MODEL = "unit_test_generator";
+    private static final String DEFAULT_CODE_MODEL = "qwen25-coder-custom";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
     private String apiUrl;
-    private String model;
+    private String testModel;
+    private String codeModel;
     private int maxIterations;
     private String authToken;
     private Project project;
@@ -36,13 +38,13 @@ public class ConfigurationManager {
         this.project = project;
         loadConfig();
     }
-
     public void loadConfig() {
         // Default values - start with pinging domains to determine which API URL to use
         String defaultApiUrl = determineDefaultApiUrl();
 
         apiUrl = defaultApiUrl;
-        model = DEFAULT_MODEL;
+        testModel = DEFAULT_TEST_WRITING_MODEL;
+        codeModel = DEFAULT_CODE_MODEL;
         maxIterations = DEFAULT_MAX_ITERATIONS;
         authToken = "";
 
@@ -62,7 +64,8 @@ public class ConfigurationManager {
                 }
 
                 apiUrl = props.getProperty("apiUrl", defaultApiUrl);
-                model = props.getProperty("model", DEFAULT_MODEL);
+                testModel = props.getProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
+                codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
 
                 try {
@@ -82,6 +85,7 @@ public class ConfigurationManager {
             e.printStackTrace();
         }
     }
+
     /**
      * Prompts the user to enter an authentication token and saves it to the configuration file.
      *
@@ -211,7 +215,8 @@ public class ConfigurationManager {
             java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
             java.util.Properties props = new java.util.Properties();
             props.setProperty("apiUrl", defaultApiUrl);
-            props.setProperty("model", DEFAULT_MODEL);
+            props.setProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
+            props.setProperty("codeModel", DEFAULT_CODE_MODEL);
             props.setProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS));
             props.setProperty("authToken", "");
 
@@ -220,7 +225,7 @@ public class ConfigurationManager {
             }
 
             // Prompt the user to enter an auth token
-            String authToken =promptForAuthToken(configFile,defaultApiUrl);
+            String authToken = promptForAuthToken(configFile, defaultApiUrl);
 
             // Update the token in properties if the user provided one
             if (authToken != null && !authToken.trim().isEmpty()) {
@@ -244,10 +249,11 @@ public class ConfigurationManager {
             e.printStackTrace();
         }
     }
-
     // Getters
     public String getApiUrl() { return apiUrl; }
-    public String getModel() { return model; }
+    public String getTestModel() { return testModel; }
+    public String getCodeModel() { return codeModel; }
     public int getMaxIterations() { return maxIterations; }
     public String getAuthToken() { return authToken; }
+
 }

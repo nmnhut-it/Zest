@@ -5,7 +5,7 @@ package com.zps.zest;
  */
 public class PromptCreationStage implements PipelineStage {
     @Override
-    public void process(TestGenerationContext context) throws PipelineExecutionException {
+    public void process(CodeContext context) throws PipelineExecutionException {
         // Create prompt for test generation using PromptDrafter
         String prompt = PromptDrafter.createPrompt(
                 context.getPackageName(),

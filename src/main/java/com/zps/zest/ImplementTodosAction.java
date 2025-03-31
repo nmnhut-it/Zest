@@ -20,6 +20,8 @@ import com.intellij.util.PsiErrorElementUtil;
 import kotlinx.serialization.json.Json;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 

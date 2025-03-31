@@ -20,7 +20,6 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextArea;
-import com.intellij.util.Consumer;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,9 +36,9 @@ import java.util.regex.Pattern;
  * Enhanced diff viewer for TODO implementation with improved UX features:
  * - Highlighting of TODOs in the original code
  * - Smart diff showing only modified regions
- * - Preview of changes with accept/reject options for each change
+ * - Integrated chat box for feedback and regeneration
  * - Custom tool window with additional actions
- * - Chat history for feedback and regeneration
+ * - Chat history displayed directly in the diff view
  */
 public class EnhancedTodoDiffComponent {
     private static final Logger LOG = Logger.getInstance(EnhancedTodoDiffComponent.class);
@@ -55,6 +54,14 @@ public class EnhancedTodoDiffComponent {
     private final int selectionEnd;
     private WindowWrapper diffWindow;
     private boolean changesApplied = false;
+
+    // Chat components
+    private JPanel chatPanel;
+    private JBTextArea chatInputArea;
+    private JPanel chatHistoryPanel;
+    private JButton sendButton;
+    private JButton regenerateButton;
+    private JFrame diffFrame;
 
     // Chat history storage
     private final List<ChatMessage> chatHistory = new ArrayList<>();
@@ -123,22 +130,41 @@ public class EnhancedTodoDiffComponent {
         DiffDialogHints dialogHints = new DiffDialogHints(WindowWrapper.Mode.FRAME, editor.getComponent(), wrapper -> {
             diffWindow = wrapper;
 
-            // Add custom action toolbar to the diff window
+            // Add custom action toolbar and chat panel to the diff window
             if (wrapper.getWindow() instanceof JFrame) {
-                JFrame frame = (JFrame) wrapper.getWindow();
-                Container contentPane = frame.getContentPane();
+                diffFrame = (JFrame) wrapper.getWindow();
+                Container contentPane = diffFrame.getContentPane();
 
                 if (contentPane instanceof JComponent) {
                     JComponent component = (JComponent) contentPane;
 
+                    // Create main container for our custom UI
+                    JPanel customContainer = new JPanel(new BorderLayout());
+
                     // Create a panel for the action buttons
                     JPanel actionPanel = createActionPanel();
 
-                    // Add the panel to the bottom of the diff window
-                    component.add(actionPanel, BorderLayout.SOUTH);
+                    // Create the chat panel (right side)
+                    chatPanel = createChatPanel();
+
+                    // Add components to the custom container
+                    customContainer.add(chatPanel, BorderLayout.EAST);
+                    customContainer.add(actionPanel, BorderLayout.SOUTH);
+
+                    // Add our custom container to the content pane
+                    component.add(customContainer, BorderLayout.EAST);
+
+                    // Update the UI
+                    diffFrame.setSize(new Dimension(
+                            diffFrame.getWidth() + 350, // Extra width for chat panel
+                            diffFrame.getHeight()
+                    ));
 
                     // Force layout update
-                    frame.validate();
+                    diffFrame.validate();
+
+                    // Update the chat history display
+                    updateChatHistoryPanel();
                 }
             }
         });
@@ -181,25 +207,7 @@ public class EnhancedTodoDiffComponent {
             }
         };
 
-        // Provide feedback and regenerate
-        AnAction feedbackAction = new AnAction("Provide Feedback", "Give feedback and regenerate the implementation", AllIcons.Actions.IntentionBulb) {
-            @Override
-            public void actionPerformed(@NotNull AnActionEvent e) {
-                showFeedbackDialog();
-            }
-        };
-
-        // View chat history
-        AnAction viewHistoryAction = new AnAction("View History", "View feedback history and previous implementations", AllIcons.Vcs.History) {
-            @Override
-            public void actionPerformed(@NotNull AnActionEvent e) {
-                showChatHistoryDialog();
-            }
-        };
-
         actionGroup.add(applyAction);
-        actionGroup.add(feedbackAction);
-        actionGroup.add(viewHistoryAction);
         actionGroup.addSeparator();
         actionGroup.add(showTodosAction);
         actionGroup.addSeparator();
@@ -216,6 +224,239 @@ public class EnhancedTodoDiffComponent {
         panel.add(helpLabel, BorderLayout.WEST);
 
         return panel;
+    }
+
+    /**
+     * Creates the integrated chat panel for the diff view.
+     */
+    private JPanel createChatPanel() {
+        JPanel panel = new JBPanel<>(new BorderLayout());
+        panel.setPreferredSize(new Dimension(350, 0)); // Fixed width, height follows parent
+        panel.setBorder(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 1));
+
+        // Chat history panel (scrollable)
+        chatHistoryPanel = new JBPanel<>();
+        chatHistoryPanel.setLayout(new BoxLayout(chatHistoryPanel, BoxLayout.Y_AXIS));
+        JBScrollPane historyScrollPane = new JBScrollPane(chatHistoryPanel);
+        historyScrollPane.setBorder(JBUI.Borders.empty());
+        historyScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+        // Chat input panel
+        JPanel inputPanel = new JBPanel<>(new BorderLayout());
+        inputPanel.setBorder(JBUI.Borders.emptyTop(5));
+
+        // Chat input area
+        chatInputArea = new JBTextArea(5, 20);
+        chatInputArea.setLineWrap(true);
+        chatInputArea.setWrapStyleWord(true);
+        chatInputArea.setBorder(JBUI.Borders.empty(5));
+        JBScrollPane inputScrollPane = new JBScrollPane(chatInputArea);
+        inputScrollPane.setBorder(new TitledBorder("Your Feedback"));
+
+        // Button panel
+        JPanel buttonPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT));
+
+        // Send button
+        sendButton = new JButton("Send Feedback", AllIcons.Actions.Edit);
+        sendButton.addActionListener(e -> sendFeedback());
+
+        // Regenerate button
+        regenerateButton = new JButton("Regenerate Code", AllIcons.Actions.Refresh);
+        regenerateButton.addActionListener(e -> regenerateImplementation(null));
+
+        buttonPanel.add(regenerateButton);
+        buttonPanel.add(sendButton);
+
+        // Assemble input panel
+        inputPanel.add(inputScrollPane, BorderLayout.CENTER);
+        inputPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        // Header panel
+        JPanel headerPanel = new JBPanel<>(new BorderLayout());
+        headerPanel.setBorder(JBUI.Borders.empty(5, 10));
+        JBLabel headerLabel = new JBLabel("Feedback & Chat", AllIcons.Nodes.Console, SwingConstants.LEFT);
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD, 14f));
+        headerPanel.add(headerLabel, BorderLayout.CENTER);
+
+        // Add components to main panel
+        panel.add(headerPanel, BorderLayout.NORTH);
+        panel.add(historyScrollPane, BorderLayout.CENTER);
+        panel.add(inputPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    /**
+     * Updates the chat history panel with current messages.
+     */
+    private void updateChatHistoryPanel() {
+        chatHistoryPanel.removeAll();
+
+        for (ChatMessage message : chatHistory) {
+            JPanel messagePanel = createMessagePanel(message);
+            chatHistoryPanel.add(messagePanel);
+
+            // Add a separator
+            JSeparator separator = new JSeparator();
+            separator.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+            chatHistoryPanel.add(separator);
+        }
+
+        // Refresh the panel
+        chatHistoryPanel.revalidate();
+        chatHistoryPanel.repaint();
+
+        // Scroll to bottom
+        SwingUtilities.invokeLater(() -> {
+            JScrollPane scrollPane = (JScrollPane) chatHistoryPanel.getParent().getParent();
+            JScrollBar vertical = scrollPane.getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        });
+    }
+
+    /**
+     * Creates a panel for a single chat message.
+     */
+    private JPanel createMessagePanel(ChatMessage message) {
+        JPanel panel = new JBPanel<>(new BorderLayout());
+        panel.setBorder(JBUI.Borders.empty(5));
+
+        Icon icon = null;
+        Color bgColor = null;
+
+        switch (message.getType()) {
+            case USER:
+                icon = AllIcons.Nodes.EntryPoints;
+                bgColor = JBColor.namedColor("Panel.background", new JBColor(new Color(240, 242, 245), new Color(49, 51, 53)));
+                break;
+            case ASSISTANT:
+                icon = AllIcons.Nodes.Controller;
+                bgColor = JBColor.namedColor("Plugins.lightSelectionBackground", new JBColor(new Color(240, 247, 240), new Color(45, 53, 45)));
+                break;
+            case SYSTEM:
+                icon = AllIcons.General.Information;
+                bgColor = JBColor.namedColor("Tooltip.background", new JBColor(new Color(245, 245, 245), new Color(56, 56, 56)));
+                break;
+        }
+
+        panel.setBackground(bgColor);
+
+        // Header with icon and type
+        JPanel headerPanel = new JBPanel<>(new BorderLayout());
+        headerPanel.setBackground(bgColor);
+        JLabel typeLabel = new JBLabel(message.getType() == ChatMessageType.SYSTEM ? "System" :
+                (message.getType() == ChatMessageType.USER ? "You" : "Assistant"),
+                icon, SwingConstants.LEFT);
+        typeLabel.setFont(typeLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(typeLabel, BorderLayout.WEST);
+
+        // For code blocks, create a collapsible panel
+        if (message.getType() == ChatMessageType.ASSISTANT && message.getContent().length() > 200) {
+            // Collapsible content
+            JPanel contentPanel = new JBPanel<>(new BorderLayout());
+            contentPanel.setBackground(bgColor);
+
+            // Create a snippet of the content
+            String snippet = message.getContent().substring(0, Math.min(150, message.getContent().length())) + "...";
+            JLabel snippetLabel = new JBLabel("<html><body><pre>" +
+                    snippet.replace("<", "&lt;").replace(">", "&gt;") +
+                    "</pre></body></html>");
+            snippetLabel.setBorder(JBUI.Borders.empty(5));
+
+            // Full content in a text area (initially not visible)
+            JBTextArea fullContentArea = new JBTextArea(message.getContent());
+            fullContentArea.setEditable(false);
+            fullContentArea.setLineWrap(true);
+            fullContentArea.setBackground(new Color(248, 250, 248));
+            fullContentArea.setRows(10);
+            JBScrollPane scrollPane = new JBScrollPane(fullContentArea);
+            scrollPane.setBorder(JBUI.Borders.empty());
+            scrollPane.setVisible(false);
+
+            // Toggle button
+            JButton toggleButton = new JButton("Show Full Code", AllIcons.Actions.ShowCode);
+            toggleButton.addActionListener(e -> {
+                boolean isVisible = scrollPane.isVisible();
+                scrollPane.setVisible(!isVisible);
+                snippetLabel.setVisible(isVisible);
+                toggleButton.setText(isVisible ? "Show Full Code" : "Hide Code");
+                toggleButton.setIcon(isVisible ? AllIcons.Actions.ShowCode : AllIcons.Actions.Cancel);
+                panel.revalidate();
+                panel.repaint();
+            });
+
+            // Add components
+            contentPanel.add(snippetLabel, BorderLayout.NORTH);
+            contentPanel.add(scrollPane, BorderLayout.CENTER);
+
+            JPanel buttonPanel = new JBPanel<>(new FlowLayout(FlowLayout.LEFT));
+            buttonPanel.setBackground(bgColor);
+            buttonPanel.add(toggleButton);
+
+            // For assistant messages, also add a button to apply this implementation
+            if (message.getType() == ChatMessageType.ASSISTANT && chatHistory.indexOf(message) > 2) {
+                JButton applyButton = new JButton("Apply This Version", AllIcons.Actions.CheckOut);
+                applyButton.addActionListener(e -> {
+                    implementedCode = message.getContent();
+                    updateDiffView();
+                });
+                buttonPanel.add(applyButton);
+            }
+
+            contentPanel.add(buttonPanel, BorderLayout.SOUTH);
+            panel.add(contentPanel, BorderLayout.CENTER);
+        } else {
+            // For shorter messages, just show the content directly
+            String messageContent = message.getContent();
+            JComponent contentComponent;
+
+            if (message.getType() == ChatMessageType.USER && messageContent.contains("\n")) {
+                // Multi-line user message gets a text area
+                JBTextArea contentArea = new JBTextArea(messageContent);
+                contentArea.setEditable(false);
+                contentArea.setBackground(bgColor);
+                contentArea.setRows(Math.min(5, messageContent.split("\n").length + 1));
+                contentArea.setBorder(JBUI.Borders.empty(5));
+                contentComponent = contentArea;
+            } else {
+                // Single line messages get a label
+                JLabel contentLabel = new JBLabel("<html><body>" +
+                        messageContent.replace("\n", "<br>").replace("<", "&lt;").replace(">", "&gt;") +
+                        "</body></html>");
+                contentLabel.setBorder(JBUI.Borders.empty(5));
+                contentComponent = contentLabel;
+            }
+
+            panel.add(contentComponent, BorderLayout.CENTER);
+        }
+
+        panel.add(headerPanel, BorderLayout.NORTH);
+        return panel;
+    }
+
+    /**
+     * Sends user feedback to the LLM for code improvement.
+     */
+    private void sendFeedback() {
+        String feedback = chatInputArea.getText().trim();
+        if (feedback.isEmpty()) {
+            Messages.showWarningDialog(
+                    project,
+                    "Please enter feedback before sending.",
+                    "Empty Feedback"
+            );
+            return;
+        }
+
+        // Add feedback to chat history
+        chatHistory.add(new ChatMessage(ChatMessageType.USER, feedback));
+        updateChatHistoryPanel();
+
+        // Clear input area
+        chatInputArea.setText("");
+
+        // Call LLM to regenerate implementation
+        regenerateImplementation(feedback);
     }
 
     /**
@@ -314,217 +555,57 @@ public class EnhancedTodoDiffComponent {
     }
 
     /**
-     * Shows a dialog for providing feedback and requesting regeneration.
-     */
-    private void showFeedbackDialog() {
-        // Create a dialog for feedback and regeneration
-        DialogWrapper dialog = new DialogWrapper(project, true) {
-            private JBTextArea feedbackTextArea;
-
-            {
-                init();
-                setTitle("Provide Feedback for Regeneration");
-                setSize(700, 500);
-            }
-
-            @Nullable
-            @Override
-            protected JComponent createCenterPanel() {
-                JPanel panel = new JBPanel<>(new BorderLayout());
-                panel.setBorder(JBUI.Borders.empty(10));
-
-                // Create a panel with instructions and feedback input
-                JPanel inputPanel = new JBPanel<>(new BorderLayout());
-
-                JLabel instructionsLabel = new JBLabel("<html><body>" +
-                        "Provide specific feedback about what you'd like to improve in the implementation.<br>" +
-                        "Be detailed about any issues, improvements, or changes you want to see." +
-                        "</body></html>");
-                instructionsLabel.setBorder(JBUI.Borders.empty(0, 0, 10, 0));
-
-                feedbackTextArea = new JBTextArea();
-                feedbackTextArea.setRows(15);
-                feedbackTextArea.setLineWrap(true);
-                feedbackTextArea.setWrapStyleWord(true);
-                JBScrollPane scrollPane = new JBScrollPane(feedbackTextArea);
-                scrollPane.setBorder(new TitledBorder("Your Feedback"));
-
-                inputPanel.add(instructionsLabel, BorderLayout.NORTH);
-                inputPanel.add(scrollPane, BorderLayout.CENTER);
-
-                panel.add(inputPanel, BorderLayout.CENTER);
-
-                return panel;
-            }
-
-            @Override
-            protected void doOKAction() {
-                String feedback = feedbackTextArea.getText().trim();
-                if (feedback.isEmpty()) {
-                    Messages.showWarningDialog(
-                            project,
-                            "Please provide some feedback to guide the regeneration.",
-                            "Empty Feedback");
-                    return;
-                }
-
-                // Add feedback to chat history
-                chatHistory.add(new ChatMessage(ChatMessageType.USER, feedback));
-
-                // Call LLM to regenerate the implementation
-                regenerateImplementation(feedback);
-
-                super.doOKAction();
-            }
-        };
-
-        dialog.show();
-    }
-
-    /**
-     * Shows a dialog with the chat history.
-     */
-    private void showChatHistoryDialog() {
-        // Create a dialog to show the chat history
-        DialogWrapper dialog = new DialogWrapper(project, true) {
-            {
-                init();
-                setTitle("Implementation History");
-                setSize(800, 600);
-            }
-
-            @Nullable
-            @Override
-            protected JComponent createCenterPanel() {
-                JPanel panel = new JBPanel<>(new BorderLayout());
-                panel.setBorder(JBUI.Borders.empty(10));
-
-                // Create a panel to display chat history
-                JPanel historyPanel = new JBPanel<>();
-                historyPanel.setLayout(new BoxLayout(historyPanel, BoxLayout.Y_AXIS));
-
-                for (int i = 0; i < chatHistory.size(); i++) {
-                    ChatMessage message = chatHistory.get(i);
-
-                    JPanel messagePanel = new JBPanel<>(new BorderLayout());
-                    messagePanel.setBorder(JBUI.Borders.empty(5));
-
-                    Icon icon = null;
-                    Color bgColor = null;
-
-                    switch (message.getType()) {
-                        case USER:
-                            icon = AllIcons.Nodes.EntryPoints;
-                            bgColor = new Color(240, 240, 255);
-                            break;
-                        case ASSISTANT:
-                            icon = AllIcons.Nodes.Plugin;
-                            bgColor = new Color(240, 255, 240);
-                            break;
-                        case SYSTEM:
-                            icon = AllIcons.General.Information;
-                            bgColor = new Color(245, 245, 245);
-                            break;
-                    }
-
-                    messagePanel.setBackground(bgColor);
-
-                    JLabel typeLabel = new JBLabel(message.getType().name(), icon, SwingConstants.LEFT);
-                    typeLabel.setFont(typeLabel.getFont().deriveFont(Font.BOLD));
-
-                    JPanel contentPanel = new JBPanel<>(new BorderLayout());
-                    contentPanel.setBackground(bgColor);
-                    contentPanel.setBorder(JBUI.Borders.empty(5));
-
-                    // For code content, use a text area with scrolling
-                    if (message.getType() == ChatMessageType.ASSISTANT ||
-                            (message.getType() == ChatMessageType.USER && message.getContent().contains("\n"))) {
-                        JBTextArea codeArea = new JBTextArea(message.getContent());
-                        codeArea.setEditable(false);
-                        codeArea.setBackground(bgColor);
-                        codeArea.setRows(Math.min(15, message.getContent().split("\n").length + 1));
-
-                        JBScrollPane scrollPane = new JBScrollPane(codeArea);
-                        scrollPane.setBorder(null);
-                        contentPanel.add(scrollPane, BorderLayout.CENTER);
-                    } else {
-                        JLabel contentLabel = new JBLabel("<html><body>" +
-                                message.getContent().replace("\n", "<br>") +
-                                "</body></html>");
-                        contentPanel.add(contentLabel, BorderLayout.CENTER);
-                    }
-
-                    messagePanel.add(typeLabel, BorderLayout.NORTH);
-                    messagePanel.add(contentPanel, BorderLayout.CENTER);
-
-                    // For assistant messages (implementations), add a button to restore this version
-                    if (message.getType() == ChatMessageType.ASSISTANT && i > 2) {
-                        JButton restoreButton = new JButton("Restore This Version", AllIcons.Actions.Rollback);
-                        restoreButton.addActionListener(e -> {
-                            restoreImplementation(message.getContent());
-                            this.close(DialogWrapper.OK_EXIT_CODE);
-                        });
-
-                        JPanel buttonPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT));
-                        buttonPanel.setBackground(bgColor);
-                        buttonPanel.add(restoreButton);
-
-                        messagePanel.add(buttonPanel, BorderLayout.SOUTH);
-                    }
-
-                    historyPanel.add(messagePanel);
-
-                    // Add a separator between messages
-                    if (i < chatHistory.size() - 1) {
-                        JSeparator separator = new JSeparator();
-                        separator.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
-                        historyPanel.add(separator);
-                    }
-                }
-
-                JBScrollPane scrollPane = new JBScrollPane(historyPanel);
-                panel.add(scrollPane, BorderLayout.CENTER);
-
-                return panel;
-            }
-        };
-
-        dialog.show();
-    }
-
-    /**
      * Regenerates the implementation based on user feedback.
      *
-     * @param feedback The user's feedback for regeneration
+     * @param feedback The user's feedback for regeneration (can be null for simple regeneration)
      */
     private void regenerateImplementation(String feedback) {
         try {
+            // Disable UI elements during regeneration
+            sendButton.setEnabled(false);
+            regenerateButton.setEnabled(false);
+
+            // Add a system message about regeneration
+            String systemMessage = feedback == null ?
+                    "Regenerating implementation..." :
+                    "Regenerating implementation based on feedback...";
+            chatHistory.add(new ChatMessage(ChatMessageType.SYSTEM, systemMessage));
+            updateChatHistoryPanel();
+
             // Create configuration and context for LLM API call
             ConfigurationManager config = new ConfigurationManager(project);
             TestGenerationContext context = new TestGenerationContext();
             context.setProject(project);
             context.setConfig(config);
 
-            // Create a prompt for the LLM that includes:
-            // 1. The original code with TODOs
-            // 2. The current implementation
-            // 3. The user's feedback
-            // 4. Any additional code context if available
+            // Create a prompt for the LLM
             StringBuilder promptBuilder = new StringBuilder();
-            promptBuilder.append("You are helping implement TODOs in Java code. A previous implementation was provided, ");
-            promptBuilder.append("but the user wants improvements based on specific feedback.\n\n");
+            promptBuilder.append("You are helping implement TODOs in Java code. ");
+
+            if (feedback == null) {
+                promptBuilder.append("Please provide a new implementation for the TODOs.\n\n");
+            } else {
+                promptBuilder.append("A previous implementation was provided, ");
+                promptBuilder.append("but the user wants improvements based on specific feedback.\n\n");
+            }
 
             promptBuilder.append("ORIGINAL CODE WITH TODOS:\n```java\n").append(originalCode).append("\n```\n\n");
 
-            promptBuilder.append("CURRENT IMPLEMENTATION:\n```java\n").append(implementedCode).append("\n```\n\n");
-
-            promptBuilder.append("USER FEEDBACK:\n").append(feedback).append("\n\n");
+            if (feedback != null) {
+                promptBuilder.append("CURRENT IMPLEMENTATION:\n```java\n").append(implementedCode).append("\n```\n\n");
+                promptBuilder.append("USER FEEDBACK:\n").append(feedback).append("\n\n");
+            }
 
             if (codeContext != null && !codeContext.isEmpty()) {
                 promptBuilder.append("ADDITIONAL CODE CONTEXT:\n").append(codeContext).append("\n\n");
             }
 
-            promptBuilder.append("Please provide an improved implementation that addresses the user's feedback. ");
+            promptBuilder.append("Please provide an improved implementation that ");
+            if (feedback != null) {
+                promptBuilder.append("addresses the user's feedback. ");
+            } else {
+                promptBuilder.append("is well organized and efficient. ");
+            }
             promptBuilder.append("Return ONLY the complete implemented code without explanations or markdown formatting.\n");
             promptBuilder.append("Remember to preserve the overall structure of the code and only modify the TODO implementations ");
             promptBuilder.append("unless the feedback explicitly requests other changes.");
@@ -532,37 +613,73 @@ public class EnhancedTodoDiffComponent {
             // Set the prompt in the context
             context.setPrompt(promptBuilder.toString());
 
-            // Call LLM API
-            LlmApiCallStage apiCallStage = new LlmApiCallStage();
-            apiCallStage.process(context);
+            // Run in a background thread to keep UI responsive
+            SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
+                @Override
+                protected String doInBackground() throws Exception {
+                    // Call LLM API
+                    LlmApiCallStage apiCallStage = new LlmApiCallStage();
+                    apiCallStage.process(context);
 
-            // Extract code from response
-            CodeExtractionStage extractionStage = new CodeExtractionStage();
-            extractionStage.process(context);
+                    // Extract code from response
+                    CodeExtractionStage extractionStage = new CodeExtractionStage();
+                    extractionStage.process(context);
 
-            String newImplementation = context.getTestCode();
+                    return context.getTestCode();
+                }
 
-            if (newImplementation == null || newImplementation.isEmpty()) {
-                throw new PipelineExecutionException("LLM returned empty implementation");
-            }
+                @Override
+                protected void done() {
+                    try {
+                        String newImplementation = get();
 
-            // Add the new implementation to chat history
-            chatHistory.add(new ChatMessage(ChatMessageType.ASSISTANT, newImplementation));
+                        if (newImplementation == null || newImplementation.isEmpty()) {
+                            throw new PipelineExecutionException("LLM returned empty implementation");
+                        }
 
-            // Update the implemented code
-            implementedCode = newImplementation;
+                        // Add the new implementation to chat history
+                        chatHistory.add(new ChatMessage(ChatMessageType.ASSISTANT, newImplementation));
+                        updateChatHistoryPanel();
 
-            // Update the diff view
-            updateDiffView();
+                        // Update the implemented code
+                        implementedCode = newImplementation;
 
-            // Show success message
-            Messages.showInfoMessage(
-                    project,
-                    "Implementation has been regenerated based on your feedback.",
-                    "Regeneration Complete");
+                        // Update the diff view
+                        updateDiffView();
+                    } catch (Exception e) {
+                        LOG.error("Error regenerating implementation: " + e.getMessage(), e);
+
+                        // Add error message to chat
+                        chatHistory.add(new ChatMessage(ChatMessageType.SYSTEM,
+                                "Error: Failed to regenerate implementation: " + e.getMessage()));
+                        updateChatHistoryPanel();
+
+                        Messages.showErrorDialog(
+                                project,
+                                "Failed to regenerate implementation: " + e.getMessage(),
+                                "Regeneration Failed");
+                    } finally {
+                        // Re-enable UI elements
+                        sendButton.setEnabled(true);
+                        regenerateButton.setEnabled(true);
+                    }
+                }
+            };
+
+            worker.execute();
 
         } catch (Exception e) {
             LOG.error("Error regenerating implementation: " + e.getMessage(), e);
+
+            // Add error message to chat
+            chatHistory.add(new ChatMessage(ChatMessageType.SYSTEM,
+                    "Error: Failed to regenerate implementation: " + e.getMessage()));
+            updateChatHistoryPanel();
+
+            // Re-enable UI elements
+            sendButton.setEnabled(true);
+            regenerateButton.setEnabled(true);
+
             Messages.showErrorDialog(
                     project,
                     "Failed to regenerate implementation: " + e.getMessage(),
@@ -571,36 +688,35 @@ public class EnhancedTodoDiffComponent {
     }
 
     /**
-     * Restores a previous implementation from the history.
-     *
-     * @param implementationCode The implementation code to restore
-     */
-    private void restoreImplementation(String implementationCode) {
-        implementedCode = implementationCode;
-
-        // Add a system message indicating restoration
-        chatHistory.add(new ChatMessage(ChatMessageType.SYSTEM, "Restored previous implementation"));
-
-        // Update the diff view
-        updateDiffView();
-
-        Messages.showInfoMessage(
-                project,
-                "Previous implementation has been restored.",
-                "Implementation Restored");
-    }
-
-    /**
      * Updates the diff view with the current implementation.
      */
     private void updateDiffView() {
-        // Close the current diff window
-        if (diffWindow != null) {
-            diffWindow.close();
-        }
+        // Update the diff content without closing the window
+        if (diffFrame != null && diffWindow != null) {
+            try {
+                // Create new diff contents
+                DiffContentFactory diffFactory = DiffContentFactory.getInstance();
+                DocumentContent originalContent = diffFactory.create(originalCode);
+                DocumentContent newContent = diffFactory.create(implementedCode);
 
-        // Show a new diff with the updated implementation
-        showDiff();
+                // Create new diff request
+                SimpleDiffRequest diffRequest = new SimpleDiffRequest(
+                        "TODO Implementation (Updated)",
+                        originalContent,
+                        newContent,
+                        "Original Code with TODOs",
+                        "Implemented Code");
+
+                // Close the current window
+                diffWindow.close();
+
+                // Show new diff
+                showDiff();
+
+            } catch (Exception e) {
+                LOG.error("Error updating diff view: " + e.getMessage(), e);
+            }
+        }
     }
 
     /**

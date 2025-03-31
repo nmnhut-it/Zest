@@ -49,7 +49,7 @@
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
     </extensions>
     <actions>
-        <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
+            <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
                 description="Write tests by LLMs">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>

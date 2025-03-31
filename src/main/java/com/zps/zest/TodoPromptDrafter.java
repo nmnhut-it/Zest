@@ -31,11 +31,19 @@ public class TodoPromptDrafter {
         promptBuilder.append("Implement the TODOs in the following Java code. Replace each TODO with appropriate code.\n\n");
 
         // Add context for better understanding
+        promptBuilder.append("CODE CONTEXT:\n").append(codeContext).append("\n\n");
 
-        promptBuilder.append("CONTEXT & THEIR IMPLEMENTATIONS::\n").append(codeContext).append("\n\n");
+        // Add related class implementations if available
+        if (relatedClassContext != null && !relatedClassContext.isEmpty()) {
+            promptBuilder.append("RELATED CLASS IMPLEMENTATIONS:\n");
+            for (Map.Entry<String, String> entry : relatedClassContext.entrySet()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    promptBuilder.append("// Class: ").append(entry.getKey()).append("\n");
+                    promptBuilder.append(entry.getValue()).append("\n\n");
+                }
+            }
+        }
 
-        promptBuilder.append(relatedClassContext.values().stream().collect(Collectors.joining("\n")));
-        promptBuilder.append("\n");
         // Add the code with TODOs
         promptBuilder.append("CODE WITH ").append(todos.size()).append(" TODOs TO IMPLEMENT:\n```java\n")
                 .append(selectedText).append("\n```\n\n");
@@ -65,7 +73,6 @@ public class TodoPromptDrafter {
 
         return promptBuilder.toString();
     }
-
     /**
      * Extracts TODO items from code.
      *

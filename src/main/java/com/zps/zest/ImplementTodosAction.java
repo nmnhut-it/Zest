@@ -35,7 +35,7 @@ public class ImplementTodosAction extends AnAction {
             Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
 
     public ImplementTodosAction() {
-        super("Implement TODOs (Enhanced)", "Replace TODOs with implementation using LLM", AllIcons.General.TodoDefault);
+        super("Ai code?!: Implement TODOs ", "Replace TODOs with implementation using LLM", AllIcons.General.TodoDefault);
     }
 
     @Override
@@ -198,8 +198,6 @@ public class ImplementTodosAction extends AnAction {
      * including related classes used in the method or surrounding class.
      */
     private String gatherCodeContext(PsiFile psiFile, int selectionStart, int selectionEnd) {
-        // Get related classes with their full implementations
-        java.util.Map<String, String> relatedClassImpls = ClassAnalyzer.collectRelatedClassImplementations(psiFile, selectionStart, selectionEnd);
 
         // Use the shared ClassAnalyzer utility for basic context collection
         String baseContext = ClassAnalyzer.collectSelectionContext(psiFile, selectionStart, selectionEnd);
@@ -207,9 +205,6 @@ public class ImplementTodosAction extends AnAction {
         return baseContext;
     }
 
-    /**
-     * Calls the LLM to implement the TODOs in the selected code.
-     */
     private String callLlmForImplementation(String selectedText, String codeContext, Project project) throws PipelineExecutionException {
         try {
             // Create configuration and context for LLM API call
@@ -218,32 +213,33 @@ public class ImplementTodosAction extends AnAction {
             context.setProject(project);
             context.setConfig(config);
 
-            // Get related class implementations
-            java.util.Map<String, String> relatedClassImpls = new java.util.HashMap<>();
+            // Get the PsiFile and editor from context if available
+            PsiFile psiFile = context.getPsiFile();
+            Editor editor = context.getEditor();
 
-            // If we have a PsiFile and selection information, collect related class implementations
-            if (context.getPsiFile() != null) {
-                PsiFile psiFile = context.getPsiFile();
-                SelectionModel selectionModel = context.getEditor().getSelectionModel();
-                if (selectionModel.hasSelection()) {
-                    relatedClassImpls = ClassAnalyzer.collectRelatedClassImplementations(
-                            psiFile,
-                            selectionModel.getSelectionStart(),
-                            selectionModel.getSelectionEnd()
-                    );
-                }
+            // Collect related class implementations directly using ClassAnalyzer
+            Map<String, String> relatedClassImpls = new HashMap<>();
+
+            if (psiFile != null && editor != null && editor.getSelectionModel().hasSelection()) {
+                SelectionModel selectionModel = editor.getSelectionModel();
+                relatedClassImpls = ClassAnalyzer.collectRelatedClassImplementations(
+                        psiFile,
+                        selectionModel.getSelectionStart(),
+                        selectionModel.getSelectionEnd()
+                );
             }
 
-            // Create specialized prompt using TodoPromptDrafter with related class implementations
+            // Create specialized prompt using TodoPromptDrafter
             String prompt = TodoPromptDrafter.createTodoImplementationPrompt(
                     selectedText,
                     codeContext,
-                     relatedClassImpls
+                    relatedClassImpls
             );
 
             // Set the prompt in the context
             context.setPrompt(prompt);
             System.out.println(prompt);
+
             // Log the prompt for debugging purposes
             LOG.debug("TODO implementation prompt: " + prompt);
 
@@ -272,7 +268,6 @@ public class ImplementTodosAction extends AnAction {
             throw new PipelineExecutionException("Failed to call LLM: " + e.getMessage(), e);
         }
     }
-
     /**
      * Validates that the implemented code maintains the overall structure of the original code.
      * This helps ensure the LLM hasn't drastically altered the code beyond replacing TODOs.

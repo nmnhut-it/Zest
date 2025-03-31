@@ -8,15 +8,34 @@
     <name>Zest</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor email="support@yourcompany.com" url="https://www.yourcompany.com">YourCompany</vendor>
+    <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
 
-    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
     <description><![CDATA[
-    Enter short description for your plugin here.<br>
-    <em>most HTML tags may be used</em>
-  ]]></description>
+  <h2>Zest: When AI Meets Java Testing (Without the Existential Crisis)</h2>
+
+  <p>Ever wished your IDE could write those pesky unit tests for you while you focus on the fun stuff, like arguing over tabs vs. spaces? <b>Zest</b> is here to save the day!</p>
+
+  <p>Zest leverages AI to generate comprehensive test suites for your Java classes, and even implements those TODOs you've been procrastinating on since 2019.</p>
+
+  <h3>🚀 Features That Actually Work:</h3>
+  <ul>
+    <li><b>Test Generation:</b> Right-click, generate test, grab coffee, return to find beautiful JUnit tests that actually compile!</li>
+    <li><b>TODO Implementation:</b> Select code with TODOs, right-click, and watch as they transform into real, working code. Magic? Nope, just robots doing your work.</li>
+    <li><b>Smart Code Analysis:</b> Zest analyzes your classes, imports, and dependencies to create context-aware implementations.</li>
+    <li><b>Enhanced Diff Viewer:</b> See exactly what changed before accepting, because trust issues are healthy in software development.</li>
+  </ul>
+
+  <p>Zest plays nice with both JUnit 4 and JUnit 5, and intelligently detects Mockito to use it when available (we're not monsters).</p>
+
+  <h3>🤓 Perfect For:</h3>
+  <ul>
+    <li>Developers who would rather eat glass than write another assertEquals() statement</li>
+    <li>Teams who want 100% test coverage but also want to leave work before midnight</li>
+    <li>That one colleague who writes "TODO: implement later" on everything (we all know one)</li>
+  </ul>
+
+  <p><i>Disclaimer: Zest will not fix your broken relationships, but it will fix your code's relationship with testing.</i></p>
+]]></description>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->

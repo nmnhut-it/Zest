@@ -1,17 +1,11 @@
 package com.zps.zest;
 
-import com.intellij.diff.DiffContentFactory;
-import com.intellij.diff.DiffDialogHints;
-import com.intellij.diff.DiffManager;
-import com.intellij.diff.contents.DocumentContent;
-import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
@@ -20,17 +14,50 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.psi.*;
-import com.intellij.util.Consumer;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.PsiErrorElementUtil;
+import kotlinx.serialization.json.Json;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
- * Action for implementing TODOs in selected code using LLM.
+ * Enhanced action for implementing TODOs in selected code using LLM with improved UX.
  * This action is triggered from the editor context menu when code with TODOs is selected.
+ * It uses an enhanced diff viewer with additional features for better developer experience.
  */
 public class ImplementTodosAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(ImplementTodosAction.class);
+    private static final Pattern TODO_PATTERN = Pattern.compile(
+            "//\\s*(TODO|FIXME|HACK|XXX)\\s*:?\\s*(.*?)\\s*$|/\\*\\s*(TODO|FIXME|HACK|XXX)\\s*:?\\s*(.*?)\\s*\\*/",
+            Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+
+    public ImplementTodosAction() {
+        super("Implement TODOs (Enhanced)", "Replace TODOs with implementation using LLM", AllIcons.General.TodoDefault);
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+        // Enable/disable action based on context
+        Editor editor = e.getData(CommonDataKeys.EDITOR);
+        PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
+
+        boolean enabled = false;
+
+        if (editor != null && psiFile != null) {
+            SelectionModel selectionModel = editor.getSelectionModel();
+            if (selectionModel.hasSelection()) {
+                String selectedText = selectionModel.getSelectedText();
+                if (selectedText != null && containsTodo(selectedText)) {
+                    enabled = true;
+                }
+            }
+        }
+
+        e.getPresentation().setEnabledAndVisible(enabled);
+    }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -49,7 +76,7 @@ public class ImplementTodosAction extends AnAction {
 
         // Get the selected text
         String selectedText = selectionModel.getSelectedText();
-        if (selectedText == null || (!selectedText.contains("TODO") && !selectedText.contains("todo") && !selectedText.contains("toDo"))) {
+        if (selectedText == null || !containsTodo(selectedText)) {
             LOG.info("No TODOs in selection");
             showNotification(e.getProject(), "Selected code doesn't contain any TODOs");
             return;
@@ -63,6 +90,21 @@ public class ImplementTodosAction extends AnAction {
             return;
         }
 
+        // Check for syntax errors in the selection
+        if (hasSyntaxErrors(psiFile, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd())) {
+            int result = Messages.showYesNoDialog(
+                    e.getProject(),
+                    "The selected code contains syntax errors. Proceeding might lead to unexpected results. Continue anyway?",
+                    "Syntax Errors Detected",
+                    "Continue",
+                    "Cancel",
+                    AllIcons.General.Warning);
+
+            if (result != Messages.YES) {
+                return;
+            }
+        }
+
         // Execute in background
         ProgressManager.getInstance().run(new Task.Backgroundable(e.getProject(), "Implementing TODOs", true) {
             @Override
@@ -70,14 +112,18 @@ public class ImplementTodosAction extends AnAction {
                 try {
                     indicator.setIndeterminate(false);
 
-                    // Gather context
+                    // Step 1: Analyze code context
                     indicator.setText("Analyzing code context...");
                     indicator.setFraction(0.2);
                     String codeContext = ReadAction.compute(() -> {
                         return gatherCodeContext(psiFile, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
                     });
 
-                    // Call LLM
+                    // Get information about the TODOs
+                    int todoCount = countTodos(selectedText);
+                    indicator.setText("Found " + todoCount + " TODOs to implement...");
+
+                    // Step 2: Call LLM
                     indicator.setText("Generating implementation...");
                     indicator.setFraction(0.5);
                     String implementedCode = callLlmForImplementation(selectedText, codeContext, e.getProject());
@@ -90,9 +136,9 @@ public class ImplementTodosAction extends AnAction {
                     indicator.setText("Implementation complete");
                     indicator.setFraction(1.0);
 
-                    // Show diff and apply changes if accepted
+                    // Show enhanced diff and apply changes if accepted
                     ApplicationManager.getApplication().invokeLater(() -> {
-                        showDiffAndApply(e.getProject(), editor, selectedText, implementedCode, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
+                        showEnhancedDiff(e.getProject(), editor, selectedText, implementedCode, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
                     });
                 } catch (Exception ex) {
                     LOG.error("Error implementing TODOs", ex);
@@ -105,61 +151,60 @@ public class ImplementTodosAction extends AnAction {
     }
 
     /**
+     * Checks if the selected text contains TODOs.
+     */
+    private boolean containsTodo(String text) {
+        return TODO_PATTERN.matcher(text).find();
+    }
+
+    /**
+     * Counts the number of TODOs in the selected text.
+     */
+    private int countTodos(String text) {
+        Matcher matcher = TODO_PATTERN.matcher(text);
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
+    }
+
+    /**
+     * Checks if the selected code contains syntax errors.
+     */
+    private boolean hasSyntaxErrors(PsiFile file, int startOffset, int endOffset) {
+        return ReadAction.compute(() -> {
+            // Find the PSI element at the selection
+            PsiElement startElement = file.findElementAt(startOffset);
+            PsiElement endElement = file.findElementAt(endOffset - 1);
+
+            if (startElement == null || endElement == null) {
+                return false;
+            }
+
+            // Find a common parent that encompasses the selection
+            PsiElement parent = PsiTreeUtil.findCommonParent(startElement, endElement);
+            if (parent == null) {
+                return false;
+            }
+
+            // Check for error elements in the selection
+            return PsiErrorElementUtil.hasErrors(file.getProject(), file.getVirtualFile());
+        });
+    }
+
+    /**
      * Gathers comprehensive code context for the LLM to understand the surrounding code,
      * including related classes used in the method or surrounding class.
      */
     private String gatherCodeContext(PsiFile psiFile, int selectionStart, int selectionEnd) {
-        // Delegate to the shared ClassAnalyzer utility
-        return ClassAnalyzer.collectSelectionContext(psiFile, selectionStart, selectionEnd);
-    }
+        // Get related classes with their full implementations
+        java.util.Map<String, String> relatedClassImpls = ClassAnalyzer.collectRelatedClassImplementations(psiFile, selectionStart, selectionEnd);
 
-    /**
-     * Gets just the method signature without the body.
-     */
-    private String getMethodSignature(PsiMethod method) {
-        StringBuilder signature = new StringBuilder();
+        // Use the shared ClassAnalyzer utility for basic context collection
+        String baseContext = ClassAnalyzer.collectSelectionContext(psiFile, selectionStart, selectionEnd);
 
-        // Add modifiers
-        String[] modifiers = {PsiModifier.PUBLIC, PsiModifier.PRIVATE, PsiModifier.PROTECTED, PsiModifier.STATIC, PsiModifier.ABSTRACT, PsiModifier.FINAL, PsiModifier.NATIVE, PsiModifier.SYNCHRONIZED};
-
-        for (String modifier : modifiers) {
-            if (method.hasModifierProperty(modifier)) {
-                signature.append(modifier).append(" ");
-            }
-        }
-
-        // Add return type
-        PsiType returnType = method.getReturnType();
-        if (returnType != null) {
-            signature.append(returnType.getPresentableText()).append(" ");
-        }
-
-        // Add name and parameters
-        signature.append(method.getName()).append("(");
-        PsiParameter[] parameters = method.getParameterList().getParameters();
-        for (int i = 0; i < parameters.length; i++) {
-            PsiParameter param = parameters[i];
-            signature.append(param.getType().getPresentableText()).append(" ").append(param.getName());
-            if (i < parameters.length - 1) {
-                signature.append(", ");
-            }
-        }
-        signature.append(")");
-
-        // Add exceptions
-        PsiReferenceList throwsList = method.getThrowsList();
-        if (throwsList.getReferenceElements().length > 0) {
-            signature.append(" throws ");
-            PsiJavaCodeReferenceElement[] throwsRefs = throwsList.getReferenceElements();
-            for (int i = 0; i < throwsRefs.length; i++) {
-                signature.append(throwsRefs[i].getText());
-                if (i < throwsRefs.length - 1) {
-                    signature.append(", ");
-                }
-            }
-        }
-
-        return signature.toString();
+        return baseContext;
     }
 
     /**
@@ -173,10 +218,34 @@ public class ImplementTodosAction extends AnAction {
             context.setProject(project);
             context.setConfig(config);
 
-            // Create prompt
-            String promptBuilder = "Implement the TODOs in the following Java code. Replace each TODO with appropriate code.\n\n" + "CONTEXT:\n" + codeContext + "\n\n" + "CODE WITH TODOS TO IMPLEMENT:\n```java\n" + selectedText + "\n```\n\n" + "Requirements:\n" + "1. Only replace the TODOs with implementation code\n" + "2. Keep the rest of the code exactly the same\n" + "3. Ensure the implementation matches the context and follows good practices\n" + "4. Return ONLY the implemented code without explanations or markdown formatting\n";
+            // Get related class implementations
+            java.util.Map<String, String> relatedClassImpls = new java.util.HashMap<>();
 
-            context.setPrompt(promptBuilder);
+            // If we have a PsiFile and selection information, collect related class implementations
+            if (context.getPsiFile() != null) {
+                PsiFile psiFile = context.getPsiFile();
+                SelectionModel selectionModel = context.getEditor().getSelectionModel();
+                if (selectionModel.hasSelection()) {
+                    relatedClassImpls = ClassAnalyzer.collectRelatedClassImplementations(
+                            psiFile,
+                            selectionModel.getSelectionStart(),
+                            selectionModel.getSelectionEnd()
+                    );
+                }
+            }
+
+            // Create specialized prompt using TodoPromptDrafter with related class implementations
+            String prompt = TodoPromptDrafter.createTodoImplementationPrompt(
+                    selectedText,
+                    codeContext,
+                     relatedClassImpls
+            );
+
+            // Set the prompt in the context
+            context.setPrompt(prompt);
+            System.out.println(prompt);
+            // Log the prompt for debugging purposes
+            LOG.debug("TODO implementation prompt: " + prompt);
 
             // Call LLM API
             LlmApiCallStage apiCallStage = new LlmApiCallStage();
@@ -186,63 +255,102 @@ public class ImplementTodosAction extends AnAction {
             CodeExtractionStage extractionStage = new CodeExtractionStage();
             extractionStage.process(context);
 
-            return context.getTestCode(); // This will contain the extracted code
+            String implementedCode = context.getTestCode(); // This will contain the extracted code
+
+            if (implementedCode == null || implementedCode.isEmpty()) {
+                throw new PipelineExecutionException("LLM returned empty implementation");
+            }
+
+            // Validate that the implementation contains the expected code structure
+            if (!validateImplementation(selectedText, implementedCode)) {
+                LOG.warn("LLM implementation may have altered code structure unexpectedly");
+            }
+
+            return implementedCode;
         } catch (Exception e) {
-            LOG.error("Error calling LLM", e);
+            LOG.error("Error calling LLM for TODO implementation", e);
             throw new PipelineExecutionException("Failed to call LLM: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Shows a diff dialog and applies the changes if accepted.
-     * Uses a custom dialog to ensure proper closing of the diff viewer.
+     * Validates that the implemented code maintains the overall structure of the original code.
+     * This helps ensure the LLM hasn't drastically altered the code beyond replacing TODOs.
      */
-    private void showDiffAndApply(Project project, Editor editor, String originalCode, String implementedCode, int selectionStart, int selectionEnd) {
-        // Create diff contents
-        DiffContentFactory diffFactory = DiffContentFactory.getInstance();
-        DocumentContent originalContent = diffFactory.create(originalCode);
-        DocumentContent newContent = diffFactory.create(implementedCode);
+    private boolean validateImplementation(String originalCode, String implementedCode) {
+        // Remove whitespace and comments for comparison
+        String normalizedOriginal = normalizeForComparison(originalCode);
+        String normalizedImplemented = normalizeForComparison(implementedCode);
 
-        // Create diff request
-        SimpleDiffRequest diffRequest = new SimpleDiffRequest("TODO Implementation", originalContent, newContent, "Original Code with TODOs", "Implemented Code");
+        // Check if the implemented code has roughly similar structure
+        // by comparing size (allowing for reasonable expansion)
+        int originalSize = normalizedOriginal.length();
+        int implementedSize = normalizedImplemented.length();
 
-        // Create a runnable to apply changes
-        Runnable applyChanges = () -> {
-            WriteCommandAction.runWriteCommandAction(project, () -> {
-                editor.getDocument().replaceString(selectionStart, selectionEnd, implementedCode);
-            });
-        };
+        // Implementation should not be smaller than original
+        if (implementedSize < originalSize * 0.9) {
+            return false;
+        }
 
-        // Show diff using DiffManager showDiff method
-        DiffManager diffManager = DiffManager.getInstance();
-        WindowWrapper[] wrapperHolder = new WindowWrapper[1]; // Array to hold reference
+        // Implementation should not be drastically larger (allowing for reasonable expansion)
+        if (implementedSize > originalSize * 3) {
+            return false;
+        }
 
-        DiffDialogHints dialogHints = new DiffDialogHints(WindowWrapper.Mode.NON_MODAL, editor.getComponent(), new Consumer<WindowWrapper>() {
-            @Override
-            public void consume(WindowWrapper wrapper) {
+        // Check that non-TODO lines are preserved
+        // This is a simple approach - we could do more sophisticated diffing if needed
+        String[] origLines = originalCode.split("\n");
+        String[] implLines = implementedCode.split("\n");
 
-                wrapperHolder[0] = wrapper;
+        int matchingLines = 0;
+        for (String origLine : origLines) {
+            if (!origLine.contains("TODO") && !origLine.trim().isEmpty()) {
+                boolean foundMatch = false;
+                for (String implLine : implLines) {
+                    if (implLine.trim().equals(origLine.trim())) {
+                        foundMatch = true;
+                        matchingLines++;
+                        break;
+                    }
+                }
+                if (!foundMatch) {
+                    LOG.debug("Original line not found in implementation: " + origLine);
+                }
             }
-        });
-
-        diffManager.showDiff(project, diffRequest, dialogHints);
-
-
-        // After showing diff, show dialog with apply option
-        int result = Messages.showYesNoDialog(project, "Do you want to apply the implementation to your code?", "Apply Changes", "Apply", "Cancel", AllIcons.Actions.Diff);
-
-        // Apply changes if agreed
-        if (result == Messages.YES) {
-            applyChanges.run();
         }
-        // Close the diff dialog
-        if (wrapperHolder[0] != null) {
-            wrapperHolder[0].close();
-        }
-        // Ensure focus returns to editor
-        if (editor.getComponent().isShowing()) {
-            editor.getContentComponent().requestFocusInWindow();
-        }
+
+        // Ensure we have a reasonable number of matching non-TODO lines
+        int nonTodoLines = (int) java.util.Arrays.stream(origLines)
+                .filter(line -> !line.contains("TODO") && !line.trim().isEmpty())
+                .count();
+
+        return matchingLines >= nonTodoLines * 0.8; // At least 80% of non-TODO lines should match
+    }
+
+    /**
+     * Normalizes code for comparison by removing whitespace and comments.
+     */
+    private String normalizeForComparison(String code) {
+        // Remove comments
+        code = code.replaceAll("//.*?$", "").replaceAll("/\\*.*?\\*/", "");
+
+        // Remove whitespace
+        return code.replaceAll("\\s+", "");
+    }
+    /**
+     * Shows the enhanced diff component for comparing original and implemented code.
+     */
+    private void showEnhancedDiff(Project project, Editor editor, String originalCode, String implementedCode, int selectionStart, int selectionEnd) {
+        EnhancedTodoDiffComponent diffComponent = new EnhancedTodoDiffComponent(
+                project,
+                editor,
+                originalCode,
+                implementedCode,
+                selectionStart,
+                selectionEnd
+        );
+
+        diffComponent.showDiff();
     }
 
     /**

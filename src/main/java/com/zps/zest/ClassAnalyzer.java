@@ -9,6 +9,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -391,5 +392,108 @@ public class ClassAnalyzer {
     public static String getTextOfPsiElement(PsiElement element) {
         return ApplicationManager.getApplication().runReadAction(
                 (ThrowableComputable<String, RuntimeException>) () -> element.getText());
+    }
+
+
+    /**
+     * Collects full implementations of related classes, focusing on shorter classes.
+     *
+     * @param psiFile The file containing the selection
+     * @param selectionStart The start offset of the selection
+     * @param selectionEnd The end offset of the selection
+     * @return A map of class names to their full implementations
+     */
+    static java.util.Map<String, String> collectRelatedClassImplementations(PsiFile psiFile, int selectionStart, int selectionEnd) {
+        java.util.Map<String, String> classImpls = new java.util.HashMap<>();
+
+        if (!(psiFile instanceof PsiJavaFile)) {
+            return classImpls;
+        }
+
+        // Get the element at selection
+        PsiElement startElement = psiFile.findElementAt(selectionStart);
+        if (startElement == null) {
+            return classImpls;
+        }
+
+        // Find containing method
+        PsiMethod containingMethod = PsiTreeUtil.getParentOfType(startElement, PsiMethod.class);
+        if (containingMethod == null) {
+            return classImpls;
+        }
+
+        // Find containing class
+        PsiClass containingClass = containingMethod.getContainingClass();
+        if (containingClass == null) {
+            return classImpls;
+        }
+
+        // Collect references to classes in the method
+        java.util.Set<PsiClass> referencedClasses = new java.util.HashSet<>();
+        containingMethod.accept(new JavaRecursiveElementVisitor() {
+            @Override
+            public void visitReferenceExpression(PsiReferenceExpression expression) {
+                super.visitReferenceExpression(expression);
+                PsiElement resolved = expression.resolve();
+                if (resolved instanceof PsiClass) {
+                    referencedClasses.add((PsiClass) resolved);
+                }
+            }
+
+            @Override
+            public void visitNewExpression(PsiNewExpression expression) {
+                super.visitNewExpression(expression);
+                PsiJavaCodeReferenceElement classRef = expression.getClassReference();
+                if (classRef != null) {
+                    PsiElement resolved = classRef.resolve();
+                    if (resolved instanceof PsiClass) {
+                        referencedClasses.add((PsiClass) resolved);
+                    }
+                }
+            }
+
+            @Override
+            public void visitTypeElement(PsiTypeElement type) {
+                super.visitTypeElement(type);
+                if (type.getType() instanceof PsiClassType) {
+                    PsiClass resolved = ((PsiClassType) type.getType()).resolve();
+                    if (resolved != null) {
+                        referencedClasses.add(resolved);
+                    }
+                }
+            }
+        });
+
+        // Check field types in the containing class
+        for (PsiField field : containingClass.getFields()) {
+            PsiType fieldType = field.getType();
+            if (fieldType instanceof PsiClassType) {
+                PsiClass fieldClass = ((PsiClassType) fieldType).resolve();
+                if (fieldClass != null) {
+                    referencedClasses.add(fieldClass);
+                }
+            }
+        }
+
+        // For each referenced class, get the full implementation if it's not too large
+        final int MAX_CLASS_SIZE = 2000; // Characters
+        for (PsiClass psiClass : referencedClasses) {
+            // Skip standard Java classes
+            if (psiClass.getQualifiedName() != null &&
+                    (psiClass.getQualifiedName().startsWith("java.") ||
+                            psiClass.getQualifiedName().startsWith("javax."))) {
+                continue;
+            }
+
+            // Get the full text of the class
+            String classText = psiClass.getText();
+
+            // Only include if it's not too large
+            if (classText.length() <= MAX_CLASS_SIZE) {
+                classImpls.put(psiClass.getName(), classText);
+            }
+        }
+
+        return classImpls;
     }
 }

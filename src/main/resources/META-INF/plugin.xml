@@ -33,5 +33,13 @@
                 description="Write tests by Ollama">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>
+        <action id="com.zps.zest.ImplementTodosAction"
+                class="com.zps.zest.ImplementTodosAction"
+                text="Zingplay Implement TODOs"
+                description="Implement TODOs in selected code using Ollama">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="GenerateGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift I"/>
+        </action>
     </actions>
 </idea-plugin>

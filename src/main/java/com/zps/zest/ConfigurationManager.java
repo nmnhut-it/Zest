@@ -1,15 +1,28 @@
 package com.zps.zest;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages; /**
+import com.intellij.openapi.ui.Messages;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+/**
  * Configuration manager for loading and accessing plugin settings.
  */
 public class ConfigurationManager {
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
     private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
+    private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final String DEFAULT_MODEL = "qwen25-coder-custom";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
+    private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
     private String apiUrl;
     private String model;
@@ -23,11 +36,15 @@ public class ConfigurationManager {
     }
 
     public void loadConfig() {
-        // Default values
-        apiUrl = DEFAULT_API_URL;
+        // Default values - start with pinging domains to determine which API URL to use
+        String defaultApiUrl = determineDefaultApiUrl();
+
+        apiUrl = defaultApiUrl;
         model = DEFAULT_MODEL;
         maxIterations = DEFAULT_MAX_ITERATIONS;
         authToken = "";
+
+        boolean configExists = false;
 
         // Try to load from config file
         try {
@@ -36,12 +53,13 @@ public class ConfigurationManager {
                 configFile =  new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
             }
             if (configFile.exists()) {
+                configExists = true;
                 java.util.Properties props = new java.util.Properties();
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
                     props.load(fis);
                 }
 
-                apiUrl = props.getProperty("apiUrl", DEFAULT_API_URL);
+                apiUrl = props.getProperty("apiUrl", defaultApiUrl);
                 model = props.getProperty("model", DEFAULT_MODEL);
                 authToken = props.getProperty("authToken", "");
 
@@ -50,19 +68,146 @@ public class ConfigurationManager {
                 } catch (NumberFormatException e) {
                     maxIterations = DEFAULT_MAX_ITERATIONS;
                 }
+
+                // If auth token is empty, prompt the user to enter one
+                if (authToken == null || authToken.trim().isEmpty()) {
+                    promptForAuthToken(configFile, apiUrl);
+                }
             } else {
-                createDefaultConfigFile();
+                createDefaultConfigFile(defaultApiUrl);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+    /**
+     * Prompts the user to enter an authentication token and saves it to the configuration file.
+     *
+     * @param configFile The configuration file
+     * @param apiUrl The API URL that requires authentication
+     */
+    private void promptForAuthToken(java.io.File configFile, String apiUrl) {
+        ApplicationManager.getApplication().invokeAndWait(()->{
+            try {
+                // Prompt the user to enter an auth token
+                String authToken = Messages.showInputDialog(
+                        project,
+                        "Enter your API authorization token for " + apiUrl,
+                        "API Authorization Required",
+                        Messages.getQuestionIcon()
+                );
 
-    private void createDefaultConfigFile() {
+                // Update the token in properties if the user provided one
+                if (authToken != null && !authToken.trim().isEmpty()) {
+                    java.util.Properties props = new java.util.Properties();
+
+                    // Load existing properties first
+                    try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
+                        props.load(fis);
+                    }
+
+                    props.setProperty("authToken", authToken.trim());
+
+                    // Save the updated properties
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
+                        props.store(fos, "Ollama Test Generator Plugin Configuration");
+                    }
+
+                    // Update the current authToken value
+                    this.authToken = authToken.trim();
+
+                    Messages.showInfoMessage(
+                            "Configuration updated successfully with your authorization token.",
+                            "Configuration Updated"
+                    );
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Messages.showErrorDialog(
+                        "Failed to update configuration with authorization token: " + e.getMessage(),
+                        "Configuration Error"
+                );
+            }
+        });
+
+    }
+
+    /**
+     * Determines the default API URL to use by pinging domains in order of preference.
+     * First tries DEFAULT_API_URL_2 domain, then falls back to DEFAULT_API_URL.
+     *
+     * @return The best available API URL
+     */
+    private String determineDefaultApiUrl() {
+        // Extract domain from DEFAULT_API_URL_2 without the API path
+        String domain2 = extractDomain(DEFAULT_API_URL_2);
+
+        // First check if DEFAULT_API_URL_2 domain is reachable
+        if (domain2 != null && isDomainReachable(domain2)) {
+            return DEFAULT_API_URL_2;
+        }
+
+        // If not reachable, use DEFAULT_API_URL
+        return DEFAULT_API_URL;
+    }
+
+    /**
+     * Extracts the domain part from a URL string (protocol + hostname).
+     *
+     * @param urlString The full URL string
+     * @return The domain part or null if parsing fails
+     */
+    private String extractDomain(String urlString) {
+        try {
+            URL url = new URL(urlString);
+            return url.getProtocol() + "://" + url.getHost();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Checks if a domain is reachable by making a HEAD request.
+     *
+     * @param domain The domain to check
+     * @return true if the domain is reachable, false otherwise
+     */
+    private boolean isDomainReachable(String domain) {
+        CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                URL url = new URL(domain);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("HEAD");
+                connection.setConnectTimeout(CONNECTION_TIMEOUT);
+                connection.setReadTimeout(CONNECTION_TIMEOUT);
+                int responseCode = connection.getResponseCode();
+                return responseCode >= 200 && responseCode < 400;
+            } catch (SocketTimeoutException e) {
+                // Timeout occurred
+                return false;
+            } catch (IOException e) {
+                // Connection failed
+                return false;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        });
+
+        try {
+            return future.get(CONNECTION_TIMEOUT + 500, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            // Failed to complete the check in time
+            return false;
+        }
+    }
+
+    private void createDefaultConfigFile(String defaultApiUrl) {
         try {
             java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
             java.util.Properties props = new java.util.Properties();
-            props.setProperty("apiUrl", DEFAULT_API_URL);
+            props.setProperty("apiUrl", defaultApiUrl);
             props.setProperty("model", DEFAULT_MODEL);
             props.setProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS));
             props.setProperty("authToken", "");
@@ -71,9 +216,32 @@ public class ConfigurationManager {
                 props.store(fos, "Ollama Test Generator Plugin Configuration");
             }
 
-            Messages.showInfoMessage("Created default configuration file at: " + configFile.getPath() +
-                            "\nPlease update with your API authorization if needed.",
-                    "Configuration Created");
+            // Prompt the user to enter an auth token
+            String authToken = Messages.showInputDialog(
+                    project,
+                    "Enter your API authorization token for " + defaultApiUrl,
+                    "API Authorization Required",
+                    Messages.getQuestionIcon()
+            );
+
+            // Update the token in properties if the user provided one
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                props.setProperty("authToken", authToken.trim());
+                // Save the updated properties
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
+                    props.store(fos, "Zest Plugin Configuration");
+                }
+                Messages.showInfoMessage(
+                        "Configuration created successfully with your authorization token.",
+                        "Configuration Created"
+                );
+            } else {
+                Messages.showInfoMessage(
+                        "Created default configuration file at: " + configFile.getPath() +
+                                "\nNo authorization token was provided. You may need to update this later.",
+                        "Configuration Created"
+                );
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }

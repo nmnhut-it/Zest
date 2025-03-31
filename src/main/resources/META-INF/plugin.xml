@@ -49,7 +49,7 @@
     </extensions>
     <actions>
         <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Zingplay Write Test"
-                description="Write tests by Ollama">
+                description="Write tests by LLMs">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>
         <action id="com.zps.zest.ImplementTodosAction"

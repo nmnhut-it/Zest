@@ -5,6 +5,7 @@ import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -20,9 +21,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.WindowWrapper;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 
@@ -74,9 +73,9 @@ public class ImplementTodosAction extends AnAction {
                     // Gather context
                     indicator.setText("Analyzing code context...");
                     indicator.setFraction(0.2);
-                    String codeContext = ReadAction.compute(()->{
+                    String codeContext = ReadAction.compute(() -> {
                         return gatherCodeContext(psiFile, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
-                    }) ;
+                    });
 
                     // Call LLM
                     indicator.setText("Generating implementation...");
@@ -113,6 +112,7 @@ public class ImplementTodosAction extends AnAction {
         // Delegate to the shared ClassAnalyzer utility
         return ClassAnalyzer.collectSelectionContext(psiFile, selectionStart, selectionEnd);
     }
+
     /**
      * Gets just the method signature without the body.
      */
@@ -174,14 +174,7 @@ public class ImplementTodosAction extends AnAction {
             context.setConfig(config);
 
             // Create prompt
-            String promptBuilder = "Implement the TODOs in the following Java code. Replace each TODO with appropriate code.\n\n" +
-                    "CONTEXT:\n" + codeContext + "\n\n" +
-                    "CODE WITH TODOS TO IMPLEMENT:\n```java\n" + selectedText + "\n```\n\n" +
-                    "Requirements:\n" +
-                    "1. Only replace the TODOs with implementation code\n" +
-                    "2. Keep the rest of the code exactly the same\n" +
-                    "3. Ensure the implementation matches the context and follows good practices\n" +
-                    "4. Return ONLY the implemented code without explanations or markdown formatting\n";
+            String promptBuilder = "Implement the TODOs in the following Java code. Replace each TODO with appropriate code.\n\n" + "CONTEXT:\n" + codeContext + "\n\n" + "CODE WITH TODOS TO IMPLEMENT:\n```java\n" + selectedText + "\n```\n\n" + "Requirements:\n" + "1. Only replace the TODOs with implementation code\n" + "2. Keep the rest of the code exactly the same\n" + "3. Ensure the implementation matches the context and follows good practices\n" + "4. Return ONLY the implemented code without explanations or markdown formatting\n";
 
             context.setPrompt(promptBuilder);
 
@@ -228,7 +221,6 @@ public class ImplementTodosAction extends AnAction {
             @Override
             public void consume(WindowWrapper wrapper) {
 
-                // todo: set this in window wrapper so that we can close later
                 wrapperHolder[0] = wrapper;
             }
         });
@@ -237,7 +229,7 @@ public class ImplementTodosAction extends AnAction {
 
 
         // After showing diff, show dialog with apply option
-        int result = Messages.showYesNoDialog(project, "Do you want to apply the implementation to your code?", "Apply Changes", "Apply", "Cancel", null);
+        int result = Messages.showYesNoDialog(project, "Do you want to apply the implementation to your code?", "Apply Changes", "Apply", "Cancel", AllIcons.Actions.Diff);
 
         // Apply changes if agreed
         if (result == Messages.YES) {

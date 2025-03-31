@@ -96,7 +96,7 @@ public class BackgroundPipelineExecutor {
      * Default execute method that shows the progress UI (for backwards compatibility)
      */
     public static void executeInBackground(TestGenerationContext context) {
-        executeInBackground(context, false);
+        executeInBackground(context, true);
     }
 
     /**

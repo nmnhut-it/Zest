@@ -2,7 +2,9 @@ package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -12,12 +14,23 @@ import com.intellij.psi.search.GlobalSearchScope;
  * Uses the centralized ClassAnalyzer utility for code analysis.
  */
 public class ClassAnalysisStage implements PipelineStage {
+    /**
+     * Shows a notification.
+     */
+    private void showNotification(Project project, String message) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            Messages.showInfoMessage(project, message, "Class Analysis Stage");
+        });
+    }
     @Override
     public void process(TestGenerationContext context) throws PipelineExecutionException {
         PsiFile psiFile = context.getPsiFile();
         PsiClass targetClass = context.getTargetClass();
         StringBuilder importBuilder = new StringBuilder();
-
+        if (DumbService.isDumb(context.getProject())){
+            showNotification(context.getProject(),   "Indexing is in progress, please try later");
+            return;
+        }
         ReadAction.run(() -> {
             // Collect imports from the current file
             if (psiFile instanceof PsiJavaFile) {

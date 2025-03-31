@@ -3,6 +3,8 @@ package com.zps.zest;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+
+import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -84,9 +86,10 @@ public class ConfigurationManager {
      * Prompts the user to enter an authentication token and saves it to the configuration file.
      *
      * @param configFile The configuration file
-     * @param apiUrl The API URL that requires authentication
+     * @param apiUrl     The API URL that requires authentication
+     * @return
      */
-    private void promptForAuthToken(java.io.File configFile, String apiUrl) {
+    private String promptForAuthToken(File configFile, String apiUrl) {
         ApplicationManager.getApplication().invokeAndWait(()->{
             try {
                 // Prompt the user to enter an auth token
@@ -129,7 +132,7 @@ public class ConfigurationManager {
                 );
             }
         });
-
+        return this.authToken;
     }
 
     /**
@@ -217,12 +220,7 @@ public class ConfigurationManager {
             }
 
             // Prompt the user to enter an auth token
-            String authToken = Messages.showInputDialog(
-                    project,
-                    "Enter your API authorization token for " + defaultApiUrl,
-                    "API Authorization Required",
-                    Messages.getQuestionIcon()
-            );
+            String authToken =promptForAuthToken(configFile,defaultApiUrl);
 
             // Update the token in properties if the user provided one
             if (authToken != null && !authToken.trim().isEmpty()) {

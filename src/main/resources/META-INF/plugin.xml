@@ -45,6 +45,12 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Register the tool window factory -->
+        <toolWindow id="AI Assistant"
+                    anchor="right"
+                    factoryClass="com.zps.zest.InteractiveAgentToolWindow"
+                    icon="AllIcons.Nodes.Plugin"/>
+
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
     </extensions>
@@ -60,6 +66,28 @@
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <add-to-group group-id="GenerateGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift I"/>
+        </action>
+        <!-- Two-phase AI Coding Assistant action -->
+        <action id="com.zps.zest.AiCodingAssistantAction"
+                class="com.zps.zest.AiCodingAssistantAction"
+                text="Ask AI _Coding Assistant"
+                description="Ask the AI to explain, modify, or generate code (with plan and execute workflow)"
+                icon="AllIcons.Actions.StartDebugger">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="MainToolBar" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl A"/>
+        </action>
+
+        <!-- Open Interactive Agent window action -->
+        <action id="com.zps.zest.OpenInteractiveAgentAction"
+                class="com.zps.zest.OpenInteractiveAgentAction"
+                text="Open AI _Assistant"
+                description="Open the interactive AI assistant window"
+                icon="AllIcons.Nodes.Plugin">
+            <add-to-group group-id="ToolsMenu" anchor="first"/>
+            <add-to-group group-id="MainToolBar" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl I"/>
         </action>
     </actions>
 </idea-plugin>

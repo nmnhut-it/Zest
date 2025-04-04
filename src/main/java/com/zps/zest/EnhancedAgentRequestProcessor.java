@@ -1,534 +1,530 @@
 package com.zps.zest;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.SelectionModel;
-import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.util.PsiUtilBase;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Enhanced processor for AI agent requests with tool usage and follow-up capabilities.
+ * Enhanced processor for AI agent requests that supports:
+ * - Conversation history integration
+ * - Code context awareness
+ * - Tool invocation with XML format
  */
 public class EnhancedAgentRequestProcessor {
     private static final Logger LOG = Logger.getInstance(EnhancedAgentRequestProcessor.class);
-    
-    private final Project project;
-    private final ConfigurationManager config;
-    private final AgentTools tools;
 
-    private static final Pattern USE_TOOL_PATTERN =
-            Pattern.compile("\\{\\{USE_TOOL:([\\w_]+)(?::([^}]*)?)?\\}\\}", Pattern.MULTILINE);
-    
-    // Map of available tools and their implementations
-    private final Map<String, ToolFunction> toolFunctions = new HashMap<>();
+    private final Project project;
+    private final AgentTools tools;
+    private final ConfigurationManager configManager;
+
+    // Patterns for extracting tool usage from responses
+    // Pattern for XML-style tool tags - made to match Cline's format
+    private static final Pattern TOOL_PATTERN = Pattern.compile("<([a-z_]+)>(.*?)</\\1>", Pattern.DOTALL);
 
     /**
      * Creates a new enhanced request processor.
      *
      * @param project The current project
-     * @param tools The tools for the agent to use
+     * @param tools The tools available to the agent
      */
-    public EnhancedAgentRequestProcessor(Project project, AgentTools tools) {
+    public EnhancedAgentRequestProcessor(@NotNull Project project, @NotNull AgentTools tools) {
         this.project = project;
         this.tools = tools;
-        this.config = new ConfigurationManager(project);
-        
-        // Register available tools
-        registerTools();
+        this.configManager = new ConfigurationManager(project);
     }
 
     /**
-     * Registers the available tools with their implementations.
-     */
-    private void registerTools() {
-        // File reading tool
-        toolFunctions.put("readFile", tools::readFile);
-        
-        // Method search tool
-        toolFunctions.put("findMethods", param -> {
-            List<String> methods = tools.findMethods(param);
-            StringBuilder result = new StringBuilder("Found methods:\n\n");
-            for (String method : methods) {
-                result.append(method).append("\n\n");
-            }
-            return result.toString();
-        });
-        
-        // Class search tool
-        toolFunctions.put("searchClasses", tools::searchClasses);
-        
-        // Project structure tool
-        toolFunctions.put("getProjectStructure", param -> tools.getProjectStructure());
-        
-        // Current class info tool
-        toolFunctions.put("getCurrentClassInfo", param -> tools.getCurrentClassInfo());
-        
-        // Reference finding tool
-        toolFunctions.put("findReferences", tools::findReferences);
-        toolFunctions.put("createFile", tools::createFile);
-    }
-
-    /**
-     * Processes a request with tool usage capabilities.
+     * Processes a user request with tools and conversation history.
      *
-     * @param request The user's request
+     * @param userRequest The user's request
      * @param conversationHistory The conversation history
-     * @param editor The current editor
-     * @return The agent's response
-     * @throws PipelineExecutionException If an error occurs during processing
+     * @param editor The current editor (can be null)
+     * @return The assistant's response
+     * @throws PipelineExecutionException If there's an error during processing
      */
-    public String processRequestWithTools(String request, List<String> conversationHistory, Editor editor) 
-            throws PipelineExecutionException {
+    public String processRequestWithTools(
+            @NotNull String userRequest,
+            @NotNull List<String> conversationHistory,
+            @Nullable Editor editor) throws PipelineExecutionException {
+
+        // Generate a request ID for tracking
+        String requestId = UUID.randomUUID().toString().substring(0, 8);
+        LOG.info("Processing enhanced request " + requestId + ": " + userRequest);
+
         try {
-            // Gather context from the editor
-            String context = gatherContext(editor);
-            
-            // Build the prompt with tools
-            String prompt = buildPromptWithTools(request, conversationHistory, context, editor);
-            
-            // Call the LLM API
-            String initialResponse = callLlmApi(prompt);
-            
-            // Process the response for tool usage
-            return processToolUsage(initialResponse, conversationHistory, editor);
+            // 1. Gather code context from the current editor
+            Map<String, String> codeContext = gatherCodeContext(editor);
+
+            // 2. Construct the full prompt with XML formatting for tools
+            String fullPrompt = constructPromptWithTools(userRequest, conversationHistory, codeContext);
+
+            // 3. Call the LLM API
+            String response = callLlmApi(fullPrompt);
+
+            // 4. Process tool usage in the response if any
+            response = processToolUsage(response);
+
+            LOG.info("Request " + requestId + " processed successfully");
+            return response;
+
         } catch (Exception e) {
-            LOG.error("Error processing request", e);
+            LOG.error("Error processing request " + requestId, e);
             throw new PipelineExecutionException("Error processing request: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Processes a follow-up response.
+     * Processes a follow-up to a previous request.
      *
-     * @param answer The user's answer to the follow-up
+     * @param followUpResponse The user's follow-up response
      * @param conversationHistory The conversation history
-     * @param editor The current editor
-     * @return The agent's response
-     * @throws PipelineExecutionException If an error occurs during processing
+     * @param editor The current editor (can be null)
+     * @return The assistant's response
+     * @throws PipelineExecutionException If there's an error during processing
      */
-    public String processFollowUp(String answer, List<String> conversationHistory, Editor editor) 
-            throws PipelineExecutionException {
-        try {
-            // Build follow-up prompt
-            String prompt = buildFollowUpPrompt(answer, conversationHistory, editor);
-            
-            // Call the LLM API
-            String initialResponse = callLlmApi(prompt);
-            
-            // Process the response for tool usage
-            return processToolUsage(initialResponse, conversationHistory, editor);
-        } catch (Exception e) {
-            LOG.error("Error processing follow-up", e);
-            throw new PipelineExecutionException("Error processing follow-up: " + e.getMessage(), e);
-        }
+    public String processFollowUp(
+            @NotNull String followUpResponse,
+            @NotNull List<String> conversationHistory,
+            @Nullable Editor editor) throws PipelineExecutionException {
+
+        // Tag the follow-up for special handling
+        String taggedRequest = "<FOLLOW_UP>" + followUpResponse + "</FOLLOW_UP>";
+
+        // Process normally using the tagged request
+        return processRequestWithTools(taggedRequest, conversationHistory, editor);
     }
 
     /**
-     * Processes tool usage in the LLM response.
+     * Gathers context from the current editor.
      *
-     * @param response The initial response
-     * @param conversationHistory The conversation history
      * @param editor The current editor
-     * @return The processed response with tool outputs
-     * @throws PipelineExecutionException If an error occurs during processing
+     * @return A map of context information
      */
-    private String processToolUsage(String response, List<String> conversationHistory, Editor editor) 
-            throws PipelineExecutionException {
-        // Check if the response contains tool usage commands
-        Matcher matcher = USE_TOOL_PATTERN.matcher(response);
-        
-        if (!matcher.find()) {
-            // No tool usage, return the response as is
-            return response;
+    private Map<String, String> gatherCodeContext(@Nullable Editor editor) {
+        Map<String, String> context = new HashMap<>();
+
+        if (editor == null) {
+            context.put("hasEditor", "false");
+            return context;
         }
-        
-        // Reset the matcher to process all tool usages
-        matcher.reset();
-        
-        // StringBuilder to build the processed response
-        StringBuilder processedResponse = new StringBuilder(response);
-        
-        // Track offsets as we replace tool usages with their outputs
-        int offset = 0;
-        
-        // Process each tool usage
-        while (matcher.find()) {
-            String toolName = matcher.group(1);
-            String toolParam = matcher.group(2);
-            String toolUsagePattern = "{{USE_TOOL:" + toolName + ":" + toolParam + "}}";
-            
-            // Check if the tool exists
-            if (!toolFunctions.containsKey(toolName)) {
-                String errorMessage = "Tool not found: " + toolName;
-                LOG.warn(errorMessage);
-                
-                // Replace the tool usage with error
-                processedResponse.replace(
-                        matcher.start() + offset, 
-                        matcher.end() + offset, 
-                        "ERROR: " + errorMessage);
-                
-                // Update offset
-                offset += ("ERROR: " + errorMessage).length() - toolUsagePattern.length();
-                continue;
-            }
-            
-            try {
-                // Execute the tool
-                String toolOutput = toolFunctions.get(toolName).execute(toolParam);
-                
-                // Format the tool output
-                String formattedOutput = "Tool Output (" + toolName + "):\n```\n" + toolOutput + "\n```";
-                
-                // Replace the tool usage with its output
-                processedResponse.replace(
-                        matcher.start() + offset, 
-                        matcher.end() + offset, 
-                        formattedOutput);
-                
-                // Update offset
-                offset += formattedOutput.length() - toolUsagePattern.length();
-            } catch (Exception e) {
-                String errorMessage = "Error executing tool " + toolName + ": " + e.getMessage();
-                LOG.error(errorMessage, e);
-                
-                // Replace the tool usage with error
-                processedResponse.replace(
-                        matcher.start() + offset, 
-                        matcher.end() + offset, 
-                        "ERROR: " + errorMessage);
-                
-                // Update offset
-                offset += ("ERROR: " + errorMessage).length() - toolUsagePattern.length();
-            }
+
+        context.put("hasEditor", "true");
+
+        // Get current file information
+        VirtualFile currentFile = FileDocumentManager.getInstance().getFile(editor.getDocument());
+        if (currentFile != null) {
+            context.put("currentFilePath", currentFile.getPath());
+            context.put("currentFileName", currentFile.getName());
+            context.put("currentFileExtension", currentFile.getExtension());
+            context.put("currentFileContent", editor.getDocument().getText());
         }
-        
-        // Recursively handle nested tool usages
-        String result = processedResponse.toString();
-        if (USE_TOOL_PATTERN.matcher(result).find()) {
-            // If there are still tool usages, process them
-            return processToolUsage(result, conversationHistory, editor);
+
+        // Add selection information if there is a selection
+        if (editor.getSelectionModel().hasSelection()) {
+            context.put("hasSelection", "true");
+            context.put("selectedText", editor.getSelectionModel().getSelectedText());
+            context.put("selectionStart", String.valueOf(editor.getSelectionModel().getSelectionStart()));
+            context.put("selectionEnd", String.valueOf(editor.getSelectionModel().getSelectionEnd()));
+        } else {
+            context.put("hasSelection", "false");
+
+            // Add cursor position
+            int offset = editor.getCaretModel().getOffset();
+            int lineNumber = editor.getDocument().getLineNumber(offset);
+            int column = offset - editor.getDocument().getLineStartOffset(lineNumber);
+
+            context.put("cursorOffset", String.valueOf(offset));
+            context.put("cursorLineNumber", String.valueOf(lineNumber + 1));
+            context.put("cursorColumn", String.valueOf(column + 1));
         }
-        
-        // If the response needs further processing with the new context
-        if (result.contains("{{PROCESS_WITH_TOOLS:")) {
-            return handleAdditionalProcessing(result, conversationHistory, editor);
-        }
-        
-        return result;
-    }
-    
-    /**
-     * Handles additional processing requests from the LLM.
-     *
-     * @param response The response containing the processing request
-     * @param conversationHistory The conversation history
-     * @param editor The current editor
-     * @return The processed response
-     * @throws PipelineExecutionException If an error occurs during processing
-     */
-    private String handleAdditionalProcessing(String response, List<String> conversationHistory, Editor editor) 
-            throws PipelineExecutionException {
-        // Extract the content to process
-        int startIndex = response.indexOf("{{PROCESS_WITH_TOOLS:") + "{{PROCESS_WITH_TOOLS:".length();
-        int endIndex = response.indexOf("}}", startIndex);
-        
-        if (startIndex >= "{{PROCESS_WITH_TOOLS:".length() && endIndex > startIndex) {
-            String contentToProcess = response.substring(startIndex, endIndex);
-            
-            // Clean response by removing the processing tag
-            String cleanResponse = response.replace("{{PROCESS_WITH_TOOLS:" + contentToProcess + "}}", "");
-            
-            // Build a new prompt with the additional content
-            String prompt = buildPromptWithTools(contentToProcess, conversationHistory, "", editor);
-            
-            // Call the LLM API
-            String additionalResponse = callLlmApi(prompt);
-            
-            // Process any tool usage in the additional response
-            String processedAdditionalResponse = processToolUsage(additionalResponse, conversationHistory, editor);
-            
-            // Combine the responses
-            return cleanResponse + "\n\nAdditional processing results:\n\n" + processedAdditionalResponse;
-        }
-        
-        // If extraction fails, return the original response
-        return response;
+
+        return context;
     }
 
     /**
-     * Gathers context from the editor.
+     * Constructs a complete prompt with tools, history, and the user request.
      *
-     * @param editor The current editor
-     * @return The context string
-     */
-    private String gatherContext(Editor editor) {
-        return ApplicationManager.getApplication().runReadAction((Computable<String>) ()->{
-            StringBuilder context = new StringBuilder();
-
-            if (editor == null) {
-                return "No editor available";
-            }
-
-            // Get file information
-            PsiFile psiFile = PsiUtilBase.getPsiFileInEditor(editor, project);
-            if (psiFile != null) {
-                context.append("File: ").append(psiFile.getName()).append("\n");
-                context.append("Language: ").append(psiFile.getLanguage().getDisplayName()).append("\n\n");
-
-                // Get current selection or visible content
-                SelectionModel selectionModel = editor.getSelectionModel();
-                String selectedText = selectionModel.getSelectedText();
-
-                if (selectedText != null && !selectedText.isEmpty()) {
-                    context.append("Selected Code:\n```\n")
-                            .append(selectedText)
-                            .append("\n```\n\n");
-                } else {
-                    // If no selection, get the visible part of the file
-                    int visibleStart = editor.getScrollingModel().getVisibleArea().y /
-                            editor.getLineHeight();
-                    int visibleEnd = visibleStart +
-                            (editor.getScrollingModel().getVisibleArea().height /
-                                    editor.getLineHeight());
-
-                    visibleStart = Math.max(0, visibleStart - 5); // Add some context
-                    visibleEnd = Math.min(editor.getDocument().getLineCount(), visibleEnd + 5);
-
-                    int startOffset = editor.logicalPositionToOffset(
-                            editor.visualToLogicalPosition(
-                                    editor.offsetToVisualPosition(
-                                            editor.getDocument().getLineStartOffset(visibleStart))));
-
-                    int endOffset = editor.logicalPositionToOffset(
-                            editor.visualToLogicalPosition(
-                                    editor.offsetToVisualPosition(
-                                            editor.getDocument().getLineEndOffset(visibleEnd))));
-
-                    String visibleText = editor.getDocument().getText().substring(startOffset, endOffset);
-
-                    context.append("Visible Code:\n```\n")
-                            .append(visibleText)
-                            .append("\n```\n\n");
-                }
-
-                // Add cursor position
-                int offset = editor.getCaretModel().getOffset();
-                int line = editor.getDocument().getLineNumber(offset);
-                int column = offset - editor.getDocument().getLineStartOffset(line);
-
-                context.append("Cursor Position: Line ").append(line + 1)
-                        .append(", Column ").append(column + 1).append("\n\n");
-            }
-
-            return context.toString();
-        });
-
-    }
-
-    /**
-     * Builds a prompt with tool usage instructions.
-     *
-     * @param request The user's request
+     * @param userRequest The user's request
      * @param conversationHistory The conversation history
-     * @param context The editor context
-     * @param editor The current editor
-     * @return The complete prompt
+     * @param codeContext The code context from the editor
+     * @return The full prompt for the LLM
      */
-    private String buildPromptWithTools(String request, List<String> conversationHistory, String context, Editor editor) {
+    private String constructPromptWithTools(
+            @NotNull String userRequest,
+            @NotNull List<String> conversationHistory,
+            @NotNull Map<String, String> codeContext) {
+
         StringBuilder prompt = new StringBuilder();
 
-        // System instructions
-        prompt.append("You are an AI coding assistant integrated into IntelliJ IDEA. ")
-                .append("Your task is to help programmers write, understand, and improve code. ")
-                .append("Be concise, precise, and helpful.\n\n");
+        // Add system instructions with LLM-friendly tool use guidance
+        prompt.append("<system>\n");
+        prompt.append("You are Claude, a helpful AI coding assistant integrated into IntelliJ IDEA. ");
+        prompt.append("You help programmers write, understand, and improve code. ");
+        prompt.append("Be concise, precise, and helpful. Remember you are part of an IDE, so focus on code improvements, ");
+        prompt.append("explanations, and practical solutions.\n\n");
 
-        // Replace with more comprehensive system instructions
-        prompt.append("# Your Role and Capabilities\n\n")
-                .append("- You're embedded in IntelliJ IDEA as an AI Assistant tool window\n")
-                .append("- You can analyze code within the editor, provide explanations, and suggest improvements\n")
-                .append("- You can interact with the project structure, read files, and search for classes/methods\n")
-                .append("- You can generate code snippets that can be inserted at the cursor or replace selected text\n\n");
+        // Tool use instructions in a format more friendly to LLMs
+        prompt.append("# AVAILABLE TOOLS\n\n");
+        prompt.append("You have access to the following tools. Always use these tools to gather context before providing solutions.\n\n");
 
-        // Tool usage instructions
-        prompt.append("# Available Tools\n\n")
-                .append("You have access to the following tools when you need more information:\n");
-        prompt.append("1. {{USE_TOOL:readFile:filename}} - Read the content of a file\n");
-        prompt.append("2. {{USE_TOOL:findMethods:searchTerm}} - Find methods matching a search term\n");
-        prompt.append("3. {{USE_TOOL:searchClasses:className}} - Search for classes\n");
-        prompt.append("4. {{USE_TOOL:getProjectStructure:}} - Get information about the project structure\n");
-        prompt.append("5. {{USE_TOOL:getCurrentClassInfo:}} - Get information about the current class\n");
-        prompt.append("6. {{USE_TOOL:findReferences:symbolName}} - Find references to a symbol\n\n");
+        prompt.append("## Code Analysis Tools\n");
+        prompt.append("- `read_file`: Read the content of a file by name\n");
+        prompt.append("  Usage: <TOOL>read_file:path/to/file.java</TOOL>\n\n");
 
-        prompt.append("Use these tools when needed to gather more information before providing your answer. \n")
-                .append("You can also ask follow-up questions using {{FOLLOW_UP_QUESTION:your question here?}} ")
-                .append("if you need more information from the user.\n\n");
+        prompt.append("- `find_methods`: Find methods matching a search term\n");
+        prompt.append("  Usage: <TOOL>find_methods:methodName</TOOL>\n\n");
 
-        // Special command instructions
-        prompt.append("# Code Modification Commands\n\n")
-                .append("You can use these commands to modify code:\n")
-                .append("1. {{USE_TOOL:replaceSelection:code}} - Replace the user's selected text with new code\n")
-                .append("2. {{USE_TOOL:insertAtCursor:code}} - Insert code at the cursor position\n")
-                .append("3. {{USE_TOOL:createFile:path:content}} - Create a new file with specified content\n")
-                .append("4. {{USE_TOOL:writeFile:path:content}} - Write content to a file\n\n");
-        // Communication guidelines
-        prompt.append("# Communication Guidelines\n\n")
-                .append("1. Be concise and precise: Provide clear, focused answers that address specific needs.\n")
-                .append("2. Be context-aware: Consider the code context, including the current file and cursor position.\n")
-                .append("3. Think step by step: Determine needed information, use tools to gather it, then provide a comprehensive response.\n")
-                .append("4. Include clear explanations: Explain your reasoning and suggest best practices.\n")
-                .append("5. When suggesting code: Be precise, follow the project's coding style, and make code immediately usable.\n\n")
-                .append("6. Try to utilize the tools provided.\n\n");
+        prompt.append("- `search_classes`: Search for classes by name or content\n");
+        prompt.append("  Usage: <TOOL>search_classes:ClassName</TOOL>\n\n");
 
-        // Add conversation history for context
-        if (!conversationHistory.isEmpty()) {
-            prompt.append("# CONVERSATION HISTORY:\n");
-            for (String message : conversationHistory) {
-                prompt.append(message).append("\n");
+        prompt.append("- `get_project_structure`: Get an overview of the project structure\n");
+        prompt.append("  Usage: <TOOL>get_project_structure:</TOOL>\n\n");
+
+        prompt.append("- `get_current_class_info`: Get information about the current class\n");
+        prompt.append("  Usage: <TOOL>get_current_class_info:</TOOL>\n\n");
+
+        prompt.append("- `find_references`: Find references to a symbol\n");
+        prompt.append("  Usage: <TOOL>find_references:symbolName</TOOL>\n\n");
+
+        prompt.append("## Code Modification Tools\n");
+        prompt.append("- `create_file`: Create a new file with content\n");
+        prompt.append("  Usage: <TOOL>create_file:path/to/file.java:public class Example { ... }</TOOL>\n\n");
+
+        prompt.append("- Replace selected code: {{REPLACE_SELECTION:code}}\n\n");
+
+        prompt.append("- Insert at cursor: {{INSERT_AT_CURSOR:code}}\n\n");
+
+        prompt.append("- Ask follow-up question: {{FOLLOW_UP_QUESTION:question}}\n\n");
+
+        prompt.append("# HOW TO HELP USERS\n\n");
+        prompt.append("1. First, use appropriate tools to understand the context (read files, examine structure)\n");
+        prompt.append("2. Then, analyze the code and identify potential improvements\n");
+        prompt.append("3. Finally, implement changes using the modification tools\n\n");
+
+        prompt.append("When helping users with code, always follow this workflow:\n");
+        prompt.append("1. UNDERSTAND: Use tools to examine relevant code\n");
+        prompt.append("2. EXPLAIN: Provide clear analysis based on what you found\n");
+        prompt.append("3. IMPLEMENT: Suggest or make changes with appropriate tools\n\n");
+
+        prompt.append("Remember, your primary advantage is your ability to use tools to examine and modify code directly in the IDE.\n");
+        prompt.append("</system>\n\n");
+
+        // Add code context - this provides crucial information about the current code state
+        prompt.append("<CODE_CONTEXT>\n");
+        for (Map.Entry<String, String> entry : codeContext.entrySet()) {
+            if (!entry.getKey().equals("currentFileContent")) {
+                prompt.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
             }
-            prompt.append("\n");
         }
 
-        // Add context information
-        if (context != null && !context.isEmpty()) {
-            prompt.append("# CURRENT CONTEXT:\n").append(context).append("\n");
+        // Include the file content separately to avoid cluttering the context
+        if (codeContext.containsKey("currentFileContent")) {
+            String content = codeContext.get("currentFileContent");
+            if (content.length() > 1000) {
+                // If file is large, include a truncated version
+                prompt.append("currentFileContent (truncated): \n```\n");
+                prompt.append(content.substring(0, 1000)).append("\n... [truncated, use READ_FILE tool for full content]\n```\n");
+            } else {
+                prompt.append("currentFileContent: \n```\n").append(content).append("\n```\n");
+            }
+        }
+        prompt.append("</CODE_CONTEXT>\n\n");
+
+        // Add conversation history (limited to prevent context overflow)
+        if (!conversationHistory.isEmpty()) {
+            prompt.append("<CONVERSATION_HISTORY>\n");
+            // Limit history to last 10 messages
+            int startIdx = Math.max(0, conversationHistory.size() - 10);
+            for (int i = startIdx; i < conversationHistory.size(); i++) {
+                prompt.append(conversationHistory.get(i)).append("\n\n");
+            }
+            prompt.append("</CONVERSATION_HISTORY>\n\n");
         }
 
-        // Add user request
-        prompt.append("# USER REQUEST: ").append(request).append("\n\n");
-
-        // Final instructions
-        prompt.append("Think step by step. First determine what information you need, ")
-                .append("then use the appropriate tools to gather that information, ")
-                .append("and finally provide a comprehensive response. You should also use tools to perform tasks like writing or editing code on user's side if necessary.")
-                .append("If you don't have enough information, ask a follow-up question.\n");
+        // Add the current user request
+        prompt.append("<USER_REQUEST>\n").append(userRequest).append("\n</USER_REQUEST>\n");
 
         return prompt.toString();
     }
+
     /**
-     * Builds a prompt for handling follow-up responses.
+     * Calls the LLM API with the constructed prompt.
      *
-     * @param answer The user's answer to the follow-up
-     * @param conversationHistory The conversation history
-     * @param editor The current editor
-     * @return The complete prompt
+     * @param prompt The full prompt
+     * @return The raw response from the LLM
+     * @throws PipelineExecutionException If there's an error during the API call
      */
-    private String buildFollowUpPrompt(String answer, List<String> conversationHistory, Editor editor) {
-        StringBuilder prompt = new StringBuilder();
-
-        // System instructions
-        prompt.append("You are an AI coding assistant integrated into IntelliJ IDEA. ")
-                .append("You previously asked a follow-up question and have now received an answer. ")
-                .append("Continue the conversation based on this answer.\n\n");
-
-        // Role and capabilities
-        prompt.append("# Your Role and Capabilities\n\n")
-                .append("- You're embedded in IntelliJ IDEA as an AI Assistant tool window\n")
-                .append("- You can analyze code within the editor, provide explanations, and suggest improvements\n")
-                .append("- You can interact with the project structure, read files, and search for classes/methods\n")
-                .append("- You can generate code snippets that can be inserted at the cursor or replace selected text\n\n");
-
-        // Tool usage instructions
-        prompt.append("# Available Tools\n\n")
-                .append("You have access to the following tools when you need more information:\n");
-        prompt.append("1. {{USE_TOOL:readFile:filename}} - Read the content of a file\n");
-        prompt.append("2. {{USE_TOOL:findMethods:searchTerm}} - Find methods matching a search term\n");
-        prompt.append("3. {{USE_TOOL:searchClasses:className}} - Search for classes\n");
-        prompt.append("4. {{USE_TOOL:getProjectStructure:}} - Get information about the project structure\n");
-        prompt.append("5. {{USE_TOOL:getCurrentClassInfo:}} - Get information about the current class\n");
-        prompt.append("6. {{USE_TOOL:findReferences:symbolName}} - Find references to a symbol\n\n");
-
-        prompt.append("# Code Modification Commands\n\n")
-                .append("You can use these commands to modify code:\n")
-                .append("1. {{USE_TOOL:replaceSelection:code}} - Replace the user's selected text with new code\n")
-                .append("2. {{USE_TOOL:insertAtCursor:code}} - Insert code at the cursor position\n")
-                .append("3. {{USE_TOOL:createFile:path:content}} - Create a new file with specified content\n")
-                .append("4. {{USE_TOOL:writeFile:path:content}} - Write content to a file\n\n");
-
-
-        // Communication guidelines
-        prompt.append("# Communication Guidelines\n\n")
-                .append("1. Be concise and precise: Provide clear, focused answers that address specific needs.\n")
-                .append("2. Be context-aware: Consider the code context, including the current file and cursor position.\n")
-                .append("3. Think step by step: Determine needed information, use tools to gather it, then provide a comprehensive response.\n")
-                .append("4. Include clear explanations: Explain your reasoning and suggest best practices.\n")
-                .append("5. When suggesting code: Be precise, follow the project's coding style, and make code immediately usable.\n\n");
-
-        // Add conversation history for context
-        if (!conversationHistory.isEmpty()) {
-            prompt.append("# CONVERSATION HISTORY:\n");
-            for (String message : conversationHistory) {
-                prompt.append(message).append("\n");
-            }
-            prompt.append("\n");
-        }
-
-        // Add user's answer to the follow-up
-        prompt.append("# USER FOLLOW-UP ANSWER: ").append(answer).append("\n\n");
-
-        // Final instructions
-        prompt.append("Continue the conversation based on this answer. ")
-                .append("You can use tools to gather more information if needed, ")
-                .append("or ask additional follow-up questions if necessary.\n");
-
-        return prompt.toString();
-    }
-    /**
-     * Calls the LLM API with the prompt and returns the response.
-     *
-     * @param prompt The prompt to send
-     * @return The response from the LLM
-     * @throws PipelineExecutionException If the API call fails
-     */
-    private String callLlmApi(String prompt) throws PipelineExecutionException {
+    private String callLlmApi(@NotNull String prompt) throws PipelineExecutionException {
         try {
-            // Create a temporary context for the API call
+            // Create a context for the API call
             CodeContext context = new CodeContext();
             context.setProject(project);
-            context.setConfig(config);
-            context.setPrompt(prompt);
-            
+            context.setConfig(configManager);
+
+            // Add forcing function to prompt - this significantly increases tool use
+            String enhancedPrompt = addForcingFunction(prompt);
+            context.setPrompt(enhancedPrompt);
+
             // Call the LLM API using the existing implementation
             LlmApiCallStage apiCallStage = new LlmApiCallStage();
             apiCallStage.process(context);
-            
-            return context.getApiResponse();
+
+            // Get and process the response
+            String response = context.getApiResponse();
+
+            // Check if response contains tool usage - if not, retry with stronger prompt
+            if (!response.contains("<TOOL>")) {
+                LOG.info("No tool usage detected in response - retrying with stronger prompt");
+                String retryPrompt = addToolUseReminder(enhancedPrompt);
+                context.setPrompt(retryPrompt);
+                apiCallStage.process(context);
+                response = context.getApiResponse();
+            }
+
+            // Return the response
+            return response;
         } catch (Exception e) {
             LOG.error("Error calling LLM API", e);
-            throw new PipelineExecutionException("Failed to call LLM API: " + e.getMessage(), e);
+            throw new PipelineExecutionException("Error calling LLM API: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Functional interface for tool functions.
+     * Adds a forcing function to the prompt to encourage tool use.
+     * This technique significantly increases the likelihood of tool usage in responses.
+     *
+     * @param originalPrompt The original prompt
+     * @return The enhanced prompt with forcing function
      */
-    @FunctionalInterface
-    private interface ToolFunction {
-        /**
-         * Executes the tool with the specified parameter.
-         *
-         * @param parameter The parameter for the tool
-         * @return The tool output
-         */
-        String execute(String parameter);
+    private String addForcingFunction(String originalPrompt) {
+        // Add a more natural, LLM-friendly prefix that guides the model to use tools
+        String forcingPrefix = "When working in an IDE context, I should demonstrate the workflow of:\n" +
+                "1. Exploring context with appropriate tools\n" +
+                "2. Analyzing what I find\n" +
+                "3. Implementing solutions based on that analysis\n\n" +
+                "For this request, I'll start by using relevant tools to understand the context.\n\n";
+
+        // Find the right position to insert the forcing function (after system instructions)
+        int insertPosition = originalPrompt.indexOf("</s>") + "</s>".length();
+        if (insertPosition > 0) {
+            StringBuilder enhancedPrompt = new StringBuilder(originalPrompt);
+            enhancedPrompt.insert(insertPosition, "\n\n" + forcingPrefix);
+            return enhancedPrompt.toString();
+        }
+
+        return originalPrompt;
+    }
+
+    /**
+     * Adds a stronger reminder about tool use to the prompt.
+     * Used for retry attempts when the initial response doesn't include tool usage.
+     *
+     * @param prompt The original prompt
+     * @return The prompt with a stronger tool use reminder
+     */
+    private String addToolUseReminder(String prompt) {
+        String reminder = "\n\n# IMPORTANT CONTEXT\n\n" +
+                "As an IDE assistant, I should first use tools to examine the code context before providing advice. " +
+                "Let me start by using an appropriate tool to understand the current context, such as " +
+                "`read_file`, `get_current_class_info`, or `get_project_structure`.\n\n" +
+                "I'll use <TOOL>tool_name:parameters</TOOL> syntax to invoke these tools.\n\n";
+
+        // Add the reminder just before the user request section
+        int insertPosition = prompt.indexOf("<USER_REQUEST>");
+        if (insertPosition > 0) {
+            StringBuilder enhancedPrompt = new StringBuilder(prompt);
+            enhancedPrompt.insert(insertPosition, reminder);
+            return enhancedPrompt.toString();
+        }
+
+        return prompt;
+    }
+
+    /**
+     * Processes tool usage directives in the response.
+     *
+     * @param response The raw response from the LLM
+     * @return The processed response with tool outputs
+     */
+    private String processToolUsage(@NotNull String response) {
+        StringBuilder processedResponse = new StringBuilder();
+
+        // Find all tool directives in the response using the XML pattern
+        Matcher matcher = TOOL_PATTERN.matcher(response);
+        int lastEnd = 0;
+        boolean foundTools = false;
+
+        while (matcher.find()) {
+            // Add any text before the tool directive
+            processedResponse.append(response.substring(lastEnd, matcher.start()));
+
+            // Extract the tool name and content
+            String toolName = matcher.group(1).trim();
+            String toolContent = matcher.group(2).trim();
+            foundTools = true;
+
+            // Execute the tool and add the output
+            String toolOutput = executeToolDirective(toolName, toolContent);
+
+            // Format the tool output with a clear header
+            processedResponse.append("\n\n### Tool Result\n```\n");
+            processedResponse.append(toolOutput);
+            processedResponse.append("\n```\n\n");
+
+            lastEnd = matcher.end();
+        }
+
+        // Add any remaining text
+        if (lastEnd < response.length()) {
+            processedResponse.append(response.substring(lastEnd));
+        }
+
+        // If no tools were found, add a gentle suggestion about tool usage
+        if (!foundTools) {
+            LOG.warn("No tools found in LLM response - adding suggestion");
+            processedResponse = new StringBuilder(response);
+            processedResponse.append("\n\n---\n");
+            processedResponse.append("*Tip: I can examine your code files, find methods, and make targeted changes using built-in tools. ");
+            processedResponse.append("This allows me to provide more specific help with your code.*\n");
+        }
+
+        return processedResponse.toString();
+    }
+
+    /**
+     * Executes a tool directive and returns the output.
+     *
+     * @param toolName The name of the tool to execute
+     * @param toolContent The content containing parameters for the tool
+     * @return The output from executing the tool
+     */
+    private String executeToolDirective(@NotNull String toolName, @NotNull String toolContent) {
+        try {
+            switch (toolName) {
+                case "read_file":
+                    Pattern pathPattern = Pattern.compile("<path>(.*?)</path>", Pattern.DOTALL);
+                    Matcher pathMatcher = pathPattern.matcher(toolContent);
+                    if (pathMatcher.find()) {
+                        String path = pathMatcher.group(1).trim();
+                        return tools.readFile(path);
+                    } else {
+                        return "Error: Missing path parameter for read_file tool";
+                    }
+
+                case "find_methods":
+                    Pattern searchTermPattern = Pattern.compile("<search_term>(.*?)</search_term>", Pattern.DOTALL);
+                    Matcher searchTermMatcher = searchTermPattern.matcher(toolContent);
+                    if (searchTermMatcher.find()) {
+                        String searchTerm = searchTermMatcher.group(1).trim();
+                        List<String> methods = tools.findMethods(searchTerm);
+                        if (methods.isEmpty()) {
+                            return "No methods found matching: " + searchTerm;
+                        }
+                        StringBuilder methodsResult = new StringBuilder();
+                        for (String method : methods) {
+                            methodsResult.append(method).append("\n\n");
+                        }
+                        return methodsResult.toString();
+                    } else {
+                        return "Error: Missing search_term parameter for find_methods tool";
+                    }
+
+                case "search_classes":
+                    Pattern classSearchPattern = Pattern.compile("<search_term>(.*?)</search_term>", Pattern.DOTALL);
+                    Matcher classSearchMatcher = classSearchPattern.matcher(toolContent);
+                    if (classSearchMatcher.find()) {
+                        String searchTerm = classSearchMatcher.group(1).trim();
+                        return tools.searchClasses(searchTerm);
+                    } else {
+                        return "Error: Missing search_term parameter for search_classes tool";
+                    }
+
+                case "get_project_structure":
+                    return tools.getProjectStructure();
+
+                case "get_current_class_info":
+                    return tools.getCurrentClassInfo();
+
+                case "find_references":
+                    Pattern symbolPattern = Pattern.compile("<symbol_name>(.*?)</symbol_name>", Pattern.DOTALL);
+                    Matcher symbolMatcher = symbolPattern.matcher(toolContent);
+                    if (symbolMatcher.find()) {
+                        String symbolName = symbolMatcher.group(1).trim();
+                        return tools.findReferences(symbolName);
+                    } else {
+                        return "Error: Missing symbol_name parameter for find_references tool";
+                    }
+
+                case "create_file":
+                    Pattern filePathPattern = Pattern.compile("<path>(.*?)</path>", Pattern.DOTALL);
+                    Pattern fileContentPattern = Pattern.compile("<content>(.*?)</content>", Pattern.DOTALL);
+
+                    Matcher filePathMatcher = filePathPattern.matcher(toolContent);
+                    Matcher fileContentMatcher = fileContentPattern.matcher(toolContent);
+
+                    if (filePathMatcher.find() && fileContentMatcher.find()) {
+                        String filePath = filePathMatcher.group(1).trim();
+                        String fileContent = fileContentMatcher.group(1);
+
+                        // Format for createFile method
+                        return tools.createFile(filePath + ":" + fileContent);
+                    } else {
+                        return "Error: Missing path or content parameters for create_file tool";
+                    }
+
+                case "replace_selection":
+                    Pattern codePattern = Pattern.compile("<code>(.*?)</code>", Pattern.DOTALL);
+                    Matcher codeMatcher = codePattern.matcher(toolContent);
+                    if (codeMatcher.find()) {
+                        String code = codeMatcher.group(1);
+                        // Convert to the format expected by AiCodingAssistantAction
+                        return "{{REPLACE_SELECTION:" + code + "}}";
+                    } else {
+                        return "Error: Missing code parameter for replace_selection tool";
+                    }
+
+                case "insert_at_cursor":
+                    Pattern insertCodePattern = Pattern.compile("<code>(.*?)</code>", Pattern.DOTALL);
+                    Matcher insertCodeMatcher = insertCodePattern.matcher(toolContent);
+                    if (insertCodeMatcher.find()) {
+                        String code = insertCodeMatcher.group(1);
+                        // Convert to the format expected by AiCodingAssistantAction
+                        return "{{INSERT_AT_CURSOR:" + code + "}}";
+                    } else {
+                        return "Error: Missing code parameter for insert_at_cursor tool";
+                    }
+
+                case "ask_followup_question":
+                    Pattern questionPattern = Pattern.compile("<question>(.*?)</question>", Pattern.DOTALL);
+                    Matcher questionMatcher = questionPattern.matcher(toolContent);
+                    if (questionMatcher.find()) {
+                        String question = questionMatcher.group(1).trim();
+                        // Convert to the format expected by InteractiveAgentPanel
+                        return "{{FOLLOW_UP_QUESTION:" + question + "}}";
+                    } else {
+                        return "Error: Missing question parameter for ask_followup_question tool";
+                    }
+
+                default:
+                    LOG.warn("Unknown tool requested: " + toolName);
+                    return "Unknown tool: '" + toolName + "'. Available tools are: read_file, find_methods, search_classes, " +
+                            "get_project_structure, get_current_class_info, find_references, create_file, replace_selection, " +
+                            "insert_at_cursor, ask_followup_question";
+            }
+        } catch (Exception e) {
+            LOG.error("Error executing tool: " + toolName, e);
+            return "Tool execution error: " + e.getMessage() + "\n\nPlease check the parameters and try again.";
+        }
     }
 }

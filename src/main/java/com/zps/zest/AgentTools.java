@@ -1,6 +1,7 @@
 package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -287,6 +288,58 @@ public class AgentTools {
         } catch (Exception e) {
             LOG.error("Error getting current class info", e);
             return "Error getting current class info: " + e.getMessage();
+        }
+    }
+
+// Add this method inside the AgentTools class
+    /**
+     * Creates a new file with the specified name and content.
+     *
+     * @return Success message or error message
+     */
+    public String createFile(String response) {
+        String fileName = "Un parsed" ;
+
+        try {
+            // Split the response into parts using colon as the delimiter
+            String[] parts = response.split(":");
+
+            // Check if we have at least two parts: path and content
+            if (parts.length < 2) {
+                return "Invalid response format. Expected 'path:content'.";
+            }
+
+            // Extract file path and content
+            String filePath = parts[0].trim();
+            fileName = filePath;
+            String content = String.join(":", Arrays.copyOfRange(parts, 1, parts.length)).trim();
+
+            String finalFileName = fileName;
+            return WriteCommandAction.runWriteCommandAction(project, (Computable<String>) () -> {
+                VirtualFile baseDir = project.getBaseDir();
+                if (baseDir == null) {
+                    return "No base directory found for the project.";
+                }
+
+                // Check if the file already exists
+                VirtualFile existingFile = baseDir.findChild(finalFileName);
+                if (existingFile != null) {
+                    return "File already exists: " + finalFileName;
+                }
+
+                // Create the new file
+                try {
+                    VirtualFile newFile = baseDir.createChildData(this, finalFileName);
+                    newFile.setBinaryContent(content.getBytes());
+                    return "File created successfully: " + finalFileName;
+                } catch (Exception e) {
+                    LOG.error("Error creating file: " + finalFileName, e);
+                    return "Error creating file: " + e.getMessage();
+                }
+            });
+        } catch (Exception e) {
+            LOG.error("Error creating file: " + fileName, e);
+            return "Error creating file: " + e.getMessage();
         }
     }
 

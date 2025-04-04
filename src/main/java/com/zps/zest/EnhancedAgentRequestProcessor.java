@@ -5,12 +5,20 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiUtilBase;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -26,10 +34,9 @@ public class EnhancedAgentRequestProcessor {
     private final Project project;
     private final ConfigurationManager config;
     private final AgentTools tools;
-    
-    // Tool patterns to detect in the LLM response
-    private static final Pattern USE_TOOL_PATTERN = 
-            Pattern.compile("\\{\\{USE_TOOL:([\\w_]+)(:([^}]+))?\\}\\}", Pattern.MULTILINE);
+
+    private static final Pattern USE_TOOL_PATTERN =
+            Pattern.compile("\\{\\{USE_TOOL:([\\w_]+)(?::([^}]*)?)?\\}\\}", Pattern.MULTILINE);
     
     // Map of available tools and their implementations
     private final Map<String, ToolFunction> toolFunctions = new HashMap<>();
@@ -77,6 +84,7 @@ public class EnhancedAgentRequestProcessor {
         
         // Reference finding tool
         toolFunctions.put("findReferences", tools::findReferences);
+        toolFunctions.put("createFile", tools::createFile);
     }
 
     /**
@@ -377,18 +385,19 @@ public class EnhancedAgentRequestProcessor {
 
         // Special command instructions
         prompt.append("# Code Modification Commands\n\n")
-                .append("You can use these commands to modify code:\n");
-        prompt.append("- {{REPLACE_SELECTION:code}} - Replace the user's selected text with new code\n");
-        prompt.append("- {{INSERT_AT_CURSOR:code}} - Insert code at the cursor position\n");
-        prompt.append("- {{CREATE_FILE:path:content}} - Create a new file with specified content\n\n");
-
+                .append("You can use these commands to modify code:\n")
+                .append("1. {{USE_TOOL:replaceSelection:code}} - Replace the user's selected text with new code\n")
+                .append("2. {{USE_TOOL:insertAtCursor:code}} - Insert code at the cursor position\n")
+                .append("3. {{USE_TOOL:createFile:path:content}} - Create a new file with specified content\n")
+                .append("4. {{USE_TOOL:writeFile:path:content}} - Write content to a file\n\n");
         // Communication guidelines
         prompt.append("# Communication Guidelines\n\n")
                 .append("1. Be concise and precise: Provide clear, focused answers that address specific needs.\n")
                 .append("2. Be context-aware: Consider the code context, including the current file and cursor position.\n")
                 .append("3. Think step by step: Determine needed information, use tools to gather it, then provide a comprehensive response.\n")
                 .append("4. Include clear explanations: Explain your reasoning and suggest best practices.\n")
-                .append("5. When suggesting code: Be precise, follow the project's coding style, and make code immediately usable.\n\n");
+                .append("5. When suggesting code: Be precise, follow the project's coding style, and make code immediately usable.\n\n")
+                .append("6. Try to utilize the tools provided.\n\n");
 
         // Add conversation history for context
         if (!conversationHistory.isEmpty()) {
@@ -410,7 +419,7 @@ public class EnhancedAgentRequestProcessor {
         // Final instructions
         prompt.append("Think step by step. First determine what information you need, ")
                 .append("then use the appropriate tools to gather that information, ")
-                .append("and finally provide a comprehensive response. ")
+                .append("and finally provide a comprehensive response. You should also use tools to perform tasks like writing or editing code on user's side if necessary.")
                 .append("If you don't have enough information, ask a follow-up question.\n");
 
         return prompt.toString();
@@ -448,12 +457,13 @@ public class EnhancedAgentRequestProcessor {
         prompt.append("5. {{USE_TOOL:getCurrentClassInfo:}} - Get information about the current class\n");
         prompt.append("6. {{USE_TOOL:findReferences:symbolName}} - Find references to a symbol\n\n");
 
-        // Special command instructions
         prompt.append("# Code Modification Commands\n\n")
-                .append("You can use these commands to modify code:\n");
-        prompt.append("- {{REPLACE_SELECTION:code}} - Replace the user's selected text with new code\n");
-        prompt.append("- {{INSERT_AT_CURSOR:code}} - Insert code at the cursor position\n");
-        prompt.append("- {{CREATE_FILE:path:content}} - Create a new file with specified content\n\n");
+                .append("You can use these commands to modify code:\n")
+                .append("1. {{USE_TOOL:replaceSelection:code}} - Replace the user's selected text with new code\n")
+                .append("2. {{USE_TOOL:insertAtCursor:code}} - Insert code at the cursor position\n")
+                .append("3. {{USE_TOOL:createFile:path:content}} - Create a new file with specified content\n")
+                .append("4. {{USE_TOOL:writeFile:path:content}} - Write content to a file\n\n");
+
 
         // Communication guidelines
         prompt.append("# Communication Guidelines\n\n")
@@ -507,7 +517,7 @@ public class EnhancedAgentRequestProcessor {
             throw new PipelineExecutionException("Failed to call LLM API: " + e.getMessage(), e);
         }
     }
-    
+
     /**
      * Functional interface for tool functions.
      */

@@ -29,8 +29,9 @@ public class EnhancedAgentRequestProcessor {
     private final ConfigurationManager configManager;
 
     // Patterns for extracting tool usage from responses
-    // Pattern for XML-style tool tags - made to match Cline's format
-    private static final Pattern TOOL_PATTERN = Pattern.compile("<([a-z_]+)>(.*?)</\\1>", Pattern.DOTALL);
+    // Patterns for both nested XML tags and the alternative TOOL format
+    private static final Pattern NESTED_TOOL_PATTERN = Pattern.compile("<([a-z_]+)>(.*?)</\\1>", Pattern.DOTALL);
+    private static final Pattern ALTERNATIVE_TOOL_PATTERN = Pattern.compile("<TOOL>(.*?):(.*?)</TOOL>", Pattern.DOTALL);
 
     /**
      * Creates a new enhanced request processor.
@@ -130,6 +131,18 @@ public class EnhancedAgentRequestProcessor {
             context.put("currentFileContent", editor.getDocument().getText());
         }
 
+        // Get project roots
+        String sourceRoot = getSourceRoot(project);
+        String testRoot = getTestRoot(project);
+
+        if (sourceRoot != null) {
+            context.put("sourceRoot", sourceRoot);
+        }
+
+        if (testRoot != null) {
+            context.put("testRoot", testRoot);
+        }
+
         // Add selection information if there is a selection
         if (editor.getSelectionModel().hasSelection()) {
             context.put("hasSelection", "true");
@@ -151,6 +164,119 @@ public class EnhancedAgentRequestProcessor {
 
         return context;
     }
+
+    /**
+     * Gets the source root directory for the project.
+     *
+     * @param project The current project
+     * @return The source root path, or null if not found
+     */
+    private String getSourceRoot(Project project) {
+        try {
+            VirtualFile baseDir = project.getBaseDir();
+            if (baseDir == null) {
+                return null;
+            }
+
+            // Common source roots to check
+            String[] commonSourceRoots = {
+                    "src/main/java",
+                    "src/main/kotlin",
+                    "src/main/scala",
+                    "src",
+                    "java",
+                    "source"
+            };
+
+            // Check if common source roots exist
+            for (String root : commonSourceRoots) {
+                VirtualFile sourceRoot = baseDir.findFileByRelativePath(root);
+                if (sourceRoot != null && sourceRoot.isDirectory()) {
+                    return sourceRoot.getPath();
+                }
+            }
+
+            // Fallback - search for .java files in the project structure
+            VirtualFile[] contentRoots = baseDir.getChildren();
+            for (VirtualFile root : contentRoots) {
+                if (root.isDirectory() && containsSourceFiles(root)) {
+                    return root.getPath();
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            LOG.error("Error finding source root", e);
+            return null;
+        }
+    }
+    /**
+     * Checks if a directory contains source files (.java, .kt, etc.)
+     *
+     * @param dir The directory to check
+     * @return True if the directory contains source files, false otherwise
+     */
+    private boolean containsSourceFiles(VirtualFile dir) {
+        if (!dir.isDirectory()) {
+            return false;
+        }
+
+        VirtualFile[] children = dir.getChildren();
+        for (VirtualFile child : children) {
+            if (child.isDirectory()) {
+                if (containsSourceFiles(child)) {
+                    return true;
+                }
+            } else {
+                String extension = child.getExtension();
+                if (extension != null && (extension.equals("java") ||
+                        extension.equals("kt") ||
+                        extension.equals("scala"))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Gets the test root directory for the project.
+     *
+     * @param project The current project
+     * @return The test root path, or null if not found
+     */
+    private String getTestRoot(Project project) {
+        try {
+            VirtualFile baseDir = project.getBaseDir();
+            if (baseDir == null) {
+                return null;
+            }
+
+            // Common test roots to check
+            String[] commonTestRoots = {
+                    "src/test/java",
+                    "src/test/kotlin",
+                    "src/test/scala",
+                    "test",
+                    "tests"
+            };
+
+            // Check if common test roots exist
+            for (String root : commonTestRoots) {
+                VirtualFile testRoot = baseDir.findFileByRelativePath(root);
+                if (testRoot != null && testRoot.isDirectory()) {
+                    return testRoot.getPath();
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            LOG.error("Error finding test root", e);
+            return null;
+        }
+    }
+
 
     /**
      * Constructs a complete prompt with tools, history, and the user request.
@@ -359,19 +485,18 @@ public class EnhancedAgentRequestProcessor {
      */
     private String processToolUsage(@NotNull String response) {
         StringBuilder processedResponse = new StringBuilder();
-
-        // Find all tool directives in the response using the XML pattern
-        Matcher matcher = TOOL_PATTERN.matcher(response);
-        int lastEnd = 0;
         boolean foundTools = false;
+        int lastEnd = 0;
 
-        while (matcher.find()) {
+        // First try the nested XML format
+        Matcher nestedMatcher = NESTED_TOOL_PATTERN.matcher(response);
+        while (nestedMatcher.find()) {
             // Add any text before the tool directive
-            processedResponse.append(response.substring(lastEnd, matcher.start()));
+            processedResponse.append(response.substring(lastEnd, nestedMatcher.start()));
 
             // Extract the tool name and content
-            String toolName = matcher.group(1).trim();
-            String toolContent = matcher.group(2).trim();
+            String toolName = nestedMatcher.group(1).trim();
+            String toolContent = nestedMatcher.group(2).trim();
             foundTools = true;
 
             // Execute the tool and add the output
@@ -382,7 +507,41 @@ public class EnhancedAgentRequestProcessor {
             processedResponse.append(toolOutput);
             processedResponse.append("\n```\n\n");
 
-            lastEnd = matcher.end();
+            lastEnd = nestedMatcher.end();
+        }
+
+        // If no nested tools found, try the alternative format
+        if (!foundTools) {
+            // Reset the processed response
+            processedResponse = new StringBuilder();
+            lastEnd = 0;
+
+            Matcher altMatcher = ALTERNATIVE_TOOL_PATTERN.matcher(response);
+            while (altMatcher.find()) {
+                // Add any text before the tool directive
+                processedResponse.append(response.substring(lastEnd, altMatcher.start()));
+
+                // Extract the tool name and content
+                String toolDirective = altMatcher.group(1).trim(); // e.g., "create_file"
+                String toolParams = altMatcher.group(2).trim();    // e.g., "path:content"
+                foundTools = true;
+
+                // Handle the alternative format based on the tool type
+                String toolOutput;
+                if (toolDirective.equals("create_file")) {
+                    toolOutput = tools.createFile(toolParams);
+                } else {
+                    // For other tools, we may need specific handling
+                    toolOutput = "Unhandled tool directive: " + toolDirective;
+                }
+
+                // Format the tool output with a clear header
+                processedResponse.append("\n\n### Tool Result\n```\n");
+                processedResponse.append(toolOutput);
+                processedResponse.append("\n```\n\n");
+
+                lastEnd = altMatcher.end();
+            }
         }
 
         // Add any remaining text

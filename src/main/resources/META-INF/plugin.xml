@@ -67,17 +67,17 @@
             <add-to-group group-id="GenerateGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift I"/>
         </action>
-        <!-- Two-phase AI Coding Assistant action -->
-        <action id="com.zps.zest.AiCodingAssistantAction"
-                class="com.zps.zest.AiCodingAssistantAction"
-                text="Ask AI _Coding Assistant"
-                description="Ask the AI to explain, modify, or generate code (with plan and execute workflow)"
-                icon="AllIcons.Actions.StartDebugger">
-            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-            <add-to-group group-id="MainToolBar" anchor="last"/>
-            <add-to-group group-id="ToolsMenu" anchor="first"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl A"/>
-        </action>
+<!--        &lt;!&ndash; Two-phase AI Coding Assistant action &ndash;&gt;-->
+<!--        <action id="com.zps.zest.AiCodingAssistantAction"-->
+<!--                class="com.zps.zest.AiCodingAssistantAction"-->
+<!--                text="Ask AI _Coding Assistant"-->
+<!--                description="Ask the AI to explain, modify, or generate code (with plan and execute workflow)"-->
+<!--                icon="AllIcons.Actions.StartDebugger">-->
+<!--            <add-to-group group-id="EditorPopupMenu" anchor="first"/>-->
+<!--            <add-to-group group-id="MainToolBar" anchor="last"/>-->
+<!--            <add-to-group group-id="ToolsMenu" anchor="first"/>-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl A"/>-->
+<!--        </action>-->
 
         <!-- Open Interactive Agent window action -->
         <action id="com.zps.zest.OpenInteractiveAgentAction"

@@ -675,4 +675,78 @@ public class AgentTools {
             }
         }
     }
+
+    // Add these methods to your existing AgentTools.java class
+
+    /**
+     * Analyzes code problems in the specified scope.
+     *
+     * @param parameters The analysis parameters in the format "scope:path[:filter]"
+     *                  - scope: "project", "current_file", or "directory"
+     *                  - path: Path to file or directory (for current_file or directory scope)
+     *                  - filter (optional): Text filter for problems, prefixed with severity filter
+     *                    (e.g., "error:" or "warning:" or "all:")
+     * @return A formatted report of code problems
+     */
+    public String analyzeCodeProblems(String parameters) {
+        try {
+            // Parse parameters
+            String[] parts = parameters.split(":", 3);
+            if (parts.length < 1) {
+                return "Invalid parameters. Format: scope:path[:filter]";
+            }
+
+            String scope = parts[0].trim();
+            String path = parts.length > 1 ? parts[1].trim() : "";
+            String filter = parts.length > 2 ? parts[2].trim() : "";
+
+            // Create analyzer and apply filters
+            CodeProblemsAnalyzer analyzer = new CodeProblemsAnalyzer(project);
+
+
+            // Apply text filter if remaining
+            if (!filter.isEmpty()) {
+                analyzer.setTextFilter(filter);
+            }
+
+            // Analyze code and return results
+            return analyzer.analyzeCode(scope, path);
+        } catch (Exception e) {
+            return "Error analyzing code problems: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Quick analyze of the current file for code problems.
+     * This is a shorthand method for analyzeCodeProblems with scope="current_file"
+     *
+     * @return A formatted report of code problems in the current file
+     */
+    public String quickAnalyzeCurrentFile() {
+        try {
+            // Get current editor
+            com.intellij.openapi.editor.Editor editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).getSelectedTextEditor();
+            if (editor == null) {
+                return "No file is currently open.";
+            }
+
+            // Get current file path
+            com.intellij.openapi.vfs.VirtualFile file = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(editor.getDocument());
+            if (file == null) {
+                return "Cannot determine current file.";
+            }
+
+            String filePath = file.getPath();
+
+            // Create analyzer
+            CodeProblemsAnalyzer analyzer = new CodeProblemsAnalyzer(project);
+
+            // Analyze current file
+            return analyzer.analyzeCode("current_file", filePath);
+        } catch (Exception e) {
+            return "Error analyzing current file: " + e.getMessage();
+        }
+    }
+
+
 }

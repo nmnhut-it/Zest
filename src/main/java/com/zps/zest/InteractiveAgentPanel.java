@@ -282,7 +282,7 @@ public class InteractiveAgentPanel {
 
         // Create tools and processor
         AgentTools tools = new AgentTools(project);
-        EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project, tools);
+        EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
 
         // Process request in background
         ApplicationManager.getApplication().invokeLater(() -> {
@@ -479,7 +479,7 @@ public class InteractiveAgentPanel {
         CompletableFuture.supplyAsync(() -> {
             try {
                 AgentTools tools = new AgentTools(project);
-                EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project, tools);
+                EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
                 List<String> conversationHistory = getConversationHistoryForContext();
 
                 AtomicReference<String> response = new AtomicReference<>();

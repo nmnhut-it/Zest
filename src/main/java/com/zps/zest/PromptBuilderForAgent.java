@@ -40,7 +40,7 @@ public class PromptBuilderForAgent {
         addToolDocumentation(prompt);
         
         // Add code context
-        addCodeContext(prompt, codeContext);
+//        addCodeContext(prompt, codeContext);
         
         // Add conversation history
         addConversationHistory(prompt, conversationHistory);
@@ -60,12 +60,13 @@ public class PromptBuilderForAgent {
         prompt.append("You help programmers write, understand, and improve code. ");
         prompt.append("Be concise, precise, and helpful. Remember you are part of an IDE, so focus on code improvements, ");
         prompt.append("explanations, and practical solutions.\n\n");
-        
+
         prompt.append("# HOW TO HELP USERS\n\n");
-        prompt.append("1. First, use appropriate tools to understand the context (read files, examine structure)\n");
-        prompt.append("2. Then, analyze the code and identify potential improvements\n");
-        prompt.append("3. After that, implement changes using the modification tools\n");
-        prompt.append("4. Finally, use tools to check for errors and try to fix with modification tools.\n\n");
+        prompt.append("1. First, clarify user's requirement. Ask follow up questions if needed\n");
+        prompt.append("2. Then, use appropriate tools to understand the context (read files, examine structure)\n");
+        prompt.append("3. After that, analyze the code and identify potential improvements\n");
+        prompt.append("4. Next, implement changes using the modification tools\n");
+        prompt.append("5. Finally, use tools to check for errors and try to fix with modification tools.\n\n");
 
         prompt.append("When helping users with code, always follow this workflow:\n");
         prompt.append("1. UNDERSTAND: Use tools to examine relevant code\n");
@@ -129,7 +130,7 @@ public class PromptBuilderForAgent {
         prompt.append("  </params>\n");
         prompt.append("</TOOL>\n\n");
         prompt.append("```\n\n");
-        prompt.append("MAKE SURE YOU WRAP IT BETWEEN THE TAGS <TOOL> AND </TOOL>\n\n");
+        prompt.append("MAKE SURE YOU WRAP IT BETWEEN THE TAGS <TOOL> AND </TOOL>. MAKE SURE CHARACTERS ARE APPROPRIATELY ESCAPED\n\n");
     }
     
     /**
@@ -140,7 +141,8 @@ public class PromptBuilderForAgent {
             return;
         }
         
-        prompt.append("The context is hereby provided. You can decide whether this context is relevant to user's request and use it to your own needs.\n\n<CODE_CONTEXT>\n");
+        prompt.append("The context is hereby provided.")
+        .append("<strong>THIS CODE_CONTEXT MAY NOT BE RELEVANT TO USER'S REQUEST</strong>\n").append("\n\n<CODE_CONTEXT>\n");
         for (Map.Entry<String, String> entry : codeContext.entrySet()) {
             if (!entry.getKey().equals("currentFileContent")) {
                 prompt.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");

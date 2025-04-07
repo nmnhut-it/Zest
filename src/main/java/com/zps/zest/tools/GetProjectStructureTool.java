@@ -72,8 +72,8 @@ public class GetProjectStructureTool extends BaseAgentTool {
                 for (String pkg : packages) {
                     result.append("- ").append(pkg).append("\n");
                     count++;
-                    if (count >= 20) {
-                        result.append("... and ").append(packages.size() - 20).append(" more packages\n");
+                    if (count >= 100) {
+                        result.append("... and ").append(packages.size() - 100).append(" more packages\n");
                         break;
                     }
                 }

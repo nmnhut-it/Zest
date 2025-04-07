@@ -88,8 +88,8 @@ public class ListFilesTool extends BaseAgentTool {
                 for (VirtualFile file : files) {
                     result.append("- ").append(file.getPath()).append("\n");
                     count++;
-                    if (count >= 50) {
-                        result.append("... and ").append(files.size() - 50).append(" more files\n");
+                    if (count >= 2000) {
+                        result.append("... and ").append(files.size() - 2000).append(" more files\n");
                         break;
                     }
                 }

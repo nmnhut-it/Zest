@@ -143,13 +143,13 @@ public class InteractiveAgentPanel {
      * Adds default system prompt with Cursor-style.
      */
     private void addDefaultSystemPrompt() {
-        String cursorPrompt = "You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. " +
-                "You operate exclusively in IntelliJ IDEA. " +
-                "You are pair programming with the user to solve their coding task. " +
-                "Each time the user sends a message, we may attach information about their current state. " +
-                "Your main goal is to follow the user's instructions at each message.";
-
-        systemPrompts.add(cursorPrompt);
+//        String cursorPrompt = "You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. " +
+//                "You operate exclusively in IntelliJ IDEA. " +
+//                "You are pair programming with the user to solve their coding task. " +
+//                "Each time the user sends a message, we may attach information about their current state. " +
+//                "Your main goal is to follow the user's instructions at each message.";
+//
+//        systemPrompts.add(cursorPrompt);
     }
 
     /**
@@ -202,10 +202,6 @@ public class InteractiveAgentPanel {
 
         return inputPanel;
     }
-
-    /**
-     * Creates the toolbar.
-     */
     private ActionToolbar createToolbar() {
         DefaultActionGroup group = new DefaultActionGroup();
 
@@ -241,6 +237,9 @@ public class InteractiveAgentPanel {
             }
         };
 
+        // Test tools action
+        AnAction testToolsAction = new TestToolsAction();
+
         // Add actions to group
         group.add(newAction);
         group.add(copyAction);
@@ -248,6 +247,7 @@ public class InteractiveAgentPanel {
         group.add(contextAction);
         group.addSeparator();
         group.add(promptsAction);
+        group.add(testToolsAction);
 
         // Create toolbar
         ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(
@@ -256,7 +256,6 @@ public class InteractiveAgentPanel {
 
         return toolbar;
     }
-
     /**
      * Sends the user's message to the AI.
      */
@@ -281,7 +280,6 @@ public class InteractiveAgentPanel {
         setProcessingState(true);
 
         // Create tools and processor
-        AgentTools tools = new AgentTools(project);
         EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
 
         // Process request in background

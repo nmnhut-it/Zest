@@ -108,7 +108,12 @@ public class EnhancedAgentRequestProcessor {
             CodeContext context = new CodeContext();
             context.setProject(project);
             context.setConfig(configManager);
+            if (!prompt.contains("Write test")) {
+                context.useTestWrightModel(false);
+            }
+
             context.setPrompt(prompt);
+
 
             // Call the LLM API using the existing implementation
             LlmApiCallStage apiCallStage = new LlmApiCallStage();

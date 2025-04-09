@@ -15,7 +15,7 @@ import java.util.Set;
 public class AgentToolRegistry {
     private static final Logger LOG = Logger.getInstance(AgentToolRegistry.class);
 
-    private final Project project;
+    public final Project project;
     private final Map<String, AgentTool> tools = new HashMap<>();
 
     public AgentToolRegistry(Project project) {

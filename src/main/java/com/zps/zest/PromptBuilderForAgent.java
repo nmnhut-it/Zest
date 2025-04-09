@@ -3,23 +3,34 @@ package com.zps.zest;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.diagnostic.Logger;
 import com.zps.zest.tools.AgentTool;
+import com.zps.zest.tools.RagSearchTool;
 import com.zps.zest.tools.XmlRpcUtils;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
 
 /**
  * Builds prompts for the LLM with context and tool documentation.
  */
 public class PromptBuilderForAgent {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    
+    private static final Logger LOG = Logger.getInstance(AgentToolRegistry.class);
+    private static final long RAG_TIMEOUT_SECONDS = 3_000;
+
     private final AgentToolRegistry toolRegistry;
-    
+    private final ConfigurationManager configManager;
+
     public PromptBuilderForAgent(AgentToolRegistry toolRegistry) {
         this.toolRegistry = toolRegistry;
+        this.configManager = new ConfigurationManager(toolRegistry.project);
     }
     
     /**
@@ -41,7 +52,12 @@ public class PromptBuilderForAgent {
         
         // Add code context
         addCodeContext(prompt, codeContext);
-        
+        // Automatically add RAG knowledge if applicable and available
+        String ragKnowledge = getRelevantKnowledgeForRequest(userRequest);
+        if (ragKnowledge != null && !ragKnowledge.isEmpty()) {
+            addRagKnowledge(prompt, ragKnowledge);
+        }
+
         // Add conversation history
         addConversationHistory(prompt, conversationHistory);
         
@@ -173,6 +189,106 @@ public class PromptBuilderForAgent {
         }
         prompt.append("\n");
     }
+    /**
+     * Gets relevant knowledge for the user's request using the RAG tool.
+     * Returns null if RAG is disabled or if an error occurs.
+     */
+    private String getRelevantKnowledgeForRequest(String userRequest) {
+        // Check if RAG is enabled
+        if (!configManager.isRagEnabled()) {
+            LOG.info("RAG is disabled, skipping knowledge retrieval");
+            return null;
+        }
+
+        // Check if request appears to be code-related
+        if (!isCodeRelatedQuery(userRequest)) {
+            LOG.info("Request doesn't appear to be code-related, skipping RAG");
+            return null;
+        }
+
+        // Get RAG tool
+        RagSearchTool ragTool = (RagSearchTool) toolRegistry.getTool("rag_search");
+        if (ragTool == null) {
+            LOG.warn("RAG tool not found in registry");
+            return null;
+        }
+
+        try {
+            // Create parameters for RAG search
+            JsonObject params = new JsonObject();
+            params.addProperty("query", createRagQueryFromUserRequest(userRequest));
+            params.addProperty("top_k", 3);
+
+            // Execute RAG search with timeout
+            CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return ragTool.execute(params);
+                } catch (Exception e) {
+                    LOG.warn("Error executing RAG tool", e);
+                    return null;
+                }
+            });
+
+            String result = future.get(RAG_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            // Process and clean up the result if needed
+            if (result != null && !result.isEmpty()) {
+                return cleanRagResults(result);
+            }
+        } catch (TimeoutException e) {
+            LOG.warn("RAG search timed out after " + RAG_TIMEOUT_SECONDS + " seconds");
+            e.printStackTrace();
+        } catch (InterruptedException | ExecutionException e) {
+            LOG.warn("Error getting RAG results", e);
+        }
+
+        return null;
+    }
+
+    /**
+     * Determines if a query is code-related using keyword matching.
+     */
+    private boolean isCodeRelatedQuery(String query) {
+        // Simple keyword matching for now
+        return  query.contains("code");
+    }
+
+    /**
+     * Creates an optimized query for RAG based on the user's request.
+     */
+    private String createRagQueryFromUserRequest(String userRequest) {
+        // For now, just use the user request directly
+        // In the future, we could extract key terms or rephrase for better RAG results
+        return userRequest;
+    }
+
+    /**
+     * Cleans and formats RAG results for inclusion in the prompt.
+     */
+    private String cleanRagResults(String ragResults) {
+        // Remove any tool output headers/footers
+        if (ragResults.contains("### Knowledge Base Results for:")) {
+            int startIdx = ragResults.indexOf("### Knowledge Base Results for:");
+            int endIdx = ragResults.indexOf("*Note: This information was retrieved from your project's knowledge base.*");
+
+            if (startIdx >= 0 && endIdx > startIdx) {
+                // Get content between header and footer
+                return ragResults.substring(startIdx + "### Knowledge Base Results for:".length(), endIdx).trim();
+            }
+        }
+
+        return ragResults;
+    }
+    /**
+     * Adds RAG knowledge to the prompt.
+     */
+    private void addRagKnowledge(StringBuilder prompt, String knowledge) {
+        prompt.append("<KNOWLEDGE_BASE_CONTEXT>\n");
+        prompt.append("The following information from the project's knowledge base may be relevant to the user's request:\n\n");
+        prompt.append(knowledge);
+        prompt.append("\n</KNOWLEDGE_BASE_CONTEXT>\n\n");
+    }
+
 
     // Helper method to add a tool example
     private void addToolExample(StringBuilder prompt, AgentTool tool) {

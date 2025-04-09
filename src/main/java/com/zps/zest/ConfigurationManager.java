@@ -35,6 +35,12 @@ public class ConfigurationManager {
     private Project project;
     // In ConfigurationManager.java
     private boolean ragEnabled = true;
+    private String knowledgeCollectionId; // Knowledge collection ID for RAG
+
+    public void setKnowledgeCollectionId(String collectionId) {
+        this.knowledgeCollectionId = collectionId;
+        saveProperty("knowledgeCollectionId", collectionId);
+    }
 
     public boolean isRagEnabled() {
         return ragEnabled;
@@ -60,6 +66,7 @@ public class ConfigurationManager {
         codeModel = DEFAULT_CODE_MODEL;
         maxIterations = DEFAULT_MAX_ITERATIONS;
         authToken = "";
+        knowledgeCollectionId = "";
 
         boolean configExists = false;
 
@@ -80,7 +87,11 @@ public class ConfigurationManager {
                 testModel = props.getProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
-
+                knowledgeCollectionId = props.getProperty("knowledgeCollectionId", "");
+                String ragEnabledStr = props.getProperty("ragEnabled");
+                if (ragEnabledStr != null) {
+                    ragEnabled = Boolean.parseBoolean(ragEnabledStr);
+                }
                 try {
                     maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
                 } catch (NumberFormatException e) {

@@ -39,8 +39,8 @@ public class InteractiveAgentToolWindow implements ToolWindowFactory {
     @Override
     public void init(@NotNull ToolWindow toolWindow) {
         // Configure tool window options
-        toolWindow.setTitle("AI Assistant");
-        toolWindow.setStripeTitle("AI Assistant");
+        toolWindow.setTitle("ZPS - AI Assistant");
+        toolWindow.setStripeTitle("ZPS - AI Assistant");
         toolWindow.setIcon(com.intellij.icons.AllIcons.Nodes.Plugin);
     }
 }

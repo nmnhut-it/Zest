@@ -639,7 +639,7 @@ public class InteractiveAgentPanel {
                     break;
                 case ASSISTANT:
                     cssClass = "assistant";
-                    senderLabel = "AI Assistant";
+                    senderLabel = "ZPS - AI Assistant";
                     break;
                 case SYSTEM:
                     cssClass = "system";
@@ -864,7 +864,7 @@ public class InteractiveAgentPanel {
                     sender = "You";
                     break;
                 case ASSISTANT:
-                    sender = "AI Assistant";
+                    sender = "ZPS - AI Assistant";
                     break;
                 case SYSTEM:
                     sender = "System";

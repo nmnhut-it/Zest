@@ -20,7 +20,7 @@ public class OpenInteractiveAgentAction extends AnAction {
     }
 
     public OpenInteractiveAgentAction() {
-        super("Open AI Assistant", "Open the interactive AI coding assistant", AllIcons.Actions.StartDebugger);
+        super("Open ZPS - AI Assistant", "Open the interactive AI coding assistant", AllIcons.Actions.StartDebugger);
     }
 
     @Override

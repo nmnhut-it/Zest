@@ -78,7 +78,7 @@ public class ManageKnowledgeBaseAction extends AnAction {
             KnowledgeBaseManager kbManager = new KnowledgeBaseManager(apiUrl, authToken, project);
 
             // Show dialog
-            KnowledgeBaseManagerDialog dialog = new KnowledgeBaseManagerDialog(project, kbManager);
+            KnowledgeBaseManagerDialog dialog = new KnowledgeBaseManagerDialog(project, RagManagerProjectListener.getManager(project));
             dialog.show();
 
         } catch (Exception ex) {

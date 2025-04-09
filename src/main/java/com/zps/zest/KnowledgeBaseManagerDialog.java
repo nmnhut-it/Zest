@@ -11,7 +11,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBUI;
@@ -23,36 +22,36 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Enhanced dialog for managing the knowledge base files.
- * Supports adding individual files, entire directories, and recursive scanning.
+ * Enhanced dialog for managing the knowledge base with persistent file tracking.
  */
 public class KnowledgeBaseManagerDialog extends DialogWrapper {
     private static final Logger LOG = Logger.getInstance(KnowledgeBaseManagerDialog.class);
 
     private final Project project;
-    private final KnowledgeBaseManager kbManager;
+    private final PersistentRagManager ragManager;
 
     private JBTable fileTable;
     private DefaultTableModel tableModel;
     private JTextField extensionFilterField;
     private JCheckBox recursiveCheckbox;
     private JLabel statusLabel;
+    private JProgressBar progressBar;
 
-    public KnowledgeBaseManagerDialog(Project project, KnowledgeBaseManager kbManager) {
+    /**
+     * Creates a new enhanced knowledge base manager dialog.
+     */
+    public KnowledgeBaseManagerDialog(Project project, PersistentRagManager ragManager) {
         super(project);
         this.project = project;
-        this.kbManager = kbManager;
-        setTitle("Knowledge Base Manager");
-        setSize(700, 500);
+        this.ragManager = ragManager;
+        setTitle("Enhanced Knowledge Base Manager");
+        setSize(800, 600);
         init();
     }
 
@@ -60,7 +59,7 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
     @Nullable
     protected JComponent createCenterPanel() {
         JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.setPreferredSize(new Dimension(700, 500));
+        mainPanel.setPreferredSize(new Dimension(800, 600));
 
         // Create file table
         createFileTable();
@@ -74,17 +73,30 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         mainPanel.add(tableScrollPane, BorderLayout.CENTER);
         mainPanel.add(controlPanel, BorderLayout.SOUTH);
 
-        // Set up status label
+        // Set up status panel
+        JPanel statusPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
         statusLabel.setBorder(JBUI.Borders.empty(5));
-        mainPanel.add(statusLabel, BorderLayout.NORTH);
+        progressBar = new JProgressBar();
+        progressBar.setVisible(false);
+
+        statusPanel.add(statusLabel, BorderLayout.CENTER);
+        statusPanel.add(progressBar, BorderLayout.EAST);
+
+        mainPanel.add(statusPanel, BorderLayout.NORTH);
+
+        // Load tracked files
+        loadTrackedFiles();
 
         return mainPanel;
     }
 
+    /**
+     * Creates the file table.
+     */
     private void createFileTable() {
         // Define table columns
-        String[] columns = {"File Name", "Path/ID", "Status"};
+        String[] columns = {"File Name", "Path", "File ID", "Last Modified", "Status"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -96,11 +108,13 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component comp = super.prepareRenderer(renderer, row, column);
-                String status = (String) getModel().getValueAt(row, 2);
+                String status = (String) getModel().getValueAt(row, 4);
                 if ("Failed".equals(status)) {
                     comp.setForeground(Color.RED);
-                } else if ("Uploaded".equals(status)) {
+                } else if ("Synced".equals(status)) {
                     comp.setForeground(new Color(0, 150, 0)); // Dark green
+                } else if ("Modified".equals(status)) {
+                    comp.setForeground(new Color(200, 120, 0)); // Orange
                 } else {
                     comp.setForeground(null); // Default color
                 }
@@ -108,13 +122,19 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
             }
         };
 
-        fileTable.getColumnModel().getColumn(0).setPreferredWidth(150);
-        fileTable.getColumnModel().getColumn(1).setPreferredWidth(400);
-        fileTable.getColumnModel().getColumn(2).setPreferredWidth(80);
+        fileTable.getColumnModel().getColumn(0).setPreferredWidth(150); // File Name
+        fileTable.getColumnModel().getColumn(1).setPreferredWidth(300); // Path
+        fileTable.getColumnModel().getColumn(2).setPreferredWidth(200); // File ID
+        fileTable.getColumnModel().getColumn(3).setPreferredWidth(150); // Last Modified
+        fileTable.getColumnModel().getColumn(4).setPreferredWidth(80);  // Status
+
         fileTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         fileTable.setRowHeight(22);
     }
 
+    /**
+     * Creates the control panel.
+     */
     private JPanel createControlPanel() {
         JPanel controlPanel = new JPanel();
         controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
@@ -137,7 +157,7 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         filterPanel.add(extensionPanel, BorderLayout.CENTER);
 
         // Support extensions info
-        Set<String> supportedExtensions = kbManager.getSupportedExtensions();
+        Set<String> supportedExtensions = ragManager.getKnowledgeBaseManager().getSupportedExtensions();
         JLabel supportedLabel = new JLabel("Supported: " + String.join(", ", supportedExtensions));
         supportedLabel.setBorder(JBUI.Borders.empty(0, 5, 5, 5));
         filterPanel.add(supportedLabel, BorderLayout.SOUTH);
@@ -151,8 +171,8 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         JButton addDirectoryButton = new JButton("Add Directory");
         addDirectoryButton.addActionListener(e -> addDirectory());
 
-        JButton refreshButton = new JButton("Refresh File List");
-        refreshButton.addActionListener(e -> refreshFiles());
+        JButton refreshButton = new JButton("Refresh & Validate");
+        refreshButton.addActionListener(e -> refreshAndValidate());
 
         JButton removeButton = new JButton("Remove Selected");
         removeButton.addActionListener(e -> removeSelectedFiles());
@@ -169,151 +189,116 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         return controlPanel;
     }
 
+    /**
+     * Adds a single file to the knowledge base.
+     */
     private void addFile() {
         FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor();
         descriptor.setTitle("Select File to Add to Knowledge Base");
 
         VirtualFile file = FileChooser.chooseFile(descriptor, project, null);
         if (file != null) {
+            setProcessingState(true, "Uploading file...");
+
             ProgressManager.getInstance().run(new Task.Backgroundable(project, "Uploading File", false) {
                 @Override
                 public void run(@NotNull ProgressIndicator indicator) {
-                    try {
-                        indicator.setIndeterminate(false);
-                        indicator.setText("Uploading " + file.getName());
-                        indicator.setFraction(0.1);
+                    indicator.setIndeterminate(false);
+                    indicator.setText("Uploading " + file.getName());
+                    indicator.setFraction(0.5);
 
-                        Path filePath = Paths.get(file.getPath());
-                        String fileId = kbManager.uploadFile(filePath);
+                    boolean success = ragManager.uploadFile(file);
 
-                        indicator.setFraction(1.0);
+                    indicator.setFraction(1.0);
 
-                        SwingUtilities.invokeLater(() -> {
-                            if (fileId != null) {
-                                addFileToTable(file.getName(), file.getPath(), fileId, "Uploaded");
-                                statusLabel.setText("File uploaded successfully: " + file.getName());
-                            } else {
-                                addFileToTable(file.getName(), file.getPath(), "", "Failed");
-                                statusLabel.setText("Failed to upload file: " + file.getName());
-                            }
-                        });
-                    } catch (Exception e) {
-                        LOG.error("Error uploading file", e);
-                        SwingUtilities.invokeLater(() -> {
-                            addFileToTable(file.getName(), file.getPath(), "", "Failed");
-                            statusLabel.setText("Error: " + e.getMessage());
-                        });
-                    }
+                    SwingUtilities.invokeLater(() -> {
+                        if (success) {
+                            setStatusText("File uploaded successfully: " + file.getName());
+                            loadTrackedFiles();
+                        } else {
+                            setStatusText("Failed to upload file: " + file.getName());
+                        }
+                        setProcessingState(false, null);
+                    });
                 }
             });
         }
     }
 
+    /**
+     * Adds a directory to the knowledge base.
+     */
     private void addDirectory() {
         FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
         descriptor.setTitle("Select Directory to Add to Knowledge Base");
 
         VirtualFile directory = FileChooser.chooseFile(descriptor, project, null);
         if (directory != null) {
-            // Get file extensions from input field
-            List<String> extensions = parseExtensions(extensionFilterField.getText());
             boolean recursive = recursiveCheckbox.isSelected();
+            setProcessingState(true, "Processing directory...");
 
             ProgressManager.getInstance().run(new Task.Backgroundable(project, "Indexing Files", true) {
                 @Override
                 public void run(@NotNull ProgressIndicator indicator) {
-                    try {
-                        indicator.setIndeterminate(false);
-                        indicator.setText("Scanning directory: " + directory.getName());
-                        indicator.setFraction(0.0);
+                    indicator.setIndeterminate(false);
+                    indicator.setText("Scanning directory: " + directory.getName());
+                    indicator.setFraction(0.1);
 
-                        Path dirPath = Paths.get(directory.getPath());
-                        List<KnowledgeBaseManager.UploadResult> results =
-                                kbManager.uploadDirectory(dirPath, extensions, recursive);
+                    List<KnowledgeBaseManager.UploadResult> results =
+                            ragManager.uploadDirectory(directory.getPath(), recursive);
 
-                        // Process results
-                        AtomicInteger successCount = new AtomicInteger(0);
-                        AtomicInteger failCount = new AtomicInteger(0);
+                    // Process results
+                    AtomicInteger successCount = new AtomicInteger(0);
+                    AtomicInteger failCount = new AtomicInteger(0);
 
-                        for (int i = 0; i < results.size(); i++) {
-                            KnowledgeBaseManager.UploadResult result = results.get(i);
-
-                            // Update progress
-                            final int currentIndex = i;
-                            indicator.setText("Processing: " + result.getFilePath());
-                            indicator.setFraction((double) currentIndex / results.size());
-
-                            if (result.isSuccess()) {
-                                successCount.incrementAndGet();
-                            } else {
-                                failCount.incrementAndGet();
-                            }
-
-                            // Add to table in batches to avoid UI freezing
-                            if (i % 10 == 0 || i == results.size() - 1) {
-                                final int startIdx = Math.max(0, i - 9);
-                                final int endIdx = i;
-
-                                SwingUtilities.invokeLater(() -> {
-                                    for (int j = startIdx; j <= endIdx; j++) {
-                                        if (j < results.size()) {
-                                            KnowledgeBaseManager.UploadResult res = results.get(j);
-                                            Path path = Paths.get(res.getFilePath());
-                                            String fileName = path.getFileName().toString();
-                                            String status = res.isSuccess() ? "Uploaded" : "Failed";
-                                            addFileToTable(fileName, res.getFilePath(), res.getFileId(), status);
-                                        }
-                                    }
-                                });
-                            }
+                    for (KnowledgeBaseManager.UploadResult result : results) {
+                        if (result.isSuccess()) {
+                            successCount.incrementAndGet();
+                        } else {
+                            failCount.incrementAndGet();
                         }
-
-                        indicator.setFraction(1.0);
-
-                        // Update status
-                        SwingUtilities.invokeLater(() -> {
-                            statusLabel.setText(String.format(
-                                    "Processed %d files: %d uploaded, %d failed",
-                                    results.size(), successCount.get(), failCount.get()));
-                        });
-                    } catch (Exception e) {
-                        LOG.error("Error processing directory", e);
-                        SwingUtilities.invokeLater(() -> {
-                            statusLabel.setText("Error: " + e.getMessage());
-                        });
                     }
+
+                    indicator.setFraction(1.0);
+
+                    SwingUtilities.invokeLater(() -> {
+                        setStatusText(String.format(
+                                "Processed %d files: %d uploaded, %d failed",
+                                results.size(), successCount.get(), failCount.get()));
+                        loadTrackedFiles();
+                        setProcessingState(false, null);
+                    });
                 }
             });
         }
     }
 
-    private void refreshFiles() {
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Refreshing File List", false) {
+    /**
+     * Refreshes and validates the file list.
+     */
+    private void refreshAndValidate() {
+        setProcessingState(true, "Validating files...");
+
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Validating Files", false) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
-                try {
-                    indicator.setIndeterminate(true);
-                    indicator.setText("Fetching file list...");
+                indicator.setIndeterminate(true);
+                indicator.setText("Validating tracked files...");
 
-                    List<KnowledgeBaseManager.KnowledgeBaseFile> files = kbManager.listFiles();
+                ragManager.validateTrackedFiles();
 
-                    SwingUtilities.invokeLater(() -> {
-                        tableModel.setRowCount(0);
-                        for (KnowledgeBaseManager.KnowledgeBaseFile file : files) {
-                            addFileToTable(file.getName(), file.getId(), file.getId(), "Uploaded");
-                        }
-                        statusLabel.setText("File list refreshed: " + files.size() + " files found");
-                    });
-                } catch (Exception e) {
-                    LOG.error("Error refreshing file list", e);
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("Error refreshing file list: " + e.getMessage());
-                    });
-                }
+                SwingUtilities.invokeLater(() -> {
+                    loadTrackedFiles();
+                    setStatusText("File validation complete");
+                    setProcessingState(false, null);
+                });
             }
         });
     }
 
+    /**
+     * Removes selected files from the knowledge base.
+     */
     private void removeSelectedFiles() {
         int[] selectedRows = fileTable.getSelectedRows();
         if (selectedRows.length == 0) {
@@ -331,11 +316,7 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
             return;
         }
 
-        List<String> fileIds = new ArrayList<>();
-        for (int row : selectedRows) {
-            String fileId = (String) tableModel.getValueAt(row, 1);
-            fileIds.add(fileId);
-        }
+        setProcessingState(true, "Removing files...");
 
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Removing Files", false) {
             @Override
@@ -343,51 +324,69 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
                 indicator.setIndeterminate(false);
 
                 int successCount = 0;
-                for (int i = 0; i < fileIds.size(); i++) {
-                    String fileId = fileIds.get(i);
+                for (int i = 0; i < selectedRows.length; i++) {
+                    int row = selectedRows[i];
+                    String filePath = (String) tableModel.getValueAt(row, 1);
 
-                    indicator.setText("Removing file ID: " + fileId);
-                    indicator.setFraction((double) i / fileIds.size());
+                    indicator.setText("Removing file: " + filePath);
+                    indicator.setFraction((double) i / selectedRows.length);
 
-                    if (kbManager.removeFile(fileId)) {
+                    if (ragManager.removeFile(filePath)) {
                         successCount++;
                     }
                 }
 
                 int finalSuccessCount = successCount;
                 SwingUtilities.invokeLater(() -> {
-                    // Refresh the table
-                    refreshFiles();
-                    statusLabel.setText("Removed " + finalSuccessCount + " of " + fileIds.size() + " files");
+                    loadTrackedFiles();
+                    setStatusText("Removed " + finalSuccessCount + " of " + selectedRows.length + " files");
+                    setProcessingState(false, null);
                 });
             }
         });
     }
 
-    private void addFileToTable(String fileName, String path, String fileId, String status) {
-        tableModel.addRow(new Object[]{fileName, path, status});
+    /**
+     * Loads tracked files into the table.
+     */
+    private void loadTrackedFiles() {
+        // Clear the table
+        tableModel.setRowCount(0);
+
+        // Add all tracked files
+        List<PersistentRagManager.TrackedFileInfo> files = ragManager.getTrackedFiles();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+        for (PersistentRagManager.TrackedFileInfo file : files) {
+            tableModel.addRow(new Object[]{
+                    file.getName(),
+                    file.getPath(),
+                    file.getFileId(),
+                    dateFormat.format(file.getLastModified()),
+                    "Synced"
+            });
+        }
+
+        setStatusText("Loaded " + files.size() + " tracked files");
     }
 
-    private List<String> parseExtensions(String extensionsText) {
-        List<String> extensions = new ArrayList<>();
-        if (extensionsText == null || extensionsText.trim().isEmpty()) {
-            return extensions;
-        }
+    /**
+     * Sets the processing state of the UI.
+     */
+    private void setProcessingState(boolean processing, String statusMessage) {
+        progressBar.setVisible(processing);
+        progressBar.setIndeterminate(processing);
 
-        // Split by comma and trim each extension
-        String[] parts = extensionsText.split(",");
-        for (String part : parts) {
-            String ext = part.trim().toLowerCase();
-            if (!ext.isEmpty()) {
-                // Remove leading dot if present
-                if (ext.startsWith(".")) {
-                    ext = ext.substring(1);
-                }
-                extensions.add(ext);
-            }
+        if (statusMessage != null) {
+            setStatusText(statusMessage);
         }
+    }
 
-        return extensions;
+    /**
+     * Sets the status text.
+     */
+    private void setStatusText(String text) {
+        statusLabel.setText(text);
     }
 
     @Override

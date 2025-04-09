@@ -27,20 +27,14 @@ public class ConfigurationManager {
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
-    private String apiUrl;
-    private String testModel;
-    private String codeModel;
-    private int maxIterations;
-    private String authToken;
-    private Project project;
+    private static String apiUrl;
+    private static String testModel;
+    private static String codeModel;
+    private static int maxIterations;
+    private static String authToken;
+    private static Project project;
     // In ConfigurationManager.java
-    private boolean ragEnabled = true;
-    private String knowledgeCollectionId; // Knowledge collection ID for RAG
-
-    public void setKnowledgeCollectionId(String collectionId) {
-        this.knowledgeCollectionId = collectionId;
-        saveProperty("knowledgeCollectionId", collectionId);
-    }
+    private static boolean ragEnabled = true;
 
     public boolean isRagEnabled() {
         return ragEnabled;
@@ -66,7 +60,6 @@ public class ConfigurationManager {
         codeModel = DEFAULT_CODE_MODEL;
         maxIterations = DEFAULT_MAX_ITERATIONS;
         authToken = "";
-        knowledgeCollectionId = "";
 
         boolean configExists = false;
 
@@ -87,8 +80,7 @@ public class ConfigurationManager {
                 testModel = props.getProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
-                knowledgeCollectionId = props.getProperty("knowledgeCollectionId", "");
-                String ragEnabledStr = props.getProperty("ragEnabled");
+                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
                     ragEnabled = Boolean.parseBoolean(ragEnabledStr);
                 }

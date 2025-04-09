@@ -5,18 +5,19 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.PersistentRagManager;
+import com.zps.zest.RagManagerProjectListener;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * Enhanced RAG Search Tool that provides better integration with the knowledge base.
- * Features improved error handling, timeout management, and result formatting.
+ * Enhanced RAG Search Tool that works with the persistent tracking system.
  */
 public class RagSearchTool extends BaseAgentTool {
     private static final Logger LOG = Logger.getInstance(RagSearchTool.class);
@@ -44,9 +45,24 @@ public class RagSearchTool extends BaseAgentTool {
         }
 
         int topK = getIntParam(params, "top_k", 3);
-        String collectionId = getStringParam(params, "collection_id", null);
 
-        return searchKnowledgeBase(query, topK, collectionId);
+        // Check if we have files in the knowledge base
+        PersistentRagManager manager = RagManagerProjectListener.getManager(project);
+        if (manager != null) {
+            List<PersistentRagManager.TrackedFileInfo> trackedFiles = manager.getTrackedFiles();
+            if (trackedFiles.isEmpty()) {
+                return "No files found in the knowledge base. Please add files using the 'Manage RAG Knowledge Base' action.";
+            }
+
+            // Get file IDs for search
+            List<String> fileIds = trackedFiles.stream()
+                    .map(PersistentRagManager.TrackedFileInfo::getFileId)
+                    .collect(Collectors.toList());
+
+            return searchKnowledgeBase(query, topK, fileIds);
+        } else {
+            return "RAG system is not initialized. Please add files using the 'Manage RAG Knowledge Base' action.";
+        }
     }
 
     @Override
@@ -54,19 +70,18 @@ public class RagSearchTool extends BaseAgentTool {
         JsonObject params = new JsonObject();
         params.addProperty("query", "How does the ToolParser work?");
         params.addProperty("top_k", 3);
-        params.addProperty("collection_id", ""); // Optional: specific collection ID
         return params;
     }
 
     /**
      * Retrieves information from the knowledge base based on the query.
      */
-    private String searchKnowledgeBase(String query, int topK, String collectionId) {
+    private String searchKnowledgeBase(String query, int topK, List<String> fileIds) {
         try {
             HttpURLConnection conn = setupConnection(apiUrl + "/chat/completions");
 
             // Create the request payload
-            JsonObject payload = buildRequestPayload(query, topK, collectionId);
+            JsonObject payload = buildRequestPayload(query, topK, fileIds);
 
             // Send the request
             sendRequest(conn, payload.toString());
@@ -111,7 +126,7 @@ public class RagSearchTool extends BaseAgentTool {
     /**
      * Builds the JSON payload for the RAG request.
      */
-    private JsonObject buildRequestPayload(String query, int topK, String collectionId) {
+    private JsonObject buildRequestPayload(String query, int topK, List<String> fileIds) {
         JsonObject payload = new JsonObject();
 
         // Set the model - use GPT-4 or similar advanced model for RAG
@@ -134,13 +149,15 @@ public class RagSearchTool extends BaseAgentTool {
             payload.addProperty("top_k", topK);
         }
 
-        // Add collection reference if specified
-        if (collectionId != null && !collectionId.isEmpty()) {
+        // Add file references
+        if (fileIds != null && !fileIds.isEmpty()) {
             JsonArray files = new JsonArray();
-            JsonObject collection = new JsonObject();
-            collection.addProperty("type", "collection");
-            collection.addProperty("id", collectionId);
-            files.add(collection);
+            for (String fileId : fileIds) {
+                JsonObject file = new JsonObject();
+                file.addProperty("type", "file");
+                file.addProperty("id", fileId);
+                files.add(file);
+            }
             payload.add("files", files);
         }
 
@@ -151,10 +168,11 @@ public class RagSearchTool extends BaseAgentTool {
      * Enhances the user's query to get better RAG results.
      */
     private String buildEnhancedPrompt(String query) {
-        return "I need information from the knowledge base about the following topic:\n\n" +
+        return "I need information from the project knowledge base about the following topic:\n\n" +
                 query + "\n\n" +
-                "Please provide detailed and accurate information based on the context. " +
-                "If the information isn't available in the context, please indicate that clearly.";
+                "Please provide detailed and accurate information based on the context from the codebase. " +
+                "If the information isn't available in the context, please indicate that clearly. " +
+                "Include relevant code examples when appropriate.";
     }
 
     /**
@@ -228,7 +246,7 @@ public class RagSearchTool extends BaseAgentTool {
 
         formatted.append("### Knowledge Base Results for: \"").append(originalQuery).append("\"\n\n");
 
-        // Add a section separator and the content
+        // Add the content
         formatted.append(content);
 
         // Add a note about the source

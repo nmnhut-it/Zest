@@ -33,7 +33,20 @@ public class ConfigurationManager {
     private int maxIterations;
     private String authToken;
     private Project project;
+    // In ConfigurationManager.java
+    private boolean ragEnabled = true;
 
+    public boolean isRagEnabled() {
+        return ragEnabled;
+    }
+
+    public void setRagEnabled(boolean value) {
+        this.ragEnabled = value;
+    }
+
+    public String getOpenWebUIRagEndpoint() {
+        return apiUrl;
+    }
     public ConfigurationManager(Project project) {
         this.project = project;
         loadConfig();

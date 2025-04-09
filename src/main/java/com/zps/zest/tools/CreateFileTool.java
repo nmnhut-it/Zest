@@ -20,7 +20,7 @@ public class CreateFileTool extends BaseAgentTool {
     private final Project project;
 
     public CreateFileTool(Project project) {
-        super("create_file", "Creates a new file with the specified path and content");
+        super("create_file", "Creates a new file with the specified path and content. Make sure you provide a complete file content without placeholders.");
         this.project = project;
     }
 

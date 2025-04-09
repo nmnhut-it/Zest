@@ -9,6 +9,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
+import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.components.JBPanel;
@@ -71,18 +72,18 @@ public class InteractiveAgentPanel {
         chatDisplay.setEditable(false);
         chatDisplay.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         chatDisplay.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
-       var bgColor = JBColor.namedColor("Panel.background", new JBColor(new Color(240, 242, 245), new Color(49, 51, 53)));
+// For chat display main text color - using Label.foreground for theme-aware colors
 
-        chatDisplay.setBackground(bgColor);
 
         // Add Cursor-style system prompt
         addDefaultSystemPrompt();
 
         // Set up input area
         inputArea = new JTextArea();
-        inputArea.setRows(5);
+        inputArea.setRows(6);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
+        inputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         inputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         inputArea.setBorder(JBUI.Borders.empty(8));
         inputArea.addKeyListener(new KeyAdapter() {
@@ -94,6 +95,10 @@ public class InteractiveAgentPanel {
                 }
             }
         });
+
+        // For input area
+        Color inputBgColor = JBColor.namedColor("TextArea.background", JBColor.background());
+        inputArea.setBackground(inputBgColor);
 
         // Set up progress and status
         progressBar = new JProgressBar();
@@ -107,13 +112,16 @@ public class InteractiveAgentPanel {
         sendButton.addActionListener(e -> sendMessage());
 
         // Create panel layout
-        JBSplitter splitter = new JBSplitter(true, 0.85f);
+        JBSplitter splitter = new JBSplitter(true, 0.7f);
         splitter.setDividerWidth(1);
 
         // Chat display panel
         JBScrollPane chatScrollPane = new JBScrollPane(chatDisplay);
         chatScrollPane.setBorder(JBUI.Borders.empty());
         splitter.setFirstComponent(chatScrollPane);
+        chatScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        chatScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
 
         // Input panel
         JPanel inputPanel = createInputPanel();
@@ -548,42 +556,78 @@ public class InteractiveAgentPanel {
     private void updateChatDisplay() {
         StringBuilder html = new StringBuilder();
 
-        // CSS styles with theme awareness
-        html.append("<html><head><style>");
+        // Correct theme detection
+        isDarkTheme = !JBColor.isBright(); // Inverted - isBright() returns false for dark themes
+
+        // Convert JBColor objects to hex strings for CSS
+        Color textColor = JBColor.namedColor("Label.foreground",
+                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
+        String textColorStr = String.format("#%06x", textColor.getRGB() & 0xFFFFFF);
 
         // Theme-specific colors
-        String bgColor = isDarkTheme ? "#2b2b2b" : "#f7f7f7";
-        String textColor = isDarkTheme ? "#e0e0e0" : "#333";
-        String userBg = isDarkTheme ? "#3c3f41" : "#e6f7ff";
-        String userBorder = isDarkTheme ? "#6a8759" : "#1a73e8";
-        String aiBg = isDarkTheme ? "#313335" : "#f0f0f0";
-        String aiBorder = isDarkTheme ? "#cc7832" : "#50b2c0";
-        String systemColor = isDarkTheme ? "#888" : "#666";
-        String codeBg = isDarkTheme ? "#2d2d2d" : "#f8f8f8";
-        String codeBorder = isDarkTheme ? "#555" : "#ddd";
+        Color bgColor = JBColor.namedColor("Editor.backgroundColor",
+                isDarkTheme ? new Color(43, 43, 43) : new Color(247, 247, 247));
+        String bgColorStr = String.format("#%06x", bgColor.getRGB() & 0xFFFFFF);
+
+        Color userBgColor = JBColor.namedColor("Plugins.lightSelectionBackground",
+                isDarkTheme ? new Color(60, 63, 65) : new Color(230, 247, 255));
+        String userBgStr = String.format("#%06x", userBgColor.getRGB() & 0xFFFFFF);
+
+        Color userBorderColor = JBColor.namedColor("Button.focusedBorderColor",
+                isDarkTheme ? new Color(106, 135, 89) : new Color(26, 115, 232));
+        String userBorderStr = String.format("#%06x", userBorderColor.getRGB() & 0xFFFFFF);
+
+        Color aiBgColor = JBColor.namedColor("EditorPane.inactiveBackground",
+                isDarkTheme ? new Color(49, 51, 53) : new Color(240, 240, 240));
+        String aiBgStr = String.format("#%06x", aiBgColor.getRGB() & 0xFFFFFF);
+
+        Color aiBorderColor = JBColor.namedColor("Component.focusColor",
+                isDarkTheme ? new Color(204, 120, 50) : new Color(80, 178, 192));
+        String aiBorderStr = String.format("#%06x", aiBorderColor.getRGB() & 0xFFFFFF);
+
+        Color systemColor = JBColor.namedColor("Label.disabledForeground",
+                isDarkTheme ? new Color(180, 180, 180) : new Color(120, 120, 120));
+        String systemColorStr = String.format("#%06x", systemColor.getRGB() & 0xFFFFFF);
+
+        Color codeBgColor = JBColor.namedColor("EditorPane.background",
+                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
+        String codeBgStr = String.format("#%06x", codeBgColor.getRGB() & 0xFFFFFF);
+
+        Color codeBorderColor = JBColor.namedColor("Border.color",
+                isDarkTheme ? new Color(85, 85, 85) : new Color(221, 221, 221));
+        String codeBorderStr = String.format("#%06x", codeBorderColor.getRGB() & 0xFFFFFF);
 
         // Base styles
+        html.append("<html><head><style>");
         html.append("body { font-family: system-ui, -apple-system, sans-serif; ")
                 .append("margin: 0; padding: 10px; line-height: 1.5; ")
-                .append("background-color: ").append(bgColor).append("; ")
-                .append("color: ").append(textColor).append("; }");
+                .append("background-color: ").append(bgColorStr).append("; ")
+                .append("color: ").append(textColorStr).append("; }");
 
-        // Message styles
+        // Message styles with explicit text colors
         html.append(".message { margin-bottom: 15px; padding: 12px; border-radius: 8px; }");
-        html.append(".user { background-color: ").append(userBg).append("; border-left: 3px solid ").append(userBorder).append("; }");
-        html.append(".assistant { background-color: ").append(aiBg).append("; border-left: 3px solid ").append(aiBorder).append("; }");
-        html.append(".system { color: ").append(systemColor).append("; font-style: italic; text-align: center; }");
+        html.append(".user { background-color: ").append(userBgStr)
+                .append("; border-left: 3px solid ").append(userBorderStr)
+                .append("; color: ").append(textColorStr).append("; }");
+        html.append(".assistant { background-color: ").append(aiBgStr)
+                .append("; border-left: 3px solid ").append(aiBorderStr)
+                .append("; color: ").append(textColorStr).append("; }");
+        html.append(".system { color: ").append(systemColorStr).append("; font-style: italic; text-align: center; }");
 
-        // Code styles
-        html.append("pre { background-color: ").append(codeBg).append("; ")
-                .append("border: 1px solid ").append(codeBorder).append("; ")
-                .append("padding: 10px; border-radius: 4px; overflow-x: auto; }");
-        html.append("code { font-family: 'JetBrains Mono', monospace; padding: 2px 4px; border-radius: 3px; }");
-        html.append(".timestamp { font-size: 0.8em; color: ").append(systemColor).append("; margin-top: 5px; text-align: right; }");
+        // Force all text elements to use our color
+        html.append("div, p, span, strong { color: ").append(textColorStr).append("; }");
+
+        // Code styles with better contrast
+        html.append("pre { background-color: ").append(codeBgStr).append("; ")
+                .append("border: 1px solid ").append(codeBorderStr).append("; ")
+                .append("padding: 10px; border-radius: 4px; overflow-x: auto; color: ").append(textColorStr).append("; }");
+        html.append("code { font-family: 'JetBrains Mono', monospace; padding: 2px 4px; border-radius: 3px; color: ").append(textColorStr).append("; }");
+        html.append(".timestamp { font-size: 0.8em; color: ").append(systemColorStr).append("; margin-top: 5px; text-align: right; }");
 
         html.append("</style></head><body>");
 
-        // Add messages
+
+        // Rest of your function remains the same
         for (ChatMessage message : chatHistory) {
             String cssClass = "";
             String senderLabel = "";
@@ -646,7 +690,6 @@ public class InteractiveAgentPanel {
             vertical.setValue(vertical.getMaximum());
         });
     }
-
     /**
      * Escape HTML special characters.
      */

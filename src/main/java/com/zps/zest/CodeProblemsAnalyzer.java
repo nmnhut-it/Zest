@@ -6,23 +6,25 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.search.FilenameIndex;
+import com.intellij.psi.search.GlobalSearchScope;
 
+import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
- * A simpler tool for retrieving code problems from IntelliJ's daemon analyzer.
+ * A tool for retrieving code problems from IntelliJ's daemon analyzer.
+ * Supports analyzing individual files, directories, or the entire project.
  */
 public class CodeProblemsAnalyzer {
     private static final Logger LOG = Logger.getInstance(CodeProblemsAnalyzer.class);
@@ -37,6 +39,10 @@ public class CodeProblemsAnalyzer {
 
     /**
      * Analyzes the code in the specified scope.
+     *
+     * @param scope The scope of analysis ("current_file", "directory", or "project")
+     * @param path The path to analyze (file path or directory path)
+     * @return A formatted report of code problems
      */
     public String analyzeCode(String scope, String path) {
         try {
@@ -81,93 +87,50 @@ public class CodeProblemsAnalyzer {
         List<CodeProblem> results = new ArrayList<>();
 
         try {
-            // Determine the file to analyze
-            PsiFile file = null;
-
             switch (scope.toLowerCase()) {
                 case "current_file":
-                    file = findFileByPath(path);
+                    // Analyze a single file
+                    PsiFile file = findFileByPath(path);
+                    if (file == null) {
+                        return Collections.singletonList(new CodeProblem(
+                                "File not found",
+                                "Could not find file: " + path,
+                                "N/A",
+                                -1,
+                                ProblemSeverity.ERROR
+                        ));
+                    }
+                    results.addAll(analyzeFile(file));
                     break;
-                case "project":
+
                 case "directory":
-                    return Collections.singletonList(new CodeProblem(
-                            "Scope not supported",
-                            "Currently only 'current_file' scope is supported for simplicity",
-                            "N/A",
-                            -1,
-                            ProblemSeverity.WARNING
-                    ));
+                    // Analyze files in a directory
+                    VirtualFile directory = findDirectoryByPath(path);
+                    if (directory == null || !directory.isDirectory()) {
+                        return Collections.singletonList(new CodeProblem(
+                                "Directory not found",
+                                "Could not find directory: " + path,
+                                "N/A",
+                                -1,
+                                ProblemSeverity.ERROR
+                        ));
+                    }
+                    results.addAll(analyzeDirectory(directory));
+                    break;
+
+                case "project":
+                    // Analyze all files in the project
+                    results.addAll(analyzeProject());
+                    break;
+
                 default:
                     return Collections.singletonList(new CodeProblem(
                             "Invalid scope",
-                            "Scope must be one of: current_file",
+                            "Scope must be one of: current_file, directory, project",
                             "N/A",
                             -1,
                             ProblemSeverity.ERROR
                     ));
-            }
-
-            if (file == null) {
-                return Collections.singletonList(new CodeProblem(
-                        "File not found",
-                        "Could not find file: " + path,
-                        "N/A",
-                        -1,
-                        ProblemSeverity.ERROR
-                ));
-            }
-
-            // Get document for the file
-            Document document = PsiDocumentManager.getInstance(project).getDocument(file);
-            if (document == null) {
-                return Collections.singletonList(new CodeProblem(
-                        "Document not available",
-                        "Could not get document for file: " + path,
-                        file.getName(),
-                        -1,
-                        ProblemSeverity.ERROR
-                ));
-            }
-
-            // Get highlight info for the entire file
-            List<HighlightInfo> highlights = DaemonCodeAnalyzerImpl.getHighlights(
-                    document, HighlightSeverity.ERROR, project);
-
-            if (highlights == null || highlights.isEmpty()) {
-                return Collections.emptyList();
-            }
-
-            // Convert HighlightInfo to CodeProblem
-            for (HighlightInfo info : highlights) {
-                // Skip information severity level
-                if (info.getSeverity().myVal <= 0) continue;
-
-                int lineNumber = document.getLineNumber(info.getStartOffset()) + 1;
-
-                ProblemSeverity severity;
-                if (info.getSeverity().myVal >= 100) {
-                    severity = ProblemSeverity.ERROR;
-                } else if (info.getSeverity().myVal >= 50) {
-                    severity = ProblemSeverity.WARNING;
-                } else {
-                    severity = ProblemSeverity.WEAK_WARNING;
-                }
-
-                CodeProblem problem = new CodeProblem(
-                        info.getDescription(),
-                        info.getToolTip() != null ? info.getToolTip() : info.getDescription(),
-                        file.getName(),
-                        lineNumber,
-                        severity
-                );
-
-                if (matchesTextFilter(problem)) {
-                    results.add(problem);
-
-                    if (results.size() >= maxResults) {
-                        break;
-                    }
-                }
             }
 
             return results;
@@ -184,6 +147,121 @@ public class CodeProblemsAnalyzer {
     }
 
     /**
+     * Analyzes a single file for problems.
+     */
+    private List<CodeProblem> analyzeFile(PsiFile file) {
+        List<CodeProblem> results = new ArrayList<>();
+
+        // Get document for the file
+        Document document = PsiDocumentManager.getInstance(project).getDocument(file);
+        if (document == null) {
+            results.add(new CodeProblem(
+                    "Document not available",
+                    "Could not get document for file: " + file.getName(),
+                    file.getName(),
+                    -1,
+                    ProblemSeverity.ERROR
+            ));
+            return results;
+        }
+
+        // Get highlight info for the entire file
+        List<HighlightInfo> highlights = DaemonCodeAnalyzerImpl.getHighlights(
+                document, HighlightSeverity.ERROR, project);
+
+        if (highlights == null || highlights.isEmpty()) {
+            return results;
+        }
+
+        // Convert HighlightInfo to CodeProblem
+        for (HighlightInfo info : highlights) {
+            // Skip information severity level
+            if (info.getSeverity().myVal <= 0) continue;
+
+            int lineNumber = document.getLineNumber(info.getStartOffset()) + 1;
+
+            ProblemSeverity severity;
+            if (info.getSeverity().myVal >= 100) {
+                severity = ProblemSeverity.ERROR;
+            } else if (info.getSeverity().myVal >= 50) {
+                severity = ProblemSeverity.WARNING;
+            } else {
+                severity = ProblemSeverity.WEAK_WARNING;
+            }
+
+            CodeProblem problem = new CodeProblem(
+                    info.getDescription(),
+                    info.getToolTip() != null ? info.getToolTip() : info.getDescription(),
+                    file.getName(),
+                    lineNumber,
+                    severity
+            );
+
+            if (matchesTextFilter(problem)) {
+                results.add(problem);
+
+                if (results.size() >= maxResults) {
+                    break;
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Analyzes all files in a directory for problems.
+     */
+    private List<CodeProblem> analyzeDirectory(VirtualFile directory) {
+        List<CodeProblem> results = new ArrayList<>();
+
+        // Process each child file in the directory
+        for (VirtualFile child : directory.getChildren()) {
+            if (results.size() >= maxResults) {
+                break;
+            }
+
+            if (child.isDirectory()) {
+                // Recursively analyze subdirectories
+                results.addAll(analyzeDirectory(child));
+            } else if (isAnalyzableFile(child)) {
+                // Analyze individual file
+                PsiFile psiFile = PsiManager.getInstance(project).findFile(child);
+                if (psiFile != null) {
+                    results.addAll(analyzeFile(psiFile));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Analyzes all files in the project for problems.
+     */
+    private List<CodeProblem> analyzeProject() {
+        List<CodeProblem> results = new ArrayList<>();
+
+        // Get all Java files in the project
+        Collection<VirtualFile> javaFiles = FilenameIndex.getAllFilesByExt(
+                project, "java", GlobalSearchScope.projectScope(project));
+
+        // Analyze each Java file
+        for (VirtualFile file : javaFiles) {
+            if (results.size() >= maxResults) {
+                break;
+            }
+
+            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+            if (psiFile != null) {
+                results.addAll(analyzeFile(psiFile));
+            }
+        }
+
+        return results;
+    }
+
+    /**
      * Finds a file by its path.
      */
     private PsiFile findFileByPath(String path) {
@@ -193,6 +271,38 @@ public class CodeProblemsAnalyzer {
         }
 
         return PsiManager.getInstance(project).findFile(virtualFile);
+    }
+
+    /**
+     * Finds a directory by its path.
+     */
+    private VirtualFile findDirectoryByPath(String path) {
+        // Try as absolute path
+        VirtualFile directory = LocalFileSystem.getInstance().findFileByPath(path);
+        if (directory != null && directory.exists() && directory.isDirectory()) {
+            return directory;
+        }
+
+        // Try as relative path from project root
+        String projectBasePath = project.getBasePath();
+        if (projectBasePath != null) {
+            String absolutePath = new File(projectBasePath, path).getAbsolutePath();
+            directory = LocalFileSystem.getInstance().findFileByPath(absolutePath);
+            if (directory != null && directory.exists() && directory.isDirectory()) {
+                return directory;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks if a file should be analyzed for problems.
+     */
+    private boolean isAnalyzableFile(VirtualFile file) {
+        String extension = file.getExtension();
+        // For now, only analyze Java files
+        return "java".equalsIgnoreCase(extension);
     }
 
     /**

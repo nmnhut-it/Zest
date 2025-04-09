@@ -10,7 +10,7 @@ public class AnalyzeCodeProblemsTool extends BaseAgentTool {
     private final Project project;
 
     public AnalyzeCodeProblemsTool(Project project) {
-        super("analyze_code_problems", "Analyzes code problems in the specified scope");
+        super("analyze_code_problems", "Analyzes code problems in the specified scope. The scope could be 'project', 'current_file' or 'directory'");
         this.project = project;
     }
 

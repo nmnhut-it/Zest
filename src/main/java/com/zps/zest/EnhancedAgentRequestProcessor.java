@@ -21,7 +21,7 @@ public class EnhancedAgentRequestProcessor {
 
     private final Project project;
     private final AgentToolRegistry toolRegistry;
-    private final ConfigurationManager configManager;
+    public final ConfigurationManager configManager;
     private final PromptBuilderForAgent promptBuilderForAgent;
     private final ToolExecutor toolExecutor;
 

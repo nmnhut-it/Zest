@@ -89,5 +89,11 @@
             <add-to-group group-id="MainToolBar" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl I"/>
         </action>
+        <action id="Zest.ManageKnowledgeBase"
+                class="com.zps.zest.ManageKnowledgeBaseAction"
+                text="Manage Knowledge Base"
+                description="Manage RAG knowledge base">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

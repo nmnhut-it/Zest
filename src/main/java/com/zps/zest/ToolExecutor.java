@@ -1,7 +1,6 @@
 package com.zps.zest;
 
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.intellij.openapi.diagnostic.Logger;
 import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.XmlRpcUtils;
@@ -62,39 +61,7 @@ public class ToolExecutor {
 
         return processedResponse.toString();
     }
-    
-    /**
-     * Executes a JSON-RPC style tool invocation.
-     * 
-     * @param jsonText The JSON tool invocation text
-     * @return The result of the tool execution
-     */
-    private String executeJsonToolInvocation(String jsonText) {
-        try {
-            // Parse the JSON invocation
-            JsonObject jsonObject = JsonParser.parseString(jsonText.trim()).getAsJsonObject();
-            
-            // Extract tool name and parameters
-            if (!jsonObject.has("toolName")) {
-                return "Error: Invalid tool invocation - missing toolName";
-            }
-            
-            String toolName = jsonObject.get("toolName").getAsString();
-            JsonObject arguments = jsonObject.has("arguments") ? 
-                jsonObject.getAsJsonObject("arguments") : new JsonObject();
-            
-            // Get the tool and execute it
-            AgentTool tool = toolRegistry.getTool(toolName);
-            if (tool == null) {
-                return "Error: Unknown tool: " + toolName;
-            }
-            
-            return tool.execute(arguments);
-        } catch (Exception e) {
-            LOG.error("Error executing tool: " + e.getMessage(), e);
-            return "Error executing tool: " + e.getMessage();
-        }
-    }
+
     public String executeXmlToolInvocation(String xmlText) {
         try {
             // Convert XML to JSON

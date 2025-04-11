@@ -34,51 +34,6 @@ public class AgentTools {
     }
 
     /**
-     * Reads the content of a file by name or path.
-     *
-     * @param filePath The name or path of the file to read
-     * @return The content of the file or an error message
-     */
-    public String readFile(String filePath) {
-        try {
-            return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
-                // First try to find by exact path (supporting both absolute and relative paths)
-                VirtualFile fileByPath = findFileByPath(filePath);
-                if (fileByPath != null) {
-                    PsiFile psiFile = PsiManager.getInstance(project).findFile(fileByPath);
-                    if (psiFile != null) {
-                        return psiFile.getText();
-                    }
-                }
-
-                // If not found by path, try to find by filename
-                String fileName = new File(filePath).getName();
-                PsiFile[] files = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project));
-
-                if (files.length == 0) {
-                    return "File not found: " + filePath;
-                }
-
-                // If multiple files with the same name exist, try to find the best match
-                if (files.length > 1 && filePath.contains("/")) {
-                    for (PsiFile file : files) {
-                        String fullPath = file.getVirtualFile().getPath();
-                        if (fullPath.endsWith(filePath) || fullPath.contains(filePath)) {
-                            return file.getText();
-                        }
-                    }
-                }
-
-                // Return first matching file
-                return files[0].getText();
-            });
-        } catch (Exception e) {
-            LOG.error("Error reading file: " + filePath, e);
-            return "Error reading file: " + e.getMessage();
-        }
-    }
-
-    /**
      * Finds a file by its path, supporting both absolute and relative paths.
      *
      * @param filePath The path to the file

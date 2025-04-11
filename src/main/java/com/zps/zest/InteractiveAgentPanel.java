@@ -1,11 +1,19 @@
 package com.zps.zest;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.lexer.Lexer;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.SyntaxHighlighter;
+import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
@@ -18,6 +26,7 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.event.HyperlinkEvent;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -27,7 +36,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -143,9 +152,19 @@ public class InteractiveAgentPanel {
         mainPanel.add(statusPanel, BorderLayout.SOUTH);
         panel.setContent(mainPanel);
 
+        chatDisplay.addHyperlinkListener(e -> {
+            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
+                String url = e.getDescription().toString();
+                if (url.startsWith(COPY_PREFIX)) {
+                    handleCopyRequest(url.substring(COPY_PREFIX.length()));
+
+                }
+            }
+        });
         // Add welcome message
         addSystemMessage("Welcome to the Enhanced AI Coding Assistant. How can I help you with your code today?");
     }
+    private static final String COPY_PREFIX = "copy:";
 
     /**
      * Adds default system prompt with Cursor-style.
@@ -534,6 +553,55 @@ public class InteractiveAgentPanel {
         html.append("code { font-family: 'JetBrains Mono', monospace; padding: 2px 4px; border-radius: 3px; color: ").append(textColorStr).append("; }");
         html.append(".timestamp { font-size: 0.8em; color: ").append(systemColorStr).append("; margin-top: 5px; text-align: right; }");
 
+        html.append("pre { position: relative; background-color: ").append(codeBgStr).append("; ")
+                .append("border: 1px solid ").append(codeBorderStr).append("; ")
+                .append("padding: 10px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }");
+        html.append(".copy-btn { position: absolute; right: 8px; top: 8px; cursor: pointer; color: ")
+                .append(systemColorStr).append("; font-size: 0.8em; text-decoration: none; }");
+        html.append(".copy-btn:hover { text-decoration: underline; }");
+        html.append("""
+        <style>
+            .code-block {
+                position: relative; 
+                margin: 8px 0;
+                border-radius: 4px;
+                background-color: %s;
+                border: 1px solid %s;
+            }
+            .code-header {
+                padding: 4px 8px;
+                background-color: %s;
+                border-bottom: 1px solid %s;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .code-actions { display: flex; gap: 8px; }
+            .code-action {
+                color: %s;
+                cursor: pointer;
+                text-decoration: none;
+            }
+            .code-content { padding: 8px; overflow-x: auto; }
+        </style>
+        <script type="text/javascript">
+            function copyCode(codeElementId) {
+                var range = document.createRange();
+                range.selectNode(document.getElementById(codeElementId));
+                window.getSelection().removeAllRanges(); // clear current selection
+                window.getSelection().addRange(range); // to select text
+                document.execCommand('copy');
+                window.getSelection().removeAllRanges();// to deselect
+                alert("Code copied to clipboard");
+            }
+        </script>
+        """.formatted(
+                codeBgStr, codeBorderStr,
+                codeBgStr,
+                codeBorderStr,
+                systemColorStr
+        ));
+
         html.append("</style></head><body>");
 
 
@@ -571,8 +639,10 @@ public class InteractiveAgentPanel {
             StringBuffer sb = new StringBuffer();
 
             while (matcher.find()) {
-                String code = matcher.group(2);
-                matcher.appendReplacement(sb, "<pre><code>" + escapeHtml(code) + "</code></pre>");
+                String lang = matcher.group(1).trim();
+                String codeContent = matcher.group(2);
+                String codeHtml = createCodeBlockHtml(lang, codeContent, matcher.start());
+                matcher.appendReplacement(sb, codeHtml);
             }
             matcher.appendTail(sb);
 
@@ -600,6 +670,103 @@ public class InteractiveAgentPanel {
             vertical.setValue(vertical.getMaximum());
         });
     }
+    private String createCodeBlockHtml(String language, String code, int codeIndex) {
+        String highlighted = highlightCode(code, language);
+        String codeElementId = "codeSnippet" + codeIndex;
+
+        return """
+        <div class="code-block">
+            <div class="code-header">
+                <span>%s</span>
+                <div class="code-actions">
+                    <a href="#" onclick="copyCode('%s'); return false;" class="code-action">Copy</a>
+                </div>
+            </div>
+            <div id="%s" class="code-content">%s</div>
+        </div>
+        """.formatted(
+                language.isEmpty() ? "Code" : language,
+                codeElementId,
+                codeElementId,
+                highlighted
+        );
+    }
+    private String highlightCode(String code, String lang) {
+        if (lang.isEmpty())
+            lang = "java";
+
+        FileType fileType = FileTypeManager.getInstance().getFileTypeByExtension(lang);
+        SyntaxHighlighter highlighter = SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, null);
+        if (highlighter == null) return escapeHtml(code);
+
+        EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
+        Lexer lexer = highlighter.getHighlightingLexer();
+        lexer.start(code);
+
+        StringBuilder sb = new StringBuilder();
+        int lastPos = 0;
+
+        try {
+            while (lexer.getTokenType() != null) {
+                int start = lexer.getTokenStart();
+                int end = lexer.getTokenEnd();
+                String text = code.substring(start, end);
+
+                TextAttributes attrs = Arrays.stream(highlighter.getTokenHighlights(lexer.getTokenType()))
+                        .map(scheme::getAttributes)
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse(new TextAttributes());
+
+                sb.append(escapeHtml(code.substring(lastPos, start)));
+                sb.append("<span style='").append(getStyle(attrs)).append("'>")
+                        .append(escapeHtml(text))
+                        .append("</span>");
+
+                lastPos = end;
+                lexer.advance();
+            }
+            sb.append(escapeHtml(code.substring(lastPos)));
+        } catch (Exception e) {
+            LOG.error("Error highlighting code", e);
+            return escapeHtml(code);
+        }
+
+        return sb.toString();
+    }
+
+    private String getStyle(TextAttributes attrs) {
+        StringBuilder style = new StringBuilder();
+        if (attrs.getForegroundColor() != null) {
+            style.append("color:").append(toHex(attrs.getForegroundColor())).append(";");
+        }
+        if (attrs.getBackgroundColor() != null) {
+            style.append("background-color:").append(toHex(attrs.getBackgroundColor())).append(";");
+        }
+        if ((attrs.getFontType() & Font.BOLD) != 0) {
+            style.append("font-weight:bold;");
+        }
+        if ((attrs.getFontType() & Font.ITALIC) != 0) {
+            style.append("font-style:italic;");
+        }
+        return style.toString();
+    }
+
+    private String toHex(Color color) {
+        return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+    }
+
+    private void handleCopyRequest(String encoded) {
+        try {
+            String code = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
+            java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(code);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            addSystemMessage("Code copied to clipboard");
+        } catch (Exception e) {
+            LOG.error("Failed to copy code", e);
+            addSystemMessage("Failed to copy code: " + e.getMessage());
+        }
+    }
     /**
      * Escape HTML special characters.
      */
@@ -608,6 +775,7 @@ public class InteractiveAgentPanel {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
+                .replace("\t",  "&nbsp;&nbsp;&nbsp;&nbsp;")
                 .replace("'", "&#39;");
     }
 

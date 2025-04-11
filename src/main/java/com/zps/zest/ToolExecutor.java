@@ -48,9 +48,9 @@ public class ToolExecutor {
             String toolOutput = executeXmlToolInvocation(invocation);
             
             // Format the tool output with a clear header
-            processedResponse.append("\n\n### Tool Result\n```\n");
+            processedResponse.append("\n\n### Tool Result\n");
             processedResponse.append(toolOutput);
-            processedResponse.append("\n```\n\n");
+            processedResponse.append("---------------------------");
             
             lastEnd = matcher.end();
         }

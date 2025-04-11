@@ -30,7 +30,7 @@ public class ReadFileTool extends BaseAgentTool {
         if (filePath.isEmpty()) {
             return "Error: File path is required";
         }
-        return readFile(filePath);
+        return "\njava\n```\n"+readFile(filePath)+"\n```\n";
     }
 
     @Override

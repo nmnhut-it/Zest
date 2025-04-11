@@ -1,6 +1,8 @@
 package com.zps.zest;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
@@ -16,24 +18,27 @@ public class InteractiveAgentToolWindow implements ToolWindowFactory {
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
-        LOG.info("Creating enhanced interactive AI agent tool window for project: " + project.getName());
+        DumbService.getInstance(project).smartInvokeLater(()->{
+            LOG.info("Creating enhanced interactive AI agent tool window for project: " + project.getName());
 
-        try {
-            // Create the enhanced chat panel
-            InteractiveAgentPanel agentPanel = new InteractiveAgentPanel(project);
+            try {
+                // Create the enhanced chat panel
+                InteractiveAgentPanel agentPanel = new InteractiveAgentPanel(project);
 
-            // Create content and add it to the tool window
-            ContentFactory contentFactory = ContentFactory.getInstance();
-            Content content = contentFactory.createContent(agentPanel.getContent(), "AI Assistant", false);
-            toolWindow.getContentManager().addContent(content);
+                // Create content and add it to the tool window
+                ContentFactory contentFactory = ContentFactory.getInstance();
+                Content content = contentFactory.createContent(agentPanel.getContent(), "AI Assistant", false);
+                toolWindow.getContentManager().addContent(content);
 
-            // Register the panel with the service
-            InteractiveAgentService.getInstance(project).registerPanel(agentPanel);
+                // Register the panel with the service
+                InteractiveAgentService.getInstance(project).registerPanel(agentPanel);
 
-            LOG.info("Enhanced interactive AI agent tool window created successfully");
-        } catch (Exception e) {
-            LOG.error("Error creating enhanced tool window content", e);
-        }
+                LOG.info("Enhanced interactive AI agent tool window created successfully");
+            } catch (Exception e) {
+                LOG.error("Error creating enhanced tool window content", e);
+            }
+        });
+
     }
 
     @Override

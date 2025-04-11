@@ -1,5 +1,4 @@
 package com.zps.zest;
-
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionToolbar;
@@ -277,8 +276,10 @@ public class InteractiveAgentPanel {
 
                 // Process the request with tools - this already handles tool execution internally
                  processor.processRequestWithTools(userMessage, conversationHistory, editor)
-                        .thenApply((result)->{
+                        .thenAccept((result)->{
                             // Display the final response that already includes tool results
+                            addSystemMessage("AI assistant responded");
+
                             addAssistantMessage(result);
 
                             setProcessingState(false);
@@ -351,98 +352,6 @@ public class InteractiveAgentPanel {
         updateChatDisplay();
     }
 
-    /**
-     * Updates the chat display with Swing components.
-     */
-    private void updateChatDisplay() {
-        chatPanel.removeAll();
-
-        // Get colors for theming
-        isDarkTheme = !JBColor.isBright();
-
-        Color userBgColor = JBColor.namedColor("Plugins.lightSelectionBackground",
-                isDarkTheme ? new Color(60, 63, 65) : new Color(230, 247, 255));
-
-        Color userBorderColor = JBColor.namedColor("Button.focusedBorderColor",
-                isDarkTheme ? new Color(106, 135, 89) : new Color(26, 115, 232));
-
-        Color aiBgColor = JBColor.namedColor("EditorPane.inactiveBackground",
-                isDarkTheme ? new Color(49, 51, 53) : new Color(240, 240, 240));
-
-        Color aiBorderColor = JBColor.namedColor("Component.focusColor",
-                isDarkTheme ? new Color(204, 120, 50) : new Color(80, 178, 192));
-
-        Color systemColor = JBColor.namedColor("Label.disabledForeground",
-                isDarkTheme ? new Color(180, 180, 180) : new Color(120, 120, 120));
-
-        // Add all messages as Swing components
-        for (ChatMessage message : chatHistory) {
-            JPanel messagePanel = new JBPanel<>(new BorderLayout());
-            messagePanel.setBorder(JBUI.Borders.empty(8, 12));
-
-            // Style based on message type
-            switch (message.getType()) {
-                case USER:
-                    styleMessagePanel(messagePanel, userBgColor, userBorderColor, "You:");
-                    break;
-                case ASSISTANT:
-                    styleMessagePanel(messagePanel, aiBgColor, aiBorderColor, "ZPS - AI Assistant:");
-                    break;
-                case SYSTEM:
-                    // System messages get special styling
-                    JLabel systemLabel = new JLabel(message.getContent());
-                    systemLabel.setForeground(systemColor);
-                    systemLabel.setFont(systemLabel.getFont().deriveFont(Font.ITALIC));
-                    systemLabel.setHorizontalAlignment(SwingConstants.CENTER);
-                    systemLabel.setBorder(JBUI.Borders.empty(4));
-
-                    messagePanel.add(systemLabel, BorderLayout.CENTER);
-                    messagePanel.setBackground(null); // transparent
-                    messagePanel.setBorder(JBUI.Borders.empty(4));
-
-                    chatPanel.add(messagePanel);
-                    chatPanel.add(Box.createVerticalStrut(5));
-                    continue;
-            }
-
-            // Get content and parse
-            String content = message.getContent();
-
-            // Create content panel
-            JPanel contentPanel = new JBPanel<>(new BorderLayout());
-            contentPanel.setOpaque(false);
-            contentPanel.setBorder(JBUI.Borders.emptyTop(5));
-
-            // Process content with code blocks
-            processContent(content, contentPanel);
-
-            // Add timestamp
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            JLabel timeLabel = new JLabel(message.getTimestamp().format(formatter));
-            timeLabel.setForeground(systemColor);
-            timeLabel.setFont(timeLabel.getFont().deriveFont(10.0f));
-            timeLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-            messagePanel.add(contentPanel, BorderLayout.CENTER);
-            messagePanel.add(timeLabel, BorderLayout.SOUTH);
-
-            chatPanel.add(messagePanel);
-            chatPanel.add(Box.createVerticalStrut(10));
-        }
-
-        // Add filler to push everything to the top
-        chatPanel.add(Box.createVerticalGlue());
-
-        // Refresh the panel
-        chatPanel.revalidate();
-        chatPanel.repaint();
-
-        // Scroll to bottom after update
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
-            vertical.setValue(vertical.getMaximum());
-        });
-    }
 
     /**
      * Styles a message panel according to the message type.
@@ -500,6 +409,280 @@ public class InteractiveAgentPanel {
     }
 
     /**
+     * Updates the chat display with Swing components with proper z-ordering.
+     */
+    private void updateChatDisplay() {
+        // Remove all existing components first
+        chatPanel.removeAll();
+
+        // Use a more robust layout manager that respects z-order
+        chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
+
+        // Get colors for theming
+        isDarkTheme = !JBColor.isBright();
+
+        Color userBgColor = JBColor.namedColor("Plugins.lightSelectionBackground",
+                isDarkTheme ? new Color(60, 63, 65) : new Color(230, 247, 255));
+
+        Color userBorderColor = JBColor.namedColor("Button.focusedBorderColor",
+                isDarkTheme ? new Color(106, 135, 89) : new Color(26, 115, 232));
+
+        Color aiBgColor = JBColor.namedColor("EditorPane.inactiveBackground",
+                isDarkTheme ? new Color(49, 51, 53) : new Color(240, 240, 240));
+
+        Color aiBorderColor = JBColor.namedColor("Component.focusColor",
+                isDarkTheme ? new Color(204, 120, 50) : new Color(80, 178, 192));
+
+        Color systemColor = JBColor.namedColor("Label.disabledForeground",
+                isDarkTheme ? new Color(180, 180, 180) : new Color(120, 120, 120));
+
+        // Process each message
+        for (ChatMessage message : chatHistory) {
+            JPanel messagePanel = new JBPanel<>();
+            messagePanel.setLayout(new BorderLayout());
+            messagePanel.setBorder(JBUI.Borders.empty(8, 12));
+
+            // Style based on message type
+            switch (message.getType()) {
+                case USER:
+                    styleMessagePanel(messagePanel, userBgColor, userBorderColor, "You:");
+                    break;
+                case ASSISTANT:
+                    styleMessagePanel(messagePanel, aiBgColor, aiBorderColor, "ZPS - AI Assistant:");
+                    break;
+                case SYSTEM:
+                    // System messages get special styling
+                    JLabel systemLabel = new JLabel(message.getContent());
+                    systemLabel.setForeground(systemColor);
+                    systemLabel.setFont(systemLabel.getFont().deriveFont(Font.ITALIC));
+                    systemLabel.setHorizontalAlignment(SwingConstants.CENTER);
+                    systemLabel.setBorder(JBUI.Borders.empty(4));
+
+                    messagePanel.add(systemLabel, BorderLayout.CENTER);
+                    messagePanel.setBackground(null); // transparent
+                    messagePanel.setBorder(JBUI.Borders.empty(4));
+
+                    chatPanel.add(messagePanel);
+                    chatPanel.add(Box.createVerticalStrut(5));
+                    continue;
+            }
+
+            // Create content panel for the message text and code blocks
+            JPanel contentPanel = new JBPanel<>();
+            contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+            contentPanel.setOpaque(false);
+            contentPanel.setBorder(JBUI.Borders.emptyTop(5));
+
+            // Get content and process it
+            String content = message.getContent();
+            processMessageContent(content, contentPanel);
+
+            // Add timestamp
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            JLabel timeLabel = new JLabel(message.getTimestamp().format(formatter));
+            timeLabel.setForeground(systemColor);
+            timeLabel.setFont(timeLabel.getFont().deriveFont(10.0f));
+            timeLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+            // Add panels to message
+            messagePanel.add(contentPanel, BorderLayout.CENTER);
+            messagePanel.add(timeLabel, BorderLayout.SOUTH);
+
+            // Add to chat
+            chatPanel.add(messagePanel);
+            chatPanel.add(Box.createVerticalStrut(10));
+        }
+
+        // Add filler to push everything to the top
+        chatPanel.add(Box.createVerticalGlue());
+
+        // Refresh the panel
+        chatPanel.revalidate();
+        chatPanel.repaint();
+
+        // Ensure scroll to bottom happens after layout
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
+            vertical.setValue(vertical.getMaximum());
+        });
+    }
+
+    /**
+     * Process message content to handle code blocks and regular text.
+     */
+    private void processMessageContent(String content, JPanel contentPanel) {
+        // Find code blocks
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(content);
+        int lastEnd = 0;
+        boolean found = false;
+
+        while (matcher.find()) {
+            found = true;
+
+            // Add text before code block
+            String textBefore = content.substring(lastEnd, matcher.start());
+            if (!textBefore.isEmpty()) {
+                addTextComponent(contentPanel, textBefore);
+            }
+
+            // Extract and add code block
+            String language = matcher.group(1).trim();
+            String codeContent = matcher.group(2);
+
+            addCodeBlock(contentPanel, language, codeContent);
+
+            lastEnd = matcher.end();
+        }
+
+        // Add remaining text after last code block
+        if (found && lastEnd < content.length()) {
+            addTextComponent(contentPanel, content.substring(lastEnd));
+        } else if (!found) {
+            // No code blocks found, add the entire content
+            addTextComponent(contentPanel, content);
+        }
+    }
+
+    /**
+     * Adds a collapsible code block component with proper hierarchical structure.
+     */
+    private void addCodeBlock(JPanel parent, String language, String code) {
+        // Create primary container panel with BorderLayout
+        JPanel codeBlockContainer = new JBPanel<>(new BorderLayout());
+
+        // Get colors for code
+        Color codeBgColor = JBColor.namedColor("EditorPane.background",
+                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
+        Color codeBorderColor = JBColor.namedColor("Border.color",
+                isDarkTheme ? new Color(85, 85, 85) : new Color(221, 221, 221));
+        Color codeTextColor = JBColor.namedColor("Label.foreground",
+                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
+
+        // Style container
+        codeBlockContainer.setBorder(BorderFactory.createLineBorder(codeBorderColor, 1));
+        codeBlockContainer.setBackground(codeBgColor);
+
+        // Create header panel
+        JPanel headerPanel = new JBPanel<>(new BorderLayout());
+        headerPanel.setBackground(codeBgColor);
+        headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, codeBorderColor));
+
+        // Language label
+        JLabel langLabel = new JLabel(language.isEmpty() ? "Code" : language);
+        langLabel.setForeground(codeTextColor);
+        langLabel.setBorder(JBUI.Borders.empty(4, 8));
+        headerPanel.add(langLabel, BorderLayout.WEST);
+
+        // Action buttons panel
+        JPanel actionPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        actionPanel.setOpaque(false);
+
+        // Copy button
+        JButton copyButton = new JButton(AllIcons.Actions.Copy);
+        copyButton.setToolTipText("Copy code");
+        copyButton.setBorderPainted(false);
+        copyButton.setContentAreaFilled(false);
+
+        // Toggle button
+        JButton toggleButton = new JButton(AllIcons.Actions.Expandall);
+        toggleButton.setToolTipText("Expand code");
+        toggleButton.setBorderPainted(false);
+        toggleButton.setContentAreaFilled(false);
+
+        actionPanel.add(copyButton);
+        actionPanel.add(toggleButton);
+        headerPanel.add(actionPanel, BorderLayout.EAST);
+
+        // Add header to container
+        codeBlockContainer.add(headerPanel, BorderLayout.NORTH);
+
+        // Create code content
+        JTextArea codeArea = new JTextArea(code);
+        codeArea.setEditable(false);
+        codeArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        codeArea.setBackground(codeBgColor);
+        codeArea.setForeground(codeTextColor);
+        codeArea.setBorder(JBUI.Borders.empty(8));
+
+        // Create scroll pane for code
+        JScrollPane codeScrollPane = new JScrollPane(codeArea);
+        codeScrollPane.setBorder(JBUI.Borders.empty());
+
+        // Initially make the code area invisible - header still shows
+        codeScrollPane.setVisible(false);
+
+        // Add code area to container
+        codeBlockContainer.add(codeScrollPane, BorderLayout.CENTER);
+
+        // Copy button action
+        copyButton.addActionListener(e -> {
+            StringSelection selection = new StringSelection(code);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            statusLabel.setText("Code copied to clipboard");
+
+            // Reset status after 3 seconds
+            Timer timer = new Timer(3000, event -> statusLabel.setText("Ready"));
+            timer.setRepeats(false);
+            timer.start();
+        });
+
+        // Toggle button action
+        toggleButton.addActionListener(e -> {
+            boolean isVisible = codeScrollPane.isVisible();
+
+            // Toggle visibility
+            codeScrollPane.setVisible(!isVisible);
+
+            // Update toggle button
+            if (isVisible) {
+                toggleButton.setIcon(AllIcons.Actions.Expandall);
+                toggleButton.setToolTipText("Expand code");
+            } else {
+                toggleButton.setIcon(AllIcons.Actions.Collapseall);
+                toggleButton.setToolTipText("Collapse code");
+            }
+
+            // Calculate proper height based on content
+            if (!isVisible) {
+                // When expanding, calculate height based on content
+                int lineCount = code.split("\n").length;
+                int height = Math.min(lineCount * 18 + 20, 220); // 18px per line + padding
+                codeScrollPane.setPreferredSize(new Dimension(codeBlockContainer.getWidth(), height));
+            } else {
+                // When collapsing, reset preferred size
+                codeScrollPane.setPreferredSize(null);
+            }
+
+            // Force update layout at all levels
+            codeScrollPane.revalidate();
+            codeBlockContainer.revalidate();
+            parent.revalidate();
+            parent.repaint();
+            chatPanel.revalidate();
+            chatPanel.repaint();
+
+            // Scroll to ensure visibility - must happen after layout update
+            SwingUtilities.invokeLater(() -> {
+                // Make container visible by scrolling to its position
+                Rectangle bounds = codeBlockContainer.getBounds();
+                codeBlockContainer.scrollRectToVisible(bounds);
+
+                // Force scroll pane update
+                chatScrollPane.revalidate();
+                chatScrollPane.repaint();
+            });
+        });
+
+        // Configure overall size constraints
+        codeBlockContainer.setAlignmentX(Component.LEFT_ALIGNMENT);
+        codeBlockContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, codeBlockContainer.getPreferredSize().height));
+
+        // Add to parent
+        parent.add(codeBlockContainer);
+        parent.add(Box.createVerticalStrut(8));
+    }
+
+    /**
      * Adds a text component to display regular text.
      */
     private void addTextComponent(JPanel parent, String text) {
@@ -517,17 +700,15 @@ public class InteractiveAgentPanel {
         // Process inline code
         processInlineCode(textPane);
 
-        // Make it grow horizontally but not vertically
+        // Configure size constraints
         textPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        // Use the preferred size to account for text wrapping
         Dimension preferredSize = textPane.getPreferredSize();
         textPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferredSize.height));
 
+        // Add to parent
         parent.add(textPane);
         parent.add(Box.createVerticalStrut(5));
     }
-
     /**
      * Processes inline code in a text component.
      */
@@ -578,131 +759,6 @@ public class InteractiveAgentPanel {
         }
     }
 
-    /**
-     * Adds a collapsible code block component.
-     */
-    private void addCodeBlock(JPanel parent, String language, String code) {
-        // Create a panel for the code block with BorderLayout
-        JPanel codePanel = new JBPanel<>(new BorderLayout());
-
-        // Get colors for code
-        Color codeBgColor = JBColor.namedColor("EditorPane.background",
-                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
-        Color codeBorderColor = JBColor.namedColor("Border.color",
-                isDarkTheme ? new Color(85, 85, 85) : new Color(221, 221, 221));
-        Color codeTextColor = JBColor.namedColor("Label.foreground",
-                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
-
-        // Style the code panel
-        codePanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(codeBorderColor),
-                BorderFactory.createEmptyBorder(1, 1, 1, 1)
-        ));
-        codePanel.setBackground(codeBgColor);
-
-        // Create header panel
-        JPanel headerPanel = new JBPanel<>(new BorderLayout());
-        headerPanel.setBackground(codeBgColor);
-        headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, codeBorderColor));
-
-        // Language label
-        JLabel langLabel = new JLabel(language.isEmpty() ? "Code" : language);
-        langLabel.setForeground(codeTextColor);
-        langLabel.setBorder(JBUI.Borders.empty(4, 8));
-        headerPanel.add(langLabel, BorderLayout.WEST);
-
-        // Action buttons panel
-        JPanel actionPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        actionPanel.setOpaque(false);
-
-        // Toggle button for collapsing/expanding
-        JButton toggleButton = new JButton(isDarkTheme ?
-                AllIcons.Actions.Collapseall : AllIcons.Actions.Expandall);
-        toggleButton.setToolTipText(isDarkTheme ? "Collapse" : "Expand");
-        toggleButton.setBorderPainted(false);
-        toggleButton.setContentAreaFilled(false);
-
-        // Copy button
-        JButton copyButton = new JButton(AllIcons.Actions.Copy);
-        copyButton.setToolTipText("Copy code");
-        copyButton.setBorderPainted(false);
-        copyButton.setContentAreaFilled(false);
-
-        actionPanel.add(copyButton);
-        actionPanel.add(toggleButton);
-        headerPanel.add(actionPanel, BorderLayout.EAST);
-
-        // Create code text area
-        JTextArea codeArea = new JTextArea(code);
-        codeArea.setEditable(false);
-        codeArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        codeArea.setBackground(codeBgColor);
-        codeArea.setForeground(codeTextColor);
-        codeArea.setBorder(JBUI.Borders.empty(8));
-        codeArea.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        // Create scroll pane for code
-        JScrollPane codeScrollPane = new JBScrollPane(codeArea);
-        codeScrollPane.setBorder(JBUI.Borders.empty());
-
-        // Set preferred size for the scroll pane
-        int lineCount = code.split("\n").length;
-        int preferredHeight = Math.min(lineCount * 18, 200); // 18 pixels per line, max 200px
-        codeScrollPane.setPreferredSize(new Dimension(0, preferredHeight));
-
-        // Collapsed by default - don't show code
-        codeScrollPane.setVisible(false);
-        toggleButton.setIcon(AllIcons.Actions.Expandall);
-        toggleButton.setToolTipText("Expand");
-
-        // Toggle action
-        toggleButton.addActionListener(e -> {
-            boolean isVisible = codeScrollPane.isVisible();
-            codeScrollPane.setVisible(!isVisible);
-
-            // Change icon based on state
-            if (isVisible) {
-                toggleButton.setIcon(AllIcons.Actions.Expandall);
-                toggleButton.setToolTipText("Expand");
-            } else {
-                toggleButton.setIcon(AllIcons.Actions.Collapseall);
-                toggleButton.setToolTipText("Collapse");
-            }
-
-            // Force layout recalculation
-            codePanel.revalidate();
-            parent.revalidate();
-
-            // Scroll to ensure visibility
-            SwingUtilities.invokeLater(() -> {
-                codePanel.scrollRectToVisible(codePanel.getBounds());
-            });
-        });
-
-        // Copy action
-        copyButton.addActionListener(e -> {
-            StringSelection selection = new StringSelection(code);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-            statusLabel.setText("Code copied to clipboard");
-
-            // Reset after 3 seconds
-            Timer timer = new Timer(3000, event -> statusLabel.setText("Ready"));
-            timer.setRepeats(false);
-            timer.start();
-        });
-
-        // Add components to code panel
-        codePanel.add(headerPanel, BorderLayout.NORTH);
-        codePanel.add(codeScrollPane, BorderLayout.CENTER);
-
-        // Make it grow horizontally but not vertically
-        codePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        codePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, codePanel.getPreferredSize().height));
-
-        // Add to parent and add spacing
-        parent.add(codePanel);
-        parent.add(Box.createVerticalStrut(10));
-    }
 
     /**
      * Starts a new conversation.

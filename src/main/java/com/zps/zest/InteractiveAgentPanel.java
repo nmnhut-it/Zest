@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
 public class InteractiveAgentPanel {
     private static final Logger LOG = Logger.getInstance(InteractiveAgentPanel.class);
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```(.*?)\\n([\\s\\S]*?)```", Pattern.MULTILINE);
+    private static final Pattern TOOL_PATTERN =  ToolParser.TOOL_PATTERN;
 
     private final Project project;
     private final SimpleToolWindowPanel panel;
@@ -278,24 +279,22 @@ public class InteractiveAgentPanel {
         // Set UI to processing state
         setProcessingState(true);
 
-        // Create tools and processor
-        EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
-
-        // Process request in background
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
                 // Get conversation history
                 List<String> conversationHistory = getConversationHistoryForContext();
 
-                // Process the request with history and tools
-                AtomicReference<String> r = new AtomicReference<>();
+                // Create enhanced request processor
+                EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
+
+                // Add system message to show processing
+                addSystemMessage("Processing request with tools...");
+
+                // Process the request with tools - this already handles tool execution internally
                 String response = processor.processRequestWithTools(userMessage, conversationHistory, editor);
-                // Check for follow-up question
-                if (response.contains("{{FOLLOW_UP_QUESTION:")) {
-                    handleFollowUpQuestion(response);
-                } else {
-                    addAssistantMessage(response);
-                }
+
+                // Display the final response that already includes tool results
+                addAssistantMessage(response);
 
                 setProcessingState(false);
 
@@ -304,8 +303,10 @@ public class InteractiveAgentPanel {
             } catch (Exception e) {
                 LOG.error("Error processing request", e);
                 e.printStackTrace();
+                setProcessingState(false);
+                addSystemMessage("Error: " + e.getMessage());
             }
-        }) ;
+        });
     }
 
     /**
@@ -449,7 +450,6 @@ public class InteractiveAgentPanel {
     public void addAssistantMessage(String message) {
         chatHistory.add(new ChatMessage(MessageType.ASSISTANT, message, LocalDateTime.now()));
         updateChatDisplay();
-        processCodeCommands(message);
     }
 
     /**
@@ -611,137 +611,6 @@ public class InteractiveAgentPanel {
                 .replace("'", "&#39;");
     }
 
-    /**
-     * Process code commands in the assistant's response.
-     */
-    private void processCodeCommands(String message) {
-        // Check for code replacement command
-        if (message.contains("{{REPLACE_SELECTION:")) {
-            int start = message.indexOf("{{REPLACE_SELECTION:") + "{{REPLACE_SELECTION:".length();
-            int end = message.indexOf("}}", start);
-
-            if (start > 0 && end > start) {
-                String code = message.substring(start, end);
-                applyCodeChange("Replace Selection", code, true);
-            }
-        }
-
-        // Check for code insertion command
-        if (message.contains("{{INSERT_AT_CURSOR:")) {
-            int start = message.indexOf("{{INSERT_AT_CURSOR:") + "{{INSERT_AT_CURSOR:".length();
-            int end = message.indexOf("}}", start);
-
-            if (start > 0 && end > start) {
-                String code = message.substring(start, end);
-                applyCodeChange("Insert at Cursor", code, false);
-            }
-        }
-
-        // Check for file creation command
-        if (message.contains("{{CREATE_FILE:")) {
-            int pathStart = message.indexOf("{{CREATE_FILE:") + "{{CREATE_FILE:".length();
-            int pathEnd = message.indexOf(":", pathStart);
-
-            if (pathStart > 0 && pathEnd > pathStart) {
-                String filePath = message.substring(pathStart, pathEnd);
-                int contentStart = pathEnd + 1;
-                int contentEnd = message.indexOf("}}", contentStart);
-
-                if (contentEnd > contentStart) {
-                    String fileContent = message.substring(contentStart, contentEnd);
-                    createFile(filePath, fileContent);
-                }
-            }
-        }
-    }
-
-    /**
-     * Applies a code change.
-     */
-    private void applyCodeChange(String title, String code, boolean isReplace) {
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-        if (editor == null) return;
-
-        // Show dialog
-        int option = Messages.showYesNoDialog(
-                project,
-                code,
-                title,
-                "Apply",
-                "Cancel",
-                Messages.getQuestionIcon()
-        );
-
-        if (option == Messages.YES) {
-            // Apply the code change
-            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
-                if (isReplace) {
-                    // Replace selection or insert at cursor if no selection
-                    if (editor.getSelectionModel().hasSelection()) {
-                        int start = editor.getSelectionModel().getSelectionStart();
-                        int end = editor.getSelectionModel().getSelectionEnd();
-                        editor.getDocument().replaceString(start, end, code);
-                    } else {
-                        int offset = editor.getCaretModel().getOffset();
-                        editor.getDocument().insertString(offset, code);
-                    }
-                } else {
-                    // Insert at cursor
-                    int offset = editor.getCaretModel().getOffset();
-                    editor.getDocument().insertString(offset, code);
-                }
-            });
-
-            addSystemMessage("Code changes applied successfully!");
-        }
-    }
-
-    /**
-     * Creates a new file.
-     */
-    private void createFile(String filePath, String fileContent) {
-        // Show dialog
-        int option = Messages.showYesNoDialog(
-                project,
-                "Create new file at: " + filePath,
-                "Create File",
-                "Create",
-                "Cancel",
-                Messages.getQuestionIcon()
-        );
-
-        if (option == Messages.YES) {
-            try {
-                // Create the file
-                String basePath = project.getBasePath();
-                String fullPath = basePath + "/" + filePath;
-
-                // Create directories if needed
-                Path path = Paths.get(fullPath);
-                Files.createDirectories(path.getParent());
-
-                // Write file content
-                Files.write(path, fileContent.getBytes(StandardCharsets.UTF_8));
-
-                // Refresh VFS
-                com.intellij.openapi.vfs.VirtualFile file = ApplicationManager.getApplication().runReadAction(
-                        (com.intellij.openapi.util.Computable<com.intellij.openapi.vfs.VirtualFile>) () ->
-                                com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByPath(fullPath));
-
-                if (file != null) {
-                    // Open the file in editor
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        FileEditorManager.getInstance(project).openFile(file, true);
-                    });
-
-                    addSystemMessage("File created successfully: " + filePath);
-                }
-            } catch (Exception e) {
-                LOG.error("Error creating file", e);
-                addSystemMessage("Error creating file: " + e.getMessage());
-            }
-        }
-    }
 
     /**
      * Starts a new conversation.

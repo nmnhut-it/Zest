@@ -15,7 +15,7 @@ public class ToolParser {
     private static final Logger LOG = Logger.getInstance(ToolParser.class);
     
     // Pattern to match JSON-RPC style tool invocations
-    private static final Pattern TOOL_PATTERN = Pattern.compile("<TOOL>(\\{.*?\\})</TOOL>", Pattern.DOTALL);
+    public static final Pattern TOOL_PATTERN = Pattern.compile("<TOOL>(\\{.*?\\})</TOOL>", Pattern.DOTALL);
     
     /**
      * Parses a tool invocation from the given text.

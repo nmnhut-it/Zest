@@ -9,7 +9,6 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
-import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.components.JBPanel;
@@ -50,7 +49,7 @@ public class InteractiveAgentPanel {
     private final JProgressBar progressBar;
     private final JLabel statusLabel;
     private final List<ChatMessage> chatHistory = new ArrayList<>();
-    private final List<String> systemPrompts = new ArrayList<>();
+//    private final List<String> systemPrompts = new ArrayList<>();
 
     private boolean isProcessing = false;
     private boolean isDarkTheme = false;
@@ -237,13 +236,6 @@ public class InteractiveAgentPanel {
             }
         };
 
-        // System prompts action
-        AnAction promptsAction = new AnAction("System Prompts", "Manage system prompts", AllIcons.General.Settings) {
-            @Override
-            public void actionPerformed(@NotNull AnActionEvent e) {
-                manageSystemPrompts();
-            }
-        };
 
         // Test tools action
         AnAction testToolsAction = new TestToolsAction();
@@ -254,7 +246,6 @@ public class InteractiveAgentPanel {
         group.addSeparator();
         group.add(contextAction);
         group.addSeparator();
-        group.add(promptsAction);
         group.add(testToolsAction);
 
         // Create toolbar
@@ -323,13 +314,6 @@ public class InteractiveAgentPanel {
     private List<String> getConversationHistoryForContext() {
         List<String> history = new ArrayList<>();
 
-        // Include system prompts at the beginning
-        if (!systemPrompts.isEmpty()) {
-            for (String prompt : systemPrompts) {
-                history.add("SYSTEM: " + prompt);
-            }
-        }
-
         // Last 10 messages to avoid context overflow
         int startIndex = Math.max(0, chatHistory.size() - 10);
         for (int i = startIndex; i < chatHistory.size(); i++) {
@@ -341,80 +325,6 @@ public class InteractiveAgentPanel {
         }
 
         return history;
-    }
-
-    /**
-     * Dialog to manage system prompts.
-     */
-    private void manageSystemPrompts() {
-        JPanel promptsPanel = new JPanel(new BorderLayout());
-
-        // Create list model and JList for prompts
-        DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (String prompt : systemPrompts) {
-            listModel.addElement(prompt.length() > 50 ? prompt.substring(0, 50) + "..." : prompt);
-        }
-
-        JList<String> promptsList = new JList<>(listModel);
-        promptsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        JScrollPane scrollPane = new JScrollPane(promptsList);
-
-        // Buttons panel
-        JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton addButton = new JButton("Add", AllIcons.General.Add);
-        JButton editButton = new JButton("Edit", AllIcons.Actions.Edit);
-        JButton removeButton = new JButton("Remove", AllIcons.General.Remove);
-
-        buttonsPanel.add(addButton);
-        buttonsPanel.add(editButton);
-        buttonsPanel.add(removeButton);
-
-        // Add action listeners
-        addButton.addActionListener(e -> {
-            String newPrompt = Messages.showInputDialog(panel,
-                    "Enter new system prompt:",
-                    "Add System Prompt",
-                    Messages.getQuestionIcon());
-
-            if (newPrompt != null && !newPrompt.trim().isEmpty()) {
-                systemPrompts.add(newPrompt);
-                listModel.addElement(newPrompt.length() > 50 ? newPrompt.substring(0, 50) + "..." : newPrompt);
-            }
-        });
-
-        editButton.addActionListener(e -> {
-            int selectedIndex = promptsList.getSelectedIndex();
-            if (selectedIndex >= 0) {
-                String editedPrompt = Messages.showInputDialog(panel,
-                        "Edit system prompt:",
-                        "Edit System Prompt",
-                        Messages.getQuestionIcon(),
-                        systemPrompts.get(selectedIndex),
-                        null);
-
-                if (editedPrompt != null && !editedPrompt.trim().isEmpty()) {
-                    systemPrompts.set(selectedIndex, editedPrompt);
-                    listModel.set(selectedIndex,
-                            editedPrompt.length() > 50 ? editedPrompt.substring(0, 50) + "..." : editedPrompt);
-                }
-            }
-        });
-
-        removeButton.addActionListener(e -> {
-            int selectedIndex = promptsList.getSelectedIndex();
-            if (selectedIndex >= 0) {
-                systemPrompts.remove(selectedIndex);
-                listModel.remove(selectedIndex);
-            }
-        });
-
-        // Assemble panel
-        promptsPanel.add(scrollPane, BorderLayout.CENTER);
-        promptsPanel.add(buttonsPanel, BorderLayout.SOUTH);
-        promptsPanel.setPreferredSize(new Dimension(400, 300));
-
-        // Show dialog
-        Messages.showMessageDialog(promptsPanel, "Manage System Prompts", "Zest", Messages.getInformationIcon());
     }
 
     /**
@@ -908,26 +818,6 @@ public class InteractiveAgentPanel {
 
         // Add to input field
         inputArea.setText(inputArea.getText() + "\n\nContext for reference:\n```\n" + contextText + "\n```\n");
-    }
-
-    /**
-     * Gets the system prompts.
-     */
-    public List<String> getSystemPrompts() {
-        return new ArrayList<>(systemPrompts);
-    }
-
-    /**
-     * Sets the system prompts.
-     */
-    public void setSystemPrompts(List<String> prompts) {
-        systemPrompts.clear();
-        if (prompts != null) {
-            systemPrompts.addAll(prompts);
-        }
-        if (systemPrompts.isEmpty()) {
-            addDefaultSystemPrompt();
-        }
     }
 
     /**

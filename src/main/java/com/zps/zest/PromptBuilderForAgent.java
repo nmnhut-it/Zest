@@ -71,26 +71,22 @@ public class PromptBuilderForAgent {
      * Adds system instructions to the prompt.
      */
     private void addSystemInstructions(StringBuilder prompt) {
+
         prompt.append("<s>\n");
-        prompt.append("You are Zingplay Game Studio Assistant (Zest), a helpful AI coding assistant integrated into IntelliJ IDEA. ");
-        prompt.append("You help programmers write, understand, and improve code. ");
-        prompt.append("Be concise, precise, and helpful. Remember you are part of an IDE, so focus on code improvements, ");
-        prompt.append("explanations, and practical solutions.\n\n");
+        prompt.append("You are Zest, Zingplay's IDE assistant. You help programmers write better code with concise, practical solutions.\n\n");
 
+        prompt.append("# WORKFLOW\n");
+        prompt.append("1. CLARIFY: Ask questions to understand requirements\n");
+        prompt.append("2. COLLECT: Use tools to gather context and code\n");
+        prompt.append("3. ANALYZE: Identify improvements and solutions\n");
+        prompt.append("4. IMPLEMENT: Apply changes with modification tools\n");
+        prompt.append("5. VERIFY: Test changes and fix any issues\n\n");
 
-        prompt.append("# HOW TO HELP USERS\n\n");
-        prompt.append("1. First, clarify user's requirement. Ask follow up questions if needed\n");
-        prompt.append("2. Then, use appropriate tools to understand the context (read files, examine structure)\n");
-        prompt.append("3. After that, analyze the code and identify potential improvements\n");
-        prompt.append("4. Next, implement changes using the modification tools\n");
-        prompt.append("5. Finally, use tools to check for errors and try to fix with modification tools.\n\n");
-
-        prompt.append("When helping users with code, always follow this workflow:\n");
-        prompt.append("1. UNDERSTAND: Use tools to examine relevant code\n");
-        prompt.append("2. EXPLAIN: Provide clear analysis based on what you found\n");
-        prompt.append("3. IMPLEMENT: Suggest or make changes with appropriate tools\n");
-        prompt.append("4. VERIFY: Verify if the output is good enough and suggest fixes if needed\n\n");
-
+        prompt.append("# APPROACH\n");
+        prompt.append("- UNDERSTAND: Examine code thoroughly\n");
+        prompt.append("- EXPLAIN: Provide clear, concise analysis\n");
+        prompt.append("- IMPLEMENT: Make targeted improvements\n");
+        prompt.append("- VERIFY: Ensure quality and functionality\n");
         // Add explicit character escaping guidance
         prompt.append("# IMPORTANT XML ESCAPING RULES\n\n");
         prompt.append("When using tools, you MUST properly escape special characters in XML content:\n");
@@ -143,27 +139,27 @@ public class PromptBuilderForAgent {
         // In addToolDocumentation method in PromptBuilderForAgent.java
 
 // Add specific instructions for the RAG tool
-        prompt.append("# SPECIAL INSTRUCTION FOR RAG TOOL\n\n");
-        prompt.append("You have access to a RAG (Retrieval Augmented Generation) tool that can search through the project's knowledge base. Use this tool when you need specific information about the user's codebase or project-specific details.\n\n");
-        prompt.append("When to use the RAG tool:\n");
-        prompt.append("- When asked about specific classes or implementations in the user's project\n");
-        prompt.append("- When you need details about project structure or architecture\n");
-        prompt.append("- When you're uncertain about project-specific conventions or patterns\n\n");
-
-        prompt.append("Example usage:\n");
-        prompt.append("<TOOL>\n");
-        prompt.append("  <methodName>rag_search</methodName>\n");
-        prompt.append("  <params>\n");
-        prompt.append("    <param>\n");
-        prompt.append("      <name>query</name>\n");
-        prompt.append("      <value>How does the ToolParser process tool invocations?</value>\n");
-        prompt.append("    </param>\n");
-        prompt.append("    <param>\n");
-        prompt.append("      <name>top_k</name>\n");
-        prompt.append("      <value>3</value>\n");
-        prompt.append("    </param>\n");
-        prompt.append("  </params>\n");
-        prompt.append("</TOOL>\n\n");
+//        prompt.append("# SPECIAL INSTRUCTION FOR RAG TOOL\n\n");
+//        prompt.append("You have access to a RAG (Retrieval Augmented Generation) tool that can search through the project's knowledge base. Use this tool when you need specific information about the user's codebase or project-specific details.\n\n");
+//        prompt.append("When to use the RAG tool:\n");
+//        prompt.append("- When asked about specific classes or implementations in the user's project\n");
+//        prompt.append("- When you need details about project structure or architecture\n");
+//        prompt.append("- When you're uncertain about project-specific conventions or patterns\n\n");
+//
+//        prompt.append("Example usage:\n");
+//        prompt.append("<TOOL>\n");
+//        prompt.append("  <methodName>rag_search</methodName>\n");
+//        prompt.append("  <params>\n");
+//        prompt.append("    <param>\n");
+//        prompt.append("      <name>query</name>\n");
+//        prompt.append("      <value>How does the ToolParser process tool invocations?</value>\n");
+//        prompt.append("    </param>\n");
+//        prompt.append("    <param>\n");
+//        prompt.append("      <name>top_k</name>\n");
+//        prompt.append("      <value>3</value>\n");
+//        prompt.append("    </param>\n");
+//        prompt.append("  </params>\n");
+//        prompt.append("</TOOL>\n\n");
 
         prompt.append("IMPORTANT USAGE NOTES:\n");
         prompt.append("- ALWAYS wrap tool invocations between <TOOL> and </TOOL> tags\n");

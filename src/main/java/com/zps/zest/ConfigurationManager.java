@@ -34,7 +34,7 @@ public class ConfigurationManager {
     private static String authToken;
     private static Project project;
     // In ConfigurationManager.java
-    private static boolean ragEnabled = true;
+    private static boolean ragEnabled = false;
 
     public boolean isRagEnabled() {
         return ragEnabled;

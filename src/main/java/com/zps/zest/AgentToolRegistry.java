@@ -62,12 +62,12 @@ public class AgentToolRegistry {
         register(new QuickAnalyzeCurrentFileTool(project));
         register(new SearchByRegexTool(project)); // Register the new tool
 
-        // Add the RAG tool
-        ConfigurationManager config = new ConfigurationManager(project);
-        register(new RagSearchTool(
-                project,
-                config.getOpenWebUIRagEndpoint(),
-                config.getAuthToken()
-        ));
+//        // Add the RAG tool
+//        ConfigurationManager config = new ConfigurationManager(project);
+//        register(new RagSearchTool(
+//                project,
+//                config.getOpenWebUIRagEndpoint(),
+//                config.getAuthToken()
+//        ));
     }
 }

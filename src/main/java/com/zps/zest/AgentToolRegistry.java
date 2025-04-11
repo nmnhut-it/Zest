@@ -61,6 +61,7 @@ public class AgentToolRegistry {
         register(new AnalyzeCodeProblemsTool(project));
         register(new QuickAnalyzeCurrentFileTool(project));
         register(new SearchByRegexTool(project)); // Register the new tool
+        register(new ReplaceInFileTool(project)); // Register the new tool
 
 //        // Add the RAG tool
 //        ConfigurationManager config = new ConfigurationManager(project);

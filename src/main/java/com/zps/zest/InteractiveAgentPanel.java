@@ -1,19 +1,15 @@
 package com.zps.zest;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.lexer.Lexer;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.ActionToolbar;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.SyntaxHighlighter;
-import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
@@ -26,17 +22,16 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.border.Border;
-import javax.swing.event.HyperlinkEvent;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.EmptyBorder;
+import javax.swing.text.*;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -44,28 +39,28 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Enhanced interactive panel for the AI agent with improved UX and chat functionality.
+ * Enhanced Swing-based interactive panel for the AI agent with improved UX and chat functionality.
  */
 public class InteractiveAgentPanel {
     private static final Logger LOG = Logger.getInstance(InteractiveAgentPanel.class);
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```(.*?)\\n([\\s\\S]*?)```", Pattern.MULTILINE);
-    private static final Pattern TOOL_PATTERN =  ToolParser.TOOL_PATTERN;
+    private static final Pattern TOOL_PATTERN = ToolParser.TOOL_PATTERN;
 
     private final Project project;
     private final SimpleToolWindowPanel panel;
-    private final JEditorPane chatDisplay;
+    private final JPanel chatPanel;
     private final JTextArea inputArea;
     private final JButton sendButton;
     private final JProgressBar progressBar;
     private final JLabel statusLabel;
+    private final JScrollPane chatScrollPane;
     private final List<ChatMessage> chatHistory = new ArrayList<>();
-//    private final List<String> systemPrompts = new ArrayList<>();
 
     private boolean isProcessing = false;
     private boolean isDarkTheme = false;
 
     /**
-     * Creates a new enhanced interactive agent panel.
+     * Creates a new Swing-based interactive agent panel.
      *
      * @param project The current project
      */
@@ -74,25 +69,28 @@ public class InteractiveAgentPanel {
         this.panel = new SimpleToolWindowPanel(true, true);
 
         // Detect theme
-        isDarkTheme = JBColor.isBright();
+        isDarkTheme = !JBColor.isBright();
 
-        // Set up the chat display with HTML
-        chatDisplay = new JEditorPane("text/html", "");
-        chatDisplay.setEditable(false);
-        chatDisplay.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
-        chatDisplay.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
-// For chat display main text color - using Label.foreground for theme-aware colors
+        // Set up the chat panel with Swing components
+        chatPanel = new JBPanel<>();
+        chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
 
+        // Customize chat panel background
+        Color chatBgColor = JBColor.namedColor("Editor.backgroundColor",
+                isDarkTheme ? new Color(43, 43, 43) : new Color(247, 247, 247));
+        chatPanel.setBackground(chatBgColor);
 
-        // Add Cursor-style system prompt
-        addDefaultSystemPrompt();
+        // Add scroll pane for chat
+        chatScrollPane = new JBScrollPane(chatPanel);
+        chatScrollPane.setBorder(JBUI.Borders.empty());
+        chatScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        chatScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
         // Set up input area
         inputArea = new JTextArea();
         inputArea.setRows(6);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
-        inputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         inputArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         inputArea.setBorder(JBUI.Borders.empty(8));
         inputArea.addKeyListener(new KeyAdapter() {
@@ -124,13 +122,8 @@ public class InteractiveAgentPanel {
         JBSplitter splitter = new JBSplitter(true, 0.7f);
         splitter.setDividerWidth(1);
 
-        // Chat display panel
-        JBScrollPane chatScrollPane = new JBScrollPane(chatDisplay);
-        chatScrollPane.setBorder(JBUI.Borders.empty());
+        // Chat panel
         splitter.setFirstComponent(chatScrollPane);
-        chatScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        chatScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-
 
         // Input panel
         JPanel inputPanel = createInputPanel();
@@ -152,31 +145,8 @@ public class InteractiveAgentPanel {
         mainPanel.add(statusPanel, BorderLayout.SOUTH);
         panel.setContent(mainPanel);
 
-        chatDisplay.addHyperlinkListener(e -> {
-            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
-                String url = e.getDescription().toString();
-                if (url.startsWith(COPY_PREFIX)) {
-                    handleCopyRequest(url.substring(COPY_PREFIX.length()));
-
-                }
-            }
-        });
         // Add welcome message
         addSystemMessage("Welcome to the Enhanced AI Coding Assistant. How can I help you with your code today?");
-    }
-    private static final String COPY_PREFIX = "copy:";
-
-    /**
-     * Adds default system prompt with Cursor-style.
-     */
-    private void addDefaultSystemPrompt() {
-//        String cursorPrompt = "You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. " +
-//                "You operate exclusively in IntelliJ IDEA. " +
-//                "You are pair programming with the user to solve their coding task. " +
-//                "Each time the user sends a message, we may attach information about their current state. " +
-//                "Your main goal is to follow the user's instructions at each message.";
-//
-//        systemPrompts.add(cursorPrompt);
     }
 
     /**
@@ -229,6 +199,7 @@ public class InteractiveAgentPanel {
 
         return inputPanel;
     }
+
     private ActionToolbar createToolbar() {
         DefaultActionGroup group = new DefaultActionGroup();
 
@@ -256,17 +227,11 @@ public class InteractiveAgentPanel {
             }
         };
 
-
-        // Test tools action
-        AnAction testToolsAction = new TestToolsAction();
-
         // Add actions to group
         group.add(newAction);
         group.add(copyAction);
         group.addSeparator();
         group.add(contextAction);
-        group.addSeparator();
-        group.add(testToolsAction);
 
         // Create toolbar
         ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(
@@ -275,6 +240,7 @@ public class InteractiveAgentPanel {
 
         return toolbar;
     }
+
     /**
      * Sends the user's message to the AI.
      */
@@ -310,15 +276,18 @@ public class InteractiveAgentPanel {
                 addSystemMessage("Processing request with tools...");
 
                 // Process the request with tools - this already handles tool execution internally
-                String response = processor.processRequestWithTools(userMessage, conversationHistory, editor);
+                 processor.processRequestWithTools(userMessage, conversationHistory, editor)
+                        .thenApply((result)->{
+                            // Display the final response that already includes tool results
+                            addAssistantMessage(result);
 
-                // Display the final response that already includes tool results
-                addAssistantMessage(response);
+                            setProcessingState(false);
 
-                setProcessingState(false);
+                            // Update services
+                            InteractiveAgentService.getInstance(project).notifyResponseReceived(userMessage, result);
+                        });
 
-                // Update services
-                InteractiveAgentService.getInstance(project).notifyResponseReceived(userMessage, response);
+
             } catch (Exception e) {
                 LOG.error("Error processing request", e);
                 e.printStackTrace();
@@ -345,103 +314,6 @@ public class InteractiveAgentPanel {
         }
 
         return history;
-    }
-
-    /**
-     * Handles a follow-up question from the AI.
-     */
-    private void handleFollowUpQuestion(String response) {
-        // Extract the follow-up question
-        int startIndex = response.indexOf("{{FOLLOW_UP_QUESTION:") + "{{FOLLOW_UP_QUESTION:".length();
-        int endIndex = response.indexOf("}}", startIndex);
-
-        if (startIndex >= "{{FOLLOW_UP_QUESTION:".length() && endIndex > startIndex) {
-            String question = response.substring(startIndex, endIndex);
-
-            // Clean response
-            String cleanResponse = response.replace("{{FOLLOW_UP_QUESTION:" + question + "}}", "");
-            addAssistantMessage(cleanResponse);
-            addSystemMessage("AI is asking: " + question);
-
-            // Show options dialog
-            String[] options = {"Yes", "No", "Custom Answer"};
-            int choice = Messages.showDialog(
-                    panel,
-                    question,
-                    "Follow-up Question",
-                    options,
-                    0,
-                    Messages.getQuestionIcon()
-            );
-
-            // Handle choice
-            switch (choice) {
-                case 0: // Yes
-                    addUserMessage("Yes");
-                    sendFollowUpResponse("Yes");
-                    break;
-                case 1: // No
-                    addUserMessage("No");
-                    sendFollowUpResponse("No");
-                    break;
-                case 2: // Custom
-                    String customAnswer = Messages.showInputDialog(
-                            panel,
-                            "Enter your answer:",
-                            "Follow-up Question",
-                            Messages.getQuestionIcon()
-                    );
-                    if (customAnswer != null && !customAnswer.trim().isEmpty()) {
-                        addUserMessage(customAnswer);
-                        sendFollowUpResponse(customAnswer);
-                    }
-                    break;
-            }
-        } else {
-            // If parsing fails, just add the response as is
-            addAssistantMessage(response);
-        }
-    }
-
-    /**
-     * Sends a follow-up response.
-     */
-    private void sendFollowUpResponse(String message) {
-        // Set UI to processing state
-        setProcessingState(true);
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-
-        // Process in background
-        CompletableFuture.supplyAsync(() -> {
-            try {
-                AgentTools tools = new AgentTools(project);
-                EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
-                List<String> conversationHistory = getConversationHistoryForContext();
-
-                AtomicReference<String> response = new AtomicReference<>();
-                ApplicationManager.getApplication().invokeAndWait(() -> {
-                    try {
-                        response.set(processor.processFollowUp(message, conversationHistory, editor));
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-
-                return response.get();
-            } catch (Exception e) {
-                LOG.error("Error processing follow-up", e);
-                return "Error: " + e.getMessage();
-            }
-        }).thenAccept(response -> {
-            ApplicationManager.getApplication().invokeLater(() -> {
-                if (response.contains("{{FOLLOW_UP_QUESTION:")) {
-                    handleFollowUpQuestion(response);
-                } else {
-                    addAssistantMessage(response);
-                }
-                setProcessingState(false);
-            });
-        });
     }
 
     /**
@@ -480,305 +352,357 @@ public class InteractiveAgentPanel {
     }
 
     /**
-     * Updates the chat display with theme-aware styling.
+     * Updates the chat display with Swing components.
      */
     private void updateChatDisplay() {
-        StringBuilder html = new StringBuilder();
+        chatPanel.removeAll();
 
-        // Correct theme detection
-        isDarkTheme = !JBColor.isBright(); // Inverted - isBright() returns false for dark themes
-
-        // Convert JBColor objects to hex strings for CSS
-        Color textColor = JBColor.namedColor("Label.foreground",
-                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
-        String textColorStr = String.format("#%06x", textColor.getRGB() & 0xFFFFFF);
-
-        // Theme-specific colors
-        Color bgColor = JBColor.namedColor("Editor.backgroundColor",
-                isDarkTheme ? new Color(43, 43, 43) : new Color(247, 247, 247));
-        String bgColorStr = String.format("#%06x", bgColor.getRGB() & 0xFFFFFF);
+        // Get colors for theming
+        isDarkTheme = !JBColor.isBright();
 
         Color userBgColor = JBColor.namedColor("Plugins.lightSelectionBackground",
                 isDarkTheme ? new Color(60, 63, 65) : new Color(230, 247, 255));
-        String userBgStr = String.format("#%06x", userBgColor.getRGB() & 0xFFFFFF);
 
         Color userBorderColor = JBColor.namedColor("Button.focusedBorderColor",
                 isDarkTheme ? new Color(106, 135, 89) : new Color(26, 115, 232));
-        String userBorderStr = String.format("#%06x", userBorderColor.getRGB() & 0xFFFFFF);
 
         Color aiBgColor = JBColor.namedColor("EditorPane.inactiveBackground",
                 isDarkTheme ? new Color(49, 51, 53) : new Color(240, 240, 240));
-        String aiBgStr = String.format("#%06x", aiBgColor.getRGB() & 0xFFFFFF);
 
         Color aiBorderColor = JBColor.namedColor("Component.focusColor",
                 isDarkTheme ? new Color(204, 120, 50) : new Color(80, 178, 192));
-        String aiBorderStr = String.format("#%06x", aiBorderColor.getRGB() & 0xFFFFFF);
 
         Color systemColor = JBColor.namedColor("Label.disabledForeground",
                 isDarkTheme ? new Color(180, 180, 180) : new Color(120, 120, 120));
-        String systemColorStr = String.format("#%06x", systemColor.getRGB() & 0xFFFFFF);
 
-        Color codeBgColor = JBColor.namedColor("EditorPane.background",
-                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
-        String codeBgStr = String.format("#%06x", codeBgColor.getRGB() & 0xFFFFFF);
-
-        Color codeBorderColor = JBColor.namedColor("Border.color",
-                isDarkTheme ? new Color(85, 85, 85) : new Color(221, 221, 221));
-        String codeBorderStr = String.format("#%06x", codeBorderColor.getRGB() & 0xFFFFFF);
-
-        // Base styles
-        html.append("<html><head><style>");
-        html.append("body { font-family: system-ui, -apple-system, sans-serif; ")
-                .append("margin: 0; padding: 10px; line-height: 1.5; ")
-                .append("background-color: ").append(bgColorStr).append("; ")
-                .append("color: ").append(textColorStr).append("; }");
-
-        // Message styles with explicit text colors
-        html.append(".message { margin-bottom: 15px; padding: 12px; border-radius: 8px; }");
-        html.append(".user { background-color: ").append(userBgStr)
-                .append("; border-left: 3px solid ").append(userBorderStr)
-                .append("; color: ").append(textColorStr).append("; }");
-        html.append(".assistant { background-color: ").append(aiBgStr)
-                .append("; border-left: 3px solid ").append(aiBorderStr)
-                .append("; color: ").append(textColorStr).append("; }");
-        html.append(".system { color: ").append(systemColorStr).append("; font-style: italic; text-align: center; }");
-
-        // Force all text elements to use our color
-        html.append("div, p, span, strong { color: ").append(textColorStr).append("; }");
-
-        // Code styles with better contrast
-        html.append("pre { background-color: ").append(codeBgStr).append("; ")
-                .append("border: 1px solid ").append(codeBorderStr).append("; ")
-                .append("padding: 10px; border-radius: 4px; overflow-x: auto; color: ").append(textColorStr).append("; }");
-        html.append("code { font-family: 'JetBrains Mono', monospace; padding: 2px 4px; border-radius: 3px; color: ").append(textColorStr).append("; }");
-        html.append(".timestamp { font-size: 0.8em; color: ").append(systemColorStr).append("; margin-top: 5px; text-align: right; }");
-
-        html.append("pre { position: relative; background-color: ").append(codeBgStr).append("; ")
-                .append("border: 1px solid ").append(codeBorderStr).append("; ")
-                .append("padding: 10px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }");
-        html.append(".copy-btn { position: absolute; right: 8px; top: 8px; cursor: pointer; color: ")
-                .append(systemColorStr).append("; font-size: 0.8em; text-decoration: none; }");
-        html.append(".copy-btn:hover { text-decoration: underline; }");
-        html.append("""
-        <style>
-            .code-block {
-                position: relative; 
-                margin: 8px 0;
-                border-radius: 4px;
-                background-color: %s;
-                border: 1px solid %s;
-            }
-            .code-header {
-                padding: 4px 8px;
-                background-color: %s;
-                border-bottom: 1px solid %s;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .code-actions { display: flex; gap: 8px; }
-            .code-action {
-                color: %s;
-                cursor: pointer;
-                text-decoration: none;
-            }
-            .code-content { padding: 8px; overflow-x: auto; }
-        </style>
-        <script type="text/javascript">
-            function copyCode(codeElementId) {
-                var range = document.createRange();
-                range.selectNode(document.getElementById(codeElementId));
-                window.getSelection().removeAllRanges(); // clear current selection
-                window.getSelection().addRange(range); // to select text
-                document.execCommand('copy');
-                window.getSelection().removeAllRanges();// to deselect
-                alert("Code copied to clipboard");
-            }
-        </script>
-        """.formatted(
-                codeBgStr, codeBorderStr,
-                codeBgStr,
-                codeBorderStr,
-                systemColorStr
-        ));
-
-        html.append("</style></head><body>");
-
-
-        // Rest of your function remains the same
+        // Add all messages as Swing components
         for (ChatMessage message : chatHistory) {
-            String cssClass = "";
-            String senderLabel = "";
+            JPanel messagePanel = new JBPanel<>(new BorderLayout());
+            messagePanel.setBorder(JBUI.Borders.empty(8, 12));
 
+            // Style based on message type
             switch (message.getType()) {
                 case USER:
-                    cssClass = "user";
-                    senderLabel = "You";
+                    styleMessagePanel(messagePanel, userBgColor, userBorderColor, "You:");
                     break;
                 case ASSISTANT:
-                    cssClass = "assistant";
-                    senderLabel = "ZPS - AI Assistant";
+                    styleMessagePanel(messagePanel, aiBgColor, aiBorderColor, "ZPS - AI Assistant:");
                     break;
                 case SYSTEM:
-                    cssClass = "system";
-                    senderLabel = "System";
-                    break;
+                    // System messages get special styling
+                    JLabel systemLabel = new JLabel(message.getContent());
+                    systemLabel.setForeground(systemColor);
+                    systemLabel.setFont(systemLabel.getFont().deriveFont(Font.ITALIC));
+                    systemLabel.setHorizontalAlignment(SwingConstants.CENTER);
+                    systemLabel.setBorder(JBUI.Borders.empty(4));
+
+                    messagePanel.add(systemLabel, BorderLayout.CENTER);
+                    messagePanel.setBackground(null); // transparent
+                    messagePanel.setBorder(JBUI.Borders.empty(4));
+
+                    chatPanel.add(messagePanel);
+                    chatPanel.add(Box.createVerticalStrut(5));
+                    continue;
             }
 
-            html.append("<div class=\"message ").append(cssClass).append("\">");
-
-            if (message.getType() != MessageType.SYSTEM) {
-                html.append("<strong>").append(senderLabel).append(":</strong> ");
-            }
-
-            // Format content with code block support
+            // Get content and parse
             String content = message.getContent();
 
-            // Handle code blocks
-            Matcher matcher = CODE_BLOCK_PATTERN.matcher(content);
-            StringBuffer sb = new StringBuffer();
+            // Create content panel
+            JPanel contentPanel = new JBPanel<>(new BorderLayout());
+            contentPanel.setOpaque(false);
+            contentPanel.setBorder(JBUI.Borders.emptyTop(5));
 
-            while (matcher.find()) {
-                String lang = matcher.group(1).trim();
-                String codeContent = matcher.group(2);
-                String codeHtml = createCodeBlockHtml(lang, codeContent, matcher.start());
-                matcher.appendReplacement(sb, codeHtml);
-            }
-            matcher.appendTail(sb);
-
-            // Handle inline code
-            String processed = sb.toString().replaceAll("`([^`]+)`", "<code>$1</code>");
-
-            // Replace newlines with <br>
-            processed = processed.replace("\n", "<br>");
-
-            html.append(processed);
+            // Process content with code blocks
+            processContent(content, contentPanel);
 
             // Add timestamp
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            html.append("<div class=\"timestamp\">").append(message.getTimestamp().format(formatter)).append("</div>");
-            html.append("</div>");
+            JLabel timeLabel = new JLabel(message.getTimestamp().format(formatter));
+            timeLabel.setForeground(systemColor);
+            timeLabel.setFont(timeLabel.getFont().deriveFont(10.0f));
+            timeLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+            messagePanel.add(contentPanel, BorderLayout.CENTER);
+            messagePanel.add(timeLabel, BorderLayout.SOUTH);
+
+            chatPanel.add(messagePanel);
+            chatPanel.add(Box.createVerticalStrut(10));
         }
 
-        html.append("</body></html>");
-        chatDisplay.setText(html.toString());
+        // Add filler to push everything to the top
+        chatPanel.add(Box.createVerticalGlue());
 
-        // Scroll to bottom
+        // Refresh the panel
+        chatPanel.revalidate();
+        chatPanel.repaint();
+
+        // Scroll to bottom after update
         SwingUtilities.invokeLater(() -> {
-            JScrollPane scrollPane = (JScrollPane) chatDisplay.getParent().getParent();
-            JScrollBar vertical = scrollPane.getVerticalScrollBar();
+            JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
             vertical.setValue(vertical.getMaximum());
         });
     }
-    private String createCodeBlockHtml(String language, String code, int codeIndex) {
-        String highlighted = highlightCode(code, language);
-        String codeElementId = "codeSnippet" + codeIndex;
 
-        return """
-        <div class="code-block">
-            <div class="code-header">
-                <span>%s</span>
-                <div class="code-actions">
-                    <a href="#" onclick="copyCode('%s'); return false;" class="code-action">Copy</a>
-                </div>
-            </div>
-            <div id="%s" class="code-content">%s</div>
-        </div>
-        """.formatted(
-                language.isEmpty() ? "Code" : language,
-                codeElementId,
-                codeElementId,
-                highlighted
-        );
-    }
-    private String highlightCode(String code, String lang) {
-        if (lang.isEmpty())
-            lang = "java";
-
-        FileType fileType = FileTypeManager.getInstance().getFileTypeByExtension(lang);
-        SyntaxHighlighter highlighter = SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, null);
-        if (highlighter == null) return escapeHtml(code);
-
-        EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-        Lexer lexer = highlighter.getHighlightingLexer();
-        lexer.start(code);
-
-        StringBuilder sb = new StringBuilder();
-        int lastPos = 0;
-
-        try {
-            while (lexer.getTokenType() != null) {
-                int start = lexer.getTokenStart();
-                int end = lexer.getTokenEnd();
-                String text = code.substring(start, end);
-
-                TextAttributes attrs = Arrays.stream(highlighter.getTokenHighlights(lexer.getTokenType()))
-                        .map(scheme::getAttributes)
-                        .filter(Objects::nonNull)
-                        .findFirst()
-                        .orElse(new TextAttributes());
-
-                sb.append(escapeHtml(code.substring(lastPos, start)));
-                sb.append("<span style='").append(getStyle(attrs)).append("'>")
-                        .append(escapeHtml(text))
-                        .append("</span>");
-
-                lastPos = end;
-                lexer.advance();
-            }
-            sb.append(escapeHtml(code.substring(lastPos)));
-        } catch (Exception e) {
-            LOG.error("Error highlighting code", e);
-            return escapeHtml(code);
-        }
-
-        return sb.toString();
-    }
-
-    private String getStyle(TextAttributes attrs) {
-        StringBuilder style = new StringBuilder();
-        if (attrs.getForegroundColor() != null) {
-            style.append("color:").append(toHex(attrs.getForegroundColor())).append(";");
-        }
-        if (attrs.getBackgroundColor() != null) {
-            style.append("background-color:").append(toHex(attrs.getBackgroundColor())).append(";");
-        }
-        if ((attrs.getFontType() & Font.BOLD) != 0) {
-            style.append("font-weight:bold;");
-        }
-        if ((attrs.getFontType() & Font.ITALIC) != 0) {
-            style.append("font-style:italic;");
-        }
-        return style.toString();
-    }
-
-    private String toHex(Color color) {
-        return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-    }
-
-    private void handleCopyRequest(String encoded) {
-        try {
-            String code = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
-            java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(code);
-            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-            addSystemMessage("Code copied to clipboard");
-        } catch (Exception e) {
-            LOG.error("Failed to copy code", e);
-            addSystemMessage("Failed to copy code: " + e.getMessage());
-        }
-    }
     /**
-     * Escape HTML special characters.
+     * Styles a message panel according to the message type.
      */
-    private String escapeHtml(String content) {
-        return content.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("\t",  "&nbsp;&nbsp;&nbsp;&nbsp;")
-                .replace("'", "&#39;");
+    private void styleMessagePanel(JPanel panel, Color bgColor, Color borderColor, String senderText) {
+        panel.setBackground(bgColor);
+        panel.setBorder(new CompoundBorder(
+                BorderFactory.createMatteBorder(0, 3, 0, 0, borderColor),
+                new EmptyBorder(8, 12, 8, 12)
+        ));
+
+        // Add sender label at the top
+        JLabel senderLabel = new JLabel(senderText);
+        senderLabel.setFont(senderLabel.getFont().deriveFont(Font.BOLD));
+        panel.add(senderLabel, BorderLayout.NORTH);
     }
 
+    /**
+     * Processes content to handle code blocks and formatting.
+     */
+    private void processContent(String content, JPanel contentPanel) {
+        // Use BoxLayout for vertical stacking
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+
+        // Find code blocks
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(content);
+        int lastEnd = 0;
+        boolean found = false;
+
+        while (matcher.find()) {
+            found = true;
+
+            // Add text before code block
+            String textBefore = content.substring(lastEnd, matcher.start());
+            if (!textBefore.isEmpty()) {
+                addTextComponent(contentPanel, textBefore);
+            }
+
+            // Extract and add code block
+            String language = matcher.group(1).trim();
+            String codeContent = matcher.group(2);
+
+            addCodeBlock(contentPanel, language, codeContent);
+
+            lastEnd = matcher.end();
+        }
+
+        // Add remaining text after last code block
+        if (found && lastEnd < content.length()) {
+            addTextComponent(contentPanel, content.substring(lastEnd));
+        } else if (!found) {
+            // No code blocks found, add the entire content
+            addTextComponent(contentPanel, content);
+        }
+    }
+
+    /**
+     * Adds a text component to display regular text.
+     */
+    private void addTextComponent(JPanel parent, String text) {
+        JTextPane textPane = new JTextPane();
+        textPane.setContentType("text/plain");
+        textPane.setText(text);
+        textPane.setEditable(false);
+        textPane.setOpaque(false);
+
+        // Set text color based on theme
+        Color textColor = JBColor.namedColor("Label.foreground",
+                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
+        textPane.setForeground(textColor);
+
+        // Process inline code
+        processInlineCode(textPane);
+
+        // Make it grow horizontally but not vertically
+        textPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Use the preferred size to account for text wrapping
+        Dimension preferredSize = textPane.getPreferredSize();
+        textPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferredSize.height));
+
+        parent.add(textPane);
+        parent.add(Box.createVerticalStrut(5));
+    }
+
+    /**
+     * Processes inline code in a text component.
+     */
+    private void processInlineCode(JTextPane textPane) {
+        String text = textPane.getText();
+        StyledDocument doc = textPane.getStyledDocument();
+
+        // Create style for inline code
+        Style codeStyle = textPane.addStyle("InlineCode", null);
+
+        // Get colors for inline code
+        Color codeBgColor = JBColor.namedColor("EditorPane.background",
+                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
+        Color codeTextColor = JBColor.namedColor("Label.foreground",
+                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
+
+        StyleConstants.setBackground(codeStyle, codeBgColor);
+        StyleConstants.setForeground(codeStyle, codeTextColor);
+        StyleConstants.setFontFamily(codeStyle, Font.MONOSPACED);
+
+        // Find inline code with regex
+        Pattern inlinePattern = Pattern.compile("`([^`]+)`");
+        Matcher inlineMatcher = inlinePattern.matcher(text);
+
+        // Clear the document first
+        try {
+            doc.remove(0, doc.getLength());
+
+            int lastEnd = 0;
+
+            while (inlineMatcher.find()) {
+                // Add text before inline code
+                doc.insertString(doc.getLength(), text.substring(lastEnd, inlineMatcher.start()), null);
+
+                // Add the inline code with style
+                doc.insertString(doc.getLength(), inlineMatcher.group(1), codeStyle);
+
+                lastEnd = inlineMatcher.end();
+            }
+
+            // Add remaining text
+            if (lastEnd < text.length()) {
+                doc.insertString(doc.getLength(), text.substring(lastEnd), null);
+            }
+
+        } catch (BadLocationException e) {
+            LOG.error("Error processing inline code", e);
+        }
+    }
+
+    /**
+     * Adds a collapsible code block component.
+     */
+    private void addCodeBlock(JPanel parent, String language, String code) {
+        // Create a panel for the code block with BorderLayout
+        JPanel codePanel = new JBPanel<>(new BorderLayout());
+
+        // Get colors for code
+        Color codeBgColor = JBColor.namedColor("EditorPane.background",
+                isDarkTheme ? new Color(45, 45, 45) : new Color(248, 248, 248));
+        Color codeBorderColor = JBColor.namedColor("Border.color",
+                isDarkTheme ? new Color(85, 85, 85) : new Color(221, 221, 221));
+        Color codeTextColor = JBColor.namedColor("Label.foreground",
+                isDarkTheme ? new Color(220, 220, 220) : new Color(0, 0, 0));
+
+        // Style the code panel
+        codePanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(codeBorderColor),
+                BorderFactory.createEmptyBorder(1, 1, 1, 1)
+        ));
+        codePanel.setBackground(codeBgColor);
+
+        // Create header panel
+        JPanel headerPanel = new JBPanel<>(new BorderLayout());
+        headerPanel.setBackground(codeBgColor);
+        headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, codeBorderColor));
+
+        // Language label
+        JLabel langLabel = new JLabel(language.isEmpty() ? "Code" : language);
+        langLabel.setForeground(codeTextColor);
+        langLabel.setBorder(JBUI.Borders.empty(4, 8));
+        headerPanel.add(langLabel, BorderLayout.WEST);
+
+        // Action buttons panel
+        JPanel actionPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        actionPanel.setOpaque(false);
+
+        // Toggle button for collapsing/expanding
+        JButton toggleButton = new JButton(isDarkTheme ?
+                AllIcons.Actions.Collapseall : AllIcons.Actions.Expandall);
+        toggleButton.setToolTipText(isDarkTheme ? "Collapse" : "Expand");
+        toggleButton.setBorderPainted(false);
+        toggleButton.setContentAreaFilled(false);
+
+        // Copy button
+        JButton copyButton = new JButton(AllIcons.Actions.Copy);
+        copyButton.setToolTipText("Copy code");
+        copyButton.setBorderPainted(false);
+        copyButton.setContentAreaFilled(false);
+
+        actionPanel.add(copyButton);
+        actionPanel.add(toggleButton);
+        headerPanel.add(actionPanel, BorderLayout.EAST);
+
+        // Create code text area
+        JTextArea codeArea = new JTextArea(code);
+        codeArea.setEditable(false);
+        codeArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        codeArea.setBackground(codeBgColor);
+        codeArea.setForeground(codeTextColor);
+        codeArea.setBorder(JBUI.Borders.empty(8));
+        codeArea.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Create scroll pane for code
+        JScrollPane codeScrollPane = new JBScrollPane(codeArea);
+        codeScrollPane.setBorder(JBUI.Borders.empty());
+
+        // Set preferred size for the scroll pane
+        int lineCount = code.split("\n").length;
+        int preferredHeight = Math.min(lineCount * 18, 200); // 18 pixels per line, max 200px
+        codeScrollPane.setPreferredSize(new Dimension(0, preferredHeight));
+
+        // Collapsed by default - don't show code
+        codeScrollPane.setVisible(false);
+        toggleButton.setIcon(AllIcons.Actions.Expandall);
+        toggleButton.setToolTipText("Expand");
+
+        // Toggle action
+        toggleButton.addActionListener(e -> {
+            boolean isVisible = codeScrollPane.isVisible();
+            codeScrollPane.setVisible(!isVisible);
+
+            // Change icon based on state
+            if (isVisible) {
+                toggleButton.setIcon(AllIcons.Actions.Expandall);
+                toggleButton.setToolTipText("Expand");
+            } else {
+                toggleButton.setIcon(AllIcons.Actions.Collapseall);
+                toggleButton.setToolTipText("Collapse");
+            }
+
+            // Force layout recalculation
+            codePanel.revalidate();
+            parent.revalidate();
+
+            // Scroll to ensure visibility
+            SwingUtilities.invokeLater(() -> {
+                codePanel.scrollRectToVisible(codePanel.getBounds());
+            });
+        });
+
+        // Copy action
+        copyButton.addActionListener(e -> {
+            StringSelection selection = new StringSelection(code);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            statusLabel.setText("Code copied to clipboard");
+
+            // Reset after 3 seconds
+            Timer timer = new Timer(3000, event -> statusLabel.setText("Ready"));
+            timer.setRepeats(false);
+            timer.start();
+        });
+
+        // Add components to code panel
+        codePanel.add(headerPanel, BorderLayout.NORTH);
+        codePanel.add(codeScrollPane, BorderLayout.CENTER);
+
+        // Make it grow horizontally but not vertically
+        codePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        codePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, codePanel.getPreferredSize().height));
+
+        // Add to parent and add spacing
+        parent.add(codePanel);
+        parent.add(Box.createVerticalStrut(10));
+    }
 
     /**
      * Starts a new conversation.
@@ -822,9 +746,9 @@ public class InteractiveAgentPanel {
         }
 
         // Copy to clipboard
-        java.awt.Toolkit.getDefaultToolkit()
+        Toolkit.getDefaultToolkit()
                 .getSystemClipboard()
-                .setContents(new java.awt.datatransfer.StringSelection(text.toString()), null);
+                .setContents(new StringSelection(text.toString()), null);
 
         // Show confirmation
         addSystemMessage("Conversation copied to clipboard.");
@@ -872,6 +796,11 @@ public class InteractiveAgentPanel {
         ASSISTANT,
         SYSTEM
     }
+
+    /**
+     * Represents a chat message.
+     */
+
 
     /**
      * Represents a chat message.

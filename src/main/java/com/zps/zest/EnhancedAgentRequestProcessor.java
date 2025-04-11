@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Enhanced processor for AI agent requests that supports:
@@ -47,7 +48,7 @@ public class EnhancedAgentRequestProcessor {
      * @return The assistant's response
      * @throws PipelineExecutionException If there's an error during processing
      */
-    public String processRequestWithTools(
+    public CompletableFuture<String> processRequestWithTools(
             @NotNull String userRequest,
             @NotNull List<String> conversationHistory,
             @Nullable Editor editor) throws PipelineExecutionException {
@@ -64,10 +65,8 @@ public class EnhancedAgentRequestProcessor {
             String fullPrompt = promptBuilderForAgent.buildPrompt(userRequest, conversationHistory, codeContext);
 
             // 3. Call the LLM API
-            String response = callLlmApi(fullPrompt);
-
-            // 4. Process tool usage in the response if any
-            response = toolExecutor.processToolInvocations(response);
+            CompletableFuture<String> response = callLlmApi(fullPrompt)
+                    .thenApply(s->toolExecutor.processToolInvocations(s));
 
             LOG.info("Request " + requestId + " processed successfully");
             return response;
@@ -79,30 +78,9 @@ public class EnhancedAgentRequestProcessor {
     }
 
     /**
-     * Processes a follow-up to a previous request.
-     *
-     * @param followUpResponse The user's follow-up response
-     * @param conversationHistory The conversation history
-     * @param editor The current editor (can be null)
-     * @return The assistant's response
-     * @throws PipelineExecutionException If there's an error during processing
-     */
-    public String processFollowUp(
-            @NotNull String followUpResponse,
-            @NotNull List<String> conversationHistory,
-            @Nullable Editor editor) throws PipelineExecutionException {
-
-        // Tag the follow-up for special handling
-        String taggedRequest = "<FOLLOW_UP>" + followUpResponse + "</FOLLOW_UP>";
-
-        // Process normally using the tagged request
-        return processRequestWithTools(taggedRequest, conversationHistory, editor);
-    }
-
-    /**
      * Calls the LLM API with the constructed prompt.
      */
-    private String callLlmApi(@NotNull String prompt) throws PipelineExecutionException {
+    private CompletableFuture<String> callLlmApi(@NotNull String prompt) throws PipelineExecutionException {
         try {
             // Create a context for the API call
             CodeContext context = new CodeContext();
@@ -116,10 +94,18 @@ public class EnhancedAgentRequestProcessor {
 
 
             // Call the LLM API using the existing implementation
-            LlmApiCallStage apiCallStage = new LlmApiCallStage();
-            apiCallStage.process(context);
+          return  CompletableFuture.supplyAsync(()->{
+                LlmApiCallStage apiCallStage = new LlmApiCallStage();
 
-            return context.getApiResponse();
+                try {
+                    apiCallStage.process(context);
+                } catch (PipelineExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+
+                return context.getApiResponse();
+            });
+
         } catch (Exception e) {
             LOG.error("Error calling LLM API", e);
             throw new PipelineExecutionException("Error calling LLM API: " + e.getMessage(), e);

@@ -30,7 +30,10 @@ public class ReadFileTool extends BaseAgentTool {
         if (filePath.isEmpty()) {
             return "Error: File path is required";
         }
-        return "```java\n"+readFile(filePath)+"\n```\n";
+
+        // Extract file extension to determine the language for the markdown code block
+        String fileType = getFileExtension(filePath).toLowerCase();
+        return "```" + fileType + "\n" + readFile(filePath) + "\n```\n";
     }
 
     @Override
@@ -100,5 +103,13 @@ public class ReadFileTool extends BaseAgentTool {
             }
         }
         return null;
+    }
+
+    private String getFileExtension(String filePath) {
+        int lastIndexOfDot = filePath.lastIndexOf('.');
+        if (lastIndexOfDot == -1) {
+            return "txt"; // Default to txt if no file extension is found
+        }
+        return filePath.substring(lastIndexOfDot + 1);
     }
 }

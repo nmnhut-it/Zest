@@ -4,12 +4,15 @@ import com.google.gson.JsonObject;
 import com.intellij.diff.DiffContentFactory;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -32,7 +35,7 @@ public class ReplaceInFileTool extends BaseAgentTool {
     private final Project project;
 
     public ReplaceInFileTool(Project project) {
-        super("replace_in_file", "Searches for text in a file and replaces it. Shows diff before applying changes.");
+        super("replace_in_file", "Searches for text in a file and replaces it. You can use search by regex first, then use this tool.");
         this.project = project;
     }
 
@@ -67,9 +70,12 @@ public class ReplaceInFileTool extends BaseAgentTool {
         params.addProperty("caseSensitive", true);
         return params;
     }
-
-    private String replaceInFileWithDiff(String filePath, String searchText, String replaceText, 
-                                        boolean useRegex, boolean caseSensitive) {
+    /**
+     * Searches for text in a file and replaces it, showing a Git-like diff for review before applying changes.
+     * Uses IntelliJ's built-in diff tools for a familiar interface.
+     */
+    private String replaceInFileWithDiff(String filePath, String searchText, String replaceText,
+                                         boolean useRegex, boolean caseSensitive) {
         try {
             // Handle relative or absolute path
             String basePath = project.getBasePath();
@@ -106,19 +112,19 @@ public class ReplaceInFileTool extends BaseAgentTool {
             try {
                 if (useRegex) {
                     // Handle regex replacement
-                    Pattern pattern = caseSensitive 
-                        ? Pattern.compile(searchText)
-                        : Pattern.compile(searchText, Pattern.CASE_INSENSITIVE);
-                    
+                    Pattern pattern = caseSensitive
+                            ? Pattern.compile(searchText)
+                            : Pattern.compile(searchText, Pattern.CASE_INSENSITIVE);
+
                     Matcher matcher = pattern.matcher(originalContent);
                     StringBuffer result = new StringBuffer();
-                    
+
                     while (matcher.find()) {
                         replacementCount++;
                         matcher.appendReplacement(result, Matcher.quoteReplacement(replaceText));
                     }
                     matcher.appendTail(result);
-                    
+
                     modifiedContent = result.toString();
                 } else {
                     // Handle literal text replacement
@@ -131,13 +137,13 @@ public class ReplaceInFileTool extends BaseAgentTool {
                         Pattern pattern = Pattern.compile(Pattern.quote(searchText), Pattern.CASE_INSENSITIVE);
                         Matcher matcher = pattern.matcher(originalContent);
                         StringBuffer result = new StringBuffer();
-                        
+
                         while (matcher.find()) {
                             replacementCount++;
                             matcher.appendReplacement(result, Matcher.quoteReplacement(replaceText));
                         }
                         matcher.appendTail(result);
-                        
+
                         modifiedContent = result.toString();
                     }
                 }
@@ -155,75 +161,97 @@ public class ReplaceInFileTool extends BaseAgentTool {
                 return "Search text found but replacement resulted in no changes to content.";
             }
 
-            // Create diff contents
-            DiffContentFactory diffFactory = DiffContentFactory.getInstance();
-            DocumentContent leftContent = diffFactory.create(originalContent);
-            DocumentContent rightContent = diffFactory.create(modifiedContent);
-
-            // Create diff request
-            SimpleDiffRequest diffRequest = new SimpleDiffRequest(
-                    "Replace in File: " + filePath,
-                    leftContent,
-                    rightContent,
-                    "Original Content",
-                    "Modified Content (" + replacementCount + " replacements)");
-
-            // Show diff and get user confirmation
-            EnhancedTodoDiffComponent diffComponent = new EnhancedTodoDiffComponent(
-                    project,
-                    null, // No editor needed for this use case
-                    originalContent,
-                    modifiedContent,
-                    0, // No selection needed
-                    0);
-
-            // Show diff and wait for user decision
-            diffComponent.showDiff();
-            
-            // Ask user for confirmation
-            int option = Messages.showYesNoDialog(
-                    project,
-                    "Apply " + replacementCount + " replacements to " + filePath + "?",
-                    "Confirm Replacements",
-                    "Apply Changes",
-                    "Cancel",
-                    null);
-                    
-            boolean applyChanges = (option == Messages.YES);
-
-            if (!applyChanges) {
-                return "Operation cancelled by user.";
+            // Get VirtualFile for the file
+            VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(fullPath.toString());
+            if (vFile == null) {
+                return "Error: Could not find file in virtual file system: " + filePath;
             }
 
-            // Apply changes
-            int finalReplacementCount = replacementCount;
-            return WriteCommandAction.runWriteCommandAction(project, (Computable<String>) () -> {
+            // Create Git-like diff UI
+            // Use IntelliJ's built-in diff tools to create a git-like experience
+            final boolean[] userConfirmed = new boolean[1];
+            final String[] resultMessage = new String[1];
+
+            int finalReplacementCount1 = replacementCount;
+            ApplicationManager.getApplication().invokeAndWait(() -> {
                 try {
-                    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(fullPath.toString());
-                    if (file == null) {
-                        return "Error: Could not find file in virtual file system: " + filePath;
+                    // Create diff contents
+                    DiffContentFactory diffFactory = DiffContentFactory.getInstance();
+
+                    // Create simple content objects without custom keys
+                    DocumentContent leftContent = diffFactory.create(originalContent);
+                    DocumentContent rightContent = diffFactory.create(modifiedContent);
+
+                    // Create request with descriptive titles
+                    SimpleDiffRequest diffRequest = new SimpleDiffRequest(
+                            "Changes to " + vFile.getName() + " (" + finalReplacementCount1 + " replacements)",
+                            leftContent,
+                            rightContent,
+                            "Original",
+                            "After Replacements"
+                    );
+
+                    // Use default dialog hints
+                    com.intellij.diff.DiffDialogHints dialogHints = com.intellij.diff.DiffDialogHints.DEFAULT;
+
+                    // Show the diff dialog
+                    com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, dialogHints);
+
+                    // Ask for confirmation with git-like terminology
+                    int option = Messages.showYesNoDialog(
+                            project,
+                            "Apply " + finalReplacementCount1 + " replacements to " + filePath + "?",
+                            "Confirm Changes",
+                            "Apply", // Yes button
+                            "Cancel", // No button
+                            Messages.getQuestionIcon()
+                    );
+
+                    userConfirmed[0] = (option == Messages.YES);
+
+                    if (!userConfirmed[0]) {
+                        resultMessage[0] = "Changes discarded by user.";
                     }
-                    
-                    // Update file content
-                    file.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
-                    
-                    // Open the file in editor
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        FileEditorManager.getInstance(project).openFile(file, true);
-                    });
-                    
-                    return "Successfully replaced " + finalReplacementCount + " occurrences in file: " + filePath;
                 } catch (Exception e) {
-                    LOG.error("Error updating file: " + filePath, e);
-                    return "Error updating file: " + e.getMessage();
+                    LOG.error("Error showing diff dialog", e);
+                    resultMessage[0] = "Error showing diff dialog: " + e.getMessage();
                 }
             });
+
+            // Check if there was an error or user cancellation
+            if (resultMessage[0] != null) {
+                return resultMessage[0];
+            }
+
+            // Apply changes if confirmed
+            if (userConfirmed[0]) {
+                final int finalReplacementCount = replacementCount;
+
+                return WriteCommandAction.runWriteCommandAction(project, (Computable<String>) () -> {
+                    try {
+                        // Refresh to make sure we have the latest version
+                        vFile.refresh(false, false);
+
+                        // Update file content
+                        vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
+
+                        // Open the file to show the changes
+                        FileEditorManager.getInstance(project).openFile(vFile, true);
+
+                        return "Successfully applied " + finalReplacementCount + " replacements to " + filePath;
+                    } catch (Exception e) {
+                        LOG.error("Error updating file: " + filePath, e);
+                        return "Error updating file: " + e.getMessage();
+                    }
+                });
+            } else {
+                return "Changes were not applied - discarded by user.";
+            }
         } catch (Exception e) {
             LOG.error("Error processing replace in file request", e);
             return "Error processing replace in file request: " + e.getMessage();
         }
     }
-    
     /**
      * Counts the number of occurrences of a substring in a string.
      */

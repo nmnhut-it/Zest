@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.XmlRpcUtils;
+import org.apache.commons.lang.StringEscapeUtils;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,8 +16,8 @@ public class ToolExecutor {
     private static final Logger LOG = Logger.getInstance(ToolExecutor.class);
     
     // Pattern for JSON-RPC style tool invocation
-    private static final Pattern JSON_TOOL_PATTERN = Pattern.compile("<TOOL>(.*?)</TOOL>", Pattern.DOTALL);
-    
+    private static final Pattern JSON_TOOL_PATTERN = Pattern.compile("(```)?.*?(\n)?<TOOL>(.*?)</TOOL>(```)?(\n)?", Pattern.DOTALL);
+
     private final AgentToolRegistry toolRegistry;
     
     public ToolExecutor(AgentToolRegistry toolRegistry) {
@@ -41,14 +42,14 @@ public class ToolExecutor {
             processedResponse.append(response, lastEnd, matcher.start());
             
             // Extract the JSON invocation
-            String invocation = matcher.group(1);
+            String invocation = matcher.group(3);
             
             // Execute the tool
             String toolOutput = executeXmlToolInvocation(invocation);
             
             // Format the tool output with a clear header
             processedResponse.append("\n\n### Tool Result\n");
-            processedResponse.append("#### Call: \n```xml\n" +invocation+"\n```\n\n");
+            processedResponse.append("#### Call: \n```xml\n" +(invocation)+"\n```\n\n");
             processedResponse.append("#### Result: \n\n");
 
             if (!toolOutput.startsWith("```")) {

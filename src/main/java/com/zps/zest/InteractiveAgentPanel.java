@@ -9,6 +9,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -17,6 +18,8 @@ import java.awt.datatransfer.StringSelection;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -26,7 +29,7 @@ public class InteractiveAgentPanel {
     private static final Logger LOG = Logger.getInstance(InteractiveAgentPanel.class);
     public static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```(.*?)\\n([\\s\\S]*?)```", Pattern.MULTILINE);
     private static final Pattern TOOL_RESULT_PATTERN = Pattern.compile("### TOOL RESULT", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TOOL_PATTERN = ToolParser.TOOL_PATTERN;
+    private static final Pattern FOLLOW_UP_QUESTION_PATTERN = Pattern.compile("### FOLLOW_UP_QUESTION\\n(.*?)\\n### END_FOLLOW_UP_QUESTION", Pattern.DOTALL);
 
     private final Project project;
     private final SimpleToolWindowPanel mainPanel;
@@ -34,7 +37,8 @@ public class InteractiveAgentPanel {
     private final InputPanel inputPanel;
     private final StatusBar statusBar;
     private final List<ChatMessage> chatHistory = new ArrayList<>();
-
+    private boolean waitingForFollowUp = false;
+    private String pendingFollowUpQuestion = null;
     private boolean isProcessing = false;
 
     /**
@@ -111,15 +115,18 @@ public class InteractiveAgentPanel {
             public void actionPerformed(@NotNull AnActionEvent e) {
                 reviewCurrentFile();
             }
-        };
+        };   // Add this to the createToolbar() method in InteractiveAgentPanel.java
+        AnAction testToolsAction = new TestToolsAction();
 
-        group.add(reviewCodeAction);
 
         // Add actions to group
         group.add(newAction);
-        group.add(copyAction);
+//        group.add(copyAction);
         group.addSeparator();
-        group.add(contextAction);
+        group.add(reviewCodeAction);
+        group.addSeparator();
+        group.add(testToolsAction);
+//        group.add(contextAction);
 
         // Create toolbar
         ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(
@@ -136,11 +143,13 @@ public class InteractiveAgentPanel {
             return;
         }
 
-        String fileName = FileEditorManager.getInstance(project).getSelectedFiles()[0].getName();
+        VirtualFile[] selectedFiles = FileEditorManager.getInstance(project).getSelectedFiles();
+        String fileName = selectedFiles[0].getName();
+        String extension = selectedFiles[0].getExtension();
         String fileContent = editor.getDocument().getText();
 
         addSystemMessage("Reviewing current file: " + fileName);
-        String message = "Please review this code and suggest improvements:\n\n```\n" + fileContent + "\n```";
+        String message = "Please review this code and suggest improvements:\n\n```"+extension+"\n" + fileContent + "\n```";
 
         // Add user message and clear input
         addUserMessage(message);
@@ -148,7 +157,7 @@ public class InteractiveAgentPanel {
         // Get current editor and process the request
         setProcessingState(true);
 
-        ApplicationManager.getApplication().invokeLater(() -> {
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 // Get conversation history
                 List<String> conversationHistory = getConversationHistoryForContext();
@@ -190,6 +199,14 @@ public class InteractiveAgentPanel {
         // Set UI to processing state
         setProcessingState(true);
 
+        // Check if this is a response to a follow-up question
+        final boolean isFollowUpResponse = waitingForFollowUp;
+        final String followUpQuestion = pendingFollowUpQuestion;
+
+        // Reset follow-up state
+        waitingForFollowUp = false;
+        pendingFollowUpQuestion = null;
+
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
                 // Get conversation history
@@ -201,9 +218,19 @@ public class InteractiveAgentPanel {
                 // Add system message to show processing
                 addSystemMessage("Processing request with tools...");
 
-                // Process the request with tools - this already handles tool execution internally
-                processor.processRequestWithTools(userMessage, conversationHistory, editor)
-                        .thenAccept(this::handleAIResponse);
+                CompletableFuture<String> responseFuture;
+
+                if (isFollowUpResponse) {
+                    // If this is a follow-up response, include the question for context
+                    String enhancedMessage = "Follow-up question: \"" + followUpQuestion + "\"\nUser response: \"" + userMessage + "\"";
+                    responseFuture = processor.processRequestWithTools(enhancedMessage, conversationHistory, editor);
+                } else {
+                    // Process as normal request
+                    responseFuture = processor.processRequestWithTools(userMessage, conversationHistory, editor);
+                }
+
+                // Handle the response
+                responseFuture.thenAccept(this::handleAIResponse);
 
             } catch (Exception e) {
                 LOG.error("Error processing request", e);
@@ -212,11 +239,17 @@ public class InteractiveAgentPanel {
             }
         });
     }
-
     /**
      * Handle AI response, checking for tool results that need further processing
      */
     private void handleAIResponse(String response) {
+        // Check if response contains a follow-up question
+        Matcher followUpMatcher = FOLLOW_UP_QUESTION_PATTERN.matcher(response);
+        if (followUpMatcher.find()) {
+            String question = followUpMatcher.group(1);
+            handleFollowUpQuestion(question, response);
+            return;
+        }
         // Display the response
         addSystemMessage("AI assistant responded");
         addAssistantMessage(response);
@@ -240,7 +273,29 @@ public class InteractiveAgentPanel {
                     getLastUserMessage(), response);
         }
     }
+    /**
+     * Handle a follow-up question from the AI
+     */
+    private void handleFollowUpQuestion(String question, String fullResponse) {
+        // Replace the follow-up question pattern with just the question text in the displayed message
+        String displayResponse = fullResponse.replaceAll(
+                "### FOLLOW_UP_QUESTION\\n(.*?)\\n### END_FOLLOW_UP_QUESTION",
+                "I need some additional information: $1");
 
+        // Display the assistant's message with the question
+        addAssistantMessage(displayResponse);
+
+        // Set UI state to indicate waiting for follow-up
+        waitingForFollowUp = true;
+        pendingFollowUpQuestion = question;
+
+        // Update status bar to show waiting for user response
+        statusBar.setStatus("Waiting for your response to the follow-up question...");
+        setProcessingState(false);
+
+        // Focus the input field
+//        inputPanel.();
+    }
     /**
      * Gets the last user message from chat history
      */

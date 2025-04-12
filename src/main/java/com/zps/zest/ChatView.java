@@ -25,6 +25,7 @@ import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.text.*;
+import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 import java.time.format.DateTimeFormatter;
 import java.util.regex.Matcher;
@@ -208,7 +209,7 @@ public class ChatView {
             // Add text before code block as Markdown
             String textBefore = content.substring(lastEnd, matcher.start());
             if (!textBefore.isEmpty()) {
-                addMarkdownComponent(contentPanel, textBefore);
+                addMarkdownComponent(contentPanel, textBefore+"\n");
             }
 
             // Extract and add code block
@@ -225,7 +226,6 @@ public class ChatView {
             addMarkdownComponent(contentPanel, "\n" + content.substring(lastEnd));
         }
     }
-
     /**
      * Adds a Markdown component to display text with formatting
      */
@@ -237,25 +237,41 @@ public class ChatView {
             // Create HTML display component
             JTextPane htmlPane = new JTextPane();
             htmlPane.setContentType("text/html");
-            htmlPane.setEditorKit(new HTMLEditorKitBuilder().build());
+            HTMLEditorKit build = new HTMLEditorKitBuilder().build();
+            htmlPane.setEditorKit(build);
             htmlPane.setText(html);
             htmlPane.setEditable(false);
             htmlPane.setOpaque(false);
             htmlPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
             htmlPane.setBorder(JBUI.Borders.empty(5));
 
-            // Calculate approximate height
-            int lineCount = text.split("\n").length + 1;
-            int estimatedHeight = Math.max(lineCount * 20, 30);
-
-            // Configure size constraints
+            // Set initial width constraint but flexible height
             htmlPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-            htmlPane.setPreferredSize(new Dimension(parent.getWidth() > 0 ? parent.getWidth() - 20 : 500, estimatedHeight));
-            htmlPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, estimatedHeight * 2));
+            int width = parent.getWidth() > 0 ? parent.getWidth() - 20 : 500;
+            htmlPane.setPreferredSize(new Dimension(width, 10)); // Initial small height
 
             // Add to parent
             parent.add(htmlPane);
             parent.add(Box.createVerticalStrut(5));
+
+            // Calculate actual height after rendering
+            SwingUtilities.invokeLater(() -> {
+                // Use getPreferredSize to get the actual height needed
+                View view = htmlPane.getUI().getRootView(htmlPane);
+                view.setSize(width, 0);  // Set width but unconstrained height
+                float preferredHeight = view.getPreferredSpan(View.Y_AXIS);
+
+                // Add some padding to ensure all content is visible
+                int actualHeight = (int)Math.ceil(preferredHeight) + 10;
+
+                // Update the component size
+                htmlPane.setPreferredSize(new Dimension(width, actualHeight));
+                htmlPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, actualHeight));
+
+                // Revalidate the parent to apply the new size
+                parent.revalidate();
+                parent.repaint();
+            });
         } catch (Exception e) {
             LOG.error("Error creating Markdown component", e);
 
@@ -263,7 +279,6 @@ public class ChatView {
             addTextComponent(parent, text);
         }
     }
-
     /**
      * Converts Markdown to HTML using regex patterns
      */
@@ -272,11 +287,11 @@ public class ChatView {
 
         // Wrap in style
         html = "<html><head><style>" +
-                "body { font-family: sans-serif; font-size: 12px; }" +
-                "h1 { font-size: 16px; margin: 5px 0; }" +
-                "h2 { font-size: 15px; margin: 5px 0; }" +
+                "body { font-family: sans-serif; font-size: 10px; }" +
+                "h1 { font-size: 24px; margin: 5px 0; }" +
+                "h2 { font-size: 18px; margin: 5px 0; }" +
                 "h3 { font-size: 14px; margin: 4px 0; }" +
-                "h4, h5, h6 { font-size: 13px; margin: 3px 0; }" +
+                "h4, h5, h6 { font-size: 12px; margin: 3px 0; }" +
                 "p { margin: 4px 0; }" +
                 "blockquote { margin: 4px 0 4px 10px; padding-left: 5px; " +
                 "border-left: 3px solid #808080; color: #606060; }" +

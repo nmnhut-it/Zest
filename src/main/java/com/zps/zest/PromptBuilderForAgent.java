@@ -76,6 +76,7 @@ public class PromptBuilderForAgent {
         prompt.append("You are Zest, Zingplay's IDE assistant. You help programmers write better code with concise, practical solutions.\n\n");
 
         prompt.append("# WORKFLOW\n");
+        prompt.append("Do these steps one by one. NEVER CALL MORE THAN ONE TOOL IN A RESPONSE\n");
         prompt.append("1. CLARIFY: Ask questions to understand requirements\n");
         prompt.append("2. COLLECT: Use tools to gather context and code\n");
         prompt.append("3. ANALYZE: Identify improvements and solutions\n");
@@ -109,11 +110,12 @@ public class PromptBuilderForAgent {
     }
     private void addToolDocumentation(StringBuilder prompt) {
         prompt.append("# AVAILABLE TOOLS\n\n");
-        prompt.append("You have access to the following tools. Use these tools strategically to gather context and modify code.\n\n");
-
+        prompt.append("You have access to the following tools. Use these tools strategically to gather context and modify code. DO NOT USE MORE THAN ONE TOOL AT A TIME.\n\n");
+        prompt.append("## Clarifying tools\n");
+        addToolsByCategory(prompt, "follow_up_question");
         // Group tools by category
         prompt.append("## File Operations\n");
-        addToolsByCategory(prompt, "read_file", "list_files", "create_file");
+        addToolsByCategory(prompt, "read_file", "list_files", "create_file","replace_in_file");
 
         prompt.append("## Code Analysis\n");
         addToolsByCategory(prompt, "find_methods", "search_classes", "get_current_class_info", "analyze_code_problems");
@@ -164,6 +166,8 @@ public class PromptBuilderForAgent {
         prompt.append("IMPORTANT USAGE NOTES:\n");
         prompt.append("- ALWAYS wrap tool invocations between <TOOL> and </TOOL> tags\n");
         prompt.append("- ALWAYS properly escape characters in XML: use &lt; for <, &gt; for >, and &amp; for &\n");
+        prompt.append("- ALWAYS properly escape characters in regex");
+        prompt.append("- ONLY call ONE tool per message");
         prompt.append("- Use read_file BEFORE attempting to modify code to understand the context\n");
         prompt.append("- Use search_classes when you need to understand related classes\n");
         prompt.append("- Use analyze_code_problems to diagnose issues in problematic code\n\n");

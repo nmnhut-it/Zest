@@ -222,7 +222,7 @@ public class ChatView {
 
         // Add remaining text after last code block as Markdown
         if (lastEnd < content.length()) {
-            addMarkdownComponent(contentPanel, content.substring(lastEnd));
+            addMarkdownComponent(contentPanel, "\n" + content.substring(lastEnd));
         }
     }
 
@@ -312,8 +312,9 @@ public class ChatView {
         buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, buttonPanel.getPreferredSize().height));
 
         // Add to parent
+        parent.add(Box.createVerticalStrut(2));
         parent.add(buttonPanel);
-        parent.add(Box.createVerticalStrut(5));
+        parent.add(Box.createVerticalStrut(2));
     }
 
     /**

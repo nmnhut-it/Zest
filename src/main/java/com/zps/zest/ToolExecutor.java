@@ -61,7 +61,9 @@ public class ToolExecutor {
                 processedResponse.append("\n```\n");
             }
 
-
+            if (!toolOutput.endsWith("\n")) {
+                processedResponse.append("\n");
+            }
             
             lastEnd = matcher.end();
         }

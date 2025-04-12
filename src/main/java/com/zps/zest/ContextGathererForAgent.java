@@ -108,18 +108,18 @@ public class ContextGathererForAgent {
             if (parentDir != null && parentDir.exists()) {
                 context.put("currentFileDirectory", parentDir.getPath());
 
-                StringBuilder siblingFiles = new StringBuilder();
-                VirtualFile[] children = parentDir.getChildren();
-                int siblingCount = 0;
-
-                for (VirtualFile child : children) {
-                    if (!child.isDirectory() && siblingCount < MAX_FILES_PER_ROOT) {
-                        siblingFiles.append("- ").append(child.getName()).append("\n");
-                        siblingCount++;
-                    }
-                }
-
-                context.put("siblingFiles", siblingFiles.toString());
+//                StringBuilder siblingFiles = new StringBuilder();
+//                VirtualFile[] children = parentDir.getChildren();
+//                int siblingCount = 0;
+//
+//                for (VirtualFile child : children) {
+//                    if (!child.isDirectory() && siblingCount < MAX_FILES_PER_ROOT) {
+//                        siblingFiles.append("- ").append(child.getName()).append("\n");
+//                        siblingCount++;
+//                    }
+//                }
+//
+//                context.put("siblingFiles", siblingFiles.toString());
             }
         }
 

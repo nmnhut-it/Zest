@@ -1,5 +1,6 @@
 package com.zps.zest;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -59,16 +60,20 @@ public class EnhancedAgentRequestProcessor {
 
         try {
             // 1. Gather code context from the current editor
-            Map<String, String> codeContext = ContextGathererForAgent.gatherCodeContext(project, editor);
+            Map<String, String> codeContext = ReadAction.compute(()->{
+                return ContextGathererForAgent.gatherCodeContext(project, editor);
+            });
 
             // 2. Construct the full prompt with JSON-RPC tool formatting
             String fullPrompt = promptBuilderForAgent.buildPrompt(userRequest, conversationHistory, codeContext);
+            System.out.println(fullPrompt);
+            System.out.println("----------------------");
 
             // 3. Call the LLM API
             CompletableFuture<String> response = callLlmApi(fullPrompt)
                     .thenApply(s->toolExecutor.processToolInvocations(s));
+                    response.thenAccept(trs -> System.out.println(trs));
 
-            LOG.info("Request " + requestId + " processed successfully");
             return response;
 
         } catch (Exception e) {

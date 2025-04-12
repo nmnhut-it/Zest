@@ -48,8 +48,20 @@ public class ToolExecutor {
             
             // Format the tool output with a clear header
             processedResponse.append("\n\n### Tool Result\n");
+            processedResponse.append("#### Call: \n```xml\n" +invocation+"\n```\n\n");
+            processedResponse.append("#### Result: \n\n");
+
+            if (!toolOutput.startsWith("```")) {
+                processedResponse.append("\n\n```\n");
+            }
+
             processedResponse.append(toolOutput);
-            processedResponse.append("---------------------------");
+
+            if (!toolOutput.startsWith("```")) {
+                processedResponse.append("\n```\n");
+            }
+
+
             
             lastEnd = matcher.end();
         }

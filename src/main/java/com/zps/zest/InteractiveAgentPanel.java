@@ -104,6 +104,17 @@ public class InteractiveAgentPanel {
             }
         };
 
+        // Add this to the createToolbar() method in InteractiveAgentPanel.java
+        AnAction reviewCodeAction = new AnAction("Review Current File", "Review the code of the current file",
+                AllIcons.Actions.Preview) {
+            @Override
+            public void actionPerformed(@NotNull AnActionEvent e) {
+                reviewCurrentFile();
+            }
+        };
+
+        group.add(reviewCodeAction);
+
         // Add actions to group
         group.add(newAction);
         group.add(copyAction);
@@ -117,7 +128,45 @@ public class InteractiveAgentPanel {
 
         return toolbar;
     }
+    // Add this method to InteractiveAgentPanel.java
+    private void reviewCurrentFile() {
+        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+        if (editor == null) {
+            addSystemMessage("No editor is currently open.");
+            return;
+        }
 
+        String fileName = FileEditorManager.getInstance(project).getSelectedFiles()[0].getName();
+        String fileContent = editor.getDocument().getText();
+
+        addSystemMessage("Reviewing current file: " + fileName);
+        String message = "Please review this code and suggest improvements:\n\n```\n" + fileContent + "\n```";
+
+        // Add user message and clear input
+        addUserMessage(message);
+
+        // Get current editor and process the request
+        setProcessingState(true);
+
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                // Get conversation history
+                List<String> conversationHistory = getConversationHistoryForContext();
+
+                // Create enhanced request processor
+                EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
+
+                // Process the request
+                processor.processRequestWithTools(message, conversationHistory, editor)
+                        .thenAccept(this::handleAIResponse);
+
+            } catch (Exception e) {
+                LOG.error("Error processing code review", e);
+                setProcessingState(false);
+                addSystemMessage("Error: " + e.getMessage());
+            }
+        });
+    }
     /**
      * Sends the user's message to the AI.
      */

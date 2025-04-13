@@ -3,6 +3,7 @@ package com.zps.zest;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.zps.zest.tools.AgentTool;
+import com.zps.zest.tools.FollowUpQuestionTool;
 import com.zps.zest.tools.XmlRpcUtils;
 import org.apache.commons.lang.StringEscapeUtils;
 
@@ -38,35 +39,44 @@ public class ToolExecutor {
         Matcher matcher = JSON_TOOL_PATTERN.matcher(response);
         
         while (matcher.find()) {
-            // Add text before the tool invocation
+             // Add text before the tool invocation
             processedResponse.append(response, lastEnd, matcher.start());
-            
+
             // Extract the JSON invocation
             String invocation = matcher.group(3);
             
             // Execute the tool
-            String toolOutput = executeXmlToolInvocation(invocation);
-            
-            // Format the tool output with a clear header
-            processedResponse.append("\n\n### Tool Result\n");
-            processedResponse.append("#### Call: \n```xml\n" +(invocation)+"\n```\n\n");
-            processedResponse.append("#### Result: \n\n");
+            ToolExecutionResponse toolOutputObject = executeXmlToolInvocation(invocation);
+            String toolOutput = toolOutputObject.result;
+            if (!toolOutputObject.methodName.equals(FollowUpQuestionTool.NAME)) {
 
-            if (!toolOutput.startsWith("```")) {
-                processedResponse.append("\n\n```\n");
+
+                // Format the tool output with a clear header
+                processedResponse.append("\n\n### Tool Result\n");
+                processedResponse.append("#### Call: \n```xml\n" + (invocation) + "\n```\n\n");
+                processedResponse.append("#### Result: \n\n");
+
+                if (!toolOutput.startsWith("```")) {
+                    processedResponse.append("\n\n```\n");
+                }
+
+                processedResponse.append(toolOutput);
+
+                if (!toolOutput.startsWith("```")) {
+                    processedResponse.append("\n```\n");
+                }
+
+                if (!toolOutput.endsWith("\n")) {
+                    processedResponse.append("\n");
+                }
+
+                lastEnd = matcher.end();
             }
+            else {
+                processedResponse.append(toolOutput);
+                lastEnd = matcher.end();
 
-            processedResponse.append(toolOutput);
-
-            if (!toolOutput.startsWith("```")) {
-                processedResponse.append("\n```\n");
             }
-
-            if (!toolOutput.endsWith("\n")) {
-                processedResponse.append("\n");
-            }
-            
-            lastEnd = matcher.end();
         }
 
         // Add any remaining text
@@ -76,29 +86,188 @@ public class ToolExecutor {
 
         return processedResponse.toString();
     }
+    /**
+     * Executes a tool invocation from XML format and returns a structured response.
+     *
+     * @param xmlText The XML representation of the tool invocation
+     * @return A ToolExecutionResponse containing method name, invocation details, result or error
+     */
+    public ToolExecutionResponse executeXmlToolInvocation(String xmlText) {
+        String methodName = "";
+        JsonObject invocationJson = null;
 
-    public String executeXmlToolInvocation(String xmlText) {
         try {
             // Convert XML to JSON
-            JsonObject jsonObject = XmlRpcUtils.convertXmlToJson("<TOOL>"+xmlText+"</TOOL>");
-
-            // Extract tool name and parameters
-            if (!jsonObject.has("toolName")) {
-                return "Error: Invalid tool invocation - missing toolName";
+            invocationJson = XmlRpcUtils.convertXmlToJson("<TOOL>" + xmlText + "</TOOL>");
+             // Extract tool name and parameters
+            if (!invocationJson.has("toolName")) {
+                return ToolExecutionResponse.error(methodName, invocationJson,
+                        "Invalid tool invocation - missing toolName");
             }
 
-            String toolName = jsonObject.get("toolName").getAsString();
-            JsonObject arguments =  jsonObject;
+            String toolName = invocationJson.get("toolName").getAsString();
+            methodName = toolName;
             // Get the tool and execute it
             AgentTool tool = toolRegistry.getTool(toolName);
             if (tool == null) {
-                return "Error: Unknown tool: " + toolName;
+                return ToolExecutionResponse.error(methodName, invocationJson,
+                        "Unknown tool: " + toolName);
             }
 
-            return tool.execute(arguments);
+            // Execute tool and capture result
+            String result = tool.execute(invocationJson);
+
+            // Return success response
+            return ToolExecutionResponse.success(methodName, invocationJson, result);
+
         } catch (Exception e) {
             LOG.error("Error executing XML tool: " + e.getMessage(), e);
-            return "Error executing XML tool: " + e.getMessage();
+            return ToolExecutionResponse.error(methodName, invocationJson,
+                    "Error executing XML tool: " + e.getMessage());
+        }
+    }
+    /**
+     * A class representing the response from a tool execution.
+     * This encapsulates all information about the execution, including
+     * the method called, the parameters used, any errors, and the result.
+     */
+    public static class ToolExecutionResponse {
+        private String methodName;
+        private JsonObject invocationJson;
+        private String error;
+        private String result;
+
+        /**
+         * Default constructor
+         */
+        public ToolExecutionResponse() {
+            this.methodName = null;
+            this.invocationJson = null;
+            this.error = null;
+            this.result = null;
+        }
+
+        /**
+         * Constructor with all parameters
+         *
+         * @param methodName The name of the method that was executed
+         * @param invocationJson The JSON representation of the invocation parameters
+         * @param error Any error message (null if execution was successful)
+         * @param result The execution result (null if there was an error)
+         */
+        public ToolExecutionResponse(String methodName, JsonObject invocationJson, String error, String result) {
+            this.methodName = methodName;
+            this.invocationJson = invocationJson;
+            this.error = error;
+            this.result = result;
+        }
+
+        /**
+         * Static factory method to create a success response
+         *
+         * @param methodName The name of the method that was executed
+         * @param invocationJson The JSON representation of the invocation parameters
+         * @param result The execution result
+         * @return A ToolExecutionResponse indicating successful execution
+         */
+        public static ToolExecutionResponse success(String methodName, JsonObject invocationJson, String result) {
+            return new ToolExecutionResponse(methodName, invocationJson, null, result);
+        }
+
+        /**
+         * Static factory method to create an error response
+         *
+         * @param methodName The name of the method that was executed
+         * @param invocationJson The JSON representation of the invocation parameters
+         * @param error The error message
+         * @return A ToolExecutionResponse indicating execution failure
+         */
+        public static ToolExecutionResponse error(String methodName, JsonObject invocationJson, String error) {
+            return new ToolExecutionResponse(methodName, invocationJson, error, null);
+        }
+
+        // Getters and setters
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public void setMethodName(String methodName) {
+            this.methodName = methodName;
+        }
+
+        public JsonObject getInvocationJson() {
+            return invocationJson;
+        }
+
+        public void setInvocationJson(JsonObject invocationJson) {
+            this.invocationJson = invocationJson;
+        }
+
+        public String getError() {
+            return error;
+        }
+
+        public void setError(String error) {
+            this.error = error;
+        }
+
+        public String getResult() {
+            return result;
+        }
+
+        public void setResult(String result) {
+            this.result = result;
+        }
+
+        /**
+         * Determines if the execution was successful (no error)
+         *
+         * @return true if execution was successful, false otherwise
+         */
+        public boolean isSuccess() {
+            return error == null;
+        }
+
+        /**
+         * Converts this response to a JsonObject representation
+         *
+         * @return A JsonObject representing this response
+         */
+        public JsonObject toJson() {
+            JsonObject json = new JsonObject();
+
+            if (methodName != null) {
+                json.addProperty("methodName", methodName);
+            }
+
+            if (invocationJson != null) {
+                json.add("invocationJson", invocationJson);
+            }
+
+            if (error != null) {
+                json.addProperty("error", error);
+            } else {
+                json.addProperty("error", (String) null);
+            }
+
+            if (result != null) {
+                json.addProperty("result", result);
+            } else {
+                json.addProperty("result", (String) null);
+            }
+
+            return json;
+        }
+
+        /**
+         * Creates a string representation of this response
+         *
+         * @return A string representation
+         */
+        @Override
+        public String toString() {
+            return toJson().toString();
         }
     }
 }

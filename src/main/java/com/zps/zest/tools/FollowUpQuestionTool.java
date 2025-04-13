@@ -10,10 +10,11 @@ import com.intellij.openapi.project.Project;
  */
 public class FollowUpQuestionTool extends BaseAgentTool {
     private static final Logger LOG = Logger.getInstance(FollowUpQuestionTool.class);
+    public static final String NAME = "follow_up_question";
     private final Project project;
 
     public FollowUpQuestionTool(Project project) {
-        super("follow_up_question", "Asks the user a follow-up question");
+        super(NAME, "Asks the user a follow-up question");
         this.project = project;
     }
 

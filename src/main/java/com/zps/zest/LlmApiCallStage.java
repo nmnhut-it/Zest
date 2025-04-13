@@ -12,6 +12,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.util.ExceptionUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
@@ -372,7 +373,13 @@ public class LlmApiCallStage implements PipelineStage {
     private String callLlmApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
         // Determine which API format to use based on URL
         if (apiUrl.contains("openwebui") || apiUrl.contains("chat.zingplay") || apiUrl.contains("talk.zingplay")) {
-            return callOpenWebUIApi(apiUrl, model, authToken, prompt);
+            String s = null;
+            try {
+                s = callOpenWebUIApi(apiUrl, model, authToken, prompt);
+                return s;
+            } catch (IOException e) {
+                return "Error: "  + ExceptionUtil.getMessage(e);
+            }
         } else {
             return callOllamaApi(apiUrl, model, authToken, prompt);
         }

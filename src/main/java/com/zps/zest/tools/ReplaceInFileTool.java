@@ -184,7 +184,7 @@ public class ReplaceInFileTool extends BaseAgentTool {
 
                     // Create request with descriptive titles
                     SimpleDiffRequest diffRequest = new SimpleDiffRequest(
-                            "Changes to " + vFile.getName() + " (" + finalReplacementCount1 + " replacements)",
+                            "Changes to " + vFile.getName() + " (" + finalReplacementCount1 + " replacements). You can confirm after closing this dialog.",
                             leftContent,
                             rightContent,
                             "Original",

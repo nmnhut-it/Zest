@@ -17,7 +17,7 @@ public class ToolExecutor {
     private static final Logger LOG = Logger.getInstance(ToolExecutor.class);
     
     // Pattern for JSON-RPC style tool invocation
-    private static final Pattern JSON_TOOL_PATTERN = Pattern.compile("(```)?.*?(\n)?<TOOL>(.*?)</TOOL>(```)?(\n)?", Pattern.DOTALL);
+    private static final Pattern JSON_TOOL_PATTERN = Pattern.compile("(```)?.[xml|json]?(\n)?<TOOL>(.*?)</TOOL>(```)?(\n)?", Pattern.DOTALL);
 
     private final AgentToolRegistry toolRegistry;
     

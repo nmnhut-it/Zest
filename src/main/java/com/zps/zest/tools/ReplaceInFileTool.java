@@ -2,6 +2,7 @@ package com.zps.zest.tools;
 
 import com.google.gson.JsonObject;
 import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.diff.util.DiffUserDataKeys;
@@ -192,7 +193,7 @@ public class ReplaceInFileTool extends BaseAgentTool {
                     );
 
                     // Use default dialog hints
-                    com.intellij.diff.DiffDialogHints dialogHints = com.intellij.diff.DiffDialogHints.DEFAULT;
+                    com.intellij.diff.DiffDialogHints dialogHints = DiffDialogHints.MODAL;
 
                     // Show the diff dialog
                     com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, dialogHints);

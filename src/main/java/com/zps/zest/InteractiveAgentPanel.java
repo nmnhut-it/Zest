@@ -265,7 +265,9 @@ public class InteractiveAgentPanel {
         Matcher followUpMatcher = FOLLOW_UP_QUESTION_PATTERN.matcher(response);
         if (followUpMatcher.find()) {
             String question = followUpMatcher.group(1);
+
             handleFollowUpQuestion(question, response);
+
             return;
         }
         // Display the response
@@ -298,7 +300,7 @@ public class InteractiveAgentPanel {
         // Replace the follow-up question pattern with just the question text in the displayed message
         String displayResponse = fullResponse.replaceAll(
                 "### FOLLOW_UP_QUESTION\\n(.*?)\\n### END_FOLLOW_UP_QUESTION",
-                "I need some additional information: $1");
+                "\n\nI need some additional information: $1");
 
         // Display the assistant's message with the question
         addAssistantMessage(displayResponse);

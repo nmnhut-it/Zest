@@ -57,6 +57,10 @@
 
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
+        
+        <!-- Register services -->
+        <projectService serviceImplementation="com.zps.zest.InteractiveAgentService"/>
+        <projectService serviceImplementation="com.zps.zest.mcp.McpService"/>
     </extensions>
     <actions>
             <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
@@ -97,6 +101,22 @@
                 class="com.zps.zest.ManageKnowledgeBaseAction"
                 text="Manage Knowledge Base"
                 description="Manage RAG knowledge base">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- MCP Configuration Action -->
+        <action id="Zest.ConfigureMcp"
+                class="com.zps.zest.mcp.ConfigureMcpAction"
+                text="Configure MCP"
+                description="Configure Model Context Protocol settings">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Test MCP Action -->
+        <action id="Zest.TestMcp"
+                class="com.zps.zest.mcp.TestMcpAction"
+                text="Test MCP Connection"
+                description="Test connection to MCP server">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

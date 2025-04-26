@@ -24,6 +24,7 @@ public class ConfigurationManager {
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final String DEFAULT_TEST_WRITING_MODEL = "unit_test_generator";
     private static final String DEFAULT_CODE_MODEL = "qwen25-coder-custom";
+    private static final String DEFAULT_MCP_SERVER_URI = "http://localhost:8080/mcp";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
@@ -33,8 +34,10 @@ public class ConfigurationManager {
     private static int maxIterations;
     private static String authToken;
     private static Project project;
-    // In ConfigurationManager.java
+    // Configuration flags
     private static boolean ragEnabled = false;
+    private static String mcpServerUri = DEFAULT_MCP_SERVER_URI;
+    private static boolean mcpEnabled = false;
 
     public boolean isRagEnabled() {
         return ragEnabled;
@@ -44,13 +47,37 @@ public class ConfigurationManager {
         this.ragEnabled = value;
     }
 
+    public boolean isMcpEnabled() {
+        return mcpEnabled;
+    }
+
+    public void setMcpEnabled(boolean value) {
+        this.mcpEnabled = value;
+    }
+
     public String getOpenWebUIRagEndpoint() {
         return apiUrl;
     }
+    
+    /**
+     * Gets the URI for the MCP server.
+     */
+    public String getMcpServerUri() {
+        return mcpServerUri;
+    }
+    
+    /**
+     * Sets the URI for the MCP server.
+     */
+    public void setMcpServerUri(String uri) {
+        mcpServerUri = uri;
+    }
+    
     public ConfigurationManager(Project project) {
         this.project = project;
         loadConfig();
     }
+    
     public void loadConfig() {
         // Default values - start with pinging domains to determine which API URL to use
         String defaultApiUrl = determineDefaultApiUrl();
@@ -60,6 +87,8 @@ public class ConfigurationManager {
         codeModel = DEFAULT_CODE_MODEL;
         maxIterations = DEFAULT_MAX_ITERATIONS;
         authToken = "";
+        mcpServerUri = DEFAULT_MCP_SERVER_URI;
+        mcpEnabled = false;
 
         boolean configExists = false;
 
@@ -80,10 +109,18 @@ public class ConfigurationManager {
                 testModel = props.getProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
-                 String ragEnabledStr = props.getProperty("ragEnabled");
+                mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
+                
+                String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
                     ragEnabled = Boolean.parseBoolean(ragEnabledStr);
                 }
+                
+                String mcpEnabledStr = props.getProperty("mcpEnabled");
+                if (mcpEnabledStr != null) {
+                    mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
+                }
+                
                 try {
                     maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
                 } catch (NumberFormatException e) {
@@ -97,6 +134,41 @@ public class ConfigurationManager {
             } else {
                 createDefaultConfigFile(defaultApiUrl);
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Saves the current configuration to the config file.
+     */
+    public void saveConfig() {
+        try {
+            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
+            java.util.Properties props = new java.util.Properties();
+            
+            // If the file exists, load the current properties first
+            if (configFile.exists()) {
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
+                    props.load(fis);
+                }
+            }
+            
+            // Update properties with current values
+            props.setProperty("apiUrl", apiUrl);
+            props.setProperty("testModel", testModel);
+            props.setProperty("codeModel", codeModel);
+            props.setProperty("maxIterations", String.valueOf(maxIterations));
+            props.setProperty("authToken", authToken);
+            props.setProperty("ragEnabled", String.valueOf(ragEnabled));
+            props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
+            props.setProperty("mcpServerUri", mcpServerUri);
+            
+            // Save the properties
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
+                props.store(fos, "Zest Plugin Configuration");
+            }
+            
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -235,6 +307,9 @@ public class ConfigurationManager {
             props.setProperty("codeModel", DEFAULT_CODE_MODEL);
             props.setProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS));
             props.setProperty("authToken", "");
+            props.setProperty("ragEnabled", "false");
+            props.setProperty("mcpEnabled", "false");
+            props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Ollama Test Generator Plugin Configuration");
@@ -271,5 +346,4 @@ public class ConfigurationManager {
     public String getCodeModel() { return codeModel; }
     public int getMaxIterations() { return maxIterations; }
     public String getAuthToken() { return authToken; }
-
 }

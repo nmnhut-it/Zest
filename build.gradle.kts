@@ -31,6 +31,11 @@ dependencies {
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+
+    // MCP SDK dependencies
+    implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
+    implementation("io.modelcontextprotocol.sdk:mcp")
+    implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
 }
 
 tasks {

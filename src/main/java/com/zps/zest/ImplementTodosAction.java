@@ -1,6 +1,7 @@
 package com.zps.zest;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -38,7 +39,7 @@ public class ImplementTodosAction extends AnAction {
     public ImplementTodosAction() {
         super("Ai code?!: Implement TODOs ", "Replace TODOs with implementation using LLM", AllIcons.General.TodoDefault);
     }
-
+// todo:
     @Override
     public void update(@NotNull AnActionEvent e) {
         // Enable/disable action based on context
@@ -357,5 +358,10 @@ public class ImplementTodosAction extends AnAction {
         ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showInfoMessage(project, message, "TODO Implementation");
         });
+    }
+
+    @Override
+    public @NotNull ActionUpdateThread getActionUpdateThread() {
+        return super.getActionUpdateThread();
     }
 }

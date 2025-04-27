@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntelliJ Browser Bridge Demo</title>
+    <link rel="stylesheet" href="demo.css">
+    <script src="demo.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>IntelliJ Browser Bridge Demo</h1>
+        <p>This page demonstrates the bidirectional communication between IntelliJ IDEA and the embedded web browser.</p>
+        
+        <div class="card">
+            <h2>Get Selected Text from Editor</h2>
+            <p>Select some text in the IntelliJ editor and click the button below to retrieve it:</p>
+            <button class="button" onclick="getSelectedText()">Get Selected Text</button>
+            <div class="result-area" id="selected-text-result">Results will appear here...</div>
+        </div>
+        
+        <div class="card">
+            <h2>Insert Text to Editor</h2>
+            <p>Enter text below and click the button to insert it at the current caret position in the editor:</p>
+            <input type="text" id="text-to-insert" placeholder="Enter text to insert...">
+            <button class="button" onclick="insertText()">Insert Text</button>
+            <div class="result-area" id="insert-text-result">Results will appear here...</div>
+        </div>
+        
+        <div class="card">
+            <h2>Get Current File Name</h2>
+            <p>Click the button to get the name of the current file in the editor:</p>
+            <button class="button" onclick="getCurrentFileName()">Get File Name</button>
+            <div class="result-area" id="file-name-result">Results will appear here...</div>
+        </div>
+        
+        <div class="card">
+            <h2>Received Text from IDE</h2>
+            <p>When you send text from IntelliJ (using the "Send to Web Browser" action), it will appear here:</p>
+            <div class="code-area" id="received-text">No text received yet...</div>
+        </div>
+        
+        <div class="footer">
+            <p>Zest Browser Integration Demo - Right-click text in the editor and select "Send to Web Browser" to test.</p>
+        </div>
+    </div>
+
+    <script>
+        // Function to get selected text from editor
+        async function getSelectedText() {
+            const resultElement = document.getElementById('selected-text-result');
+            resultElement.classList.remove('success', 'error');
+            resultElement.textContent = 'Getting selected text...';
+            
+            try {
+                const text = await window.intellijBridgeDemo.getSelectedText();
+                if (text) {
+                    resultElement.textContent = text;
+                    resultElement.classList.add('success');
+                } else {
+                    resultElement.textContent = 'No text selected in editor.';
+                }
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                resultElement.classList.add('error');
+            }
+        }
+        
+        // Function to insert text into editor
+        async function insertText() {
+            const resultElement = document.getElementById('insert-text-result');
+            const textToInsert = document.getElementById('text-to-insert').value;
+            
+            resultElement.classList.remove('success', 'error');
+            
+            if (!textToInsert) {
+                resultElement.textContent = 'Please enter text to insert.';
+                resultElement.classList.add('error');
+                return;
+            }
+            
+            resultElement.textContent = 'Inserting text...';
+            
+            try {
+                await window.intellijBridgeDemo.insertTextToEditor(textToInsert);
+                resultElement.textContent = 'Text inserted successfully!';
+                resultElement.classList.add('success');
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                resultElement.classList.add('error');
+            }
+        }
+        
+        // Function to get current file name
+        async function getCurrentFileName() {
+            const resultElement = document.getElementById('file-name-result');
+            resultElement.classList.remove('success', 'error');
+            resultElement.textContent = 'Getting file name...';
+            
+            try {
+                const fileName = await window.intellijBridgeDemo.getCurrentFileName();
+                if (fileName) {
+                    resultElement.textContent = 'Current file: ' + fileName;
+                    resultElement.classList.add('success');
+                } else {
+                    resultElement.textContent = 'No file currently open.';
+                }
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                resultElement.classList.add('error');
+            }
+        }
+        
+        // Listen for text sent from IntelliJ
+        document.addEventListener('intellijTextReceived', (event) => {
+            const receivedTextElement = document.getElementById('received-text');
+            receivedTextElement.textContent = event.detail.text;
+        });
+    </script>
+</body>
+</html>

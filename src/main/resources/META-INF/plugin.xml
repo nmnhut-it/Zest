@@ -24,6 +24,7 @@
     <li><b>TODO Implementation:</b> Select code with TODOs, right-click, and watch as they transform into real, working code. Magic? Nope, just robots doing your work.</li>
     <li><b>Smart Code Analysis:</b> Zest analyzes your classes, imports, and dependencies to create context-aware implementations.</li>
     <li><b>Enhanced Diff Viewer:</b> See exactly what changed before accepting, because trust issues are healthy in software development.</li>
+    <li><b>Integrated Web Browser:</b> Access web resources directly within IntelliJ, with bidirectional communication between your code and web content.</li>
   </ul>
 
   <p>Zest plays nice with both JUnit 4 and JUnit 5, and intelligently detects Mockito to use it when available (we're not monsters).</p>
@@ -54,13 +55,17 @@
                     anchor="right"
                     factoryClass="com.zps.zest.InteractiveAgentToolWindow"
                     icon="AllIcons.Nodes.Plugin"/>
+                    
+        <!-- Register the web browser tool window factory -->
+        <toolWindow id="Web Browser"
+                    anchor="right"
+                    factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
+                    icon="AllIcons.General.Web"/>
 
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
         
-        <!-- Register services -->
-        <projectService serviceImplementation="com.zps.zest.InteractiveAgentService"/>
-        <projectService serviceImplementation="com.zps.zest.mcp.McpService"/>
+
     </extensions>
     <actions>
             <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
@@ -117,6 +122,35 @@
                 class="com.zps.zest.mcp.TestMcpAction"
                 text="Test MCP Connection"
                 description="Test connection to MCP server">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Web Browser Actions -->
+        <action id="Zest.SendToBrowser"
+                class="com.zps.zest.browser.actions.SendToBrowserAction"
+                text="Send to Web Browser"
+                description="Send selected text to the web browser">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.RunJavaScript"
+                class="com.zps.zest.browser.actions.RunJavaScriptAction"
+                text="Execute in Web Browser"
+                description="Execute selected JavaScript in the web browser">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.LoadDemoPage"
+                class="com.zps.zest.browser.actions.LoadDemoPageAction"
+                text="Load Browser Demo Page"
+                description="Load the demo page demonstrating browser integration features">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.TestBrowser"
+                class="com.zps.zest.browser.actions.TestBrowserAction"
+                text="Test Browser Integration"
+                description="Run a basic test of the browser integration">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

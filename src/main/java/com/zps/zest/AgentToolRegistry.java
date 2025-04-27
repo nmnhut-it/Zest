@@ -31,6 +31,9 @@ public class AgentToolRegistry {
         LOG.info("Registered agent tool: " + tool.getName());
     }
 
+    void removeAll(){
+        this.tools.clear();
+    }
     /**
      * Gets a tool by name.
      */

@@ -11,6 +11,19 @@ repositories {
     mavenCentral()
 }
 
+// Configure Java and Kotlin source sets
+sourceSets {
+    main {
+        java.srcDirs("src/main/java")
+        kotlin.srcDirs("src/main/kotlin")
+        resources.srcDirs("src/main/resources")
+    }
+    test {
+        java.srcDirs("src/test/java")
+        kotlin.srcDirs("src/test/kotlin")
+    }
+}
+
 // Configure Gradle IntelliJ Plugin
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
@@ -46,6 +59,14 @@ tasks {
     }
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
+    }
+    
+    // Configure the test task to use JUnit Platform
+    test {
+        useJUnitPlatform()
+        testLogging {
+            events("passed", "skipped", "failed")
+        }
     }
 
     patchPluginXml {

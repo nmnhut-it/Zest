@@ -57,7 +57,7 @@
                     icon="AllIcons.Nodes.Plugin"/>
                     
         <!-- Register the web browser tool window factory -->
-        <toolWindow id="Web Browser"
+        <toolWindow id="ZPS Chat"
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
                     icon="AllIcons.General.Web"/>
@@ -125,32 +125,46 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
-        <!-- Web Browser Actions -->
+        <!-- ZPS Chat Actions -->
         <action id="Zest.SendToBrowser"
                 class="com.zps.zest.browser.actions.SendToBrowserAction"
-                text="Send to Web Browser"
-                description="Send selected text to the web browser">
+                text="Send to ZPS Chat"
+                description="Send selected text to the ZPS Chat">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.SendToChatBox"
+                class="com.zps.zest.browser.actions.SendToChatBoxAction"
+                text="Send to Chat Box"
+                description="Send selected text to the ZPS Chat input box">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.SendToChatBoxAndSubmit"
+                class="com.zps.zest.browser.actions.SendToChatBoxAndSubmitAction"
+                text="Send to Chat Box and Submit"
+                description="Send selected text to the ZPS Chat input box and submit it">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         
         <action id="Zest.RunJavaScript"
                 class="com.zps.zest.browser.actions.RunJavaScriptAction"
-                text="Execute in Web Browser"
-                description="Execute selected JavaScript in the web browser">
+                text="Execute in ZPS Chat"
+                description="Execute selected JavaScript in ZPS Chat">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         
         <action id="Zest.LoadDemoPage"
                 class="com.zps.zest.browser.actions.LoadDemoPageAction"
-                text="Load Browser Demo Page"
-                description="Load the demo page demonstrating browser integration features">
+                text="Load ZPS Chat Demo Page"
+                description="Load the demo page demonstrating ZPS Chat integration features">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
         <action id="Zest.TestBrowser"
                 class="com.zps.zest.browser.actions.TestBrowserAction"
-                text="Test Browser Integration"
-                description="Run a basic test of the browser integration">
+                text="Test ZPS Chat Integration"
+                description="Run a basic test of the ZPS Chat integration">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

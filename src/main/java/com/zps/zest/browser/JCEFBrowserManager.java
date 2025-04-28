@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class JCEFBrowserManager {
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
-    private static final String DEFAULT_URL = "https://www.google.com";
+    private static final String DEFAULT_URL = "https://chat.zingplay.com";
     private static final String BRIDGE_INIT_SCRIPT = 
             "window.intellijBridge = {};" +
             "window.receiveFromIDE = function(text) {" +

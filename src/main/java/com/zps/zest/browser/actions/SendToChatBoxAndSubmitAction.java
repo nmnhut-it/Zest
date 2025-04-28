@@ -3,7 +3,6 @@ package com.zps.zest.browser.actions;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -13,10 +12,10 @@ import com.zps.zest.browser.WebBrowserService;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Action to send selected text to ZPS Chat.
+ * Action to send selected text to the chat box and submit it.
  */
-public class SendToBrowserAction extends AnAction {
-    private static final Logger LOG = Logger.getInstance(SendToBrowserAction.class);
+public class SendToChatBoxAndSubmitAction extends AnAction {
+    private static final Logger LOG = Logger.getInstance(SendToChatBoxAndSubmitAction.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -36,11 +35,23 @@ public class SendToBrowserAction extends AnAction {
             return;
         }
 
-        LOG.info("Sending selected text to browser");
+        LOG.info("Sending selected text to chat box and submitting");
 
         // Get browser service
         WebBrowserService browserService = WebBrowserService.getInstance(project);
-        browserService.sendTextToBrowser(selectedText);
+        
+        // Use JavaScript to insert text into the chat box and click the send button
+        String script = 
+                "const chatInput = document.getElementById('chat-input');" +
+                "const sendButton = document.getElementById('send-message-button');" +
+                "if (chatInput && sendButton) {" +
+                "  chatInput.innerHTML = '<p>" + escapeJavaScriptString(selectedText) + "</p>';" +
+                "  setTimeout(() => {" +
+                "    sendButton.click();" +
+                "  }, 100);" + // Small delay to ensure the text is set before submitting
+                "}";
+        
+        browserService.executeJavaScript(script);
 
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -57,5 +68,22 @@ public class SendToBrowserAction extends AnAction {
         
         boolean hasSelection = editor != null && editor.getSelectionModel().hasSelection();
         e.getPresentation().setEnabled(project != null && hasSelection);
+    }
+    
+    /**
+     * Escapes a string for use in JavaScript.
+     */
+    private String escapeJavaScriptString(String str) {
+        if (str == null) {
+            return "";
+        }
+        
+        return str.replace("\\", "\\\\")
+                 .replace("'", "\\'")
+                 .replace("\"", "\\\"")
+                 .replace("\n", "\\n")
+                 .replace("\r", "\\r")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;");
     }
 }

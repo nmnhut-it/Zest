@@ -3,7 +3,6 @@ package com.zps.zest.browser.actions;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -13,10 +12,10 @@ import com.zps.zest.browser.WebBrowserService;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Action to send selected text to ZPS Chat.
+ * Action to send selected text to the chat box in ZPS Chat.
  */
-public class SendToBrowserAction extends AnAction {
-    private static final Logger LOG = Logger.getInstance(SendToBrowserAction.class);
+public class SendToChatBoxAction extends AnAction {
+    private static final Logger LOG = Logger.getInstance(SendToChatBoxAction.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -36,11 +35,19 @@ public class SendToBrowserAction extends AnAction {
             return;
         }
 
-        LOG.info("Sending selected text to browser");
+        LOG.info("Sending selected text to chat box");
 
         // Get browser service
         WebBrowserService browserService = WebBrowserService.getInstance(project);
-        browserService.sendTextToBrowser(selectedText);
+        
+        // Use JavaScript to insert text into the chat box
+        String script = 
+                "var chatInput = chatInput || document.getElementById('chat-input');" +
+                "if (chatInput) {" +
+                "  chatInput.innerHTML = '<p>" + escapeJavaScriptString(selectedText) + "</p>';" +
+                "}";
+        
+        browserService.executeJavaScript(script);
 
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -57,5 +64,22 @@ public class SendToBrowserAction extends AnAction {
         
         boolean hasSelection = editor != null && editor.getSelectionModel().hasSelection();
         e.getPresentation().setEnabled(project != null && hasSelection);
+    }
+    
+    /**
+     * Escapes a string for use in JavaScript.
+     */
+    private String escapeJavaScriptString(String str) {
+        if (str == null) {
+            return "";
+        }
+        
+        return str.replace("\\", "\\\\")
+                 .replace("'", "\\'")
+                 .replace("\"", "\\\"")
+                 .replace("\n", "\\n")
+                 .replace("\r", "\\r")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;");
     }
 }

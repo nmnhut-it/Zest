@@ -5,7 +5,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -15,30 +14,7 @@ import java.nio.file.StandardCopyOption;
  */
 public class WebResourceLoader {
     private static final Logger LOG = Logger.getInstance(WebResourceLoader.class);
-    
-    /**
-     * Loads a web resource from the classpath.
-     *
-     * @param resourcePath The path to the resource
-     * @return The content of the resource as a string, or null if an error occurs
-     */
-    public static String loadResourceAsString(String resourcePath) {
-        try {
-            URL resourceUrl = WebResourceLoader.class.getResource(resourcePath);
-            if (resourceUrl == null) {
-                LOG.error("Resource not found: " + resourcePath);
-                return null;
-            }
-            
-            try (InputStream in = resourceUrl.openStream()) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
-        } catch (IOException e) {
-            LOG.error("Error loading resource: " + resourcePath, e);
-            return null;
-        }
-    }
-    
+
     /**
      * Creates a temporary file from a classpath resource.
      *

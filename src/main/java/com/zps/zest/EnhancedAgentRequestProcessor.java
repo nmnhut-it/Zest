@@ -4,7 +4,6 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.mcp.McpAgentHandler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,7 +27,6 @@ public class EnhancedAgentRequestProcessor {
     private final ConfigurationManager configManager;
     private final PromptBuilderForAgent promptBuilderForAgent;
     private final ToolExecutor toolExecutor;
-    private final McpAgentHandler mcpHandler;
 
     /**
      * Creates a new enhanced request processor.
@@ -41,7 +39,6 @@ public class EnhancedAgentRequestProcessor {
         this.configManager = new ConfigurationManager(project);
         this.promptBuilderForAgent = new PromptBuilderForAgent(toolRegistry);
         this.toolExecutor = new ToolExecutor(toolRegistry);
-        this.mcpHandler = new McpAgentHandler(project);
     }
 
     /**
@@ -61,21 +58,7 @@ public class EnhancedAgentRequestProcessor {
         // Generate a request ID for tracking
         String requestId = UUID.randomUUID().toString().substring(0, 8);
         LOG.info("Processing enhanced request " + requestId + ": " + userRequest);
-        
-        // Check if MCP is enabled
-        if (configManager.isMcpEnabled()) {
-            LOG.info("Using MCP for request " + requestId);
-            return mcpHandler.processMessage(userRequest)
-                    .exceptionally(ex -> {
-                        LOG.error("MCP processing failed, falling back to standard method", ex);
-                        try {
-                            return processWithStandardMethod(userRequest, conversationHistory, editor).get();
-                        } catch (Exception e) {
-                            LOG.error("Standard method also failed", e);
-                            throw new RuntimeException("Failed to process request", e);
-                        }
-                    });
-        }
+
         
         // Standard processing method
         return processWithStandardMethod(userRequest, conversationHistory, editor);

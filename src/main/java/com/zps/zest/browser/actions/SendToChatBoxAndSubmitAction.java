@@ -8,11 +8,12 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.zps.zest.browser.WebBrowserService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Action to send selected text to the chat box and submit it.
+ * Uses the improved ChatboxUtilities class for more reliable operation.
  */
 public class SendToChatBoxAndSubmitAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(SendToChatBoxAndSubmitAction.class);
@@ -35,23 +36,16 @@ public class SendToChatBoxAndSubmitAction extends AnAction {
             return;
         }
 
-        LOG.info("Sending selected text to chat box and submitting");
+        LOG.info("Sending selected text to chat box and submitting using ChatboxUtilities");
 
-        // Get browser service
-        WebBrowserService browserService = WebBrowserService.getInstance(project);
+        // Use the new utility method to send text and submit
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, selectedText);
         
-        // Use JavaScript to insert text into the chat box and click the send button
-        String script = 
-                "const chatInput = document.getElementById('chat-input');" +
-                "const sendButton = document.getElementById('send-message-button');" +
-                "if (chatInput && sendButton) {" +
-                "  chatInput.innerHTML = '<p>" + escapeJavaScriptString(selectedText) + "</p>';" +
-                "  setTimeout(() => {" +
-                "    sendButton.click();" +
-                "  }, 100);" + // Small delay to ensure the text is set before submitting
-                "}";
-        
-        browserService.executeJavaScript(script);
+        if (success) {
+            LOG.info("Successfully sent text and clicked submit button");
+        } else {
+            LOG.warn("Failed to send text and click submit button");
+        }
 
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -68,22 +62,5 @@ public class SendToChatBoxAndSubmitAction extends AnAction {
         
         boolean hasSelection = editor != null && editor.getSelectionModel().hasSelection();
         e.getPresentation().setEnabled(project != null && hasSelection);
-    }
-    
-    /**
-     * Escapes a string for use in JavaScript.
-     */
-    private String escapeJavaScriptString(String str) {
-        if (str == null) {
-            return "";
-        }
-        
-        return str.replace("\\", "\\\\")
-                 .replace("'", "\\'")
-                 .replace("\"", "\\\"")
-                 .replace("\n", "\\n")
-                 .replace("\r", "\\r")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;");
     }
 }

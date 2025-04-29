@@ -18,6 +18,9 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
+        // Initialize DevTools registry settings
+        DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
+        
         DumbService.getInstance(project).smartInvokeLater(() -> {
             LOG.info("Creating web browser tool window for project: " + project.getName());
 
@@ -35,6 +38,11 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
                 
                 // Integrate with AI assistant
                 BrowserIntegrator.integrate(project);
+                
+                // Log debug port information
+                int debugPort = DevToolsRegistryManager.getInstance().getDebugPort();
+                LOG.info("JCEF browser initialized with debug port: " + debugPort);
+                LOG.info("You can debug the browser using Chrome DevTools at: http://localhost:" + debugPort);
 
                 LOG.info("Web browser tool window created successfully");
             } catch (Exception e) {

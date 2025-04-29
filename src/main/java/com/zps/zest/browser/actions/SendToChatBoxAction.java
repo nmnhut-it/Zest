@@ -8,11 +8,12 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.zps.zest.browser.WebBrowserService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Action to send selected text to the chat box in ZPS Chat.
+ * Uses the improved ChatboxUtilities class for more reliable operation.
  */
 public class SendToChatBoxAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(SendToChatBoxAction.class);
@@ -35,19 +36,16 @@ public class SendToChatBoxAction extends AnAction {
             return;
         }
 
-        LOG.info("Sending selected text to chat box");
+        LOG.info("Sending selected text to chat box using ChatboxUtilities");
 
-        // Get browser service
-        WebBrowserService browserService = WebBrowserService.getInstance(project);
+        // Use the new utility method
+        boolean success = ChatboxUtilities.sendTextToChatBox(project, selectedText);
         
-        // Use JavaScript to insert text into the chat box
-        String script = 
-                "var chatInput = chatInput || document.getElementById('chat-input');" +
-                "if (chatInput) {" +
-                "  chatInput.innerHTML = '<p>" + escapeJavaScriptString(selectedText) + "</p>';" +
-                "}";
-        
-        browserService.executeJavaScript(script);
+        if (success) {
+            LOG.info("Successfully sent text to chat box");
+        } else {
+            LOG.warn("Failed to send text to chat box");
+        }
 
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -64,22 +62,5 @@ public class SendToChatBoxAction extends AnAction {
         
         boolean hasSelection = editor != null && editor.getSelectionModel().hasSelection();
         e.getPresentation().setEnabled(project != null && hasSelection);
-    }
-    
-    /**
-     * Escapes a string for use in JavaScript.
-     */
-    private String escapeJavaScriptString(String str) {
-        if (str == null) {
-            return "";
-        }
-        
-        return str.replace("\\", "\\\\")
-                 .replace("'", "\\'")
-                 .replace("\"", "\\\"")
-                 .replace("\n", "\\n")
-                 .replace("\r", "\\r")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;");
     }
 }

@@ -131,6 +131,42 @@ public class WebBrowserPanel {
     }
     
     /**
+     * Gets the current URL loaded in the browser.
+     * 
+     * @return The current URL
+     */
+    public String getCurrentUrl() {
+        return browserManager.getBrowser().getCefBrowser().getURL();
+    }
+    
+    /**
+     * Loads a URL with enhanced compatibility mode.
+     * 
+     * @param url The URL to load
+     */
+    public void loadURLWithCompatibility(String url) {
+        browserManager.loadURLWithCompatibility(url);
+    }
+    
+    /**
+     * Toggles the visibility of the developer tools.
+     * 
+     * @return true if developer tools are now visible, false otherwise
+     */
+    public boolean toggleDevTools() {
+        return browserManager.toggleDevTools();
+    }
+    
+    /**
+     * Checks if developer tools are currently visible.
+     * 
+     * @return true if developer tools are visible, false otherwise
+     */
+    public boolean isDevToolsVisible() {
+        return browserManager.isDevToolsVisible();
+    }
+    
+    /**
      * Gets the component for this panel.
      */
     public JComponent getComponent() {

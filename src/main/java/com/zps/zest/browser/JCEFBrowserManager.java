@@ -220,7 +220,7 @@ public class JCEFBrowserManager {
      */
     public void registerBridge(JavaScriptBridge bridge) {
         this.jsBridge = bridge;
-        
+        browser.setProperty(JBCefClient.Properties.JS_QUERY_POOL_SIZE,10);
         // Create a message router to handle JavaScript communication
         JBCefJSQuery jsQuery = JBCefJSQuery.create(browser);
         

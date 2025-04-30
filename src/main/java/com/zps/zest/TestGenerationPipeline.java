@@ -3,7 +3,7 @@ package com.zps.zest;
 /**
  * Pipeline class that manages the execution of the stages.
  */
-class TestGenerationPipeline {
+public class TestGenerationPipeline {
     private final java.util.List<PipelineStage> stages = new java.util.ArrayList<>();
 
     public TestGenerationPipeline addStage(PipelineStage stage) {

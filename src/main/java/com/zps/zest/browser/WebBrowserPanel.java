@@ -179,4 +179,8 @@ public class WebBrowserPanel {
     public void dispose() {
         browserManager.dispose();
     }
+
+    public JCEFBrowserManager getBrowserManager() {
+        return browserManager;
+    }
 }

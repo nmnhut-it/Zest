@@ -81,6 +81,13 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift I"/>
         </action>
 
+        <action id="Zest.SendPipelineToChatBox"
+                class="com.zps.zest.browser.actions.SendPipelineToChatBoxAction"
+                text="Generate Test Prompt to Chat"
+                description="Generate a test prompt and send it to chat box">
+            <add-to-group group-id="GenerateGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
+        </action>
+
         <action id="Zest.SendToChatBox"
                 class="com.zps.zest.browser.actions.SendToChatBoxAction"
                 text="Send to Chat Box"

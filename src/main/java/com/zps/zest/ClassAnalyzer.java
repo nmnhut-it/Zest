@@ -390,6 +390,8 @@ public class ClassAnalyzer {
      * Gets the text representation of a PSI element safely within a read action.
      */
     public static String getTextOfPsiElement(PsiElement element) {
+        if (element == null)
+            return "";
         return ApplicationManager.getApplication().runReadAction(
                 (ThrowableComputable<String, RuntimeException>) () -> element.getText());
     }

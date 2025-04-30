@@ -8,13 +8,23 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
+import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.network.CefRequest;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Factory class for creating the web browser tool window.
  */
 public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
     private static final Logger LOG = Logger.getInstance(WebBrowserToolWindow.class);
+    private static final ConcurrentMap<String, Boolean> pageLoadedState = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, CompletableFuture<Boolean>> pageLoadedFutures = new ConcurrentHashMap<>();
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
@@ -27,6 +37,9 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
             try {
                 // Create the browser panel
                 WebBrowserPanel browserPanel = new WebBrowserPanel(project);
+                
+                // Add load state listener to track when pages finish loading
+                setupLoadStateListener(browserPanel, project);
 
                 // Create content and add it to the tool window
                 ContentFactory contentFactory = ContentFactory.getInstance();
@@ -49,6 +62,79 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
                 LOG.error("Error creating web browser tool window content", e);
             }
         });
+    }
+    
+    /**
+     * Sets up a load state listener to track when pages finish loading.
+     *
+     * @param browserPanel The browser panel
+     * @param project The current project
+     */
+    private void setupLoadStateListener(WebBrowserPanel browserPanel, Project project) {
+        JCEFBrowserManager browserManager = browserPanel.getBrowserManager();
+        if (browserManager != null) {
+            browserManager.getBrowser().getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+                @Override
+                public void onLoadStart(CefBrowser cefBrowser, CefFrame frame, CefRequest.TransitionType transitionType) {
+                    String url = frame.getURL();
+                    LOG.info("Page load started: " + url);
+                    pageLoadedState.put(getProjectUrlKey(project, url), false);
+                }
+
+                @Override
+                public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
+                    String url = frame.getURL();
+                    LOG.info("Page load finished: " + url + " with status code: " + httpStatusCode);
+                    String key = getProjectUrlKey(project, url);
+                    pageLoadedState.put(key, true);
+                    
+                    // Complete any pending futures for this URL
+                    CompletableFuture<Boolean> future = pageLoadedFutures.remove(key);
+                    if (future != null && !future.isDone()) {
+                        future.complete(true);
+                    }
+                }
+            }, browserManager.getBrowser().getCefBrowser());
+        }
+    }
+
+    /**
+     * Checks if a page is currently loaded.
+     *
+     * @param project The project
+     * @param url The URL to check
+     * @return true if the page is loaded, false otherwise
+     */
+    public static boolean isPageLoaded(Project project, String url) {
+        return pageLoadedState.getOrDefault(getProjectUrlKey(project, url), false);
+    }
+
+    /**
+     * Waits for a page to finish loading.
+     * 
+     * @param project The project
+     * @param url The URL to wait for
+     * @return A CompletableFuture that completes when the page is loaded
+     */
+    public static CompletableFuture<Boolean> waitForPageToLoad(Project project, String url) {
+        String key = getProjectUrlKey(project, url);
+        
+        // If the page is already loaded, return a completed future
+        if (pageLoadedState.getOrDefault(key, false)) {
+            return CompletableFuture.completedFuture(true);
+        }
+        
+        // Otherwise create a new future and register it
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        pageLoadedFutures.put(key, future);
+        return future;
+    }
+    
+    /**
+     * Creates a unique key for tracking page load state per project and URL.
+     */
+    private static String getProjectUrlKey(Project project, String url) {
+        return project.getName() + ":" + url;
     }
 
     @Override

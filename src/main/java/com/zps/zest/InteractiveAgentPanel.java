@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -153,44 +154,116 @@ public class InteractiveAgentPanel {
 
         return toolbar;
     }
-    // Add this method to InteractiveAgentPanel.java
+    /**
+     * Initiates an automated code review for the currently active file in the editor.
+     * This method:
+     * 1. Retrieves the current editor and file content
+     * 2. Adds appropriate system and user messages to the conversation
+     * 3. Processes the code review request using an enhanced agent processor
+     * 4. Handles the AI response
+     */
     private void reviewCurrentFile() {
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-        if (editor == null) {
-            addSystemMessage("No editor is currently open.");
+        // Get current project instance
+        Project project = getProject();
+        if (project == null) {
+            addSystemMessage("Error: No active project found.");
             return;
         }
 
+        // Retrieve currently selected text editor
+        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+        if (editor == null) {
+            addSystemMessage("No editor is currently open. Please open a file to review.");
+            return;
+        }
+
+        // Get selected files and verify at least one file is selected
         VirtualFile[] selectedFiles = FileEditorManager.getInstance(project).getSelectedFiles();
-        String fileName = selectedFiles[0].getName();
-        String extension = selectedFiles[0].getExtension();
+        if (selectedFiles.length == 0) {
+            addSystemMessage("Error: No file is currently selected.");
+            return;
+        }
+
+        // Extract file information
+        VirtualFile currentFile = selectedFiles[0];
+        String fileName = currentFile.getName();
+        String extension = currentFile.getExtension();
+
+        // Handle files without extensions gracefully
+        if (extension == null) {
+            extension = "txt";  // Default to text format if no extension is found
+        }
+
+        // Get the file content
         String fileContent = editor.getDocument().getText();
+        if (fileContent.isEmpty()) {
+            addSystemMessage("Warning: The current file is empty.");
+        }
 
+        // Notify user that review is starting
         addSystemMessage("Reviewing current file: " + fileName);
-        String message = "Please review this code and suggest improvements:\n\n```"+extension+"\n" + fileContent + "\n```";
 
-        // Add user message and clear input
+        // Format the review request with code block using appropriate syntax highlighting
+        StringBuilder messageBuilder = new StringBuilder();
+        messageBuilder.append("Please review this code and suggest improvements:\n\n");
+        messageBuilder.append("```").append(extension).append("\n");
+        messageBuilder.append(fileContent);
+        messageBuilder.append("\n```\n\n");
+
+        // Add additional context for better review
+        messageBuilder.append("Please focus on:\n");
+        messageBuilder.append("- Code quality and best practices\n");
+        messageBuilder.append("- Potential bugs or edge cases\n");
+        messageBuilder.append("- Performance considerations\n");
+        messageBuilder.append("- Readability and maintainability\n");
+
+        final String message = messageBuilder.toString();
+
+        // Add user message to conversation panel
         addUserMessage(message);
 
-        // Get current editor and process the request
+        // Set UI to processing state
         setProcessingState(true);
 
+        // Execute the processing on a background thread to avoid UI freezing
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                // Get conversation history
+                // Get conversation history for context
                 List<String> conversationHistory = getConversationHistoryForContext();
 
-                // Create enhanced request processor
+                // Create enhanced request processor with timeout settings
                 EnhancedAgentRequestProcessor processor = new EnhancedAgentRequestProcessor(project);
+                // Log debug information
+                LOG.debug("Starting code review for file: " + fileName);
 
-                // Process the request
+                // Process the request and handle the response
                 processor.processRequestWithTools(message, conversationHistory, editor)
-                        .thenAccept(this::handleAIResponse);
+                        .thenAccept(response -> {
+                            // Handle the AI response in the UI thread
+                            ApplicationManager.getApplication().invokeLater(() -> {
+                                handleAIResponse(response);
+                                addSystemMessage("Code review complete for: " + fileName);
+                            });
+                        })
+                        .exceptionally(e -> {
+                            // Handle exceptions in the UI thread
+                            ApplicationManager.getApplication().invokeLater(() -> {
+                                LOG.error("Error during code review processing", e);
+                                setProcessingState(false);
+                                addSystemMessage("Error during code review: " + e.getMessage());
+                            });
+                            return null;
+                        });
 
             } catch (Exception e) {
-                LOG.error("Error processing code review", e);
-                setProcessingState(false);
-                addSystemMessage("Error: " + e.getMessage());
+                // Handle any exceptions that occur during setup
+                LOG.error("Error initiating code review", e);
+
+                // Update UI on the EDT
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    setProcessingState(false);
+                    addSystemMessage("Failed to start code review: " + e.getMessage());
+                });
             }
         });
     }

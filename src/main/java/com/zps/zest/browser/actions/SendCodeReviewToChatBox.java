@@ -1,8 +1,9 @@
-package com.zps.zest;
+package com.zps.zest.browser.actions;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -11,15 +12,16 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.zps.zest.*;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Action that mimics the "Generate Test" action but sends the result to the chat box
- * instead of calling an LLM. This is useful for development and testing.
+ * Action that executes the code review pipeline up to the prompt creation stage
+ * and sends the generated prompt to the chat box.
  */
-public class GenerateTestToChatAction extends AnAction {
-    private static final Logger LOG = Logger.getInstance(GenerateTestToChatAction.class);
+public class SendCodeReviewToChatBox extends AnAction {
+    private static final Logger LOG = Logger.getInstance(SendCodeReviewToChatBox.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -30,31 +32,30 @@ public class GenerateTestToChatAction extends AnAction {
         context.setEditor(e.getData(CommonDataKeys.EDITOR));
         context.setPsiFile(e.getData(CommonDataKeys.PSI_FILE));
 
-        // Execute a modified pipeline in the background
-        executeModifiedPipeline(context);
+        // Execute the pipeline in a background task
+        executePartialPipeline(context);
     }
 
     /**
-     * Executes a modified pipeline that sends the prompt to the chat box
-     * instead of calling an LLM.
+     * Executes the pipeline up to the prompt creation stage and sends the result to chat box.
      */
-    private void executeModifiedPipeline(CodeContext context) {
+    private void executePartialPipeline(CodeContext context) {
         Project project = context.getProject();
         if (project == null) return;
 
         // Use a background task with progress indicators
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Preparing Test Generation Prompt", true) {
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Preparing Code Review Prompt", true) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 indicator.setIndeterminate(false);
 
                 try {
-                    // Only execute the stages up to prompt creation
+                    // Create a partial pipeline ending at code review prompt creation
                     TestGenerationPipeline pipeline = new TestGenerationPipeline()
                             .addStage(new ConfigurationStage())
                             .addStage(new TargetClassDetectionStage())
                             .addStage(new ClassAnalysisStage())
-                            .addStage(new TestPromptCreationStage());
+                            .addStage(new CodeReviewPromptCreationStage());
 
                     // Execute each stage with progress updates
                     int totalStages = pipeline.getStageCount();
@@ -77,16 +78,17 @@ public class GenerateTestToChatAction extends AnAction {
                     // Get the prompt from the context
                     String prompt = context.getPrompt();
                     if (prompt == null || prompt.isEmpty()) {
-                        throw new PipelineExecutionException("Failed to generate prompt");
+                        throw new PipelineExecutionException("Failed to generate code review prompt");
                     }
 
-                    // Send the prompt to the chat box
-                    boolean success = sendPromptToChatBox(project, prompt);
+                    // Send the prompt to the chat box and submit
+                    indicator.setText("Sending code review prompt to chat box...");
+                    boolean success = sendPromptToChatBoxAndSubmit(project, prompt);
                     if (!success) {
-                        throw new PipelineExecutionException("Failed to send prompt to chat box");
+                        throw new PipelineExecutionException("Failed to send code review prompt to chat box");
                     }
 
-                    indicator.setText("Prompt sent to chat box successfully!");
+                    indicator.setText("Code review prompt sent to chat box successfully!");
                     indicator.setFraction(1.0);
 
                 } catch (PipelineExecutionException e) {
@@ -99,24 +101,25 @@ public class GenerateTestToChatAction extends AnAction {
     }
 
     /**
-     * Sends the generated prompt to the chat box and activates the browser window.
+     * Sends the generated prompt to the chat box, submits it, and activates the browser window.
      */
-    private boolean sendPromptToChatBox(Project project, String prompt) {
-        LOG.info("Sending generated prompt to chat box");
+    private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt) {
+        LOG.info("Sending generated code review prompt to chat box and submitting");
 
-        // Format the prompt with a header
-        String formattedPrompt = "# Generated Test Prompt\n\n" + prompt;
-
-        // Send the prompt to the chat box
-        boolean success = ChatboxUtilities.sendTextToChatBox(project, formattedPrompt);
-        
-        // Activate browser tool window
+        // Activate browser tool window and send prompt asynchronously
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
         if (toolWindow != null) {
-            toolWindow.activate(null);
+            ApplicationManager.getApplication().invokeLater(()->{
+                toolWindow.activate(() -> {
+                    // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
+                    ChatboxUtilities.sendTextAndSubmit(project, prompt, true);
+                });
+            });
+
+            return true;
         }
         
-        return success;
+        return false;
     }
 
     /**
@@ -124,8 +127,22 @@ public class GenerateTestToChatAction extends AnAction {
      */
     private void showError(Project project, PipelineExecutionException e) {
         e.printStackTrace();
-        LOG.error("Error in GenerateTestToChatAction: " + e.getMessage(), e);
+        LOG.error("Pipeline execution error: " + e.getMessage(), e);
         
-        Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Test Prompt Generation Failed");
+        if (project != null && !project.isDisposed()) {
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Code Review Generation Failed");
+            });
+        }
+    }
+
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+        // Enable only when a file is open in the editor
+        Project project = e.getProject();
+        boolean hasEditor = e.getData(CommonDataKeys.EDITOR) != null;
+        boolean hasPsiFile = e.getData(CommonDataKeys.PSI_FILE) != null;
+        
+        e.getPresentation().setEnabled(project != null && hasEditor && hasPsiFile);
     }
 }

@@ -55,7 +55,7 @@
                     anchor="right"
                     factoryClass="com.zps.zest.InteractiveAgentToolWindow"
                     icon="AllIcons.Nodes.Plugin"/>
-                    
+
         <!-- Register the web browser tool window factory -->
         <toolWindow id="ZPS Chat"
                     anchor="right"
@@ -64,11 +64,11 @@
 
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
-        
+
 
     </extensions>
     <actions>
-            <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
+        <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
                 description="Write tests by LLMs">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>
@@ -82,25 +82,20 @@
         </action>
 
         <action id="Zest.SendPipelineToChatBox"
-                class="com.zps.zest.browser.actions.SendPipelineToChatBoxAction"
-                text="Generate Test Prompt to Chat"
+                class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
+                text="Write Tests for This Class in Chat ZPS"
                 description="Generate a test prompt and send it to chat box">
-            <add-to-group group-id="GenerateGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
+            <add-to-group group-id="GenerateGroup" anchor="after"
+                          relative-to-action="com.zps.zest.ImplementTodosAction"/>
+        </action>
+        <action id="Zest.SendCodeReviewToChatBox"
+                class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
+                text="ZPS: Review This Class"
+                description="Review this class in chat ZPS">
+            <add-to-group group-id="GenerateGroup" anchor="after"
+                          relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
 
-        <action id="Zest.SendToChatBox"
-                class="com.zps.zest.browser.actions.SendToChatBoxAction"
-                text="Send to Chat Box"
-                description="Send selected text to the ZPS Chat input box">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-        </action>
-
-        <action id="Zest.SendToChatBoxAndSubmit"
-                class="com.zps.zest.browser.actions.SendToChatBoxAndSubmitAction"
-                text="Send to Chat Box and Submit"
-                description="Send selected text to the ZPS Chat input box and submit it">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-        </action>
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                 text="Toggle ZPS Chat Developer Tools"

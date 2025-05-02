@@ -12,7 +12,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.util.ui.EDT;
 import com.zps.zest.*;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
@@ -21,8 +20,8 @@ import org.jetbrains.annotations.NotNull;
  * Action that executes the test generation pipeline up to the prompt creation stage
  * and sends the generated prompt to the chat box.
  */
-public class SendPipelineToChatBoxAction extends AnAction {
-    private static final Logger LOG = Logger.getInstance(SendPipelineToChatBoxAction.class);
+public class SendTestPipelineToChatBox extends AnAction {
+    private static final Logger LOG = Logger.getInstance(SendTestPipelineToChatBox.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -56,7 +55,7 @@ public class SendPipelineToChatBoxAction extends AnAction {
                             .addStage(new ConfigurationStage())
                             .addStage(new TargetClassDetectionStage())
                             .addStage(new ClassAnalysisStage())
-                            .addStage(new PromptCreationStage());
+                            .addStage(new TestPromptCreationStage());
 
                     // Execute each stage with progress updates
                     int totalStages = pipeline.getStageCount();
@@ -116,7 +115,8 @@ public class SendPipelineToChatBoxAction extends AnAction {
             ApplicationManager.getApplication().invokeLater(()->{
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method now handles waiting for page load
-                    ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt);
+                    ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true);
+
                 });
             });
 

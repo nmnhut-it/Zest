@@ -39,7 +39,7 @@ public class SendToChatBoxAndSubmitAction extends AnAction {
         LOG.info("Sending selected text to chat box and submitting using ChatboxUtilities");
 
         // Use the new utility method to send text and submit
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, selectedText);
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, selectedText, false);
         
         if (success) {
             LOG.info("Successfully sent text and clicked submit button");

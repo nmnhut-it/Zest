@@ -107,7 +107,7 @@ public class BackgroundPipelineExecutor {
                 .addStage(new ConfigurationStage())
                 .addStage(new TargetClassDetectionStage())
                 .addStage(new ClassAnalysisStage())
-                .addStage(new PromptCreationStage())
+                .addStage(new TestPromptCreationStage())
                 .addStage(new LlmApiCallStage())
                 .addStage(new CodeExtractionStage())
                 .addStage(new ImportHandlingStage())  // New stage for handling imports before file creation

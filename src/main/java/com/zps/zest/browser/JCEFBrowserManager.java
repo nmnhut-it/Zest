@@ -193,9 +193,9 @@ public class JCEFBrowserManager {
                             "                   document.querySelector('[data-tooltip=\"Copy\"]');" + "\n"+
                             "    }" + "\n"+
                             "    " + "\n"+
-                            "    if (copyButton) {" + "\n"+
+                            "    if (copyButton && window.shouldAutomaticallyCopy) {" + "\n"+
                             "      console.log('Found Copy button, clicking it');" + "\n"+
-                            "      copyButton.click();" + "\n"+
+                            "      copyButton.click();window.shouldAutomaticallyCopy  = false; " + "\n"+
                             "      return 'Copy button clicked';" + "\n"+
                             "    } else {" + "\n"+
                             "      console.log('Copy button not found');" + "\n"+

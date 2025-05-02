@@ -3,7 +3,7 @@ package com.zps.zest;
 /**
  * Stage for creating the prompt to send to the LLM.
  */
-public class PromptCreationStage implements PipelineStage {
+public class TestPromptCreationStage implements PipelineStage {
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
         // Create prompt for test generation using PromptDrafter

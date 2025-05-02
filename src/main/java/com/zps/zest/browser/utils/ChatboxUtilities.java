@@ -187,7 +187,7 @@ public class ChatboxUtilities {
      * @param text The text to be sent to the chat box
      * @return true if the operation was successful, false otherwise
      */
-    public static boolean sendTextAndSubmit(Project project, String text) {
+    public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult) {
         if (project == null || text == null) {
             LOG.warn("Cannot send text and submit: Project or text is null");
             return false;
@@ -214,7 +214,7 @@ public class ChatboxUtilities {
             if (loaded) {
                 LOG.info("Page loaded, sending text and submitting");
                 String escapedText = escapeJavaScriptString(text);
-                
+
                 // Create a comprehensive script that handles both operations with proper timing
                 String script =
                         "function sendTextAndSubmit(text) {\n" +
@@ -222,7 +222,7 @@ public class ChatboxUtilities {
                                 "    // Step 1: Find the chat input element\n" +
                                 "    const chatInput = document.getElementById('chat-input');\n" +
                                 "    if (!chatInput) {\n" +
-                                "      console.error('Chat input element not found');\n" +
+                                "      alert('Chat input element not found');\n" +
                                 "      return false;\n" +
                                 "    }\n" +
                                 "    \n" +
@@ -252,6 +252,7 @@ public class ChatboxUtilities {
                                 "      \n" +
                                 "      // Step 6: Click the send button\n" +
                                 "      sendButton.click();\n" +
+                                "      window.shouldAutomaticallyCopy =  " +copyFirstResult +";\n" +
                                 "      console.log('Message successfully sent');\n" +
                                 "    }, 300);\n" + // 300ms delay to ensure the UI has updated
                                 "    \n" +

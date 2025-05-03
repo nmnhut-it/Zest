@@ -34,8 +34,10 @@ public class CodeReviewPromptCreationStage implements PipelineStage {
         promptBuilder.append("Please provide a detailed code review for the following class:\n\n");
         
         // Include class name and content
-        promptBuilder.append("## Class: ").append(className).append("\n\n");
-        promptBuilder.append("```java\n");
+        promptBuilder.append("## Class: ").append(className).append("\n\n\n");
+        promptBuilder.append("```")
+                .append(context.getPsiFile().getFileType().getDefaultExtension())
+                .append("\n");
         promptBuilder.append(classContent);
         promptBuilder.append("\n```\n\n");
         
@@ -47,14 +49,14 @@ public class CodeReviewPromptCreationStage implements PipelineStage {
         promptBuilder.append("3. Performance considerations\n");
         promptBuilder.append("4. Best practices and design patterns\n");
         promptBuilder.append("5. Error handling and robustness\n");
-        promptBuilder.append("6. Documentation completeness\n");
+        promptBuilder.append("6. Documentation and comments\n\n");
         
         // Request specific feedback format
         promptBuilder.append("\n## Requested Feedback Format\n\n");
         promptBuilder.append("- **Summary**: Overall assessment of the code\n");
         promptBuilder.append("- **Strengths**: What aspects of the code are well-implemented\n");
         promptBuilder.append("- **Issues**: Specific problems identified (with line numbers)\n");
-        promptBuilder.append("- **Recommendations**: Suggested improvements with code examples\n");
+        promptBuilder.append("- **Recommendations**: Suggested improvements with code examples\n\n");
         
         // Store the generated prompt in the context
         context.setPrompt(promptBuilder.toString());

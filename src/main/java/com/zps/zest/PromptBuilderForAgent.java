@@ -30,7 +30,7 @@ public class PromptBuilderForAgent {
 
     public PromptBuilderForAgent(AgentToolRegistry toolRegistry) {
         this.toolRegistry = toolRegistry;
-        this.configManager = new ConfigurationManager(toolRegistry.project);
+        this.configManager = ConfigurationManager.getInstance(toolRegistry.project);
     }
     
     /**

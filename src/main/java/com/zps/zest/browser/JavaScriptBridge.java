@@ -62,7 +62,15 @@ public class JavaScriptBridge {
                     response.addProperty("success", true);
                     response.addProperty("result", fileName);
                     break;
-                    
+                case "showDialog":
+                    String title = data.has("title") ? data.get("title").getAsString() : "Information";
+                    String message = data.has("message") ? data.get("message").getAsString() : "";
+                    String dialogType = data.has("type") ? data.get("type").getAsString() : "info";
+
+                    boolean dialogResult = showDialog(title, message, dialogType);
+                    response.addProperty("success", true);
+                    response.addProperty("result", dialogResult);
+                    break;
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);

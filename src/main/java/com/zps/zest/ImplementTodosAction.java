@@ -210,7 +210,7 @@ public class ImplementTodosAction extends AnAction {
     private String callLlmForImplementation(String selectedText, String codeContext, Project project) throws PipelineExecutionException {
         try {
             // Create configuration and context for LLM API call
-            ConfigurationManager config = new ConfigurationManager(project);
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
             CodeContext context = new CodeContext();
             context.useTestWrightModel(false);
             context.setProject(project);

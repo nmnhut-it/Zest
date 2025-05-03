@@ -25,7 +25,7 @@ public class RagManagerProjectListener implements ProjectManagerListener {
 
         try {
             // Get configuration
-            ConfigurationManager config = new ConfigurationManager(project);
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
 
             // Only initialize if RAG is enabled
             if (config.isRagEnabled()) {

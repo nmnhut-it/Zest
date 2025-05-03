@@ -95,6 +95,13 @@
             <add-to-group group-id="GenerateGroup" anchor="after"
                           relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
+        <action id="Zest.GenerateCodeCommentsAction"
+                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"
+                text="ZPS: Write Comment for the Selected Text"
+                description="Add comment for this class">
+            <add-to-group group-id="GenerateGroup" anchor="after"
+                          relative-to-action="com.zps.zest.ImplementTodosAction"/>
+        </action>
 
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"

@@ -36,7 +36,7 @@ public class EnhancedAgentRequestProcessor {
     public EnhancedAgentRequestProcessor(@NotNull Project project) {
         this.project = project;
         this.toolRegistry = new AgentToolRegistry(project);
-        this.configManager = new ConfigurationManager(project);
+        this.configManager = ConfigurationManager.getInstance(project);
         this.promptBuilderForAgent = new PromptBuilderForAgent(toolRegistry);
         this.toolExecutor = new ToolExecutor(toolRegistry);
     }

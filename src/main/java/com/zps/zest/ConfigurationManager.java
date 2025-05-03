@@ -2,6 +2,8 @@ package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 
 import java.io.File;
@@ -9,13 +11,17 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.SocketTimeoutException;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
  * Configuration manager for loading and accessing plugin settings.
+ * Implements a per-project cache to avoid reloading configuration multiple times.
  */
 public class ConfigurationManager {
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
@@ -28,16 +34,59 @@ public class ConfigurationManager {
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
-    private static String apiUrl;
-    private static String testModel;
-    private static String codeModel;
-    private static int maxIterations;
-    private static String authToken;
-    private static Project project;
+    // Static cache to store configuration managers by project
+    private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
+
+    // Register project listener to clean up closed projects
+    static {
+        ProjectManager.getInstance().addProjectManagerListener(new ProjectManagerListener() {
+            @Override
+            public void projectClosed(Project project) {
+                disposeInstance(project);
+            }
+        });
+    }
+
+    private String apiUrl;
+    private String testModel;
+    private String codeModel;
+    private int maxIterations;
+    private String authToken;
+    private Project project;
     // Configuration flags
-    private static boolean ragEnabled = false;
-    private static String mcpServerUri = DEFAULT_MCP_SERVER_URI;
-    private static boolean mcpEnabled = false;
+    private boolean ragEnabled = false;
+    private String mcpServerUri = DEFAULT_MCP_SERVER_URI;
+    private boolean mcpEnabled = false;
+
+    /**
+     * Gets or creates a ConfigurationManager instance for the specified project.
+     *
+     * @param project The project to get a configuration manager for
+     * @return The configuration manager instance for the project
+     */
+    public static ConfigurationManager getInstance(Project project) {
+        return INSTANCES.computeIfAbsent(project, p -> new ConfigurationManager(p));
+    }
+
+    /**
+     * Removes the configuration manager instance for a project.
+     * Called when a project is closed.
+     *
+     * @param project The project to remove the configuration manager for
+     */
+    public static void disposeInstance(Project project) {
+        INSTANCES.remove(project);
+    }
+
+    /**
+     * Private constructor to enforce singleton pattern per project.
+     *
+     * @param project The project to create a configuration manager for
+     */
+    private ConfigurationManager(Project project) {
+        this.project = project;
+        loadConfig();
+    }
 
     public boolean isRagEnabled() {
         return ragEnabled;
@@ -58,26 +107,24 @@ public class ConfigurationManager {
     public String getOpenWebUIRagEndpoint() {
         return apiUrl;
     }
-    
+
     /**
      * Gets the URI for the MCP server.
      */
     public String getMcpServerUri() {
         return mcpServerUri;
     }
-    
+
     /**
      * Sets the URI for the MCP server.
      */
     public void setMcpServerUri(String uri) {
         mcpServerUri = uri;
     }
-    
-    public ConfigurationManager(Project project) {
-        this.project = project;
-        loadConfig();
-    }
-    
+
+    /**
+     * Loads the configuration from the properties file.
+     */
     public void loadConfig() {
         // Default values - start with pinging domains to determine which API URL to use
         String defaultApiUrl = determineDefaultApiUrl();
@@ -94,13 +141,13 @@ public class ConfigurationManager {
 
         // Try to load from config file
         try {
-            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME);
+            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME);
             if (!configFile.exists()){
-                configFile =  new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
+                configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
             }
             if (configFile.exists()) {
                 configExists = true;
-                java.util.Properties props = new java.util.Properties();
+                Properties props = new Properties();
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
                     props.load(fis);
                 }
@@ -110,17 +157,17 @@ public class ConfigurationManager {
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-                
+
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
                     ragEnabled = Boolean.parseBoolean(ragEnabledStr);
                 }
-                
+
                 String mcpEnabledStr = props.getProperty("mcpEnabled");
                 if (mcpEnabledStr != null) {
                     mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
                 }
-                
+
                 try {
                     maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
                 } catch (NumberFormatException e) {
@@ -144,16 +191,16 @@ public class ConfigurationManager {
      */
     public void saveConfig() {
         try {
-            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
-            java.util.Properties props = new java.util.Properties();
-            
+            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
+            Properties props = new Properties();
+
             // If the file exists, load the current properties first
             if (configFile.exists()) {
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
                     props.load(fis);
                 }
             }
-            
+
             // Update properties with current values
             props.setProperty("apiUrl", apiUrl);
             props.setProperty("testModel", testModel);
@@ -163,12 +210,12 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", String.valueOf(ragEnabled));
             props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
             props.setProperty("mcpServerUri", mcpServerUri);
-            
+
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
             }
-            
+
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -179,7 +226,7 @@ public class ConfigurationManager {
      *
      * @param configFile The configuration file
      * @param apiUrl     The API URL that requires authentication
-     * @return
+     * @return The authentication token
      */
     private String promptForAuthToken(File configFile, String apiUrl) {
         ApplicationManager.getApplication().invokeAndWait(()->{
@@ -194,7 +241,7 @@ public class ConfigurationManager {
 
                 // Update the token in properties if the user provided one
                 if (authToken != null && !authToken.trim().isEmpty()) {
-                    java.util.Properties props = new java.util.Properties();
+                    Properties props = new Properties();
 
                     // Load existing properties first
                     try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
@@ -298,10 +345,15 @@ public class ConfigurationManager {
         }
     }
 
+    /**
+     * Creates a default configuration file with initial settings.
+     *
+     * @param defaultApiUrl The default API URL to use
+     */
     private void createDefaultConfigFile(String defaultApiUrl) {
         try {
-            java.io.File configFile = new java.io.File(project.getBasePath(), CONFIG_FILE_NAME_2);
-            java.util.Properties props = new java.util.Properties();
+            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
+            Properties props = new Properties();
             props.setProperty("apiUrl", defaultApiUrl);
             props.setProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
             props.setProperty("codeModel", DEFAULT_CODE_MODEL);
@@ -340,10 +392,18 @@ public class ConfigurationManager {
             e.printStackTrace();
         }
     }
+
     // Getters
     public String getApiUrl() { return apiUrl; }
     public String getTestModel() { return testModel; }
     public String getCodeModel() { return codeModel; }
     public int getMaxIterations() { return maxIterations; }
     public String getAuthToken() { return authToken; }
+
+    // Setters for additional configuration options
+    public void setApiUrl(String apiUrl) { this.apiUrl = apiUrl; }
+    public void setTestModel(String testModel) { this.testModel = testModel; }
+    public void setCodeModel(String codeModel) { this.codeModel = codeModel; }
+    public void setMaxIterations(int maxIterations) { this.maxIterations = maxIterations; }
+    public void setAuthToken(String authToken) { this.authToken = authToken; }
 }

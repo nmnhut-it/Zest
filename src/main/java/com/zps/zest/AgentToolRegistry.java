@@ -68,7 +68,7 @@ public class AgentToolRegistry {
         register(new FollowUpQuestionTool(project)); // Register the new tool
 
 //        // Add the RAG tool
-//        ConfigurationManager config = new ConfigurationManager(project);
+//        ConfigurationManager config = ConfigurationManager.getInstance(project);
 //        register(new RagSearchTool(
 //                project,
 //                config.getOpenWebUIRagEndpoint(),

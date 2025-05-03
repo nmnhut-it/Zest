@@ -32,7 +32,7 @@ public class ManageKnowledgeBaseAction extends AnAction {
         if (project == null) return;
 
         try {
-            ConfigurationManager config = new ConfigurationManager(project);
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
 
             // Check if RAG is enabled
             if (!config.isRagEnabled()) {

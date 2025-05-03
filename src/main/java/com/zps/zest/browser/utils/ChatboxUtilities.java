@@ -208,7 +208,7 @@ public class ChatboxUtilities {
         
         String currentUrl = browserPanel.getCurrentUrl();
         AtomicBoolean success = new AtomicBoolean(false);
-        
+        browserPanel.getComponent().requestFocus();
         // Wait for page to load before sending text and clicking submit
         waitForPageToLoad(project, currentUrl).thenAccept(loaded -> {
             if (loaded) {

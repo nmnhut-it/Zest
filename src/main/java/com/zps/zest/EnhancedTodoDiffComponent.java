@@ -573,7 +573,7 @@ public class EnhancedTodoDiffComponent {
             updateChatHistoryPanel();
 
             // Create configuration and context for LLM API call
-            ConfigurationManager config = new ConfigurationManager(project);
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
             CodeContext context = new CodeContext();
             context.setProject(project);
             context.setConfig(config);

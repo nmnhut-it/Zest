@@ -1,17 +1,17 @@
 package com.zps.zest.browser;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.ui.jcef.*;
+import com.intellij.ui.jcef.JBCefApp;
+import com.intellij.ui.jcef.JBCefBrowser;
+import com.intellij.ui.jcef.JBCefBrowserBase;
+import com.intellij.ui.jcef.JBCefJSQuery;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
-import java.util.Objects;
 
 import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 
@@ -46,7 +46,7 @@ public class JCEFBrowserManager {
 
         // Create browser with default settings
         browser = new JBCefBrowser();
-        browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE,10);
+        browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -59,9 +59,10 @@ public class JCEFBrowserManager {
             }
         }, browser.getCefBrowser());
 
+        addNetworkMonitor();
+
         // Load default URL
         loadURL(DEFAULT_URL);
-
         LOG.info("JCEFBrowserManager initialized");
     }
 
@@ -118,7 +119,7 @@ public class JCEFBrowserManager {
             LOG.info("Setting up JavaScript bridge for frame: " + frame.getURL());
 //            browser.setProperty(JS_QUERY_POOL_SIZE,10);
             // Create a JS query
-            jsQuery = JBCefJSQuery.create((JBCefBrowserBase)browser);
+            jsQuery = JBCefJSQuery.create((JBCefBrowserBase) browser);
 
             // Add a handler for the query
             jsQuery.addHandler((query) -> {
@@ -145,7 +146,7 @@ public class JCEFBrowserManager {
                             "          data: data || {}\n" +
                             "        });\n" +
                             "        \n" +
-                            "       console.log(request);\n"+
+                            "       console.log(request);\n" +
                             "        // Call Java with the request\n" +
                             "        " + injectScript + ";\n" +
 
@@ -256,4 +257,101 @@ public class JCEFBrowserManager {
 
         LOG.info("JCEFBrowserManager disposed");
     }
+
+    public void addNetworkMonitor() {
+        // We need to use the DevTools protocol to access network events
+        try {
+            // First, ensure DevTools is enabled
+            DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
+
+            // Create a JavaScript function that will monitor network requests using the fetch API
+            String monitorScript =
+                    "(function() {" + "\n" +
+
+                            "  // Store the original fetch function" + "\n" +
+                            "  const originalFetch = window.fetch;" + "\n" +
+                            "  " + "\n" +
+                            "  // Override the fetch function to monitor responses" + "\n" +
+                            "  window.fetch = function(input, init) {" + "\n" +
+                            "    // Call the original fetch function" + "\n" +
+                            "    return originalFetch.apply(this, arguments)" + "\n" +
+                            "      .then(response => {" + "\n" +
+                            "        // Clone the response to avoid consuming it" + "\n" +
+                            "        const responseClone = response.clone();" + "\n" +
+                            "        " + "\n" +
+                            "        // Check if the URL contains 'completed'" + "\n" +
+                            "        if (responseClone.url && responseClone.url.includes('completed')) {" + "\n" +
+                            "          console.log('Detected network response with completed in URL:', responseClone.url);" + "\n" +
+                            "          " + "\n" +
+                            "          // Set a small timeout to allow the page to update" + "\n" +
+                            "          setTimeout(() => {" + "\n" +
+                            "            findAndClickCopyButton();" + "\n" +
+                            "          }, 1000);" + "\n" +
+                            "        }" + "\n" +
+                            "        " + "\n" +
+                            "        return response;" + "\n" +
+                            "      });" + "\n" +
+                            "  };" + "\n" +
+                            "  " + "\n" +
+                            "  // Function to find and click the Copy button" + "\n" +
+                            "  function findAndClickCopyButton() {" + "\n" +
+                            "    // Method 1: Find button elements with 'Copy' text" + "\n" +
+                            "    let buttons = Array.from(document.getElementsByTagName('button'));" + "\n" +
+                            "    let copyButton = buttons.find(button => {" + "\n" +
+                            "      return button.textContent.trim() === 'Copy' || " + "\n" +
+                            "             button.innerText.trim() === 'Copy' || " + "\n" +
+                            "             button.getAttribute('title') === 'Copy';" + "\n" +
+                            "    });" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 2: If not found, look for elements with class/ID containing 'copy'" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      const allElements = document.querySelectorAll('*');" + "\n" +
+                            "      for (const element of allElements) {" + "\n" +
+                            "        const classNames = element.className ? element.className.toString() : '';" + "\n" +
+                            "        const id = element.id || '';" + "\n" +
+                            "        if (classNames.toLowerCase().includes('copy') || id.toLowerCase().includes('copy')) {" + "\n" +
+                            "          copyButton = element;" + "\n" +
+                            "          break;" + "\n" +
+                            "        }" + "\n" +
+                            "      }" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 3: Look for elements with aria labels related to copying" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      copyButton = document.querySelector('[aria-label=\"Copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-action=\"copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-tooltip=\"Copy\"]');" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    if (copyButton && window.shouldAutomaticallyCopy) {" + "\n" +
+                            "      console.log('Found Copy button, clicking it');" + "\n" +
+                            "    window.focus(); document.body.focus();\n" +
+                            "      copyButton.click();window.shouldAutomaticallyCopy  = false; " + "\n" +
+                            "      return 'Copy button clicked';" + "\n" +
+                            "    } else {" + "\n" +
+                            "      console.log('Copy button not found');" + "\n" +
+                            "      return 'Copy button not found';" + "\n" +
+                            "    }" + "\n" +
+                            "  }" + "\n" +
+                            "})();";
+
+            // Add a load handler to inject our monitoring script when the page loads
+            browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+                @Override
+                public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
+                    // Inject our monitoring script
+                    browser.executeJavaScript(monitorScript, frame.getURL(), 0);
+                    LOG.info("Injected network monitor script");
+                }
+            }, browser.getCefBrowser());
+
+            LOG.info("Added network monitor with fetch API interception");
+
+
+        } catch (Exception e) {
+            LOG.error("Failed to add network monitor", e);
+        }
+    }
+
+
 }

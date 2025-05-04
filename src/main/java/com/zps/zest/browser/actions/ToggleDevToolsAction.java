@@ -54,11 +54,11 @@ public class ToggleDevToolsAction extends AnAction {
         // Update text based on current dev tools state
         if (project != null) {
             WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService.getBrowserPanel() != null && browserService.getBrowserPanel().isDevToolsVisible()) {
-                e.getPresentation().setText("Hide ZPS Chat Developer Tools");
-            } else {
-                e.getPresentation().setText("Show ZPS Chat Developer Tools");
-            }
+//            if (browserService.getBrowserPanel() != null && browserService.getBrowserPanel().isDevToolsVisible()) {
+//                e.getPresentation().setText("Hide ZPS Chat Developer Tools");
+//            } else {
+//                e.getPresentation().setText("Show ZPS Chat Developer Tools");
+//            }
         }
     }
 }

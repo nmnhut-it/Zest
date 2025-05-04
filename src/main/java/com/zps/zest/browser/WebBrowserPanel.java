@@ -32,7 +32,7 @@ public class WebBrowserPanel {
         this.mainPanel = new JPanel(new BorderLayout());
         
         // Create browser manager
-        this.browserManager = new JCEFBrowserManager();
+        this.browserManager = new JCEFBrowserManager(project);
         
         // Create navigation panel
         JPanel navigationPanel = createNavigationPanel();
@@ -46,7 +46,7 @@ public class WebBrowserPanel {
         this.urlField = (JBTextField) navigationPanel.getComponent(1);
         
         // Initialize JavaScript bridge
-        initJavaScriptBridge();
+//        initJavaScriptBridge();
     }
     
     /**
@@ -93,14 +93,7 @@ public class WebBrowserPanel {
         return panel;
     }
     
-    /**
-     * Initializes the JavaScript bridge.
-     */
-    private void initJavaScriptBridge() {
-        JavaScriptBridge bridge = new JavaScriptBridge(project);
-        browserManager.registerBridge(bridge);
-    }
-    
+
     /**
      * Loads the specified URL.
      */
@@ -139,14 +132,7 @@ public class WebBrowserPanel {
         return browserManager.getBrowser().getCefBrowser().getURL();
     }
     
-    /**
-     * Loads a URL with enhanced compatibility mode.
-     * 
-     * @param url The URL to load
-     */
-    public void loadURLWithCompatibility(String url) {
-        browserManager.loadURLWithCompatibility(url);
-    }
+
     
     /**
      * Toggles the visibility of the developer tools.
@@ -162,22 +148,15 @@ public class WebBrowserPanel {
      * 
      * @return true if developer tools are visible, false otherwise
      */
-    public boolean isDevToolsVisible() {
-        return browserManager.isDevToolsVisible();
-    }
+//    public boolean isDevToolsVisible() {
+//        return browserManager.isDevToolsVisible();
+//    }
     
     /**
      * Gets the component for this panel.
      */
     public JComponent getComponent() {
         return mainPanel;
-    }
-    
-    /**
-     * Disposes of resources.
-     */
-    public void dispose() {
-        browserManager.dispose();
     }
 
     public JCEFBrowserManager getBrowserManager() {

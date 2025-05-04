@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import org.cef.browser.CefBrowser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -86,7 +87,51 @@ public class JavaScriptBridge {
             return gson.toJson(errorResponse);
         }
     }
+    /**
+     * Shows a dialog with the specified title and message.
+     */
+    private boolean showDialog(String title, String message, String dialogType) {
+        final boolean[] result = new boolean[1];
 
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            switch (dialogType.toLowerCase()) {
+                case "info":
+                    Messages.showInfoMessage(project, message, title);
+                    result[0] = true;
+                    break;
+
+                case "warning":
+                    Messages.showWarningDialog(project, message, title);
+                    result[0] = true;
+                    break;
+
+                case "error":
+                    Messages.showErrorDialog(project, message, title);
+                    result[0] = true;
+                    break;
+
+                case "yesno":
+                    int yesNoResult = Messages.showYesNoDialog(project, message, title,
+                            Messages.getQuestionIcon());
+                    result[0] = (yesNoResult == Messages.YES);
+                    break;
+
+                case "okcancel":
+                    int okCancelResult = Messages.showOkCancelDialog(project, message, title,
+                            "OK", "Cancel",
+                            Messages.getQuestionIcon());
+                    result[0] = (okCancelResult == Messages.OK);
+                    break;
+
+                default:
+                    Messages.showInfoMessage(project, message, title);
+                    result[0] = true;
+                    break;
+            }
+        });
+
+        return result[0];
+    }
     /**
      * Gets the selected text from the current editor.
      */

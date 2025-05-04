@@ -36,10 +36,6 @@ public class ReloadWithCompatibilityAction extends AnAction {
             LOG.warn("Cannot reload: No current URL");
             return;
         }
-        
-        // Load with compatibility
-        browserService.getBrowserPanel().loadURLWithCompatibility(currentUrl);
-        
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
         if (toolWindow != null) {

@@ -231,7 +231,7 @@ public class ChatboxUtilities {
                                 "    \n" +
                                 "    // Step 3: Add the new text content\n" +
                                 "    const p = document.createElement('p');\n" +
-                                "    p.textContent = text;\n" +
+                                "    p.textContent = '<pre>'+text+'</pre>';\n" +
                                 "    chatInput.appendChild(p);\n" +
                                 "    // Trigger input event to ensure the UI recognizes the change\n" +
                                 "    const inputEvent = new Event('input', { bubbles: true });\n" +

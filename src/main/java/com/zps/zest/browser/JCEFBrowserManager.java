@@ -58,6 +58,7 @@ public class JCEFBrowserManager {
                 setupJavaScriptBridge(cefBrowser, frame);
             }
         }, browser.getCefBrowser());
+        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
 
         addNetworkMonitor();
 
@@ -285,7 +286,7 @@ public class JCEFBrowserManager {
                             "          " + "\n" +
                             "          // Set a small timeout to allow the page to update" + "\n" +
                             "          setTimeout(() => {" + "\n" +
-                            "            findAndClickCopyButton();" + "\n" +
+                            "            extractCodeToIntelliJ();" + "\n" +
                             "          }, 1000);" + "\n" +
                             "        }" + "\n" +
                             "        " + "\n" +

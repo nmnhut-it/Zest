@@ -4,6 +4,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -12,7 +13,7 @@ import org.jetbrains.annotations.NotNull;
 @Service(Service.Level.PROJECT)
 public final class WebBrowserService {
     private static final Logger LOG = Logger.getInstance(WebBrowserService.class);
-    private static final String DEFAULT_CHAT_URL = "https://chat.zingplay.com";
+//    private static final String DEFAULT_CHAT_URL = "https://chat.zingplay.com";
     
     private final Project project;
     private WebBrowserPanel browserPanel;
@@ -95,12 +96,13 @@ public final class WebBrowserService {
         String currentUrl = browserPanel.getCurrentUrl();
         
         // Navigate to default URL if the current URL is empty, about:blank, or not the chat URL
-        if (currentUrl == null || currentUrl.isEmpty() || 
+        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        if (currentUrl == null || currentUrl.isEmpty() ||
             "about:blank".equals(currentUrl) || 
-            !currentUrl.contains("chat.zingplay.com")) {
+            !currentUrl.contains(url)) {
             
-            LOG.info("Navigating to default chat URL: " + DEFAULT_CHAT_URL);
-            browserPanel.loadUrl(DEFAULT_CHAT_URL);
+            LOG.info("Navigating to default chat URL: " + url);
+            browserPanel.loadUrl(url);
             return true;
         }
         

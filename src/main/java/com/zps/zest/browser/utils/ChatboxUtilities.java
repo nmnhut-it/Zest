@@ -88,7 +88,7 @@ public class ChatboxUtilities {
                                 "" + "\n"+
                                 "// Call the function with your text\n" + "\n"+
                                 "sendTextToChatbox('" + escapedText + "');";
-                        
+                // TODO: update this
                 browserService.executeJavaScript(script);
                 success.set(true);
             } else {

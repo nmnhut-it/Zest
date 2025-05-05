@@ -7,6 +7,7 @@ import com.intellij.ui.jcef.JBCefApp;
 import com.intellij.ui.jcef.JBCefBrowser;
 import com.intellij.ui.jcef.JBCefBrowserBase;
 import com.intellij.ui.jcef.JBCefJSQuery;
+import com.zps.zest.ConfigurationManager;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
@@ -64,7 +65,9 @@ public class JCEFBrowserManager {
         addNetworkMonitor();
 
         // Load default URL
-        loadURL(DEFAULT_URL);
+        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+
+        loadURL(url);
         LOG.info("JCEFBrowserManager initialized");
     }
 

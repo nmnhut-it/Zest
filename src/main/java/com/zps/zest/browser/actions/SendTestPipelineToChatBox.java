@@ -115,6 +115,8 @@ public class SendTestPipelineToChatBox extends AnAction {
             ApplicationManager.getApplication().invokeLater(()->{
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method now handles waiting for page load
+                    ChatboxUtilities.clickNewChatButton(project);
+
                     ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true);
 
                 });

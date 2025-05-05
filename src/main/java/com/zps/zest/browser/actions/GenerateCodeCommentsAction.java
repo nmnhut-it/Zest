@@ -122,6 +122,7 @@ public class GenerateCodeCommentsAction extends AnAction {
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
                     WebBrowserService.getInstance(project).executeJavaScript("window.__text_to_replace_ide___ = '" + StringEscapeUtils.escapeJavaScript(context.getSelectedText()) +"';");
+                    ChatboxUtilities.clickNewChatButton(project);
                     ChatboxUtilities.sendTextAndSubmit(project, prompt, true);
                 });
             });

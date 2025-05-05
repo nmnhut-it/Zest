@@ -23,8 +23,8 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
     private static final Logger LOG = Logger.getInstance(WebBrowserToolWindow.class);
-    private static final ConcurrentMap<String, Boolean> pageLoadedState = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<String, CompletableFuture<Boolean>> pageLoadedFutures = new ConcurrentHashMap<>();
+    protected static final ConcurrentMap<String, Boolean> pageLoadedState = new ConcurrentHashMap<>();
+    protected static final ConcurrentMap<String, CompletableFuture<Boolean>> pageLoadedFutures = new ConcurrentHashMap<>();
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
@@ -125,6 +125,25 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
         }
         
         // Otherwise create a new future and register it
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        pageLoadedFutures.put(key, future);
+        return future;
+    }
+    
+    /**
+     * Resets the page load state for a URL, allowing waitForPageToLoad to work after interactions.
+     * Call this method before performing interactions that will load new content.
+     * 
+     * @param project The project
+     * @param url The URL to reset the state for
+     * @return A CompletableFuture that completes when the page is loaded
+     */
+    public static CompletableFuture<Boolean> resetPageLoadState(Project project, String url) {
+        String key = getProjectUrlKey(project, url);
+        LOG.info("Resetting page load state for: " + url);
+        pageLoadedState.put(key, false);
+        
+        // Create a new future for this page
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         pageLoadedFutures.put(key, future);
         return future;

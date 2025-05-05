@@ -25,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Bridge for communication between JavaScript in the browser and Java code in IntelliJ.
@@ -86,6 +87,12 @@ public class JavaScriptBridge {
                     boolean dialogResult = showDialog(title, message, dialogType);
                     response.addProperty("success", true);
                     response.addProperty("result", dialogResult);
+                    break;
+                    
+                case "contentUpdated":
+                    String pageUrl = data.has("url") ? data.get("url").getAsString() : "";
+                    handleContentUpdated(pageUrl);
+                    response.addProperty("success", true);
                     break;
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -303,6 +310,31 @@ public class JavaScriptBridge {
         });
         
         return result[0];
+    }
+    
+    /**
+     * Handles content updated events from JavaScript.
+     * Used to mark pages as loaded after dynamic content updates.
+     *
+     * @param url The URL of the page that was updated
+     */
+    private void handleContentUpdated(String url) {
+        LOG.info("Content updated notification received for: " + url);
+        
+        // Mark the page as loaded in WebBrowserToolWindow
+        ApplicationManager.getApplication().invokeLater(() -> {
+            // Get the key using the same format as in WebBrowserToolWindow
+            String key = project.getName() + ":" + url;
+            
+            // Update the page loaded state
+            WebBrowserToolWindow.pageLoadedState.put(key, true);
+            
+            // Complete any pending futures for this URL
+            CompletableFuture<Boolean> future = WebBrowserToolWindow.pageLoadedFutures.remove(key);
+            if (future != null && !future.isDone()) {
+                future.complete(true);
+            }
+        });
     }
     
     /**

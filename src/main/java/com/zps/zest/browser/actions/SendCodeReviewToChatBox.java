@@ -112,6 +112,8 @@ public class SendCodeReviewToChatBox extends AnAction {
             ApplicationManager.getApplication().invokeLater(()->{
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
+                    ChatboxUtilities.clickNewChatButton(project);
+
                     ChatboxUtilities.sendTextAndSubmit(project, prompt, true);
                 });
             });

@@ -72,7 +72,7 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
                         "    \n" +
                         "    // Send to IntelliJ using the bridge\n" +
                         "    console.log('code', code);\n" +
-                        "    if (window.intellijBridge && window.intellijBridge.callIDE) {\n" +
+                        "    if (window.intellijBridge && window.intellijBridge.callIDE && window.__text_to_replace_ide___) {\n" +
                         "        window.intellijBridge.callIDE('codeCompleted', { text: code, textToReplace: textToReplace })\n" +
                         "            .then(function() {\n" +
                         "                console.log('Code sent to IntelliJ successfully');\n" +

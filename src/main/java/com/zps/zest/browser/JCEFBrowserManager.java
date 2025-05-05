@@ -289,6 +289,10 @@ public class JCEFBrowserManager {
                             "          setTimeout(() => {" + "\n" +
                             "            window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);" + "\n" +
                             "            window.__text_to_replace_ide___  = null; \n" +
+                            "            // Notify that content has been updated" + "\n" +
+                            "            if (window.intellijBridge) {" + "\n" +
+                            "              intellijBridge.callIDE('contentUpdated', { url: window.location.href });" + "\n" +
+                            "            }" + "\n" +
                             "          }, 1000);" + "\n" +
                             "        }" + "\n" +
                             "        " + "\n" +

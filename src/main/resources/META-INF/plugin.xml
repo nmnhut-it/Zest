@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.2</version>  <!-- Replace with your actual version -->
+    <version>1.9.3</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -70,7 +70,7 @@
     <actions>
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
-                text="Write Tests for This Class in Chat ZPS"
+                text="ZPS: Write Tests for This Class in Chat ZPS"
                 description="Generate a test prompt and send it to chat box">
             <add-to-group group-id="GenerateGroup" anchor="first"
             />
@@ -89,13 +89,13 @@
             <add-to-group group-id="GenerateGroup" anchor="first"
             />
         </action>
-        <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: Write Test"
+        <action id="com.zps.zest.GenerateTestByLlm" class="com.zps.zest.GenerateTestByLlm" text="Ai test?!: One-click Write Test"
                 description="Write tests by LLMs">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>
         <action id="com.zps.zest.ImplementTodosAction"
                 class="com.zps.zest.ImplementTodosAction"
-                text="Zingplay Implement TODOs"
+                text="ZPS: Implement Your TODOs"
                 description="Implement TODOs in selected code using Ollama">
             <add-to-group group-id="GenerateGroup" anchor="first" />
         </action>

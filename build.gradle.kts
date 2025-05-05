@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.2-SNAPSHOT"
+version = "1.9.3-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,9 @@ repositories {
 // Configure Gradle IntelliJ Plugin
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
+//    version.set("243.25659.59")
     version.set("2023.1")
+
     type.set("IC") // Target IDE Platform
 
     plugins.set(listOf("java"/* Plugin Dependencies */))

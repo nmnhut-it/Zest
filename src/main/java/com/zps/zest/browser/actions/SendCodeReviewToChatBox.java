@@ -1,5 +1,6 @@
 package com.zps.zest.browser.actions;
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -146,5 +147,10 @@ public class SendCodeReviewToChatBox extends AnAction {
         boolean hasPsiFile = e.getData(CommonDataKeys.PSI_FILE) != null;
         
         e.getPresentation().setEnabled(project != null && hasEditor && hasPsiFile);
+    }
+
+    @Override
+    public @NotNull ActionUpdateThread getActionUpdateThread() {
+        return ActionUpdateThread.BGT;
     }
 }

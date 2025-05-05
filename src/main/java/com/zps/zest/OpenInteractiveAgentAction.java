@@ -7,7 +7,6 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.util.text.MarkdownUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Random;
@@ -20,7 +19,7 @@ public class OpenInteractiveAgentAction extends AnAction {
 
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
-        return super.getActionUpdateThread();
+        return ActionUpdateThread.BGT; 
     }
 
     public OpenInteractiveAgentAction() {

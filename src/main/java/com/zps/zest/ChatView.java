@@ -9,7 +9,6 @@ import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.HTMLEditorKitBuilder;
-import com.petebevin.markdown.MarkdownProcessor;
 import org.intellij.markdown.flavours.commonmark.CommonMarkFlavourDescriptor;
 
 import javax.swing.*;

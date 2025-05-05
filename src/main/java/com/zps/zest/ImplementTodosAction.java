@@ -39,30 +39,34 @@ public class ImplementTodosAction extends AnAction {
     public ImplementTodosAction() {
         super("Ai code?!: Implement TODOs ", "Replace TODOs with implementation using LLM", AllIcons.General.TodoDefault);
     }
-// todo:
     @Override
     public void update(@NotNull AnActionEvent e) {
         // Enable/disable action based on context
-        Editor editor = e.getData(CommonDataKeys.EDITOR);
-        PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
+      boolean enabled =  ReadAction.compute(()->{
+            Editor editor = e.getData(CommonDataKeys.EDITOR);
+            PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
 
-        boolean enabled = false;
+            boolean __enabled = false;
 
-        if (editor != null && psiFile != null) {
-            SelectionModel selectionModel = editor.getSelectionModel();
-            if (selectionModel.hasSelection()) {
-                String selectedText = selectionModel.getSelectedText();
-                if (selectedText != null && containsTodo(selectedText)) {
-                    enabled = true;
+            if (editor != null && psiFile != null) {
+                SelectionModel selectionModel = editor.getSelectionModel();
+                if (selectionModel.hasSelection()) {
+                    String selectedText = selectionModel.getSelectedText();
+                    if (selectedText != null && containsTodo(selectedText)) {
+                        __enabled = true;
+                    }
                 }
             }
-        }
+            return __enabled;
+        });
 
         e.getPresentation().setEnabledAndVisible(enabled);
+
     }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+
         Editor editor = e.getData(CommonDataKeys.EDITOR);
         if (editor == null) {
             LOG.info("No editor available");
@@ -362,6 +366,6 @@ public class ImplementTodosAction extends AnAction {
 
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
-        return super.getActionUpdateThread();
+        return ActionUpdateThread.BGT; 
     }
 }

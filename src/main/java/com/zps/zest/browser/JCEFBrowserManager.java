@@ -57,7 +57,7 @@ public class JCEFBrowserManager {
             @Override
             public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                 setupJavaScriptBridge(cefBrowser, frame);
-                new AutoCodeExtractorWithBridge().onLoadEnd(cefBrowser, frame,httpStatusCode);
+                new AutoCodeExtractorWithBridge().onLoadEnd(cefBrowser, frame, httpStatusCode);
             }
         }, browser.getCefBrowser());
 //        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
@@ -79,10 +79,15 @@ public class JCEFBrowserManager {
     }
 
     /**
-     * Loads the specified URL.
+     * Loads the specified URL into the browser.
+     *
+     * @param url the URL to be loaded into the browser
      */
     public void loadURL(String url) {
+        // Log the URL being loaded for debugging and informational purposes
         LOG.info("Loading URL: " + url);
+
+        // Load the specified URL into the browser
         browser.loadURL(url);
     }
 

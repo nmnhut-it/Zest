@@ -21,7 +21,7 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
 
     private void injectAutoCodeExtractorScript(CefBrowser browser) {
         String script =
-                "window.extractCodeToIntelliJ = function() {\n" +
+                "window.extractCodeToIntelliJ = function(textToReplace) {\n" +
                         "    // Find all CodeMirror editors first\n" +
                         "    const cmEditors = document.querySelectorAll('.cm-editor');\n" +
                         "    \n" +
@@ -43,7 +43,7 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
                         "    if (!codeBlock) {\n" +
                         "        console.log('Could not find parent code block');\n" +
                         "        // Try to extract code directly from editor if parent block not found\n" +
-                        "        return extractFromEditor(cmEditor);\n" +
+                        "        return extractFromEditor(cmEditor, textToReplace);\n" +
                         "    }\n" +
                         "    \n" +
                         "    // Extract language\n" +
@@ -51,11 +51,11 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
                         "    const language = langElement ? langElement.textContent.trim() : '';\n" +
                         "    \n" +
                         "    // Extract code from CodeMirror lines\n" +
-                        "    return extractFromEditor(cmEditor);\n" +
+                        "    return extractFromEditor(cmEditor, textToReplace);\n" +
                         "};\n" +
                         "\n" +
                         "// Helper function to extract code from a CodeMirror editor\n" +
-                        "function extractFromEditor(cmEditor) {\n" +
+                        "function extractFromEditor(cmEditor,textToReplace ) {\n" +
                         "    if (!cmEditor) return false;\n" +
                         "    \n" +
                         "    // Extract code from CodeMirror lines\n" +
@@ -71,8 +71,9 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
                         "    }\n" +
                         "    \n" +
                         "    // Send to IntelliJ using the bridge\n" +
+                        "    console.log('code', code);\n" +
                         "    if (window.intellijBridge && window.intellijBridge.callIDE) {\n" +
-                        "        window.intellijBridge.callIDE('codeCompleted', { text: code })\n" +
+                        "        window.intellijBridge.callIDE('codeCompleted', { text: code, textToReplace: textToReplace })\n" +
                         "            .then(function() {\n" +
                         "                console.log('Code sent to IntelliJ successfully');\n" +
                         "            })\n" +
@@ -86,12 +87,7 @@ public class AutoCodeExtractorWithBridge extends CefLoadHandlerAdapter {
                         "    }\n" +
                         "}\n" +
                         "\n" +
-                        "// Add keyboard shortcut (Alt+I)\n" +
-                        "document.addEventListener('keydown', function(event) {\n" +
-                        "    if (event.altKey && event.key === 'i') {\n" +
-                        "        window.extractCodeToIntelliJ();\n" +
-                        "    }\n" +
-                        "});\n" +
+
                         "\n" +
                         "console.log('Compatible code extractor function initialized');\n";
         browser.executeJavaScript(script, browser.getURL(), 0);

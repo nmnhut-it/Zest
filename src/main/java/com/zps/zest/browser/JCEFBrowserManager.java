@@ -56,9 +56,10 @@ public class JCEFBrowserManager {
             @Override
             public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                 setupJavaScriptBridge(cefBrowser, frame);
+                new AutoCodeExtractorWithBridge().onLoadEnd(cefBrowser, frame,httpStatusCode);
             }
         }, browser.getCefBrowser());
-        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
+//        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
 
         addNetworkMonitor();
 
@@ -270,7 +271,7 @@ public class JCEFBrowserManager {
                     "(function() {" + "\n" +
 
                             "  // Store the original fetch function" + "\n" +
-                            "  const originalFetch = window.fetch;" + "\n" +
+                            "  const originalFetch = window.fetch; let textToReplace = window.__text_to_replace_ide___;" + "\n" +
                             "  " + "\n" +
                             "  // Override the fetch function to monitor responses" + "\n" +
                             "  window.fetch = function(input, init) {" + "\n" +
@@ -286,7 +287,8 @@ public class JCEFBrowserManager {
                             "          " + "\n" +
                             "          // Set a small timeout to allow the page to update" + "\n" +
                             "          setTimeout(() => {" + "\n" +
-                            "            extractCodeToIntelliJ();" + "\n" +
+                            "            window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);" + "\n" +
+                            "            window.__text_to_replace_ide___  = null; \n" +
                             "          }, 1000);" + "\n" +
                             "        }" + "\n" +
                             "        " + "\n" +

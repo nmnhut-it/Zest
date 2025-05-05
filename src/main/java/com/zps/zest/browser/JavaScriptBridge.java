@@ -3,6 +3,10 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.DiffDialogHints;
+import com.intellij.diff.DiffManager;
+import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -13,9 +17,14 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.WindowWrapper;
+import com.intellij.util.Consumer;
 import org.cef.browser.CefBrowser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 /**
  * Bridge for communication between JavaScript in the browser and Java code in IntelliJ.
@@ -62,6 +71,12 @@ public class JavaScriptBridge {
                     String fileName = getCurrentFileName();
                     response.addProperty("success", true);
                     response.addProperty("result", fileName);
+                    break;
+                case "codeCompleted":
+                    String textToReplace = data.get("textToReplace").getAsString();
+                    String resultText = data.get("text").getAsString();
+                    boolean replaceResult = handleCodeComplete(textToReplace, resultText);
+                    response.addProperty("success", replaceResult);
                     break;
                 case "showDialog":
                     String title = data.has("title") ? data.get("title").getAsString() : "Information";
@@ -177,6 +192,117 @@ public class JavaScriptBridge {
         }
         
         return FileEditorManager.getInstance(project).getSelectedFiles()[0].getName();
+    }
+    
+    /**
+     * Handles code completion by finding text to replace and showing a diff.
+     * 
+     * @param textToReplace The text to find and replace
+     * @param resultText The new code to replace it with
+     * @return True if the operation was successful
+     */
+    private boolean handleCodeComplete(String textToReplace, String resultText) {
+        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+        if (editor == null) {
+            LOG.warn("No editor is currently open");
+            return false;
+        }
+        
+        Document document = editor.getDocument();
+        String text = document.getText();
+        
+        // Find the text to replace
+        int startOffset = text.indexOf(textToReplace);
+        if (startOffset == -1) {
+            showDialog("Code Complete Error", "Could not find the text to replace in the current editor", "error");
+            return false;
+        }
+        
+        int endOffset = startOffset + textToReplace.length();
+        
+        // Show diff in editor and handle user decision
+        final boolean[] result = new boolean[1];
+        final WindowWrapper[] windowWrapper = new WindowWrapper[1];
+        
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            // Create a temporary document with the replaced content for diff
+            String currentContent = document.getText();
+            String newContent = currentContent.substring(0, startOffset) + resultText + currentContent.substring(endOffset);
+            
+            // Use IntelliJ's diff tool
+            DiffManager diffManager = DiffManager.getInstance();
+            SimpleDiffRequest diffRequest = new SimpleDiffRequest("Code Completion", 
+                    DiffContentFactory.getInstance().create(currentContent),
+                    DiffContentFactory.getInstance().create(newContent),
+                    "Current Code", "Code With Replacement");
+            
+            // Setup hints for modal dialog with custom callback
+            DiffDialogHints hints = new DiffDialogHints(WindowWrapper.Mode.FRAME, editor.getComponent(), new Consumer<WindowWrapper>() {
+                @Override
+                public void consume(WindowWrapper wrapper) {
+                    windowWrapper[0] = wrapper;
+
+                }
+            }  );
+            // Show diff dialog
+            diffManager.showDiff(project, diffRequest, hints);
+            
+            // Create and show the apply changes dialog after the diff is shown
+            if (windowWrapper[0] != null && windowWrapper[0].getWindow() != null) {
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    try {
+                        // Add a listener to detect when the diff window is closed
+                        windowWrapper[0].getWindow().addWindowListener(new java.awt.event.WindowAdapter() {
+                            @Override
+                            public void windowClosed(java.awt.event.WindowEvent e) {
+                                // Ask user if they want to apply the changes
+                                int dialogResult = Messages.showYesNoDialog(
+                                        project,
+                                        "Do you want to apply these changes?",
+                                        "Apply Code Completion",
+                                        "Apply",
+                                        "Cancel",
+                                        Messages.getQuestionIcon()
+                                );
+                                
+                                if (dialogResult == Messages.YES) {
+                                    // Apply the changes if accepted
+                                    WriteCommandAction.runWriteCommandAction(project, () -> {
+                                        document.replaceString(startOffset, endOffset, resultText);
+                                    });
+                                    result[0] = true;
+                                } else {
+                                    result[0] = false;
+                                }
+                            }
+                        });
+                    } catch (Exception ex) {
+                        LOG.error("Error adding window listener", ex);
+                        // Fallback to standard dialog
+                        int dialogResult = Messages.showYesNoDialog(
+                                project,
+                                "Do you want to apply these changes?",
+                                "Apply Code Completion",
+                                "Apply",
+                                "Cancel",
+                                Messages.getQuestionIcon()
+                        );
+                        
+                        if (dialogResult == Messages.YES) {
+                            // Apply the changes if accepted
+                            WriteCommandAction.runWriteCommandAction(project, () -> {
+                                document.replaceString(startOffset, endOffset, resultText);
+                            });
+                            result[0] = true;
+                        } else {
+                            result[0] = false;
+                        }
+                    }
+                });
+            }
+        });
+        
+        return result[0];
     }
     
     /**

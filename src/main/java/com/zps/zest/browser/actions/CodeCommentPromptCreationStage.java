@@ -21,7 +21,7 @@ public class CodeCommentPromptCreationStage implements PipelineStage {
         // Get the analyzed class information from the context
         String className = context.getClassName();
         String selectedText = ReadAction.compute(()->context.getEditor().getSelectionModel().getSelectedText());
-
+        context.setSelectedText(selectedText);
         if (selectedText == null || selectedText.isEmpty()) {
             throw new PipelineExecutionException("No code selected for comment generation");
         }

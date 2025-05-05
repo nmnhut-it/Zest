@@ -15,7 +15,9 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.*;
+import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -90,7 +92,7 @@ public class GenerateCodeCommentsAction extends AnAction {
 
                     // Send the prompt to the chat box and submit
                     indicator.setText("Sending code comment request to chat box...");
-                    boolean success = sendPromptToChatBoxAndSubmit(project, prompt);
+                    boolean success = sendPromptToChatBoxAndSubmit(project, prompt, context);
                     if (!success) {
                         throw new PipelineExecutionException("Failed to send code comment request to chat box");
                     }
@@ -110,7 +112,7 @@ public class GenerateCodeCommentsAction extends AnAction {
     /**
      * Sends the generated prompt to the chat box, submits it, and activates the browser window.
      */
-    private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt) {
+    private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt, CodeContext context) {
         LOG.info("Sending generated code comment prompt to chat box and submitting");
 
         // Activate browser tool window and send prompt asynchronously
@@ -119,6 +121,7 @@ public class GenerateCodeCommentsAction extends AnAction {
             ApplicationManager.getApplication().invokeLater(()->{
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
+                    WebBrowserService.getInstance(project).executeJavaScript("window.__text_to_replace_ide___ = '" + StringEscapeUtils.escapeJavaScript(context.getSelectedText()) +"';");
                     ChatboxUtilities.sendTextAndSubmit(project, prompt, true);
                 });
             });

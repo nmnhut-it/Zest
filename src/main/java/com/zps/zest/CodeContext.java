@@ -24,6 +24,7 @@ public class CodeContext {
     private ConfigurationManager config;
     private boolean isMockitoPresent;
     private boolean useTestWrightModel = true;
+    private String selectedText;
 
     // Getters and setters
     public AnActionEvent getEvent() { return event; }
@@ -86,5 +87,13 @@ public class CodeContext {
 
     public void useTestWrightModel(boolean b) {
         this.useTestWrightModel = b;
+    }
+
+    public void setSelectedText(String selectedText) {
+        this.selectedText = selectedText;
+    }
+
+    public String getSelectedText(){
+        return  this.selectedText ;
     }
 }

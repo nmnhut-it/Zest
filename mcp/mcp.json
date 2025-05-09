@@ -1,27 +1,9 @@
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "C:\\Users\\LAP14364-local\\Documents\\claude-workspace",
-        "C:\\Users\\LAP14364-local\\IdeaProjects\\Zest",
-        "C:\\Users\\LAP14364-local\\Documents\\GitHub\\mcpo"
-      ]
-    },
-    "puppeteer": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-puppeteer"
-      ]
-    },
     "jetbrains": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "@jetbrains/mcp-proxy"
+        "./jetbrains-mcp-ported.js"
       ]
     }
   }

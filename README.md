@@ -1,16 +1,25 @@
+## Code của bạn có đang ...
+✅ Muốn unit test nhưng ngám ngẩm?
+✅ Ngập tràn // TODO nhưng ngập ngừng?
+✅ Thèm review nhưng ngại ngùng?
+ 
+## Bạn muốn dùng AI nhưng ... 
+✅ Mệt mỏi tab sang Chat Zingplay?
+✅ Tiếc nuối AI ở mạng trong?
+✅ Chán gõ prompt vì lặp đi lặp lại/? 
 
-## Bạn có đang...
+Đừng lo, đã có .. Zest. 
 
-✅ Mất nhiều giờ chỉ để viết unit test cho code của mình?  
-✅ Bị "ngập" trong danh sách các TODO mãi không hoàn thành?  
-✅ Cần một expert code review nhưng không muốn chờ đồng nghiệp?  
-✅ Muốn tạo Javadoc chuyên nghiệp mà không tốn công viết?
+**Zest** cho phép bạn sử dụng chat zingplay ngay trong IDE, tích hợp MCP server để AI đọc viết code, mang cả không gian AI về Intelij máy bạn. 
 
-Nếu bạn gật đầu với bất kỳ câu hỏi nào, **ZEST** chính là giải pháp bạn đang tìm kiếm.
+**Zest** giúp bạn tự collect context, implement TODOs, viết unit test tự động, soạn văn mẫu để review và thêm comment vào code của bạn, với so sáng before-after change, dễ dàng theo dõi.  
 
-**ZEST** là plugin trí tuệ nhân tạo được phát triển riêng cho IntelliJ IDEA, giúp bạn tự động hóa các nhiệm vụ tốn thời gian như tạo unit test, triển khai TODO và code review. Với ZEST, bạn sẽ tập trung vào phát triển các tính năng quan trọng, trong khi AI giải quyết phần còn lại.
 
-> *"Tôi đã giảm được một nửa thời gian viết test nhờ ZEST. Plugin đã giúp tôi tạo unit test cho những phương thức phức tạp với code coverage tốt."* - Kỹ sư phần mềm tại VNG
+Cài đặt MCP để  điều khiển intelij: cài plugin vào ./mcp-server-plugin.zip
+
+Tích hợp Zest với MCP:  
+
+> *"Tôi đã giảm được một nửa thời gian viết test nhờ ZEST. Plugin đã giúp tôi tạo unit test cho những phương thức phức tạp với code coverage tốt."*
 
 ---
 

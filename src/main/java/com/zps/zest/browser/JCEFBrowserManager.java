@@ -8,9 +8,12 @@ import com.intellij.ui.jcef.JBCefBrowser;
 import com.intellij.ui.jcef.JBCefBrowserBase;
 import com.intellij.ui.jcef.JBCefJSQuery;
 import com.zps.zest.ConfigurationManager;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
+import org.jetbrains.annotations.NotNull;
+import org.jsoup.internal.StringUtil;
 
 import javax.swing.*;
 
@@ -62,8 +65,8 @@ public class JCEFBrowserManager {
         }, browser.getCefBrowser());
 //        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
 
-        addNetworkMonitor();
-
+//        addNetworkMonitor();
+        addNetworkMonitorAndRequestModifier();
         // Load default URL
         String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
 
@@ -368,5 +371,248 @@ public class JCEFBrowserManager {
         }
     }
 
+    /**
+     * Adds a network monitor and request modifier for OpenWebUI customization
+     * with a fixed system prompt.
+     */
+    public void addNetworkMonitorAndRequestModifier() {
+        // Constant system prompt
+        final String SYSTEM_PROMPT = getSystemPrompt();
 
+        try {
+            // Ensure DevTools is enabled
+            DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
+
+            // Create a JavaScript function that will intercept and modify requests
+            String interceptorScript =
+                    "(function() {" + "\n" +
+                            "  // Store the original fetch function" + "\n" +
+                            "  const originalFetch = window.fetch;" + "\n" +
+                            "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
+                            "  " + "\n" +
+                            "  // Fixed system prompt" + "\n" +
+                            "  const SYSTEM_PROMPT = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';" + "\n" +
+                            "  " + "\n" +
+                            "  // Function to modify request body for OpenWebUI" + "\n" +
+                            "  function enhanceRequestBody(body) {" + "\n" +
+                            "    if (!body) return body;" + "\n" +
+                            "    " + "\n" +
+                            "    try {" + "\n" +
+                            "      const data = JSON.parse(body);" + "\n" +
+                            "      " + "\n" +
+                            "      // Check if this is a chat completion request" + "\n" +
+                            "      if (data.messages && Array.isArray(data.messages)) {" + "\n" +
+                            "        // Add system message if it doesn't exist" + "\n" +
+                            "        const hasSystemMsg = data.messages.some(msg => msg.role === 'system');" + "\n" +
+                            "        if (!hasSystemMsg) {" + "\n" +
+                            "          data.messages.unshift({" + "\n" +
+                            "            role: 'system'," + "\n" +
+                            "            content: SYSTEM_PROMPT\n" +
+                            "          });" + "\n" +
+                            "        }" + "\n" +
+                            "        " + "\n" +
+                            "        // You can add more customizations here if needed" + "\n" +
+                            "        // For example:" + "\n" +
+                            "        // data.temperature = 0.7;" + "\n" +
+                            "        // data.max_tokens = 2000;" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      // Handle knowledge collection integration if present" + "\n" +
+                            "      if (data.files && Array.isArray(data.files)) {" + "\n" +
+                            "        // Ensure any file-related parameters are properly set" + "\n" +
+                            "        console.log('Request includes files/collections');" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      return JSON.stringify(data);" + "\n" +
+                            "    } catch (e) {" + "\n" +
+                            "      console.error('Failed to modify request body:', e);" + "\n" +
+                            "      return body;" + "\n" +
+                            "    }" + "\n" +
+                            "  }" + "\n" +
+                            "  " + "\n" +
+                            "  // Override the fetch function to intercept and modify requests" + "\n" +
+                            "  window.fetch = function(input, init) {" + "\n" +
+                            "    // Clone the init object to avoid modifying the original" + "\n" +
+                            "    let newInit = init ? {...init} : {};" + "\n" +
+                            "    let url = input instanceof Request ? input.url : input;" + "\n" +
+                            "    " + "\n" +
+                            "    // Check if this is an API request to OpenWebUI" + "\n" +
+                            "    const isOpenWebUIAPI = typeof url === 'string' && " + "\n" +
+                            "      (url.includes('/api/chat/completions') || " + "\n" +
+                            "       url.includes('/api/conversation') || " + "\n" +
+                            "       url.includes('/v1/chat/completions'));" + "\n" +
+                            "       " + "\n" +
+                            "    if (isOpenWebUIAPI) {" + "\n" +
+                            "      console.log('Intercepting OpenWebUI API request:', url);" + "\n" +
+                            "      " + "\n" +
+                            "      // If there's a body in the request, modify it" + "\n" +
+                            "      if (newInit.body) {" + "\n" +
+                            "        const originalBody = newInit.body;" + "\n" +
+                            "        if (typeof originalBody === 'string') {" + "\n" +
+                            "          newInit.body = enhanceRequestBody(originalBody);" + "\n" +
+                            "          console.log('Modified string request body');" + "\n" +
+                            "        } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {" + "\n" +
+                            "          console.log('FormData or URLSearchParams body not modified');" + "\n" +
+                            "        } else if (originalBody instanceof Blob) {" + "\n" +
+                            "          // Handle Blob body (requires async processing)" + "\n" +
+                            "          return new Promise((resolve, reject) => {" + "\n" +
+                            "            const reader = new FileReader();" + "\n" +
+                            "            reader.onload = function() {" + "\n" +
+                            "              const bodyText = reader.result;" + "\n" +
+                            "              const modifiedBody = enhanceRequestBody(bodyText);" + "\n" +
+                            "              newInit.body = modifiedBody;" + "\n" +
+                            "              resolve(originalFetch(input, newInit)" + "\n" +
+                            "                .then(handleResponse));" + "\n" +
+                            "            };" + "\n" +
+                            "            reader.onerror = function() {" + "\n" +
+                            "              reject(reader.error);" + "\n" +
+                            "            };" + "\n" +
+                            "            reader.readAsText(originalBody);" + "\n" +
+                            "          });" + "\n" +
+                            "        }" + "\n" +
+                            "      } else if (input instanceof Request) {" + "\n" +
+                            "        // If input is a Request object with a body" + "\n" +
+                            "        return input.clone().text().then(body => {" + "\n" +
+                            "          const modifiedBody = enhanceRequestBody(body);" + "\n" +
+                            "          const newRequest = new Request(input, {" + "\n" +
+                            "            method: input.method," + "\n" +
+                            "            headers: input.headers," + "\n" +
+                            "            body: modifiedBody," + "\n" +
+                            "            mode: input.mode," + "\n" +
+                            "            credentials: input.credentials," + "\n" +
+                            "            cache: input.cache," + "\n" +
+                            "            redirect: input.redirect," + "\n" +
+                            "            referrer: input.referrer," + "\n" +
+                            "            integrity: input.integrity" + "\n" +
+                            "          });" + "\n" +
+                            "          return originalFetch(newRequest)" + "\n" +
+                            "            .then(handleResponse);" + "\n" +
+                            "        });" + "\n" +
+                            "      }" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Function to handle responses" + "\n" +
+                            "    function handleResponse(response) {" + "\n" +
+                            "      const responseClone = response.clone();" + "\n" +
+                            "      " + "\n" +
+                            "      if (responseClone.url && responseClone.url.includes('completed')) {" + "\n" +
+                            "        console.log('Detected network response with completed in URL:', responseClone.url);" + "\n" +
+                            "        " + "\n" +
+                            "        setTimeout(() => {" + "\n" +
+                            "          window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);" + "\n" +
+                            "          window.__text_to_replace_ide___ = null;" + "\n" +
+                            "          if (window.intellijBridge) {" + "\n" +
+                            "            intellijBridge.callIDE('contentUpdated', { url: window.location.href });" + "\n" +
+                            "          }" + "\n" +
+                            "        }, 1000);" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      return response;" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Continue with the original fetch" + "\n" +
+                            "    return originalFetch.apply(this, [input, newInit])" + "\n" +
+                            "      .then(handleResponse);" + "\n" +
+                            "  };" + "\n" +
+                            "  " + "\n" +
+                            "  // Function to find and click the Copy button (keeping your original code)" + "\n" +
+                            "  function findAndClickCopyButton() {" + "\n" +
+                            "    // Method 1: Find button elements with 'Copy' text" + "\n" +
+                            "    let buttons = Array.from(document.getElementsByTagName('button'));" + "\n" +
+                            "    let copyButton = buttons.find(button => {" + "\n" +
+                            "      return button.textContent.trim() === 'Copy' || " + "\n" +
+                            "             button.innerText.trim() === 'Copy' || " + "\n" +
+                            "             button.getAttribute('title') === 'Copy';" + "\n" +
+                            "    });" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 2: If not found, look for elements with class/ID containing 'copy'" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      const allElements = document.querySelectorAll('*');" + "\n" +
+                            "      for (const element of allElements) {" + "\n" +
+                            "        const classNames = element.className ? element.className.toString() : '';" + "\n" +
+                            "        const id = element.id || '';" + "\n" +
+                            "        if (classNames.toLowerCase().includes('copy') || id.toLowerCase().includes('copy')) {" + "\n" +
+                            "          copyButton = element;" + "\n" +
+                            "          break;" + "\n" +
+                            "        }" + "\n" +
+                            "      }" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 3: Look for elements with aria labels related to copying" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      copyButton = document.querySelector('[aria-label=\"Copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-action=\"copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-tooltip=\"Copy\"]');" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    if (copyButton && window.shouldAutomaticallyCopy) {" + "\n" +
+                            "      console.log('Found Copy button, clicking it');" + "\n" +
+                            "      window.focus(); document.body.focus();" + "\n" +
+                            "      copyButton.click(); window.shouldAutomaticallyCopy = false; " + "\n" +
+                            "      return 'Copy button clicked';" + "\n" +
+                            "    } else {" + "\n" +
+                            "      console.log('Copy button not found');" + "\n" +
+                            "      return 'Copy button not found';" + "\n" +
+                            "    }" + "\n" +
+                            "  }" + "\n" +
+                            "  " + "\n" +
+                            "  console.log('OpenWebUI request interceptor initialized with system prompt');" + "\n" +
+                            "})();";
+
+            // Add a load handler to inject our script when the page loads
+            browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+                @Override
+                public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
+                    // Inject our interceptor script
+                    browser.executeJavaScript(interceptorScript, frame.getURL(), 0);
+                    LOG.info("Injected request interceptor script with system prompt: " + SYSTEM_PROMPT);
+                }
+            }, browser.getCefBrowser());
+
+            LOG.info("Added network monitor and request modifier for OpenWebUI customization");
+
+        } catch (Exception e) {
+            LOG.error("Failed to add network monitor and request modifier", e);
+        }
+    }
+
+    private static @NotNull String getSystemPrompt() {
+return "You are an advanced problem-solving assistant with a multi-faceted cognitive framework. Your approach to addressing challenges mirrors the way skilled human experts think.\n" +
+        "\n" +
+        "CORE PROBLEM-SOLVING METHODOLOGY:\n" +
+        "\n" +
+        "1. MULTI-PERSPECTIVE ANALYSIS\n" +
+        "   - Begin by examining each problem from multiple angles\n" +
+        "   - Consider both stated requirements and unstated needs\n" +
+        "   - Balance immediate solutions with long-term implications\n" +
+        "   - Explore both practical constraints and theoretical ideals\n" +
+        "\n" +
+        "2. DECOMPOSITION AND INTEGRATION\n" +
+        "   - Break complex problems into fundamental components\n" +
+        "   - Identify patterns from your knowledge base and experiences\n" +
+        "   - Build solutions incrementally while maintaining holistic awareness\n" +
+        "   - Distinguish between core issues and symptoms\n" +
+        "\n" +
+        "3. ADAPTIVE METHODOLOGY\n" +
+        "   - Avoid rigid application of any single problem-solving framework\n" +
+        "   - Adjust your approach based on the specific context and constraints\n" +
+        "   - Remain flexible when new information emerges\n" +
+        "   - Recalibrate solutions based on feedback and changing requirements\n" +
+        "\n" +
+        "4. MENTAL MODELS APPLICATION\n" +
+        "   - Apply first principles thinking by breaking down to fundamental truths\n" +
+        "   - Use systems thinking to understand relationships and feedback loops\n" +
+        "   - Implement design thinking with empathy for end-user needs\n" +
+        "   - Employ scientific reasoning through hypothesis formation and testing\n" +
+        "\n" +
+        "5. PROACTIVE QUESTIONING\n" +
+        "   - Ask clarifying questions when requirements are ambiguous or incomplete\n" +
+        "   - Do not hesitate to request additional information needed for optimal solutions\n" +
+        "   - Use questions to validate your understanding before proceeding\n" +
+        "   - Frame questions to guide users toward considering important factors they may have overlooked\n" +
+        "\n" +
+        "In your responses, seamlessly integrate these approaches rather than mechanically working through them as steps. Your goal is to provide solutions that demonstrate a balance of creativity, pragmatism, and methodical reasoning. Prioritize clarity and effectiveness while avoiding unnecessary complexity.\n" +
+        "\n" +
+        "When solving problems, think step-by-step while maintaining awareness of the whole system. Consider multiple solutions, evaluate tradeoffs transparently, and explain your reasoning process to help users understand not just what to do, but why and how a solution works."    ;
+    }
 }

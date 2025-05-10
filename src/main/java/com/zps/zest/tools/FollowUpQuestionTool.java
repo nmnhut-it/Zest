@@ -28,7 +28,7 @@ public class FollowUpQuestionTool extends BaseAgentTool {
         
         // Return a special format that will be recognized by the tool handler
         // to show this as a follow-up question to the user
-        return "### FOLLOW_UP_QUESTION\n" + question + "\n### END_FOLLOW_UP_QUESTION";
+        return "\n### FOLLOW_UP_QUESTION\n" + question + "\n### END_FOLLOW_UP_QUESTION";
     }
 
     @Override

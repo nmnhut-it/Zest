@@ -51,10 +51,10 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <!-- Register the tool window factory -->
-<!--        <toolWindow id="AI Assistant"-->
-<!--                    anchor="right"-->
-<!--                    factoryClass="com.zps.zest.InteractiveAgentToolWindow"-->
-<!--                    icon="AllIcons.Nodes.Plugin"/>-->
+        <toolWindow id="AI Assistant"
+                    anchor="right"
+                    factoryClass="com.zps.zest.InteractiveAgentToolWindow"
+                    icon="AllIcons.Nodes.Plugin"/>
 
         <!-- Register the web browser tool window factory -->
         <toolWindow id="ZPS Chat"
@@ -93,14 +93,13 @@
                 description="Write tests by LLMs">
             <add-to-group group-id="GenerateGroup" anchor="first"/>
         </action>
+
         <action id="com.zps.zest.ImplementTodosAction"
                 class="com.zps.zest.ImplementTodosAction"
                 text="ZPS: Implement Your TODOs"
                 description="Implement TODOs in selected code using Ollama">
             <add-to-group group-id="GenerateGroup" anchor="first" />
         </action>
-
-
 
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
@@ -109,7 +108,10 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl F12"/>
         </action>
-
+            <action id="com.example.inlinediff.ShowInlineDiff" class="com.zps.zest.tools.diff.InlineEditorDiffAction">
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+                <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>
+            </action>
 <!--        <action id="Zest.ReloadWithCompatibility"-->
 <!--                class="com.zps.zest.browser.actions.ReloadWithCompatibilityAction"-->
 <!--                text="Reload ZPS Chat with Compatibility Mode"-->

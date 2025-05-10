@@ -9,15 +9,11 @@ import com.intellij.openapi.ui.Messages;
 import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.SocketTimeoutException;
+import java.net.URL;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 /**
  * Configuration manager for loading and accessing plugin settings.
@@ -59,6 +55,16 @@ public class ConfigurationManager {
     private boolean mcpEnabled = false;
 
     /**
+     * Private constructor to enforce singleton pattern per project.
+     *
+     * @param project The project to create a configuration manager for
+     */
+    private ConfigurationManager(Project project) {
+        this.project = project;
+        loadConfig();
+    }
+
+    /**
      * Gets or creates a ConfigurationManager instance for the specified project.
      *
      * @param project The project to get a configuration manager for
@@ -76,16 +82,6 @@ public class ConfigurationManager {
      */
     public static void disposeInstance(Project project) {
         INSTANCES.remove(project);
-    }
-
-    /**
-     * Private constructor to enforce singleton pattern per project.
-     *
-     * @param project The project to create a configuration manager for
-     */
-    private ConfigurationManager(Project project) {
-        this.project = project;
-        loadConfig();
     }
 
     public boolean isRagEnabled() {
@@ -142,7 +138,7 @@ public class ConfigurationManager {
         // Try to load from config file
         try {
             File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME);
-            if (!configFile.exists()){
+            if (!configFile.exists()) {
                 configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
             }
             if (configFile.exists()) {
@@ -229,7 +225,7 @@ public class ConfigurationManager {
      * @return The authentication token
      */
     private String promptForAuthToken(File configFile, String apiUrl) {
-        ApplicationManager.getApplication().invokeAndWait(()->{
+        ApplicationManager.getApplication().invokeAndWait(() -> {
             try {
                 // Prompt the user to enter an auth token
                 String authToken = Messages.showInputDialog(
@@ -394,16 +390,112 @@ public class ConfigurationManager {
     }
 
     // Getters
-    public String getApiUrl() { return apiUrl; }
-    public String getTestModel() { return testModel; }
-    public String getCodeModel() { return codeModel; }
-    public int getMaxIterations() { return maxIterations; }
-    public String getAuthToken() { return authToken; }
+    public String getApiUrl() {
+        return apiUrl;
+    }
 
     // Setters for additional configuration options
-    public void setApiUrl(String apiUrl) { this.apiUrl = apiUrl; }
-    public void setTestModel(String testModel) { this.testModel = testModel; }
-    public void setCodeModel(String codeModel) { this.codeModel = codeModel; }
-    public void setMaxIterations(int maxIterations) { this.maxIterations = maxIterations; }
-    public void setAuthToken(String authToken) { this.authToken = authToken; }
+    public void setApiUrl(String apiUrl) {
+        this.apiUrl = apiUrl;
+    }
+
+    public String getTestModel() {
+        return testModel;
+    }
+
+    public void setTestModel(String testModel) {
+        this.testModel = testModel;
+    }
+
+    public String getCodeModel() {
+        return codeModel;
+    }
+
+    public void setCodeModel(String codeModel) {
+        this.codeModel = codeModel;
+    }
+
+    public int getMaxIterations() {
+        return maxIterations;
+    }
+
+    public void setMaxIterations(int maxIterations) {
+        this.maxIterations = maxIterations;
+    }
+
+    public String getAuthToken() {
+        return authToken;
+    }
+
+    public void setAuthToken(String authToken) {
+        this.authToken = authToken;
+    }
+
+    public String getOpenWebUISystemPrompt() {
+        return "You are an assistant that verifies understanding before solving problems effectively.\n" +
+                "\n" +
+                "CORE APPROACH:\n" +
+                "\n" +
+                "1. VERIFY FIRST\n" +
+                "   - Always ask clarifying questions before tackling complex requests\n" +
+                "   - Confirm your understanding explicitly before proceeding\n" +
+                "\n" +
+                "2. SOLVE METHODICALLY\n" +
+                "   - Analyze problems from multiple perspectives\n" +
+                "   - Break down complex issues while maintaining holistic awareness\n" +
+                "   - Apply appropriate mental models (first principles, systems thinking)\n" +
+                "   - Balance creativity with pragmatism in solutions\n" +
+                "\n" +
+                "3. COMMUNICATE EFFECTIVELY\n" +
+                "   - Express ideas clearly and concisely\n" +
+                "   - Show empathy by tailoring responses to users' needs\n" +
+                "   - Explain reasoning to help users understand solutions\n" +
+                "\n" +
+                "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n";
+    }
+    public String getOpenWebUISystemPromptForCode() {
+      return "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers. Your approach combines technical expertise with human-like cognitive strategies.\n" +
+              "\n" +
+              "CORE CODING METHODOLOGY:\n" +
+              "\n" +
+              "1. REQUIREMENT ANALYSIS\n" +
+              "   - Begin by fully understanding the programming task and its context\n" +
+              "   - Identify explicit requirements and implicit constraints\n" +
+              "   - Consider performance needs, scalability concerns, and maintenance implications\n" +
+              "   - Ask clarifying questions when specifications are ambiguous or incomplete\n" +
+              "\n" +
+              "2. ARCHITECTURAL THINKING\n" +
+              "   - Break complex systems into logical components with clear responsibilities\n" +
+              "   - Consider appropriate design patterns and architectural approaches\n" +
+              "   - Balance immediate implementation with long-term maintainability\n" +
+              "   - Evaluate tradeoffs between different technical approaches transparently\n" +
+              "\n" +
+              "3. IMPLEMENTATION STRATEGY\n" +
+              "   - Start with simple working solutions before introducing complexity\n" +
+              "   - Apply appropriate algorithms and data structures based on problem characteristics\n" +
+              "   - Consider both time and space complexity in your solutions\n" +
+              "   - Write code that is readable, maintainable, and follows language conventions\n" +
+              "\n" +
+              "4. DEBUGGING MINDSET\n" +
+              "   - Approach errors systematically rather than through random changes\n" +
+              "   - Form and test hypotheses about the root causes of issues\n" +
+              "   - Suggest effective debugging strategies and techniques\n" +
+              "   - Look beyond symptoms to identify underlying problems\n" +
+              "\n" +
+              "5. CONTINUOUS IMPROVEMENT\n" +
+              "   - Identify opportunities for refactoring and optimization\n" +
+              "   - Suggest tests to verify correctness and prevent regressions\n" +
+              "   - Consider edge cases and potential failure modes\n" +
+              "   - Balance theoretical best practices with practical implementation\n" +
+              "\n" +
+              "6. KNOWLEDGE INTEGRATION\n" +
+              "   - Draw connections to relevant libraries, frameworks, and tools\n" +
+              "   - Recognize patterns across different programming domains\n" +
+              "   - Adapt solutions from one technology stack to another when appropriate\n" +
+              "   - Stay aware of language-specific idioms and best practices\n" +
+              "\n" +
+              "When helping users, feel free to ask questions to clarify requirements, challenge assumptions when beneficial, and explain your reasoning process. Think step-by-step while maintaining awareness of the entire system. Provide code examples that demonstrate concepts clearly, and explain not just what the code does but why specific approaches were chosen.\n" +
+              "\n" +
+              "Your goal is to empower users by combining practical solutions with knowledge transfer, helping them become better programmers through each interaction.";
+    }
 }

@@ -391,7 +391,7 @@ public class JCEFBrowserManager {
                             "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
                             "  " + "\n" +
                             "  // Fixed system prompt" + "\n" +
-                            "  const SYSTEM_PROMPT = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';" + "\n" +
+                        " window.__injected_system_prompt__ = '\"" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';"+
                             "  " + "\n" +
                             "  // Function to modify request body for OpenWebUI" + "\n" +
                             "  function enhanceRequestBody(body) {" + "\n" +
@@ -407,7 +407,7 @@ public class JCEFBrowserManager {
                             "        if (!hasSystemMsg) {" + "\n" +
                             "          data.messages.unshift({" + "\n" +
                             "            role: 'system'," + "\n" +
-                            "            content: SYSTEM_PROMPT\n" +
+                            "            content: window.__injected_system_prompt__\n" +
                             "          });" + "\n" +
                             "        }" + "\n" +
                             "        " + "\n" +
@@ -575,44 +575,7 @@ public class JCEFBrowserManager {
             LOG.error("Failed to add network monitor and request modifier", e);
         }
     }
-
-    private static @NotNull String getSystemPrompt() {
-return "You are an advanced problem-solving assistant with a multi-faceted cognitive framework. Your approach to addressing challenges mirrors the way skilled human experts think.\n" +
-        "\n" +
-        "CORE PROBLEM-SOLVING METHODOLOGY:\n" +
-        "\n" +
-        "1. MULTI-PERSPECTIVE ANALYSIS\n" +
-        "   - Begin by examining each problem from multiple angles\n" +
-        "   - Consider both stated requirements and unstated needs\n" +
-        "   - Balance immediate solutions with long-term implications\n" +
-        "   - Explore both practical constraints and theoretical ideals\n" +
-        "\n" +
-        "2. DECOMPOSITION AND INTEGRATION\n" +
-        "   - Break complex problems into fundamental components\n" +
-        "   - Identify patterns from your knowledge base and experiences\n" +
-        "   - Build solutions incrementally while maintaining holistic awareness\n" +
-        "   - Distinguish between core issues and symptoms\n" +
-        "\n" +
-        "3. ADAPTIVE METHODOLOGY\n" +
-        "   - Avoid rigid application of any single problem-solving framework\n" +
-        "   - Adjust your approach based on the specific context and constraints\n" +
-        "   - Remain flexible when new information emerges\n" +
-        "   - Recalibrate solutions based on feedback and changing requirements\n" +
-        "\n" +
-        "4. MENTAL MODELS APPLICATION\n" +
-        "   - Apply first principles thinking by breaking down to fundamental truths\n" +
-        "   - Use systems thinking to understand relationships and feedback loops\n" +
-        "   - Implement design thinking with empathy for end-user needs\n" +
-        "   - Employ scientific reasoning through hypothesis formation and testing\n" +
-        "\n" +
-        "5. PROACTIVE QUESTIONING\n" +
-        "   - Ask clarifying questions when requirements are ambiguous or incomplete\n" +
-        "   - Do not hesitate to request additional information needed for optimal solutions\n" +
-        "   - Use questions to validate your understanding before proceeding\n" +
-        "   - Frame questions to guide users toward considering important factors they may have overlooked\n" +
-        "\n" +
-        "In your responses, seamlessly integrate these approaches rather than mechanically working through them as steps. Your goal is to provide solutions that demonstrate a balance of creativity, pragmatism, and methodical reasoning. Prioritize clarity and effectiveness while avoiding unnecessary complexity.\n" +
-        "\n" +
-        "When solving problems, think step-by-step while maintaining awareness of the whole system. Consider multiple solutions, evaluate tradeoffs transparently, and explain your reasoning process to help users understand not just what to do, but why and how a solution works."    ;
+    private @NotNull String getSystemPrompt() {
+        return ConfigurationManager.getInstance(project).getOpenWebUISystemPrompt();
     }
 }

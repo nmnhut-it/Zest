@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
@@ -39,7 +40,7 @@ public class SendToChatBoxAndSubmitAction extends AnAction {
         LOG.info("Sending selected text to chat box and submitting using ChatboxUtilities");
 
         // Use the new utility method to send text and submit
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, selectedText, false);
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, selectedText, false,ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode());
         
         if (success) {
             LOG.info("Successfully sent text and clicked submit button");

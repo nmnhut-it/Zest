@@ -260,7 +260,7 @@ public class ChatboxUtilities {
      * @param text The text to be sent to the chat box
      * @return true if the operation was successful, false otherwise
      */
-    public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult) {
+    public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult, String systemPrompt) {
         if (project == null || text == null) {
             LOG.warn("Cannot send text and submit: Project or text is null");
             return false;
@@ -339,6 +339,7 @@ public class ChatboxUtilities {
                                 "}\n" +
                                 "\n" +
                                 "// Call the function with your message\n" +
+                                "window.__injected_system_prompt__ = '" + escapeJavaScriptString(systemPrompt) + "';\n" +
                                 "sendTextAndSubmit('" + escapedText + "');";
                 
                 browserService.executeJavaScript(script);

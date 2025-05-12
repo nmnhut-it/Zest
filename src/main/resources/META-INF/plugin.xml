@@ -108,10 +108,10 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl F12"/>
         </action>
-            <action id="com.example.inlinediff.ShowInlineDiff" class="com.zps.zest.tools.diff.InlineEditorDiffAction">
-                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-                <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>
-            </action>
+<!--            <action id="com.example.inlinediff.ShowInlineDiff" class="com.zps.zest.tools.diff.InlineEditorDiffAction">-->
+<!--                <add-to-group group-id="EditorPopupMenu" anchor="last"/>-->
+<!--                <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>-->
+<!--            </action>-->
 <!--        <action id="Zest.ReloadWithCompatibility"-->
 <!--                class="com.zps.zest.browser.actions.ReloadWithCompatibilityAction"-->
 <!--                text="Reload ZPS Chat with Compatibility Mode"-->

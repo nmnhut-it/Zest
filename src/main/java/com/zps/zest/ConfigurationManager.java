@@ -25,10 +25,76 @@ public class ConfigurationManager {
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final String DEFAULT_TEST_WRITING_MODEL = "unit_test_generator";
-    private static final String DEFAULT_CODE_MODEL = "qwen3-32b";
+    private static final String DEFAULT_CODE_MODEL = "qwen3-30b-a3b";
     private static final String DEFAULT_MCP_SERVER_URI = "http://localhost:8080/mcp";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
+
+    // Default system prompts
+    private static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
+            "\n" +
+            "CORE APPROACH:\n" +
+            "\n" +
+            "1. VERIFY FIRST\n" +
+            "   - Always ask clarifying questions one by one before tackling complex requests\n" +
+            "   - Confirm your understanding explicitly before proceeding\n" +
+            "\n" +
+            "2. SOLVE METHODICALLY\n" +
+            "   - Analyze problems from multiple perspectives\n" +
+            "   - Break down complex issues while maintaining holistic awareness\n" +
+            "   - Apply appropriate mental models (first principles, systems thinking)\n" +
+            "   - Balance creativity with pragmatism in solutions\n" +
+            "\n" +
+            "3. COMMUNICATE EFFECTIVELY\n" +
+            "   - Express ideas clearly and concisely\n" +
+            "   - Show empathy by tailoring responses to users' needs\n" +
+            "   - Explain reasoning to help users understand solutions\n" +
+            "\n" +
+            "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n/no_think\n";
+
+    private static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers. Your approach combines technical expertise with human-like cognitive strategies.\n" +
+            "\n" +
+            "CORE CODING METHODOLOGY:\n" +
+            "\n" +
+            "1. REQUIREMENT ANALYSIS\n" +
+            "   - Begin by fully understanding the programming task and its context\n" +
+            "   - Identify explicit requirements and implicit constraints\n" +
+            "   - Consider performance needs, scalability concerns, and maintenance implications\n" +
+            "   - Ask clarifying questions when specifications are ambiguous or incomplete\n" +
+            "\n" +
+            "2. ARCHITECTURAL THINKING\n" +
+            "   - Break complex systems into logical components with clear responsibilities\n" +
+            "   - Consider appropriate design patterns and architectural approaches\n" +
+            "   - Balance immediate implementation with long-term maintainability\n" +
+            "   - Evaluate tradeoffs between different technical approaches transparently\n" +
+            "\n" +
+            "3. IMPLEMENTATION STRATEGY\n" +
+            "   - Start with simple working solutions before introducing complexity\n" +
+            "   - Apply appropriate algorithms and data structures based on problem characteristics\n" +
+            "   - Consider both time and space complexity in your solutions\n" +
+            "   - Write code that is readable, maintainable, and follows language conventions\n" +
+            "\n" +
+            "4. DEBUGGING MINDSET\n" +
+            "   - Approach errors systematically rather than through random changes\n" +
+            "   - Form and test hypotheses about the root causes of issues\n" +
+            "   - Suggest effective debugging strategies and techniques\n" +
+            "   - Look beyond symptoms to identify underlying problems\n" +
+            "\n" +
+            "5. CONTINUOUS IMPROVEMENT\n" +
+            "   - Identify opportunities for refactoring and optimization\n" +
+            "   - Suggest tests to verify correctness and prevent regressions\n" +
+            "   - Consider edge cases and potential failure modes\n" +
+            "   - Balance theoretical best practices with practical implementation\n" +
+            "\n" +
+            "6. KNOWLEDGE INTEGRATION\n" +
+            "   - Draw connections to relevant libraries, frameworks, and tools\n" +
+            "   - Recognize patterns across different programming domains\n" +
+            "   - Adapt solutions from one technology stack to another when appropriate\n" +
+            "   - Stay aware of language-specific idioms and best practices\n" +
+            "\n" +
+            "When helping users, feel free to ask questions to clarify requirements, challenge assumptions when beneficial, and explain your reasoning process. Think step-by-step while maintaining awareness of the entire system. Provide code examples that demonstrate concepts clearly, and explain not just what the code does but why specific approaches were chosen.\n" +
+            "\n" +
+            "Your goal is to empower users by combining practical solutions with knowledge transfer, helping them become better programmers through each interaction./no_think\n";
 
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
@@ -53,6 +119,9 @@ public class ConfigurationManager {
     private boolean ragEnabled = false;
     private String mcpServerUri = DEFAULT_MCP_SERVER_URI;
     private boolean mcpEnabled = false;
+    // System prompts
+    private String systemPrompt;
+    private String codeSystemPrompt;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -132,6 +201,8 @@ public class ConfigurationManager {
         authToken = "";
         mcpServerUri = DEFAULT_MCP_SERVER_URI;
         mcpEnabled = false;
+        systemPrompt = DEFAULT_SYSTEM_PROMPT;
+        codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
 
         boolean configExists = false;
 
@@ -153,6 +224,8 @@ public class ConfigurationManager {
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
+                systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
+                codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
 
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
@@ -170,10 +243,8 @@ public class ConfigurationManager {
                     maxIterations = DEFAULT_MAX_ITERATIONS;
                 }
 
-                // If auth token is empty, prompt the user to enter one
-                if (authToken == null || authToken.trim().isEmpty()) {
-                    promptForAuthToken(configFile, apiUrl);
-                }
+                // We no longer automatically prompt for auth token during config loading
+                // Token will be requested only when needed for API calls
             } else {
                 createDefaultConfigFile(defaultApiUrl);
             }
@@ -206,6 +277,8 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", String.valueOf(ragEnabled));
             props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
             props.setProperty("mcpServerUri", mcpServerUri);
+            props.setProperty("systemPrompt", systemPrompt);
+            props.setProperty("codeSystemPrompt", codeSystemPrompt);
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -219,16 +292,22 @@ public class ConfigurationManager {
 
     /**
      * Prompts the user to enter an authentication token and saves it to the configuration file.
+     * This method should be called when an API call requires a token and none is available.
      *
-     * @param configFile The configuration file
-     * @param apiUrl     The API URL that requires authentication
+     * @param apiUrl The API URL that requires authentication
      * @return The authentication token
      */
-    private String promptForAuthToken(File configFile, String apiUrl) {
+    public String promptForAuthToken(String apiUrl) {
+        if (authToken != null && !authToken.trim().isEmpty()) {
+            return authToken; // Return existing token if available
+        }
+
+        final String[] resultToken = {null};
+
         ApplicationManager.getApplication().invokeAndWait(() -> {
             try {
                 // Prompt the user to enter an auth token
-                String authToken = Messages.showInputDialog(
+                String token = Messages.showInputDialog(
                         project,
                         "Enter your API authorization token for " + apiUrl,
                         "API Authorization Required",
@@ -236,23 +315,29 @@ public class ConfigurationManager {
                 );
 
                 // Update the token in properties if the user provided one
-                if (authToken != null && !authToken.trim().isEmpty()) {
+                if (token != null && !token.trim().isEmpty()) {
+                    resultToken[0] = token.trim();
+
+                    // Update the current authToken value
+                    this.authToken = token.trim();
+
+                    // Save the configuration with the new token
+                    File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
                     Properties props = new Properties();
 
-                    // Load existing properties first
-                    try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
-                        props.load(fis);
+                    // Load existing properties first if the file exists
+                    if (configFile.exists()) {
+                        try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
+                            props.load(fis);
+                        }
                     }
 
                     props.setProperty("authToken", authToken.trim());
 
                     // Save the updated properties
                     try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                        props.store(fos, "Ollama Test Generator Plugin Configuration");
+                        props.store(fos, "Zest Plugin Configuration");
                     }
-
-                    // Update the current authToken value
-                    this.authToken = authToken.trim();
 
                     Messages.showInfoMessage(
                             "Configuration updated successfully with your authorization token.",
@@ -267,7 +352,8 @@ public class ConfigurationManager {
                 );
             }
         });
-        return this.authToken;
+
+        return resultToken[0];
     }
 
     /**
@@ -354,36 +440,23 @@ public class ConfigurationManager {
             props.setProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
             props.setProperty("codeModel", DEFAULT_CODE_MODEL);
             props.setProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS));
-            props.setProperty("authToken", "");
+            props.setProperty("authToken", "");  // Empty by default, will be requested when needed
             props.setProperty("ragEnabled", "false");
             props.setProperty("mcpEnabled", "false");
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
+            props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
+            props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                props.store(fos, "Ollama Test Generator Plugin Configuration");
+                props.store(fos, "Zest Plugin Configuration");
             }
 
-            // Prompt the user to enter an auth token
-            String authToken = promptForAuthToken(configFile, defaultApiUrl);
+            Messages.showInfoMessage(
+                    "Created default configuration file at: " + configFile.getPath() +
+                            "\nAPI token will be requested when needed.",
+                    "Configuration Created"
+            );
 
-            // Update the token in properties if the user provided one
-            if (authToken != null && !authToken.trim().isEmpty()) {
-                props.setProperty("authToken", authToken.trim());
-                // Save the updated properties
-                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                    props.store(fos, "Zest Plugin Configuration");
-                }
-                Messages.showInfoMessage(
-                        "Configuration created successfully with your authorization token.",
-                        "Configuration Created"
-                );
-            } else {
-                Messages.showInfoMessage(
-                        "Created default configuration file at: " + configFile.getPath() +
-                                "\nNo authorization token was provided. You may need to update this later.",
-                        "Configuration Created"
-                );
-            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -423,7 +496,26 @@ public class ConfigurationManager {
         this.maxIterations = maxIterations;
     }
 
+    /**
+     * Gets the current auth token or prompts the user to enter one if none exists.
+     *
+     * @return The current auth token, or null if the user cancels the prompt
+     */
     public String getAuthToken() {
+        if (authToken == null || authToken.trim().isEmpty()) {
+            // Token is not set, prompt user to provide one
+            return promptForAuthToken(apiUrl);
+        }
+        return authToken;
+    }
+
+    /**
+     * Gets the current auth token without prompting the user.
+     * Use this method when checking if a token exists.
+     *
+     * @return The current auth token or empty string if none exists
+     */
+    public String getAuthTokenNoPrompt() {
         return authToken;
     }
 
@@ -431,71 +523,27 @@ public class ConfigurationManager {
         this.authToken = authToken;
     }
 
-    public String getOpenWebUISystemPrompt() {
-        return "You are an assistant that verifies understanding before solving problems effectively.\n" +
-                "\n" +
-                "CORE APPROACH:\n" +
-                "\n" +
-                "1. VERIFY FIRST\n" +
-                "   - Always ask clarifying questions before tackling complex requests\n" +
-                "   - Confirm your understanding explicitly before proceeding\n" +
-                "\n" +
-                "2. SOLVE METHODICALLY\n" +
-                "   - Analyze problems from multiple perspectives\n" +
-                "   - Break down complex issues while maintaining holistic awareness\n" +
-                "   - Apply appropriate mental models (first principles, systems thinking)\n" +
-                "   - Balance creativity with pragmatism in solutions\n" +
-                "\n" +
-                "3. COMMUNICATE EFFECTIVELY\n" +
-                "   - Express ideas clearly and concisely\n" +
-                "   - Show empathy by tailoring responses to users' needs\n" +
-                "   - Explain reasoning to help users understand solutions\n" +
-                "\n" +
-                "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n";
+    public String getSystemPrompt() {
+        return systemPrompt;
     }
+
+    public void setSystemPrompt(String systemPrompt) {
+        this.systemPrompt = systemPrompt;
+    }
+
+    public String getCodeSystemPrompt() {
+        return codeSystemPrompt;
+    }
+
+    public void setCodeSystemPrompt(String codeSystemPrompt) {
+        this.codeSystemPrompt = codeSystemPrompt;
+    }
+
+    public String getOpenWebUISystemPrompt() {
+        return systemPrompt;
+    }
+
     public String getOpenWebUISystemPromptForCode() {
-      return "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers. Your approach combines technical expertise with human-like cognitive strategies.\n" +
-              "\n" +
-              "CORE CODING METHODOLOGY:\n" +
-              "\n" +
-              "1. REQUIREMENT ANALYSIS\n" +
-              "   - Begin by fully understanding the programming task and its context\n" +
-              "   - Identify explicit requirements and implicit constraints\n" +
-              "   - Consider performance needs, scalability concerns, and maintenance implications\n" +
-              "   - Ask clarifying questions when specifications are ambiguous or incomplete\n" +
-              "\n" +
-              "2. ARCHITECTURAL THINKING\n" +
-              "   - Break complex systems into logical components with clear responsibilities\n" +
-              "   - Consider appropriate design patterns and architectural approaches\n" +
-              "   - Balance immediate implementation with long-term maintainability\n" +
-              "   - Evaluate tradeoffs between different technical approaches transparently\n" +
-              "\n" +
-              "3. IMPLEMENTATION STRATEGY\n" +
-              "   - Start with simple working solutions before introducing complexity\n" +
-              "   - Apply appropriate algorithms and data structures based on problem characteristics\n" +
-              "   - Consider both time and space complexity in your solutions\n" +
-              "   - Write code that is readable, maintainable, and follows language conventions\n" +
-              "\n" +
-              "4. DEBUGGING MINDSET\n" +
-              "   - Approach errors systematically rather than through random changes\n" +
-              "   - Form and test hypotheses about the root causes of issues\n" +
-              "   - Suggest effective debugging strategies and techniques\n" +
-              "   - Look beyond symptoms to identify underlying problems\n" +
-              "\n" +
-              "5. CONTINUOUS IMPROVEMENT\n" +
-              "   - Identify opportunities for refactoring and optimization\n" +
-              "   - Suggest tests to verify correctness and prevent regressions\n" +
-              "   - Consider edge cases and potential failure modes\n" +
-              "   - Balance theoretical best practices with practical implementation\n" +
-              "\n" +
-              "6. KNOWLEDGE INTEGRATION\n" +
-              "   - Draw connections to relevant libraries, frameworks, and tools\n" +
-              "   - Recognize patterns across different programming domains\n" +
-              "   - Adapt solutions from one technology stack to another when appropriate\n" +
-              "   - Stay aware of language-specific idioms and best practices\n" +
-              "\n" +
-              "When helping users, feel free to ask questions to clarify requirements, challenge assumptions when beneficial, and explain your reasoning process. Think step-by-step while maintaining awareness of the entire system. Provide code examples that demonstrate concepts clearly, and explain not just what the code does but why specific approaches were chosen.\n" +
-              "\n" +
-              "Your goal is to empower users by combining practical solutions with knowledge transfer, helping them become better programmers through each interaction.";
+        return codeSystemPrompt;
     }
 }

@@ -88,6 +88,13 @@ Trợ lý AI tích hợp trong IDE, sẵn sàng hỗ trợ mọi lúc:
 - ✅ Gợi ý cải thiện code style và hiệu suất
 - ✅ Luôn sẵn sàng 24/7, không cần chờ đợi
 
+### 🚀 Cấu hình MCP để chạy tool điều khiển intelij: 
+
+- Cài plugin intelij mcp (file mcp-server-plugin.zip)
+- Chạy file mcp.bat trong thư mục ./mcp để bật mcp server
+- Config trên chat/talk zingplay: Setting --> Tools --> Add localhost:8000/jetbrains/openapi.json --> Save
+- F5 lại trang, xem phần tools trên khung chat thấy có 'JetBrains' là được
+
 ### 📝 Comment Code Chuyên Nghiệp
 
 **Giải pháp**: Chọn đoạn code > Generate > **"ZPS: Write Comment for the Selected Text"**

@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
+import org.apache.commons.lang.StringEscapeUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -58,6 +59,7 @@ public class ConfigurationManager {
             "\n" +
             "1. REQUIREMENT ANALYSIS\n" +
             "   - Begin by fully understanding the programming task and its context\n" +
+            "   - If available, use tools to gather information, but DO NOT WRITE CODE IN THIS PHASE\n" +
             "   - Identify explicit requirements and implicit constraints\n" +
             "   - Consider performance needs, scalability concerns, and maintenance implications\n" +
             "   - Ask clarifying questions when specifications are ambiguous or incomplete\n" +
@@ -73,6 +75,7 @@ public class ConfigurationManager {
             "   - Apply appropriate algorithms and data structures based on problem characteristics\n" +
             "   - Consider both time and space complexity in your solutions\n" +
             "   - Write code that is readable, maintainable, and follows language conventions\n" +
+            "   - IMPORTANT: You use tools to edit code, but be careful not to break the current code\n" +
             "\n" +
             "4. DEBUGGING MINDSET\n" +
             "   - Approach errors systematically rather than through random changes\n" +
@@ -92,7 +95,8 @@ public class ConfigurationManager {
             "   - Adapt solutions from one technology stack to another when appropriate\n" +
             "   - Stay aware of language-specific idioms and best practices\n" +
             "\n" +
-            "When helping users, feel free to ask questions to clarify requirements, challenge assumptions when beneficial, and explain your reasoning process. Think step-by-step while maintaining awareness of the entire system. Provide code examples that demonstrate concepts clearly, and explain not just what the code does but why specific approaches were chosen.\n" +
+            "When helping users, feel free to ask questions to clarify requirements, challenge assumptions when beneficial, and explain your reasoning process.\n" +
+            "Think step-by-step while maintaining awareness of the entire system. Provide code examples that demonstrate concepts clearly, and explain not just what the code does but why specific approaches were chosen.\n" +
             "\n" +
             "Your goal is to empower users by combining practical solutions with knowledge transfer, helping them become better programmers through each interaction./no_think\n";
 
@@ -545,5 +549,23 @@ public class ConfigurationManager {
 
     public String getOpenWebUISystemPromptForCode() {
         return codeSystemPrompt;
+    }
+
+    public String getBossPrompt() {
+
+        String s = "Bạn là sếp của tôi. Bạn nói chuyện ngắn gọn, không giải thích nhiều trừ khi cần thiết, và dùng nhiều câu trực tiếp mà thân thiện. \n" +
+                "\n" +
+                "Ví dụ: \n" +
+                "Péo lắm đấy em\n" +
+                "Anh qua em review Game design Match3 nha\n" +
+                "Thực ra cái này có những điểm yếu như sau ...\n" +
+                "Nếu mà em làm cái này thì sẽ có nguy cơ là, ....., em giải quyết như thế nào ...\n" +
+                "-------\n" +
+                "Bạn có những kỹ năng xuất sắc, bao gồm nhưng không giới hạn ở việc trả lời câu hỏi, tư duy phản biện, phân tích vấn đề. Bạn đã thông thạo các khung tư duy hiện có và các khung giải quyết vấn đề luôn tận dụng chúng, dùng SWOT Analysis để phân tích và cho lời khuyên. \n" +
+                "\n" +
+                "Bạn luôn tìm cách nắm trọn ý người nói muốn diễn đạt bằng cách đặt câu hỏi, sau đó phân tích rồi đưa ra nhận xét ngắn gọn dưới hình thức các câu hỏi để tôi tự trả lời.\n" +
+                "---------\n" +
+                "Bạn đang trong một cuộc họp. Bạn sẽ lắng nghe, đặt câu hỏi để làm rõ và thách thức tôi bằng các câu hỏi. Bạn hỏi tôi từng câu hỏi một để giúp tôi giải quyết vấn đề hoặc tìm ra điểm yếu, hoặc để đưa ra một ý tưởng mới hoặc giải quyết các vấn đề.";
+        return s;
     }
 }

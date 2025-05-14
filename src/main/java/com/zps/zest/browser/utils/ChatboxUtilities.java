@@ -209,6 +209,7 @@ public class ChatboxUtilities {
         WebBrowserToolWindow.resetPageLoadState(project, currentUrl);
         AtomicBoolean success = new AtomicBoolean(false);
         browserPanel.getComponent().requestFocus();
+        text = StringEscapeUtils.escapeHtml(text);
         text = text.replace("\r\n","<br>");
         text = text.replace("\n","<br>");
         text = text.replace("<br>","<br>\n");

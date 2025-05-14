@@ -1,6 +1,5 @@
 package com.zps.zest.browser.utils;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.WebBrowserPanel;
@@ -103,81 +102,7 @@ public class ChatboxUtilities {
         
         return true; // Return optimistically since we're now async
     }
-    
-    /**
-     * Clicks the send button to submit the message, ensuring the page is fully loaded first.
-     * 
-     * @param project The current project
-     * @return true if the operation was successful, false otherwise
-     */
-    public static boolean clickSendButton(Project project) {
-        if (project == null) {
-            LOG.warn("Cannot click send button: Project is null");
-            return false;
-        }
-        
-        WebBrowserService browserService = WebBrowserService.getInstance(project);
-        if (browserService == null) {
-            LOG.warn("Cannot click send button: Browser service is null");
-            return false;
-        }
-        
-        // Get the current URL to check if page is loaded
-        WebBrowserPanel browserPanel = browserService.getBrowserPanel();
-        if (browserPanel == null) {
-            LOG.warn("Cannot click send button: Browser panel is null");
-            return false;
-        }
-        
-        String currentUrl = browserPanel.getCurrentUrl();
-        AtomicBoolean success = new AtomicBoolean(false);
-        
-        // Wait for page to load before clicking send button
-        waitForPageToLoad(project, currentUrl).thenAccept(loaded -> {
-            if (loaded) {
-                LOG.info("Page loaded, clicking send button");
-                String script =
-                        "function clickSendButton() {\n" +
-                                "  try {\n" +
-                                "    const sendButton = document.getElementById('send-message-button');\n" +
-                                "    if (!sendButton) {\n" +
-                                "      console.error('Send button element not found');\n" +
-                                "      return false;\n" +
-                                "    }\n" +
-                                "    \n" +
-                                "    // Check if button is disabled\n" +
-                                "    if (sendButton.disabled) {\n" +
-                                "      console.error('Send button is disabled');\n" +
-                                "      return false;\n" +
-                                "    }\n" +
-                                "    \n" +
-                                "    // Click the button\n" +
-                                "    sendButton.click();\n" +
-                                "    \n" +
-                                "    console.log('Send button clicked successfully');\n" +
-                                "    return true;\n" +
-                                "  } catch (error) {\n" +
-                                "    console.error('Error clicking send button:', error);\n" +
-                                "    return false;\n" +
-                                "  }\n" +
-                                "}\n" +
-                                "\n" +
-                                "// Call the function\n" +
-                                "clickSendButton();";
-                browserService.executeJavaScript(script);
-                success.set(true);
-            } else {
-                LOG.warn("Page did not load within timeout, send button not clicked");
-                success.set(false);
-            }
-        }).exceptionally(ex -> {
-            LOG.error("Error waiting for page to load: " + ex.getMessage(), ex);
-            success.set(false);
-            return null;
-        });
-        
-        return true; // Return optimistically since we're now async
-    }
+
     /**
      * Clicks the "New Chat" button in the browser, ensuring the page is fully loaded first.
      *
@@ -283,12 +208,14 @@ public class ChatboxUtilities {
         WebBrowserToolWindow.resetPageLoadState(project, currentUrl);
         AtomicBoolean success = new AtomicBoolean(false);
         browserPanel.getComponent().requestFocus();
-
+        text = text.replace("\r\n","<br>");
+        text = text.replace("\n","<br>");
         // Wait for page to load before sending text and clicking submit
+        String finalText = text;
         waitForPageToLoad(project, currentUrl).thenAccept(loaded -> {
             if (loaded) {
                 LOG.info("Page loaded, sending text and submitting");
-                String escapedText = escapeJavaScriptString(text);
+                String escapedText = escapeJavaScriptString(finalText);
 
                 // Create a comprehensive script that handles both operations with proper timing
                 String script =

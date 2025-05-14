@@ -108,6 +108,7 @@ public class PromptBuilderForAgent {
         prompt.append("Remember, your primary advantage is your ability to use tools to examine and modify code directly in the IDE.\n");
         prompt.append("</s>\n\n");
     }
+
     private void addToolDocumentation(StringBuilder prompt) {
         prompt.append("# AVAILABLE TOOLS\n\n");
         prompt.append("You have access to the following tools. Use these tools strategically to gather context and modify code. DO NOT USE MORE THAN ONE TOOL AT A TIME.\n\n");

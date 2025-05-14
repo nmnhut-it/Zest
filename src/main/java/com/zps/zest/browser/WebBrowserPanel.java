@@ -7,13 +7,20 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
+import com.zps.zest.ClassAnalyzer;
 import com.zps.zest.ConfigurationManager;
+import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * Panel containing the web browser and navigation controls.
@@ -21,11 +28,46 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class WebBrowserPanel {
     private static final Logger LOG = Logger.getInstance(WebBrowserPanel.class);
 
+    /**
+     * Simple class representing a browser mode.
+     */
+    private static class BrowserMode {
+        private final String name;
+        private final Icon icon;
+        private final String tooltip;
+        private final Function<Project, String> promptProvider;
+
+        public BrowserMode(String name, Icon icon, String tooltip, Function<Project, String> promptProvider) {
+            this.name = name;
+            this.icon = icon;
+            this.tooltip = tooltip;
+            this.promptProvider = promptProvider;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public Icon getIcon() {
+            return icon;
+        }
+
+        public String getTooltip() {
+            return tooltip;
+        }
+
+        public String getPrompt(Project project) {
+            return promptProvider != null ? promptProvider.apply(project) : null;
+        }
+    }
+
     private final Project project;
     private final JPanel mainPanel;
     private final JCEFBrowserManager browserManager;
     private final JBTextField urlField;
-    AtomicBoolean _lightBulbState = new AtomicBoolean();
+    private final JButton modeButton;
+    private final List<BrowserMode> browserModes = new ArrayList<>();
+    private BrowserMode currentMode;
 
     /**
      * Creates a new web browser panel.
@@ -37,6 +79,9 @@ public class WebBrowserPanel {
         // Create browser manager
         this.browserManager = new JCEFBrowserManager(project);
 
+        // Initialize browser modes
+        initBrowserModes();
+
         // Create navigation panel
         JPanel navigationPanel = createNavigationPanel();
         navigationPanel.setName("navigationPanel");
@@ -45,11 +90,56 @@ public class WebBrowserPanel {
         // Add browser component
         mainPanel.add(browserManager.getComponent(), BorderLayout.CENTER);
 
-        // Get URL field reference
+        // Get UI references
         this.urlField = (JBTextField) navigationPanel.getComponent(1);
+        this.modeButton = (JButton) ((JPanel) navigationPanel.getComponent(0)).getComponent(1);
 
-        // Initialize JavaScript bridge
-//        initJavaScriptBridge();
+        // Set default mode
+        setMode(browserModes.get(0));
+
+        browserManager.getBrowser().getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+            @Override
+            public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
+                setMode(currentMode);
+            }
+        }, browserManager.getBrowser().getCefBrowser());
+    }
+
+    /**
+     * Initialize available browser modes.
+     */
+    private void initBrowserModes() {
+        // Add Neutral Mode
+        browserModes.add(new BrowserMode(
+                "Neutral Mode",
+                AllIcons.General.Reset,
+                "No system prompt",
+                null
+        ));
+
+        // Add Dev Mode
+        browserModes.add(new BrowserMode(
+                "Dev Mode",
+                AllIcons.Actions.Run_anything,
+                "It's like you have a developer behind your back",
+                p -> ConfigurationManager.getInstance(p).getOpenWebUISystemPrompt()
+        ));
+
+        // Add Advice Mode
+        browserModes.add(new BrowserMode(
+                "Advice Mode",
+                AllIcons.Actions.IntentionBulb,
+                "It's like you have boss behind your back",
+                p -> ConfigurationManager.getInstance(p).getBossPrompt()
+        ));
+
+        // Add Advice Mode
+        browserModes.add(new BrowserMode(
+                "Agent Mode",
+                AllIcons.Actions.BuildAutoReloadChanges,
+                "It's like you have a software assembly line behind your back",
+                p -> new OpenWebUIPromptBuilder(project).buildPrompt()
+        ));
     }
 
     /**
@@ -62,56 +152,29 @@ public class WebBrowserPanel {
         // Create navigation buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 
-//        JButton backButton = new JButton(AllIcons.Actions.Back);
-//        backButton.setToolTipText("Back");
-//        backButton.addActionListener(e -> browserManager.goBack());
-//
-//        JButton forwardButton = new JButton(AllIcons.Actions.Forward);
-//        forwardButton.setToolTipText("Forward");
-//        forwardButton.addActionListener(e -> browserManager.goForward());
-
         JButton refreshButton = new JButton(AllIcons.Actions.Refresh);
         refreshButton.setToolTipText("Refresh");
         refreshButton.addActionListener(e -> browserManager.refresh());
 
-//        buttonPanel.add(backButton);
-//        buttonPanel.add(forwardButton);
-
         buttonPanel.add(refreshButton);
-        JButton modeButton = new JButton("Dev Mode");
-        modeButton.setIcon(AllIcons.Actions.Run_anything);
+
+        // Mode selection button
+        JButton modeButton = new JButton("Mode");
         modeButton.setToolTipText("Select mode");
 
         JPopupMenu modeMenu = new JPopupMenu();
-        JMenuItem devModeItem = new JMenuItem("Dev Mode", AllIcons.Actions.Run_anything);
-        JMenuItem adviceModeItem = new JMenuItem("Advice Mode", AllIcons.Actions.IntentionBulb);
 
-        devModeItem.addActionListener(e -> {
-            String prompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPrompt();
-            _lightBulbState.set(false);
-            modeButton.setText("Dev Mode");
-            modeButton.setIcon(AllIcons.Actions.Run_anything);
-            browserManager.executeJavaScript("window.__injected_system_prompt__ = '" +
-                    StringUtil.escapeStringCharacters(prompt) + "';");
-        });
-
-        adviceModeItem.addActionListener(e -> {
-            String prompt = ConfigurationManager.getInstance(project).getBossPrompt();
-            _lightBulbState.set(true);
-            modeButton.setText("Advice Mode");
-            modeButton.setIcon(AllIcons.Actions.IntentionBulb);
-            browserManager.executeJavaScript("window.__injected_system_prompt__ = '" +
-                    StringUtil.escapeStringCharacters(prompt) + "';");
-        });
-
-        modeMenu.add(devModeItem);
-        modeMenu.add(adviceModeItem);
+        // Add menu items for each browser mode
+        for (BrowserMode mode : browserModes) {
+            addModePopupItem(modeMenu, mode);
+        }
 
         modeButton.addActionListener(e -> {
             modeMenu.show(modeButton, 0, modeButton.getHeight());
         });
 
         buttonPanel.add(modeButton);
+
         // Create URL field
         JBTextField urlField = new JBTextField();
         urlField.addActionListener(e -> loadUrl(urlField.getText()));
@@ -128,6 +191,24 @@ public class WebBrowserPanel {
         panel.add(urlField, BorderLayout.CENTER);
 
         return panel;
+    }
+
+    /**
+     * Sets the active browser mode.
+     */
+    private void setMode(BrowserMode mode) {
+        this.currentMode = mode;
+        modeButton.setText(mode.getName());
+        modeButton.setIcon(mode.getIcon());
+        modeButton.setToolTipText(mode.getTooltip());
+
+        String prompt = mode.getPrompt(project);
+        if (prompt != null) {
+            browserManager.executeJavaScript("window.__injected_system_prompt__ = '" +
+                    StringUtil.escapeStringCharacters(prompt) + "';\nwindow.__zest_mode__ = '"  + mode.name + "';");
+        } else {
+            browserManager.executeJavaScript("window.__injected_system_prompt__ = null;\nwindow.__zest_mode__ = '"  + mode.name + "';");
+        }
     }
 
     /**
@@ -168,7 +249,6 @@ public class WebBrowserPanel {
         return browserManager.getBrowser().getCefBrowser().getURL();
     }
 
-
     /**
      * Toggles the visibility of the developer tools.
      *
@@ -179,15 +259,6 @@ public class WebBrowserPanel {
     }
 
     /**
-     * Checks if developer tools are currently visible.
-     *
-     * @return true if developer tools are visible, false otherwise
-     */
-//    public boolean isDevToolsVisible() {
-//        return browserManager.isDevToolsVisible();
-//    }
-
-    /**
      * Gets the component for this panel.
      */
     public JComponent getComponent() {
@@ -196,5 +267,26 @@ public class WebBrowserPanel {
 
     public JCEFBrowserManager getBrowserManager() {
         return browserManager;
+    }
+
+    /**
+     * Adds a new browser mode.
+     *
+     * @param name           The name of the mode
+     * @param icon           The icon for the mode
+     * @param tooltip        The tooltip text
+     * @param promptProvider Function that provides the system prompt
+     */
+    public void addBrowserMode(String name, Icon icon, String tooltip, Function<Project, String> promptProvider, JPopupMenu modeMenu) {
+        BrowserMode newMode = new BrowserMode(name, icon, tooltip, promptProvider);
+        browserModes.add(newMode);
+
+        addModePopupItem(modeMenu, newMode);
+    }
+
+    private void addModePopupItem(JPopupMenu modeMenu, BrowserMode newMode) {
+        JMenuItem modeItem = new JMenuItem(newMode.getName(), newMode.getIcon());
+        modeItem.addActionListener(e -> setMode(newMode));
+        modeMenu.add(modeItem);
     }
 }

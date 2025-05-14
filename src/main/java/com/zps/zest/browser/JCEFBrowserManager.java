@@ -1,12 +1,15 @@
 package com.zps.zest.browser;
 
+import com.intellij.debugger.actions.ArrayFilterAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.ui.jcef.JBCefApp;
-import com.intellij.ui.jcef.JBCefBrowser;
-import com.intellij.ui.jcef.JBCefBrowserBase;
-import com.intellij.ui.jcef.JBCefJSQuery;
+import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
@@ -49,7 +52,7 @@ public class JCEFBrowserManager {
         }
 
         // Create browser with default settings
-        browser = new JBCefBrowser();
+        browser = new JBCefBrowserBuilder().setOffScreenRendering(true).build();
         browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
 
         // Create JavaScript bridge
@@ -375,14 +378,22 @@ public class JCEFBrowserManager {
      * Adds a network monitor and request modifier for OpenWebUI customization
      * with a fixed system prompt.
      */
-    public void addNetworkMonitorAndRequestModifier() {
+    public void _addNetworkMonitorAndRequestModifier() {
         // Constant system prompt
         final String SYSTEM_PROMPT = getSystemPrompt();
 
         try {
             // Ensure DevTools is enabled
             DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
-
+            String projectName = project.getName();
+            String projectFilePath = project.getProjectFilePath();
+            Editor editor = project.getComponent(Editor.class);
+            String currentOpenFile = "";
+            if (editor != null){
+                if (editor.getVirtualFile() != null) {
+                    currentOpenFile = editor.getVirtualFile().getPath();
+                }
+            }
             // Create a JavaScript function that will intercept and modify requests
             String interceptorScript =
                     "(function() {" + "\n" +
@@ -391,8 +402,8 @@ public class JCEFBrowserManager {
                             "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
                             "  " + "\n" +
                             "  // Fixed system prompt" + "\n" +
-                        " window.__injected_system_prompt__ = '\"" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';"+
-                            "  " + "\n" +
+                        " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n"+
+
                             "  // Function to modify request body for OpenWebUI" + "\n" +
                             "  function enhanceRequestBody(body) {" + "\n" +
                             "    if (!body) return body;" + "\n" +
@@ -404,7 +415,7 @@ public class JCEFBrowserManager {
                             "      if (data.messages && Array.isArray(data.messages)) {" + "\n" +
                             "        // Add system message if it doesn't exist" + "\n" +
                             "        const hasSystemMsg = data.messages.some(msg => msg.role === 'system');" + "\n" +
-                            "        if (!hasSystemMsg) {" + "\n" +
+                            "        if (!hasSystemMsg && window.__injected_system_prompt__) {" + "\n" +
                             "          data.messages.unshift({" + "\n" +
                             "            role: 'system'," + "\n" +
                             "            content: window.__injected_system_prompt__\n" +
@@ -575,6 +586,277 @@ public class JCEFBrowserManager {
             LOG.error("Failed to add network monitor and request modifier", e);
         }
     }
+    public void addNetworkMonitorAndRequestModifier() {
+        // Constant system prompt
+//        final String SYSTEM_PROMPT = getSystemPrompt();
+
+        try {
+            // Ensure DevTools is enabled
+            DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
+            String projectName = project.getName();
+            String projectFilePath = project.getProjectFilePath();
+            Editor editor = project.getComponent(Editor.class);
+            String currentOpenFile = "";
+            if (editor != null){
+                if (editor.getVirtualFile() != null) {
+                    currentOpenFile = editor.getVirtualFile().getPath();
+                }
+            }
+
+            // Get code context around caret
+            String codeContext = "";
+            if (editor != null) {
+                codeContext = getCodeAroundCaret(editor, 25); // Get ~50 lines (25 before + 25 after)
+            }
+
+            // Create a JavaScript function that will intercept and modify requests
+            String interceptorScript =
+                    "(function() {" + "\n" +
+                            "  // Store the original fetch function" + "\n" +
+                            "  const originalFetch = window.fetch;" + "\n" +
+                            "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
+                            "  " + "\n" +
+//                            " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n"+
+
+                            "  // Project information for Agent Mode" + "\n" +
+                            "  window.__project_info__ = {" + "\n" +
+                            "    projectName: '" + StringEscapeUtils.escapeJavaScript(projectName) + "'," + "\n" +
+                            "    projectFilePath: '" + StringEscapeUtils.escapeJavaScript(projectFilePath) + "'," + "\n" +
+                            "    currentOpenFile: '" + StringEscapeUtils.escapeJavaScript(currentOpenFile) + "'," + "\n" +
+                            "    codeContext: '" + StringEscapeUtils.escapeJavaScript(codeContext) + "'" + "\n" +
+                            "  };" + "\n" +
+
+                            "  // Function to modify request body for OpenWebUI" + "\n" +
+                            "  function enhanceRequestBody(body) {" + "\n" +
+                            "    if (!body) return body;" + "\n" +
+                            "    " + "\n" +
+                            "    try {" + "\n" +
+                            "      const data = JSON.parse(body);" + "\n" +
+                            "      " + "\n" +
+                            "      // Check if this is a chat completion request" + "\n" +
+                            "      if (data.messages && Array.isArray(data.messages)) {" + "\n" +
+                            "        // Add system message if it doesn't exist" + "\n" +
+                            "        const hasSystemMsg = data.messages.some(msg => msg.role === 'system');" + "\n" +
+                            "        if (!hasSystemMsg && window.__injected_system_prompt__) {" + "\n" +
+                            "          data.messages.unshift({" + "\n" +
+                            "            role: 'system'," + "\n" +
+                            "            content: window.__injected_system_prompt__\n" +
+                            "          });" + "\n" +
+                            "        }" + "\n" +
+                            "        " + "\n" +
+                            "        // Add project context info to user messages if in Agent Mode" + "\n" +
+                            "        if (window.__zest_mode__ === 'Agent Mode') {" + "\n" +
+                            "          // Find the most recent user message" + "\n" +
+                            "          for (let i = data.messages.length - 1; i >= 0; i--) {" + "\n" +
+                            "            if (data.messages[i].role === 'user') {" + "\n" +
+                            "              const info = window.__project_info__;" + "\n" +
+                            "              // Format the project info" + "\n" +
+                            "              const projectInfoText = `<info>\n" + "\n" +
+                            "Project Name: ${info.projectName}\n" + "\n" +
+                            "Project Path: ${info.projectFilePath}\n" + "\n" +
+                            "Current File: ${info.currentOpenFile}\n" + "\n" +
+                            "Code Context:\n```\n${info.codeContext}\n```\n" + "\n" +
+                            "</info>\n\n`;" + "\n" +
+                            "              // Prepend project info to the user message" + "\n" +
+                            "              data.messages[i].content = projectInfoText + data.messages[i].content;" + "\n" +
+                            "              break;" + "\n" +
+                            "            }" + "\n" +
+                            "          }" + "\n" +
+                            "        }" + "\n" +
+                            "        " + "\n" +
+                            "        // You can add more customizations here if needed" + "\n" +
+                            "        // For example:" + "\n" +
+                            "        // data.temperature = 0.7;" + "\n" +
+                            "        // data.max_tokens = 2000;" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      // Handle knowledge collection integration if present" + "\n" +
+                            "      if (data.files && Array.isArray(data.files)) {" + "\n" +
+                            "        // Ensure any file-related parameters are properly set" + "\n" +
+                            "        console.log('Request includes files/collections');" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      return JSON.stringify(data);" + "\n" +
+                            "    } catch (e) {" + "\n" +
+                            "      console.error('Failed to modify request body:', e);" + "\n" +
+                            "      return body;" + "\n" +
+                            "    }" + "\n" +
+                            "  }" + "\n" +
+                            "  " + "\n" +
+                            "  // Override the fetch function to intercept and modify requests" + "\n" +
+                            "  window.fetch = function(input, init) {" + "\n" +
+                            "    // Clone the init object to avoid modifying the original" + "\n" +
+                            "    let newInit = init ? {...init} : {};" + "\n" +
+                            "    let url = input instanceof Request ? input.url : input;" + "\n" +
+                            "    " + "\n" +
+                            "    // Check if this is an API request to OpenWebUI" + "\n" +
+                            "    const isOpenWebUIAPI = typeof url === 'string' && " + "\n" +
+                            "      (url.includes('/api/chat/completions') || " + "\n" +
+                            "       url.includes('/api/conversation') || " + "\n" +
+                            "       url.includes('/v1/chat/completions'));" + "\n" +
+                            "       " + "\n" +
+                            "    if (isOpenWebUIAPI) {" + "\n" +
+                            "      console.log('Intercepting OpenWebUI API request:', url);" + "\n" +
+                            "      if (window.__zest_mode__ === 'Agent Mode') {" + "\n" +
+                            "        console.log('Agent Mode active: Adding project context to user message');" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      // If there's a body in the request, modify it" + "\n" +
+                            "      if (newInit.body) {" + "\n" +
+                            "        const originalBody = newInit.body;" + "\n" +
+                            "        if (typeof originalBody === 'string') {" + "\n" +
+                            "          newInit.body = enhanceRequestBody(originalBody);" + "\n" +
+                            "          console.log('Modified string request body');" + "\n" +
+                            "        } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {" + "\n" +
+                            "          console.log('FormData or URLSearchParams body not modified');" + "\n" +
+                            "        } else if (originalBody instanceof Blob) {" + "\n" +
+                            "          // Handle Blob body (requires async processing)" + "\n" +
+                            "          return new Promise((resolve, reject) => {" + "\n" +
+                            "            const reader = new FileReader();" + "\n" +
+                            "            reader.onload = function() {" + "\n" +
+                            "              const bodyText = reader.result;" + "\n" +
+                            "              const modifiedBody = enhanceRequestBody(bodyText);" + "\n" +
+                            "              newInit.body = modifiedBody;" + "\n" +
+                            "              resolve(originalFetch(input, newInit)" + "\n" +
+                            "                .then(handleResponse));" + "\n" +
+                            "            };" + "\n" +
+                            "            reader.onerror = function() {" + "\n" +
+                            "              reject(reader.error);" + "\n" +
+                            "            };" + "\n" +
+                            "            reader.readAsText(originalBody);" + "\n" +
+                            "          });" + "\n" +
+                            "        }" + "\n" +
+                            "      } else if (input instanceof Request) {" + "\n" +
+                            "        // If input is a Request object with a body" + "\n" +
+                            "        return input.clone().text().then(body => {" + "\n" +
+                            "          const modifiedBody = enhanceRequestBody(body);" + "\n" +
+                            "          const newRequest = new Request(input, {" + "\n" +
+                            "            method: input.method," + "\n" +
+                            "            headers: input.headers," + "\n" +
+                            "            body: modifiedBody," + "\n" +
+                            "            mode: input.mode," + "\n" +
+                            "            credentials: input.credentials," + "\n" +
+                            "            cache: input.cache," + "\n" +
+                            "            redirect: input.redirect," + "\n" +
+                            "            referrer: input.referrer," + "\n" +
+                            "            integrity: input.integrity" + "\n" +
+                            "          });" + "\n" +
+                            "          return originalFetch(newRequest)" + "\n" +
+                            "            .then(handleResponse);" + "\n" +
+                            "        });" + "\n" +
+                            "      }" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Function to handle responses" + "\n" +
+                            "    function handleResponse(response) {" + "\n" +
+                            "      const responseClone = response.clone();" + "\n" +
+                            "      " + "\n" +
+                            "      if (responseClone.url && responseClone.url.includes('completed')) {" + "\n" +
+                            "        console.log('Detected network response with completed in URL:', responseClone.url);" + "\n" +
+                            "        " + "\n" +
+                            "        setTimeout(() => {" + "\n" +
+                            "          window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);" + "\n" +
+                            "          window.__text_to_replace_ide___ = null;" + "\n" +
+                            "          if (window.intellijBridge) {" + "\n" +
+                            "            intellijBridge.callIDE('contentUpdated', { url: window.location.href });" + "\n" +
+                            "          }" + "\n" +
+                            "        }, 1000);" + "\n" +
+                            "      }" + "\n" +
+                            "      " + "\n" +
+                            "      return response;" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Continue with the original fetch" + "\n" +
+                            "    return originalFetch.apply(this, [input, newInit])" + "\n" +
+                            "      .then(handleResponse);" + "\n" +
+                            "  };" + "\n" +
+                            "  " + "\n" +
+                            "  // Function to find and click the Copy button (keeping your original code)" + "\n" +
+                            "  function findAndClickCopyButton() {" + "\n" +
+                            "    // Method 1: Find button elements with 'Copy' text" + "\n" +
+                            "    let buttons = Array.from(document.getElementsByTagName('button'));" + "\n" +
+                            "    let copyButton = buttons.find(button => {" + "\n" +
+                            "      return button.textContent.trim() === 'Copy' || " + "\n" +
+                            "             button.innerText.trim() === 'Copy' || " + "\n" +
+                            "             button.getAttribute('title') === 'Copy';" + "\n" +
+                            "    });" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 2: If not found, look for elements with class/ID containing 'copy'" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      const allElements = document.querySelectorAll('*');" + "\n" +
+                            "      for (const element of allElements) {" + "\n" +
+                            "        const classNames = element.className ? element.className.toString() : '';" + "\n" +
+                            "        const id = element.id || '';" + "\n" +
+                            "        if (classNames.toLowerCase().includes('copy') || id.toLowerCase().includes('copy')) {" + "\n" +
+                            "          copyButton = element;" + "\n" +
+                            "          break;" + "\n" +
+                            "        }" + "\n" +
+                            "      }" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    // Method 3: Look for elements with aria labels related to copying" + "\n" +
+                            "    if (!copyButton) {" + "\n" +
+                            "      copyButton = document.querySelector('[aria-label=\"Copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-action=\"copy\"]') || " + "\n" +
+                            "                   document.querySelector('[data-tooltip=\"Copy\"]');" + "\n" +
+                            "    }" + "\n" +
+                            "    " + "\n" +
+                            "    if (copyButton && window.shouldAutomaticallyCopy) {" + "\n" +
+                            "      console.log('Found Copy button, clicking it');" + "\n" +
+                            "      window.focus(); document.body.focus();" + "\n" +
+                            "      copyButton.click(); window.shouldAutomaticallyCopy = false; " + "\n" +
+                            "      return 'Copy button clicked';" + "\n" +
+                            "    } else {" + "\n" +
+                            "      console.log('Copy button not found');" + "\n" +
+                            "      return 'Copy button not found';" + "\n" +
+                            "    }" + "\n" +
+                            "  }" + "\n" +
+                            "  " + "\n" +
+                            "  console.log('OpenWebUI request interceptor initialized with system prompt');" + "\n" +
+                            "})();";
+
+            // Add a load handler to inject our script when the page loads
+            browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+                @Override
+                public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
+                    // Inject our interceptor script
+                    browser.executeJavaScript(interceptorScript, frame.getURL(), 0);
+//                    LOG.info("Injected request interceptor script with system prompt: " + SYSTEM_PROMPT);
+                }
+            }, browser.getCefBrowser());
+
+            LOG.info("Added network monitor and request modifier for OpenWebUI customization with Agent Mode support");
+
+        } catch (Exception e) {
+            LOG.error("Failed to add network monitor and request modifier", e);
+        }
+    }
+
+    /**
+     * Gets code surrounding the caret position
+     * @param editor Current editor
+     * @param lineCount Number of lines before and after caret to include
+     * @return String containing code context
+     */
+    private String getCodeAroundCaret(Editor editor, int lineCount) {
+        if (editor == null) {
+            return "";
+        }
+
+        Document document = editor.getDocument();
+        int caretOffset = editor.getCaretModel().getOffset();
+        int caretLine = document.getLineNumber(caretOffset);
+
+        int startLine = Math.max(0, caretLine - lineCount);
+        int endLine = Math.min(document.getLineCount() - 1, caretLine + lineCount);
+
+        int startOffset = document.getLineStartOffset(startLine);
+        int endOffset = document.getLineEndOffset(endLine);
+
+        String codeContext = document.getText(new TextRange(startOffset, endOffset));
+        return codeContext;
+    }
+
     private @NotNull String getSystemPrompt() {
         return ConfigurationManager.getInstance(project).getOpenWebUISystemPrompt();
     }

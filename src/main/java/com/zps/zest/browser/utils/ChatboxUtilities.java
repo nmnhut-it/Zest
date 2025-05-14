@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.WebBrowserToolWindow;
+import org.apache.commons.lang.StringEscapeUtils;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -210,6 +211,7 @@ public class ChatboxUtilities {
         browserPanel.getComponent().requestFocus();
         text = text.replace("\r\n","<br>");
         text = text.replace("\n","<br>");
+        text = text.replace("<br>","<br>\n");
         // Wait for page to load before sending text and clicking submit
         String finalText = text;
         waitForPageToLoad(project, currentUrl).thenAccept(loaded -> {
@@ -233,8 +235,9 @@ public class ChatboxUtilities {
                                 "    \n" +
                                 "    // Step 3: Add the new text content\n" +
                                 "    const p = document.createElement('p');\n" +
-                                "    p.textContent = '<pre>'+text+'</pre>';\n" +
+                                "    p.innerHTML = ''+text+'';\n" +
                                 "    chatInput.appendChild(p);\n" +
+                                "    console.log('text',text); \n" +
                                 "    // Trigger input event to ensure the UI recognizes the change\n" +
                                 "    const inputEvent = new Event('input', { bubbles: true });\n" +
                                 "    chatInput.dispatchEvent(inputEvent);\n" +

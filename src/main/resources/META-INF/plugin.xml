@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.7</version>  <!-- Replace with your actual version -->
+    <version>1.9.8</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -68,6 +68,12 @@
 
     </extensions>
     <actions>
+        <action id="Zest.GitCommitMessageGeneratorAction"
+                class="com.zps.zest.GitCommitMessageGeneratorAction"
+                text="ZPS: Generate Git Commit Message"
+                description="Generate commit message based on git changes">
+            <add-to-group group-id="GenerateGroup" anchor="first"/>
+        </action>
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
                 text="ZPS: Write Tests for This Class in Chat ZPS"

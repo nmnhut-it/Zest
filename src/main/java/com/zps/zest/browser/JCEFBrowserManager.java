@@ -52,7 +52,7 @@ public class JCEFBrowserManager {
         }
 
         // Create browser with default settings
-        browser = new JBCefBrowserBuilder().setOffScreenRendering(true).build();
+        browser = new JBCefBrowserBuilder().setOffScreenRendering(false).build();
         browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
 
         // Create JavaScript bridge

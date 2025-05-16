@@ -165,11 +165,10 @@ class TestabilityPipeline {
         return stages.get(index);
     }
 }
-
 /**
  * Stage that analyzes class testability and creates a refactoring prompt.
- * This stage evaluates if the class is already highly testable and if not,
- * provides refactoring suggestions.
+ * This stage evaluates testability issues and provides an interactive approach
+ * for implementing refactoring suggestions.
  */
 class TestabilityAnalysisStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(TestabilityAnalysisStage.class);
@@ -177,44 +176,49 @@ class TestabilityAnalysisStage implements PipelineStage {
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
         LOG.info("Analyzing testability and creating refactoring prompt");
-        
+
         // Get the class context and analysis from previous stages
         String classContext = context.getClassContext();
         if (classContext == null || classContext.isEmpty()) {
             throw new PipelineExecutionException("Class context not available");
         }
-        
+
         // Build the prompt for the LLM
         StringBuilder prompt = new StringBuilder();
-        prompt.append("# Testability Analysis and Refactoring Suggestions\n\n");
-        
-        // Add instructions for the LLM
+        prompt.append("# Interactive Testability Analysis and Refactoring\n\n");
+
+        // Two-phase approach instruction
         prompt.append("## Instructions\n");
-        prompt.append("Analyze the provided Java class for testability issues and provide refactoring suggestions. \n");
-        prompt.append("First determine if the class is already highly testable. If it is, explain why and stop there.\n ");
-        prompt.append("IMPORTANT: If Jetbrains tools are available, use find usage tool to further understand the code.\n ");
-        prompt.append("Otherwise, identify testability issues and provide specific refactoring advice.\n\n");
-        
-        prompt.append("## Testability Assessment Criteria\n");
-        prompt.append("- **Dependency Injection**: How dependencies are managed (constructor injection, field injection, direct instantiation)\n");
+        prompt.append("Analyze the provided Java class for testability issues, then implement changes sequentially with user confirmation.\n\n");
+
+        // Analysis phase
+        prompt.append("### Phase 1: Analysis\n");
+        prompt.append("First, determine if the class is already highly testable. If it is, explain why and stop there.\n");
+        prompt.append("If not, identify ALL testability issues and number them (1, 2, 3...). Use these criteria:\n\n");
+
+        // Keep the full assessment criteria
+        prompt.append("- **Dependency Injection**: How dependencies are managed\n");
         prompt.append("- **External Resources**: Usage of files, databases, network, etc.\n");
         prompt.append("- **Static Dependencies**: Reliance on static methods/classes\n");
         prompt.append("- **Encapsulation**: Access modifiers and information hiding\n");
         prompt.append("- **Method Complexity**: Length and complexity of methods\n");
         prompt.append("- **Inheritance**: Deep inheritance hierarchies\n\n");
-        
-        prompt.append("## Refactoring Suggestions\n");
-        prompt.append("For each identified issue, provide:\n");
-        prompt.append("1. A brief explanation of why it hurts testability\n");
-        prompt.append("2. A specific refactoring suggestion with example code if applicable\n");
-        prompt.append("3. How the refactoring improves testability\n\n");
-        
+
+        // Implementation phase
+        prompt.append("### Phase 2: Implementation\n");
+        prompt.append("After listing all issues, ask: \"Would you like me to implement Change #1?\" Wait for user confirmation.\n");
+        prompt.append("For each change:\n");
+        prompt.append("1. Explain the issue and why it hurts testability\n");
+        prompt.append("2. Show the specific code changes needed\n");
+        prompt.append("3. Explain how this improves testability\n");
+        prompt.append("4. After implementing, ask about the next change: \"Would you like me to implement Change #2?\" and so on.\n\n");
+
         prompt.append("## Class to Analyze\n\n");
         prompt.append(classContext);
-        
+
         // Store the prompt in the context
         context.setPrompt(prompt.toString());
-        
-        LOG.info("Testability analysis prompt created successfully");
+
+        LOG.info("Interactive testability analysis prompt created successfully");
     }
 }

@@ -1,6 +1,10 @@
 package com.zps.zest.browser;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.ActionPopupMenu;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
@@ -175,6 +179,29 @@ public class WebBrowserPanel {
 
         buttonPanel.add(modeButton);
 
+        // Add ZPS Actions dropdown using ActionGroup
+        DefaultActionGroup zpsActionGroup = new DefaultActionGroup("ZPS Actions", true);
+
+        // Add all ZPS actions to the group
+        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.GitCommitMessageGeneratorAction"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendPipelineToChatBox"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.RefactorForTestabilityAction"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendCodeReviewToChatBox"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.GenerateCodeCommentsAction"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("com.zps.zest.GenerateTestByLlm"));
+//        zpsActionGroup.add(ActionManager.getInstance().getAction("com.zps.zest.ImplementTodosAction"));
+
+        // Create a button to show the popup
+        JButton zpsActionsButton = new JButton("ZPS Actions");
+        zpsActionsButton.setToolTipText("ZPS Actions");
+        zpsActionsButton.addActionListener(e -> {
+            ActionPopupMenu popupMenu = ActionManager.getInstance().createActionPopupMenu(
+                    ActionPlaces.EDITOR_POPUP, zpsActionGroup);
+            popupMenu.getComponent().show(zpsActionsButton, 0, zpsActionsButton.getHeight());
+        });
+
+        buttonPanel.add(zpsActionsButton);
+
         // Create URL field
         JBTextField urlField = new JBTextField();
         urlField.addActionListener(e -> loadUrl(urlField.getText()));
@@ -192,7 +219,6 @@ public class WebBrowserPanel {
 
         return panel;
     }
-
     /**
      * Sets the active browser mode.
      */

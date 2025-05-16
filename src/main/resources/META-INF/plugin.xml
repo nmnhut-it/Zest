@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.8</version>  <!-- Replace with your actual version -->
+    <version>1.9.811</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -10,7 +10,6 @@
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
-
     <description><![CDATA[
   <h2>Zest: When AI Meets Java Testing (Without the Existential Crisis)</h2>
 
@@ -24,7 +23,11 @@
     <li><b>TODO Implementation:</b> Select code with TODOs, right-click, and watch as they transform into real, working code. Magic? Nope, just robots doing your work.</li>
     <li><b>Smart Code Analysis:</b> Zest analyzes your classes, imports, and dependencies to create context-aware implementations.</li>
     <li><b>Enhanced Diff Viewer:</b> See exactly what changed before accepting, because trust issues are healthy in software development.</li>
-    <li><b>Integrated Web Browser:</b> Access web resources directly within IntelliJ, with bidirectional communication between your code and web content.</li>
+    <li><b>Integrated Chat Zingplay:</b> Access Chat Zingplay within IntelliJ, with bidirectional communication between your code and web content.</li>
+    <li><b>Git Commit Messages:</b> Automatically generate meaningful commit messages based on your changes, so you can stop typing "fixed stuff" at 2 AM.</li>
+    <li><b>Code Review:</b> Get AI-powered code reviews for your classes directly in Chat ZPS without waiting for your colleagues.</li>
+    <li><b>Smart Comments:</b> Generate meaningful comments for selected code segments that actually explain what's happening.</li>
+    <li><b>Testability Advisor:</b> Receive practical advice on how to refactor your code for better testability and maintainability.</li>
   </ul>
 
   <p>Zest plays nice with both JUnit 4 and JUnit 5, and intelligently detects Mockito to use it when available (we're not monsters).</p>
@@ -34,11 +37,11 @@
     <li>Developers who would rather eat glass than write another assertEquals() statement</li>
     <li>Teams who want 100% test coverage but also want to leave work before midnight</li>
     <li>That one colleague who writes "TODO: implement later" on everything (we all know one)</li>
+    <li>Developers looking to learn best practices through AI-generated examples</li>
   </ul>
 
   <p><i>Disclaimer: Zest will not fix your broken relationships, but it will fix your code's relationship with testing.</i></p>
 ]]></description>
-
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
@@ -83,8 +86,8 @@
         </action>
         <action id="Zest.RefactorForTestabilityAction"
                 class="com.zps.zest.RefactorForTestabilityAction"
-                text="ZPS: Refactor for Testability"
-                description="Generate a refactor prompt and send it to chat box">
+                text="ZPS: Refactor Advisory for Testability"
+                description="Give advice on how to refactor the selected code for testability of this class" >
             <add-to-group group-id="GenerateGroup" anchor="first"
             />
         </action>
@@ -119,7 +122,6 @@
                 text="Toggle ZPS Chat Developer Tools"
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="shift ctrl F12"/>
         </action>
 <!--            <action id="com.example.inlinediff.ShowInlineDiff" class="com.zps.zest.tools.diff.InlineEditorDiffAction">-->
 <!--                <add-to-group group-id="EditorPopupMenu" anchor="last"/>-->

@@ -2,6 +2,7 @@ package com.zps.zest;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -126,8 +127,10 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     private void showError(Project project, PipelineExecutionException e) {
         e.printStackTrace();
         LOG.error("Error in GitCommitMessageGeneratorAction: " + e.getMessage(), e);
-        
-        Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
+
+        ApplicationManager.getApplication().invokeLater(()->{
+            Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
+        });
     }
 }
 
@@ -336,12 +339,13 @@ class CommitPromptGenerationStage implements PipelineStage {
         
         prompt.append("## Output Format\n");
         prompt.append("Please format your response with TWO separate code blocks as follows:\n\n");
-        
+
         prompt.append("### Short Message (for -m flag)\n");
         prompt.append("```commit-short\n");
-        prompt.append("<type>(<scope>): <short summary>\n");
+        prompt.append("<short summary>\n");
         prompt.append("```\n\n");
-        
+        prompt.append("The short message **should not exceed 50 characters** and should be a summary of the changes.\n\n");
+
         prompt.append("### Long Message (for commit template)\n");
         prompt.append("```commit-long\n");
         prompt.append("<type>(<scope>): <short summary>\n\n");

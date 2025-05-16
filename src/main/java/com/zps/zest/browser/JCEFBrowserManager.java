@@ -588,7 +588,7 @@ public class JCEFBrowserManager {
     }
     public void addNetworkMonitorAndRequestModifier() {
         // Constant system prompt
-//        final String SYSTEM_PROMPT = getSystemPrompt();
+//    final String SYSTEM_PROMPT = getSystemPrompt();
 
         try {
             // Ensure DevTools is enabled
@@ -616,7 +616,7 @@ public class JCEFBrowserManager {
                             "  const originalFetch = window.fetch;" + "\n" +
                             "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
                             "  " + "\n" +
-//                            " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n"+
+//                        " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n"+
 
                             "  // Project information for Agent Mode" + "\n" +
                             "  window.__project_info__ = {" + "\n" +
@@ -651,12 +651,17 @@ public class JCEFBrowserManager {
                             "            if (data.messages[i].role === 'user') {" + "\n" +
                             "              const info = window.__project_info__;" + "\n" +
                             "              // Format the project info" + "\n" +
-                            "              const projectInfoText = `<info>\n" + "\n" +
-                            "Project Name: ${info.projectName}\n" + "\n" +
-                            "Project Path: ${info.projectFilePath}\n" + "\n" +
-                            "Current File: ${info.currentOpenFile}\n" + "\n" +
-                            "Code Context:\n```\n${info.codeContext}\n```\n" + "\n" +
-                            "</info>\n\n`;" + "\n" +
+                            "              const projectInfoText = \"<info>\\n\" + " + "\n" +
+                            "\"\\n\" +" + "\n" +
+                            "\"Project Name: \" + info.projectName + \"\\n\" + " + "\n" +
+                            "\"\\n\" +" + "\n" +
+                            "\"Project Path: \" + info.projectFilePath + \"\\n\" + " + "\n" +
+                            "\"\\n\" +" + "\n" +
+                            "\"Current File: \" + info.currentOpenFile + \"\\n\" + " + "\n" +
+                            "\"\\n\" +" + "\n" +
+                            "\"Code Context:\\n```\\n\" + info.codeContext + \"\\n```\\n\" + " + "\n" +
+                            "\"\\n\" +" + "\n" +
+                            "\"</info>\\n\\n\";" + "\n" +
                             "              // Prepend project info to the user message" + "\n" +
                             "              data.messages[i].content = projectInfoText + data.messages[i].content;" + "\n" +
                             "              break;" + "\n" +
@@ -758,7 +763,7 @@ public class JCEFBrowserManager {
                             "          window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);" + "\n" +
                             "          window.__text_to_replace_ide___ = null;" + "\n" +
                             "          if (window.intellijBridge) {" + "\n" +
-                            "            intellijBridge.callIDE('contentUpdated', { url: window.location.href });" + "\n" +
+                            "            window.intellijBridge.callIDE('contentUpdated', { url: window.location.href });" + "\n" +
                             "          }" + "\n" +
                             "        }, 1000);" + "\n" +
                             "      }" + "\n" +
@@ -821,7 +826,7 @@ public class JCEFBrowserManager {
                 public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                     // Inject our interceptor script
                     browser.executeJavaScript(interceptorScript, frame.getURL(), 0);
-//                    LOG.info("Injected request interceptor script with system prompt: " + SYSTEM_PROMPT);
+//                LOG.info("Injected request interceptor script with system prompt: " + SYSTEM_PROMPT);
                 }
             }, browser.getCefBrowser());
 
@@ -831,7 +836,6 @@ public class JCEFBrowserManager {
             LOG.error("Failed to add network monitor and request modifier", e);
         }
     }
-
     /**
      * Gets code surrounding the caret position
      * @param editor Current editor

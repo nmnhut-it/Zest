@@ -441,7 +441,7 @@ public class JCEFBrowserManager {
             String projectFilePath = project.getProjectFilePath();
             Editor editor = project.getComponent(Editor.class);
             String currentOpenFile = "";
-            if (editor != null){
+            if (editor != null) {
                 if (editor.getVirtualFile() != null) {
                     currentOpenFile = editor.getVirtualFile().getPath();
                 }
@@ -454,7 +454,7 @@ public class JCEFBrowserManager {
                             "  let textToReplace = window.__text_to_replace_ide___;" + "\n" +
                             "  " + "\n" +
                             "  // Fixed system prompt" + "\n" +
-                        " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n"+
+                            " window.__injected_system_prompt__ = '" + StringEscapeUtils.escapeJavaScript(SYSTEM_PROMPT) + "';\n" +
 
                             "  // Function to modify request body for OpenWebUI" + "\n" +
                             "  function enhanceRequestBody(body) {" + "\n" +
@@ -638,6 +638,7 @@ public class JCEFBrowserManager {
             LOG.error("Failed to add network monitor and request modifier", e);
         }
     }
+
     public void addNetworkMonitorAndRequestModifier() {
         try {
             // Ensure DevTools is enabled

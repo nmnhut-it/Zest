@@ -8,6 +8,7 @@ import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Caret;
@@ -18,6 +19,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.WindowWrapper;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Consumer;
 import org.cef.browser.CefBrowser;
 import org.jetbrains.annotations.NotNull;
@@ -93,6 +95,11 @@ public class JavaScriptBridge {
                     String pageUrl = data.has("url") ? data.get("url").getAsString() : "";
                     handleContentUpdated(pageUrl);
                     response.addProperty("success", true);
+                    break;
+                case "getProjectInfo":
+                    JsonObject projectInfo = getProjectInfo();
+                    response.addProperty("success", true);
+                    response.add("result", projectInfo);
                     break;
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -342,5 +349,67 @@ public class JavaScriptBridge {
      */
     public void dispose() {
         // Currently no resources to dispose
+    }
+    /**
+     * Gets real-time information about the current project and editor state.
+     */
+    private JsonObject getProjectInfo() {
+        JsonObject info = new JsonObject();
+
+        try {
+            // Project info
+            info.addProperty("projectName", project.getName());
+            info.addProperty("projectFilePath", project.getProjectFilePath());
+
+            // Editor info
+            Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+            if (editor != null) {
+                if (editor.getVirtualFile() != null) {
+                    info.addProperty("currentOpenFile", editor.getVirtualFile().getPath());
+                } else {
+                    info.addProperty("currentOpenFile", "");
+                }
+
+                // Get code context
+                String codeContext = getCodeAroundCaret(editor, 25);
+                info.addProperty("codeContext", codeContext);
+            } else {
+                info.addProperty("currentOpenFile", "");
+                info.addProperty("codeContext", "");
+            }
+        } catch (Exception e) {
+            LOG.error("Error getting project info", e);
+        }
+
+        return info;
+    }
+
+    /**
+     * Gets code surrounding the caret position
+     * @param editor Current editor
+     * @param lineCount Number of lines before and after caret to include
+     * @return String containing code context
+     */
+    private String getCodeAroundCaret(Editor editor, int lineCount) {
+        if (editor == null) {
+            return "";
+        }
+        return ReadAction.compute(()->{
+
+            Document document = editor.getDocument();
+
+            int caretOffset = editor.getCaretModel().getOffset();
+            int caretLine = document.getLineNumber(caretOffset);
+
+            int startLine = Math.max(0, caretLine - lineCount);
+            int endLine = Math.min(document.getLineCount() - 1, caretLine + lineCount);
+
+            int startOffset = document.getLineStartOffset(startLine);
+            int endOffset = document.getLineEndOffset(endLine);
+
+            String codeContext = document.getText(new TextRange(startOffset, endOffset));
+            return codeContext;
+        });
+
     }
 }

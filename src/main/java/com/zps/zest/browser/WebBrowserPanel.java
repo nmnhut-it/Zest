@@ -8,11 +8,10 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
-import com.zps.zest.ClassAnalyzer;
 import com.zps.zest.ConfigurationManager;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
@@ -23,7 +22,6 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 /**
@@ -142,7 +140,7 @@ public class WebBrowserPanel {
                 "Agent Mode",
                 AllIcons.Actions.BuildAutoReloadChanges,
                 "It's like you have a software assembly line behind your back",
-                p -> new OpenWebUIPromptBuilder(project).buildPrompt()
+                p -> new OpenWebUIAgentModePromptBuilder(project).buildPrompt()
         ));
     }
 
@@ -231,7 +229,7 @@ public class WebBrowserPanel {
         String prompt = mode.getPrompt(project);
         if (prompt != null) {
             browserManager.executeJavaScript("window.__injected_system_prompt__ = '" +
-                    StringUtil.escapeStringCharacters(prompt) + "';\nwindow.__zest_mode__ = '"  + mode.name + "';");
+                    StringEscapeUtils.escapeJavaScript(StringUtil.escapeStringCharacters(prompt)) + "';\nwindow.__zest_mode__ = '"  + mode.name + "';");
         } else {
             browserManager.executeJavaScript("window.__injected_system_prompt__ = null;\nwindow.__zest_mode__ = '"  + mode.name + "';");
         }

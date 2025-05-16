@@ -11,9 +11,9 @@ import java.util.List;
 /**
  * Builds prompts for the LLM with emphasis on effective tool usage for Open Web UI.
  */
-public class OpenWebUIPromptBuilder {
+public class OpenWebUIAgentModePromptBuilder {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Logger LOG = Logger.getInstance(OpenWebUIPromptBuilder.class);
+    private static final Logger LOG = Logger.getInstance(OpenWebUIAgentModePromptBuilder.class);
 
     private final Project project;
     private final ConfigurationManager configManager;
@@ -24,7 +24,7 @@ public class OpenWebUIPromptBuilder {
      *
      * @param project The current project
      */
-    public OpenWebUIPromptBuilder(Project project) {
+    public OpenWebUIAgentModePromptBuilder(Project project) {
         this.project = project;
         this.configManager = ConfigurationManager.getInstance(project);
     }

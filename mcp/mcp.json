@@ -1,15 +1,16 @@
 {
   "mcpServers": {
     "jetbrains": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "./jetbrains-mcp-ported.js"
+        "-y",
+        "@jetbrains/mcp-proxy"
       ]
     },
     "fs": {
-        "command": "node",
+        "command": "npx",
         "args": [
-          "./mcp-file-system/dist/index.js",
+          "@modelcontextprotocol/server-filesystem",
             "C:\\Users\\LAP14364-local\\IdeaProjects\\Zest"
         ]
     }

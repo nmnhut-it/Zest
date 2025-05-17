@@ -91,6 +91,13 @@
             <add-to-group group-id="GenerateGroup" anchor="first"
             />
         </action>
+        <action id="Zest.AgentBasedRefactoringAction"
+                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
+                text="ZPS: Agent-Based Refactoring for Testability"
+                description="Use an AI agent to implement testability refactoring" >
+            <add-to-group group-id="GenerateGroup" anchor="first"
+            />
+        </action>
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="ZPS: Review This Class in Chat ZPS"

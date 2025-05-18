@@ -8,13 +8,71 @@
 
 // Define the CodeMirror extractor function
 window.extractCodeToIntelliJ = function(textToReplace) {
-    // Find all CodeMirror editors first
+    // First, check if there are any collapsed code blocks that need to be expanded
+    expandCollapsedCodeBlocks();
+    
+    // Wait a short time to allow expansion to complete
+    setTimeout(() => {
+        // Try to extract from CodeMirror editors first
+        if (!extractFromCodeMirror(textToReplace)) {
+            // If that fails, fall back to standard code blocks
+            extractFromRegularBlocks(textToReplace);
+        }
+    }, 100);
+    
+    return true;
+};
+
+// Try to expand any collapsed code blocks
+function expandCollapsedCodeBlocks() {
+    try {
+        // Look for potential expand buttons using multiple approaches since :has() selector is not widely supported
+        // 1. Find buttons with "Expand" text
+        const allButtons = document.querySelectorAll('button');
+        let expandButtons = Array.from(allButtons).filter(button => 
+            button.textContent.trim().toLowerCase().includes('expand')
+        );
+        
+        // 2. Find flex containers that look like buttons with SVG icons
+        const flexContainers = document.querySelectorAll('.flex.gap-1.items-center');
+        expandButtons = expandButtons.concat(Array.from(flexContainers).filter(container => {
+            // Check if it contains an SVG
+            return container.querySelector('svg') !== null;
+        }));
+        
+        // 3. Try to find buttons near code blocks
+        const codeBlocks = document.querySelectorAll('pre, .cm-editor');
+        codeBlocks.forEach(block => {
+            const parentElement = block.parentElement;
+            if (parentElement) {
+                const nearbyButtons = parentElement.querySelectorAll('button');
+                expandButtons = expandButtons.concat(Array.from(nearbyButtons));
+            }
+        });
+        
+        // Click all potential expand buttons
+        console.log(`Found ${expandButtons.length} potential expand buttons`);
+        expandButtons.forEach(button => {
+            try {
+                console.log('Clicking potential expand button');
+                button.click();
+            } catch (clickError) {
+                console.log('Error clicking button:', clickError);
+            }
+        });
+    } catch (e) {
+        console.error('Error expanding code blocks:', e);
+    }
+}
+
+// Extract from CodeMirror editors
+function extractFromCodeMirror(textToReplace) {
+    // Find all CodeMirror editors
     const cmEditors = document.querySelectorAll('.cm-editor');
     
     if (cmEditors.length === 0) {
         console.log('No CodeMirror editors found');
-        // Try regular code blocks if no CodeMirror editors found
-        return extractFromRegularBlocks(textToReplace);
+        return false;
     }
     
     // Get the most recent editor (last one)
@@ -39,7 +97,7 @@ window.extractCodeToIntelliJ = function(textToReplace) {
     
     // Extract code from CodeMirror lines
     return extractFromEditor(cmEditor, textToReplace);
-};
+}
 
 // Helper function to extract code from a CodeMirror editor
 function extractFromEditor(cmEditor, textToReplace) {
@@ -59,14 +117,19 @@ function extractFromEditor(cmEditor, textToReplace) {
     
     // Send to IntelliJ using the bridge
     console.log('code', code);
-    if (window.intellijBridge && window.intellijBridge.callIDE && window.__text_to_replace_ide___) {
-        window.intellijBridge.callIDE('codeCompleted', { text: code, textToReplace: textToReplace })
-            .then(function() {
-                console.log('Code sent to IntelliJ successfully');
-            })
-            .catch(function(error) {
-                console.error('Failed to send code to IntelliJ:', error);
-            });
+    if (window.intellijBridge && window.intellijBridge.callIDE) {
+        window.intellijBridge.callIDE('codeCompleted', { 
+            text: code, 
+            textToReplace: textToReplace || (window.__text_to_replace_ide___ ? window.__text_to_replace_ide___ : '__##use_selected_text##__') 
+        })
+        .then(function() {
+            console.log('Code sent to IntelliJ successfully');
+            // Reset the text to replace after successful extraction
+            window.__text_to_replace_ide___ = null;
+        })
+        .catch(function(error) {
+            console.error('Failed to send code to IntelliJ:', error);
+        });
         return true;
     } else {
         console.error('IntelliJ Bridge not found');
@@ -88,9 +151,11 @@ function extractFromRegularBlocks(textToReplace) {
         if (textToReplace && textToReplace !== '__##use_selected_text##__') {
             window.intellijBridge.callIDE('codeCompleted', {
                 textToReplace: textToReplace,
-                text: codeBlocks[0].textContent
+                text: codeBlocks[codeBlocks.length - 1].textContent // Use the last code block
             }).then(function(result) {
                 console.log('Code sent to IntelliJ successfully');
+                // Reset the text to replace after successful extraction
+                window.__text_to_replace_ide___ = null;
             }).catch(function(error) {
                 console.error('Error sending code to IntelliJ:', error);
             });
@@ -102,14 +167,16 @@ function extractFromRegularBlocks(textToReplace) {
                         // If we have selected text in the editor, replace it
                         window.intellijBridge.callIDE('codeCompleted', {
                             textToReplace: response.result,
-                            text: codeBlocks[0].textContent
+                            text: codeBlocks[codeBlocks.length - 1].textContent // Use the last code block
                         });
                     } else {
                         // Otherwise, just insert at caret position
                         window.intellijBridge.callIDE('insertText', {
-                            text: codeBlocks[0].textContent
+                            text: codeBlocks[codeBlocks.length - 1].textContent // Use the last code block
                         });
                     }
+                    // Reset the text to replace after successful extraction
+                    window.__text_to_replace_ide___ = null;
                 })
                 .catch(function(error) {
                     console.error('Error getting selected text:', error);
@@ -122,4 +189,7 @@ function extractFromRegularBlocks(textToReplace) {
     }
 }
 
-console.log('Compatible code extractor function initialized');
+// Ensure automatic copy flag is set
+window.shouldAutomaticallyCopy = true;
+
+console.log('Compatible code extractor function initialized with collapsed code block support');

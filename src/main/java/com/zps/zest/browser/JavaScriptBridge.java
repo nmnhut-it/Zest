@@ -165,13 +165,15 @@ public class JavaScriptBridge {
      * Gets the selected text from the current editor.
      */
     private String getSelectedTextFromEditor() {
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-        if (editor == null) {
-            return "";
-        }
-        
-        String selectedText = editor.getSelectionModel().getSelectedText();
-        return selectedText != null ? selectedText : "";
+        return ReadAction.compute(()->{
+            Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+            if (editor == null) {
+                return "";
+            }
+
+            String selectedText = editor.getSelectionModel().getSelectedText();
+            return selectedText != null ? selectedText : "";
+        });
     }
 
     /**

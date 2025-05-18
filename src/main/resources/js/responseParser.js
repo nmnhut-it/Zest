@@ -70,38 +70,7 @@
         // Extract replacement blocks with format: replace_in_file:path/to/file.java
         const replaceBlockRegex = /replace_in_file:(.*?)\n```(\w*)\n([\s\S]*?)```\n```(\w*)\n([\s\S]*?)```/g;
         
-        // Extract batch replacement blocks with format: batch_replace_in_file:path/to/file.java
-        const batchReplaceBlockRegex = /batch_replace_in_file:(.*?)\n((?:```\w*\n[\s\S]*?```\n```\w*\n[\s\S]*?```\n)+)/g;
-        
-        // First check for batch replacement patterns
-        let batchReplaceMatch;
-        while ((batchReplaceMatch = batchReplaceBlockRegex.exec(content)) !== null) {
-            const filePath = batchReplaceMatch[1].trim();
-            const allReplacements = batchReplaceMatch[2];
-            
-            // Process each replacement pair within the batch
-            const replacements = [];
-            const innerReplaceRegex = /```(\w*)\n([\s\S]*?)```\n```(\w*)\n([\s\S]*?)```/g;
-            
-            let innerMatch;
-            while ((innerMatch = innerReplaceRegex.exec(allReplacements)) !== null) {
-                replacements.push({
-                    searchLanguage: innerMatch[1].trim().toLowerCase() || 'text',
-                    searchCode: innerMatch[2],
-                    replaceLanguage: innerMatch[3].trim().toLowerCase() || 'text',
-                    replaceCode: innerMatch[4]
-                });
-            }
-            
-            codeBlocks.push({
-                type: 'batch_replacement',
-                filePath: filePath,
-                replacements: replacements,
-                fullMatch: batchReplaceMatch[0]
-            });
-        }
-        
-        // Then check for single replacement patterns
+        // First check for replacement patterns
         let replaceMatch;
         while ((replaceMatch = replaceBlockRegex.exec(content)) !== null) {
             const filePath = replaceMatch[1].trim();
@@ -121,13 +90,13 @@
             });
         }
         
-        // Finally extract regular code blocks
+        // Then extract regular code blocks
         let match;
         while ((match = codeBlockRegex.exec(content)) !== null) {
             // Skip blocks that were already captured as part of replacement blocks
             let isPartOfReplacement = false;
             for (const block of codeBlocks) {
-                if ((block.type === 'replacement' || block.type === 'batch_replacement') && 
+                if (block.type === 'replacement' && 
                     (content.indexOf(match[0]) >= content.indexOf(block.fullMatch) && 
                      content.indexOf(match[0]) <= content.indexOf(block.fullMatch) + block.fullMatch.length)) {
                     isPartOfReplacement = true;
@@ -161,30 +130,62 @@
             return;
         }
         
-        // Check for replacement blocks first
+        // Check for replacement blocks
         const replacementBlocks = codeBlocks.filter(block => block.type === 'replacement');
         if (replacementBlocks.length > 0) {
             console.log('Found replacement blocks:', replacementBlocks);
             
-            // Process the first replacement block
-            const replaceBlock = replacementBlocks[0];
-            
-            // If we have the replace in file tool bridge function
-            if (window.intellijBridge && window.intellijBridge.replaceInFile) {
-                console.log('Sending replacement to IDE:', replaceBlock);
-                window.intellijBridge.replaceInFile({
-                    filePath: replaceBlock.filePath,
-                    search: replaceBlock.searchCode,
-                    replace: replaceBlock.replaceCode,
+            // Group replacements by file path
+            const replacementsByFile = {};
+            replacementBlocks.forEach(block => {
+                if (!replacementsByFile[block.filePath]) {
+                    replacementsByFile[block.filePath] = [];
+                }
+                replacementsByFile[block.filePath].push({
+                    search: block.searchCode,
+                    replace: block.replaceCode,
                     regex: false,
                     caseSensitive: true
-                }).then(function() {
-                    console.log('Replacement sent to IntelliJ successfully');
-                }).catch(function(error) {
-                    console.error('Failed to send replacement to IntelliJ:', error);
                 });
-                return;
+            });
+            
+            // Process each file's replacements as a batch
+            for (const filePath in replacementsByFile) {
+                const replacements = replacementsByFile[filePath];
+                
+                // If we have only one replacement for this file, use single replacement
+                if (replacements.length === 1) {
+                    if (window.intellijBridge && window.intellijBridge.replaceInFile) {
+                        console.log('Sending single replacement to IDE for:', filePath);
+                        window.intellijBridge.replaceInFile({
+                            filePath: filePath,
+                            search: replacements[0].search,
+                            replace: replacements[0].replace,
+                            regex: replacements[0].regex,
+                            caseSensitive: replacements[0].caseSensitive
+                        }).then(function() {
+                            console.log('Replacement sent to IntelliJ successfully');
+                        }).catch(function(error) {
+                            console.error('Failed to send replacement to IntelliJ:', error);
+                        });
+                    }
+                } 
+                // If we have multiple replacements for this file, use batch replacement
+                else if (window.intellijBridge && window.intellijBridge.batchReplaceInFile) {
+                    console.log('Sending batch replacement to IDE for:', filePath, 'with', replacements.length, 'replacements');
+                    window.intellijBridge.batchReplaceInFile({
+                        filePath: filePath,
+                        replacements: replacements
+                    }).then(function() {
+                        console.log('Batch replacement sent to IntelliJ successfully');
+                    }).catch(function(error) {
+                        console.error('Failed to send batch replacement to IntelliJ:', error);
+                    });
+                }
             }
+            
+            // We've handled the replacements, so return early
+            return;
         }
         
         // If no replacement blocks or no replacement tool, fall back to regular code extraction

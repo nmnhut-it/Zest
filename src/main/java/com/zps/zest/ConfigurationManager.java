@@ -91,6 +91,8 @@ public class ConfigurationManager {
             "replacement code\n" +
             "```\n" +
             "\n" +
+            "You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user.\n" +
+            "\n" +
             "    TOOL USAGE:\n" +
             "- Check for available tools before suggesting manual operations\n" +
             "\n" +

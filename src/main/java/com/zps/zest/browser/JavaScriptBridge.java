@@ -120,6 +120,14 @@ public class JavaScriptBridge {
                     boolean diffReplaceResult = handleReplaceInFile(filePath, searchText, replaceText, useRegex, caseSensitive);
                     response.addProperty("success", diffReplaceResult);
                     break;
+                    
+                case "batchReplaceInFile":
+                    String batchFilePath = data.get("filePath").getAsString();
+                    com.google.gson.JsonArray replacements = data.getAsJsonArray("replacements");
+                    
+                    boolean batchReplaceResult = handleBatchReplaceInFile(batchFilePath, replacements);
+                    response.addProperty("success", batchReplaceResult);
+                    break;
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -493,8 +501,6 @@ public class JavaScriptBridge {
             params.addProperty("regex", useRegex);
             params.addProperty("caseSensitive", caseSensitive);
 
-
-
             com.zps.zest.tools.AgentTool tool = new ReplaceInFileTool(project);
             if (tool == null) {
                 LOG.error("Could not find replace_in_file tool");
@@ -503,7 +509,7 @@ public class JavaScriptBridge {
 
             // Execute the tool
             String result = tool.execute(params);
-
+            Messages.showInfoMessage("Replace in file result: " + result, "Replace in File Result");
             // Log the result
             LOG.info("Replace in file result: " + result);
 
@@ -511,6 +517,150 @@ public class JavaScriptBridge {
             return !result.startsWith("Error:") && !result.contains("Changes were not applied") && !result.contains("No matches found");
         } catch (Exception e) {
             LOG.error("Error handling replace in file request", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Handles batch replace in file requests from JavaScript by delegating to the ReplaceInFileTool multiple times
+     *
+     * @param filePath The path to the file to replace in
+     * @param replacements An array of replacement objects, each containing search and replace text
+     * @return True if all operations were successful
+     */
+    private boolean handleBatchReplaceInFile(String filePath, com.google.gson.JsonArray replacements) {
+        LOG.info("Handling batch replace in file request for: " + filePath + " with " + replacements.size() + " replacements");
+
+        try {
+            // First, read the file content to generate a preview
+            java.io.File targetFile = new java.io.File(filePath);
+            if (!targetFile.exists()) {
+                // Try to resolve relative path
+                String basePath = project.getBasePath();
+                if (basePath != null) {
+                    targetFile = new java.io.File(basePath, filePath);
+                }
+            }
+            
+            if (!targetFile.exists() || !targetFile.isFile()) {
+                LOG.error("File not found: " + filePath);
+                return false;
+            }
+            
+            // Read the original content
+            String originalContent = new String(java.nio.file.Files.readAllBytes(targetFile.toPath()));
+            String modifiedContent = originalContent;
+            
+            // Apply all replacements to create a preview
+            for (int i = 0; i < replacements.size(); i++) {
+                com.google.gson.JsonObject replacement = replacements.get(i).getAsJsonObject();
+                String searchText = replacement.get("search").getAsString();
+                String replaceText = replacement.get("replace").getAsString();
+                boolean useRegex = replacement.has("regex") && replacement.get("regex").getAsBoolean();
+                boolean caseSensitive = !replacement.has("caseSensitive") || replacement.get("caseSensitive").getAsBoolean();
+                
+                // Apply this replacement to the content
+                if (useRegex) {
+                    // Handle regex replacement
+                    int flags = caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE;
+                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(searchText, flags);
+                    java.util.regex.Matcher matcher = pattern.matcher(modifiedContent);
+                    modifiedContent = matcher.replaceAll(replaceText);
+                } else {
+                    // Handle literal text replacement
+                    if (caseSensitive) {
+                        modifiedContent = modifiedContent.replace(searchText, replaceText);
+                    } else {
+                        // Case insensitive replacement
+                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                                java.util.regex.Pattern.quote(searchText), 
+                                java.util.regex.Pattern.CASE_INSENSITIVE);
+                        java.util.regex.Matcher matcher = pattern.matcher(modifiedContent);
+                        StringBuffer result = new StringBuffer();
+                        while (matcher.find()) {
+                            matcher.appendReplacement(result, java.util.regex.Matcher.quoteReplacement(replaceText));
+                        }
+                        matcher.appendTail(result);
+                        modifiedContent = result.toString();
+                    }
+                }
+            }
+            
+            // If content is unchanged, return early
+            if (originalContent.equals(modifiedContent)) {
+                LOG.info("No changes made to file content after applying all replacements");
+                return true;
+            }
+            
+            // Show diff with all replacements
+            final boolean[] userConfirmed = new boolean[1];
+
+            java.io.File finalTargetFile = targetFile;
+            String finalModifiedContent = modifiedContent;
+            ApplicationManager.getApplication().invokeAndWait(() -> {
+                // Create diff contents
+                com.intellij.diff.DiffContentFactory diffFactory = com.intellij.diff.DiffContentFactory.getInstance();
+                com.intellij.diff.contents.DocumentContent leftContent = diffFactory.create(originalContent);
+                com.intellij.diff.contents.DocumentContent rightContent = diffFactory.create(finalModifiedContent);
+                
+                // Create request with descriptive titles
+                com.intellij.diff.requests.SimpleDiffRequest diffRequest = new com.intellij.diff.requests.SimpleDiffRequest(
+                        "Batch Changes to " + finalTargetFile.getName() + " (" + replacements.size() + " replacements)",
+                        leftContent,
+                        rightContent,
+                        "Original",
+                        "After Replacements"
+                );
+                
+                // Show the diff dialog
+                com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, com.intellij.diff.DiffDialogHints.MODAL);
+                
+                // Ask for confirmation
+                int option = Messages.showYesNoDialog(
+                        project,
+                        "Apply " + replacements.size() + " replacements to " + filePath + "?",
+                        "Confirm Batch Changes",
+                        "Apply", // Yes button
+                        "Cancel", // No button
+                        Messages.getQuestionIcon()
+                );
+                
+                userConfirmed[0] = (option == Messages.YES);
+            });
+            
+            // If user confirmed, apply the changes
+            if (userConfirmed[0]) {
+                // Get VirtualFile for the file
+                com.intellij.openapi.vfs.VirtualFile vFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(targetFile.getPath());
+                if (vFile == null) {
+                    LOG.error("Could not find file in virtual file system: " + filePath);
+                    return false;
+                }
+                
+                // Apply the changes
+                String finalModifiedContent1 = modifiedContent;
+                WriteCommandAction.runWriteCommandAction(project, () -> {
+                    try {
+                        // Refresh to make sure we have the latest version
+                        vFile.refresh(false, false);
+                        
+                        // Update file content
+                        vFile.setBinaryContent(finalModifiedContent1.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        
+                        // Open the file to show the changes
+                        FileEditorManager.getInstance(project).openFile(vFile, true);
+                    } catch (Exception e) {
+                        LOG.error("Error updating file: " + filePath, e);
+                    }
+                });
+                
+                return true;
+            } else {
+                LOG.info("Batch changes were not applied - discarded by user");
+                return false;
+            }
+        } catch (Exception e) {
+            LOG.error("Error handling batch replace in file request", e);
             return false;
         }
     }

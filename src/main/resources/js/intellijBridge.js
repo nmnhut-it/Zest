@@ -54,6 +54,18 @@ window.intellijBridge = {
       regex: data.regex || false,
       caseSensitive: data.caseSensitive || true
     });
+  },
+  
+  /**
+   * Performs multiple replacements in a file in a single operation
+   * @param {Object} data - Object containing the file path and an array of replacements
+   * @returns {Promise} Promise that resolves when all replacements are complete
+   */
+  batchReplaceInFile: function(data) {
+    return this.callIDE('batchReplaceInFile', {
+      filePath: data.filePath,
+      replacements: data.replacements
+    });
   }
 };
 

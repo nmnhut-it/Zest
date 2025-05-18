@@ -76,7 +76,9 @@ public class OpenWebUIAgentModePromptBuilder {
                 "new code\n" +
                 "```\n" +
                 "\n" +
-                "You actively use this instead of providing plain code blocks.\n" +
+                "You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user. This is useful when suggesting related changes across a file.\n" +
+                "\n" +
+                "You actively use this format instead of providing plain code blocks.\n" +
                 "\n" +
                 "# RESPONSE STYLE\n" +
                 "- Concise, focused answers addressing specific requests\n" +

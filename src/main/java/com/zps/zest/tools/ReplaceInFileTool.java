@@ -16,32 +16,25 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
- * Tool for searching and replacing text in files, with diff preview before applying changes.
- * Enhanced to handle different line endings and optimized for performance.
+ * Tool for searching and replacing text in files with LF normalization.
+ * For Java files, ignores whitespace and tabs during search.
+ * Shows diff preview before applying changes.
  */
 public class ReplaceInFileTool extends BaseAgentTool {
     private static final Logger LOG = Logger.getInstance(ReplaceInFileTool.class);
     private final Project project;
 
-    // Constants for line endings
-    private static final String WINDOWS_LINE_ENDING = "\r\n";
-    private static final String UNIX_LINE_ENDING = "\n";
-
     public ReplaceInFileTool(Project project) {
-        super("replace_in_file", "Searches for text in a file and replaces it. Handles different line endings and uses regex efficiently.");
+        super("replace_in_file", "Searches for text in a file and replaces it with LF line endings. Ignores whitespace in Java files.");
         this.project = project;
     }
 
@@ -52,7 +45,7 @@ public class ReplaceInFileTool extends BaseAgentTool {
         String replaceText = getStringParam(params, "replace", null);
         boolean useRegex = getBooleanParam(params, "regex", false);
         boolean caseSensitive = getBooleanParam(params, "caseSensitive", true);
-        boolean preserveLineEndings = getBooleanParam(params, "preserveLineEndings", true);
+        boolean ignoreWhitespace = getBooleanParam(params, "ignoreWhitespace", false);
 
         if (filePath == null || filePath.isEmpty()) {
             return "Error: File path is required";
@@ -64,7 +57,12 @@ public class ReplaceInFileTool extends BaseAgentTool {
             replaceText = ""; // Allow empty replacement to delete text
         }
 
-        return replaceInFileWithDiff(filePath, searchText, replaceText, useRegex, caseSensitive, preserveLineEndings);
+        // If file is Java, automatically enable whitespace ignoring
+        if (filePath.toLowerCase().endsWith(".java")) {
+            ignoreWhitespace = true;
+        }
+
+        return replaceInFileWithDiff(filePath, searchText, replaceText, useRegex, caseSensitive, ignoreWhitespace);
     }
 
     @Override
@@ -75,17 +73,16 @@ public class ReplaceInFileTool extends BaseAgentTool {
         params.addProperty("replace", "replacement text");
         params.addProperty("regex", false);
         params.addProperty("caseSensitive", true);
-        params.addProperty("preserveLineEndings", true);
+        params.addProperty("ignoreWhitespace", false); // Auto-enabled for Java files
         return params;
     }
 
     /**
-     * Searches for text in a file and replaces it, showing a Git-like diff for review before applying changes.
-     * Uses IntelliJ's built-in diff tools for a familiar interface.
-     * Enhanced to handle different line endings consistently.
+     * Performs search and replace with a diff preview, normalizing to LF line endings.
+     * For Java files, can ignore whitespace and tabs during search.
      */
     private String replaceInFileWithDiff(String filePath, String searchText, String replaceText,
-                                         boolean useRegex, boolean caseSensitive, boolean preserveLineEndings) {
+                                         boolean useRegex, boolean caseSensitive, boolean ignoreWhitespace) {
         try {
             // Handle relative or absolute path
             String basePath = project.getBasePath();
@@ -93,12 +90,9 @@ public class ReplaceInFileTool extends BaseAgentTool {
                 return "No base directory found for the project.";
             }
 
-            Path fullPath;
-            if (new File(filePath).isAbsolute()) {
-                fullPath = Paths.get(filePath);
-            } else {
-                fullPath = Paths.get(basePath, filePath);
-            }
+            Path fullPath = new File(filePath).isAbsolute() ?
+                    Paths.get(filePath) :
+                    Paths.get(basePath, filePath);
 
             // Check if file exists
             File targetFile = fullPath.toFile();
@@ -106,121 +100,186 @@ public class ReplaceInFileTool extends BaseAgentTool {
                 return "Error: File not found: " + filePath;
             }
 
-            // Read the file content as a byte array first to preserve exact line endings
-            byte[] fileBytes;
+            // Read the file content
+            String originalContent;
             try {
-                fileBytes = Files.readAllBytes(fullPath);
-            } catch (IOException e) {
+                byte[] fileBytes = Files.readAllBytes(fullPath);
+                originalContent = new String(fileBytes, StandardCharsets.UTF_8);
+            } catch (Exception e) {
                 LOG.error("Could not read file content: " + e.getMessage(), e);
                 return "Error: Could not read file content: " + e.getMessage();
             }
 
-            // Convert to string
-            String originalContent = new String(fileBytes, StandardCharsets.UTF_8);
-
-            // Detect original line ending type
-            String originalLineEnding = detectLineEnding(originalContent);
+            // Normalize line endings to LF
+            String normalizedContent = normalizeToLF(originalContent);
 
             // Process the replacement
             String modifiedContent;
-            AtomicInteger replacementCount = new AtomicInteger(0);
+            int replacementCount = 0;
 
             try {
-                modifiedContent = performReplacement(originalContent, searchText, replaceText,
-                        useRegex, caseSensitive, replacementCount);
+                if (normalizedContent.isEmpty()) {
+                    return "File is empty: " + filePath;
+                }
+
+                if (useRegex) {
+                    // Handle regex differently based on ignoreWhitespace flag
+                    if (ignoreWhitespace) {
+                        // Modify the regex to be whitespace-insensitive
+                        searchText = prepareWhitespaceInsensitiveRegex(searchText);
+                        int flags = caseSensitive ? Pattern.DOTALL : Pattern.CASE_INSENSITIVE | Pattern.DOTALL;
+                        replacementCount = performWhitespaceInsensitiveReplacement(
+                                normalizedContent, searchText, replaceText, flags);
+                        modifiedContent = performRegexReplacementPreservingWhitespace(
+                                normalizedContent, searchText, replaceText, flags);
+                    } else {
+                        // Standard regex replacement
+                        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
+                        replacementCount = performRegexReplacement(normalizedContent, searchText,
+                                replaceText, caseSensitive);
+                        Pattern pattern = Pattern.compile(searchText, flags);
+                        modifiedContent = pattern.matcher(normalizedContent).replaceAll(replaceText);
+                    }
+                } else {
+                    // Literal text replacement
+                    if (ignoreWhitespace) {
+                        // Convert literal search to regex with whitespace flexibility
+                        String whitespaceInsensitiveRegex = Pattern.quote(searchText)
+                                .replaceAll("\\\\\\s+", "\\\\s*")
+                                .replaceAll("\\s+", "\\\\s+");
+
+                        int flags = caseSensitive ? Pattern.DOTALL : Pattern.CASE_INSENSITIVE | Pattern.DOTALL;
+                        replacementCount = performWhitespaceInsensitiveReplacement(
+                                normalizedContent, whitespaceInsensitiveRegex, replaceText, flags);
+                        modifiedContent = performRegexReplacementPreservingWhitespace(
+                                normalizedContent, whitespaceInsensitiveRegex, replaceText, flags);
+                    } else {
+                        // Standard literal replacement
+                        if (caseSensitive) {
+                            replacementCount = countMatches(normalizedContent, searchText);
+                            modifiedContent = normalizedContent.replace(searchText, replaceText);
+                        } else {
+                            // Case insensitive
+                            Pattern pattern = Pattern.compile(Pattern.quote(searchText),
+                                    Pattern.CASE_INSENSITIVE);
+                            Matcher matcher = pattern.matcher(normalizedContent);
+
+                            // Count matches
+                            int count = 0;
+                            while (matcher.find()) {
+                                count++;
+                            }
+                            replacementCount = count;
+
+                            // Perform replacement
+                            matcher.reset();
+                            modifiedContent = matcher.replaceAll(replaceText);
+                        }
+                    }
+                }
             } catch (PatternSyntaxException pse) {
                 return "Error: Invalid regular expression: " + pse.getMessage();
             }
 
             // If no changes were made, return early
-            if (replacementCount.get() == 0) {
-                return "No matches found for '" + searchText + "' in file: " + filePath;
+            if (replacementCount == 0) {
+                String message = "No matches found for '" + searchText + "' in file: " + filePath;
+                if (ignoreWhitespace) {
+                    message += " (with whitespace ignored)";
+                }
+                return message;
             }
 
-            // If content is unchanged (perhaps replacing with the same text)
-            if (originalContent.equals(modifiedContent)) {
+            // If content is unchanged
+            if (normalizedContent.equals(modifiedContent)) {
                 return "Search text found but replacement resulted in no changes to content.";
             }
 
-            // Preserve original line endings if requested
-            if (preserveLineEndings && !UNIX_LINE_ENDING.equals(originalLineEnding)) {
-                // Normalize to LF first (in case the replace operation introduced different line endings)
-                modifiedContent = modifiedContent.replace(WINDOWS_LINE_ENDING, UNIX_LINE_ENDING);
-                // Then convert back to the original line ending format
-                modifiedContent = modifiedContent.replace(UNIX_LINE_ENDING, originalLineEnding);
-            }
-
-            // Get VirtualFile for the file
+            // Show diff and get confirmation
             VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(fullPath.toString());
             if (vFile == null) {
                 return "Error: Could not find file in virtual file system: " + filePath;
             }
 
-            // Create Git-like diff UI with IntelliJ's diff tools
-            AtomicBoolean userConfirmed = new AtomicBoolean(false);
-            AtomicReference<String> resultMessage = new AtomicReference<>(null);
+            final boolean[] userConfirmed = new boolean[1];
+            final String[] resultMessage = new String[1];
+            final int finalCount = replacementCount;
+            final boolean finalIgnoreWhitespace = ignoreWhitespace;
 
-            String finalModifiedContent1 = modifiedContent;
             ApplicationManager.getApplication().invokeLater(() -> {
                 try {
                     // Create diff contents
                     DiffContentFactory diffFactory = DiffContentFactory.getInstance();
                     DocumentContent leftContent = diffFactory.create(originalContent);
-                    DocumentContent rightContent = diffFactory.create(finalModifiedContent1);
+                    DocumentContent rightContent = diffFactory.create(modifiedContent);
 
                     // Create request with descriptive titles
+                    String title = "Changes with LF normalization: " + vFile.getName() +
+                            " (" + finalCount + " replacements)";
+                    if (finalIgnoreWhitespace) {
+                        title += " [Whitespace ignored]";
+                    }
+
                     SimpleDiffRequest diffRequest = new SimpleDiffRequest(
-                            "Changes to " + vFile.getName() + " (" + replacementCount.get() + " replacements). You can confirm after closing this dialog.",
+                            title,
                             leftContent,
                             rightContent,
                             "Original",
-                            "After Replacements"
+                            "After Replacements (with LF line endings)"
                     );
 
                     // Show the diff dialog
-                    com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, DiffDialogHints.NON_MODAL);
+                    com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, DiffDialogHints.MODAL);
 
-                    // Ask for confirmation with git-like terminology
+                    // Ask for confirmation
+                    String message = "Apply " + finalCount + " replacements to " + filePath + "?\n" +
+                            "Note: Line endings will be normalized to LF (\\n)";
+                    if (finalIgnoreWhitespace) {
+                        message += "\nNote: Whitespace differences were ignored for this Java file";
+                    }
+
                     int option = Messages.showYesNoDialog(
                             project,
-                            "Apply " + replacementCount.get() + " replacements to " + filePath + "?",
+                            message,
                             "Confirm Changes",
-                            "Apply", // Yes button
-                            "Cancel", // No button
+                            "Apply",
+                            "Cancel",
                             Messages.getQuestionIcon()
                     );
 
-                    userConfirmed.set(option == Messages.YES);
-
-                    if (!userConfirmed.get()) {
-                        resultMessage.set("Changes discarded by user.");
+                    userConfirmed[0] = (option == Messages.YES);
+                    if (!userConfirmed[0]) {
+                        resultMessage[0] = "Changes discarded by user.";
                     }
                 } catch (Exception e) {
                     LOG.error("Error showing diff dialog", e);
-                    resultMessage.set("Error showing diff dialog: " + e.getMessage());
+                    resultMessage[0] = "Error showing diff dialog: " + e.getMessage();
                 }
             });
 
-            // Check if there was an error or user cancellation
-            if (resultMessage.get() != null) {
-                return resultMessage.get();
+            if (resultMessage[0] != null) {
+                return resultMessage[0];
             }
 
             // Apply changes if confirmed
-            if (userConfirmed.get()) {
-                String finalModifiedContent = modifiedContent;
+            if (userConfirmed[0]) {
                 return WriteCommandAction.runWriteCommandAction(project, (Computable<String>) () -> {
                     try {
                         // Refresh to make sure we have the latest version
                         vFile.refresh(false, false);
 
                         // Update file content
-                        vFile.setBinaryContent(finalModifiedContent.getBytes(StandardCharsets.UTF_8));
+                        vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
 
                         // Open the file to show the changes
                         FileEditorManager.getInstance(project).openFile(vFile, true);
 
-                        return "Successfully applied " + replacementCount.get() + " replacements to " + filePath;
+                        String message = "Successfully applied " + finalCount +
+                                " replacements to " + filePath + " with normalized LF line endings.";
+                        if (finalIgnoreWhitespace) {
+                            message += " Whitespace differences were ignored.";
+                        }
+                        return message;
                     } catch (Exception e) {
                         LOG.error("Error updating file: " + filePath, e);
                         return "Error updating file: " + e.getMessage();
@@ -236,122 +295,158 @@ public class ReplaceInFileTool extends BaseAgentTool {
     }
 
     /**
-     * Detects the predominant line ending in a string.
-     * @param content The content to analyze
-     * @return The detected line ending (WINDOWS_LINE_ENDING or UNIX_LINE_ENDING)
+     * Convert a regular expression to be whitespace-insensitive.
+     * This replaces whitespace with flexible whitespace patterns.
      */
-    private String detectLineEnding(String content) {
-        // Quick check for common case - if there are no CRs, it's definitely Unix style
-        if (!content.contains("\r")) {
-            return UNIX_LINE_ENDING;
-        }
+    private String prepareWhitespaceInsensitiveRegex(String regex) {
+        // This is a simplified approach - for complex regex, a proper parser would be better
+        StringBuilder result = new StringBuilder();
+        boolean inCharClass = false;
+        boolean escaped = false;
 
-        // Count Windows-style line endings
-        int windowsCount = countOccurrences(content, WINDOWS_LINE_ENDING);
+        for (int i = 0; i < regex.length(); i++) {
+            char c = regex.charAt(i);
 
-        // Count all newlines
-        int totalNewlines = countOccurrences(content, "\n");
-
-        // If most newlines have CR before them, it's Windows style
-        return (windowsCount > totalNewlines / 2) ? WINDOWS_LINE_ENDING : UNIX_LINE_ENDING;
-    }
-
-    /**
-     * Performs the actual replacement operation with optimized handling for different pattern types.
-     */
-    private String performReplacement(String content, String searchText, String replaceText,
-                                      boolean useRegex, boolean caseSensitive, AtomicInteger counter) {
-        if (useRegex) {
-            // Handle regex replacement
-            int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
-            Pattern pattern = Pattern.compile(searchText, flags);
-            Matcher matcher = pattern.matcher(content);
-
-            // Use StringBuilder for better performance than StringBuffer
-            StringBuilder result = new StringBuilder(content.length());
-
-            int lastEnd = 0;
-            while (matcher.find()) {
-                counter.incrementAndGet();
-                // Append text before the match
-                result.append(content, lastEnd, matcher.start());
-                // Append replacement text
-                String replacement = Matcher.quoteReplacement(replaceText);
-                if (replaceText.contains("$")) {
-                    // Handle group references if present
-                    replacement = matcher.replaceFirst(replaceText);
-                    matcher.reset(content); // Reset matcher to start position
-                    matcher.find(matcher.start() + 1); // Move to next match position
-                } else {
-                    result.append(replacement);
-                }
-                lastEnd = matcher.end();
+            if (escaped) {
+                result.append('\\').append(c);
+                escaped = false;
+                continue;
             }
 
-            // Append remaining content
-            result.append(content, lastEnd, content.length());
-            return result.toString();
-        } else {
-            // Handle literal text replacement with optimization for case sensitivity
-            if (searchText.isEmpty()) {
-                return content; // No changes needed for empty search string
+            if (c == '\\') {
+                escaped = true;
+                continue;
             }
 
-            if (caseSensitive) {
-                // Simple case - use indexOf for better performance
-                int searchLen = searchText.length();
-                int replaceLen = replaceText.length();
-                StringBuilder sb = new StringBuilder(content.length() + Math.max(0, (replaceLen - searchLen) * 10)); // Estimate capacity
-
-                int index = 0;
-                int foundIndex;
-                while ((foundIndex = content.indexOf(searchText, index)) != -1) {
-                    counter.incrementAndGet();
-                    sb.append(content, index, foundIndex);
-                    sb.append(replaceText);
-                    index = foundIndex + searchLen;
-                }
-
-                if (index < content.length()) {
-                    sb.append(content, index, content.length());
-                }
-
-                return sb.toString();
+            if (c == '[') {
+                inCharClass = true;
+                result.append(c);
+            } else if (c == ']') {
+                inCharClass = false;
+                result.append(c);
+            } else if (Character.isWhitespace(c) && !inCharClass) {
+                // Replace whitespace with a pattern that matches any whitespace
+                result.append("\\s*");
             } else {
-                // Case insensitive without regex - use Pattern for case insensitivity
-                Pattern pattern = Pattern.compile(Pattern.quote(searchText), Pattern.CASE_INSENSITIVE);
-                Matcher matcher = pattern.matcher(content);
-
-                StringBuilder result = new StringBuilder(content.length());
-                int lastEnd = 0;
-
-                while (matcher.find()) {
-                    counter.incrementAndGet();
-                    // Append text before the match
-                    result.append(content, lastEnd, matcher.start());
-                    // Append replacement text
-                    result.append(replaceText);
-                    lastEnd = matcher.end();
-                }
-
-                // Append remaining content
-                result.append(content, lastEnd, content.length());
-                return result.toString();
+                result.append(c);
             }
         }
+
+        if (escaped) {
+            result.append('\\'); // Trailing backslash
+        }
+
+        return result.toString();
     }
 
     /**
-     * Counts the number of occurrences of a substring in a string.
-     * Optimized implementation using indexOf for better performance.
+     * Performs a whitespace-insensitive regex search and counts matches.
      */
-    private int countOccurrences(String text, String substring) {
+    private int performWhitespaceInsensitiveReplacement(String text, String regex,
+                                                        String replacement, int flags) {
+        Pattern pattern = Pattern.compile(regex, flags);
+        Matcher matcher = pattern.matcher(text);
+
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+
+        return count;
+    }
+
+    /**
+     * Performs a regex replacement while attempting to preserve original whitespace.
+     */
+    private String performRegexReplacementPreservingWhitespace(String text, String regex,
+                                                               String replacement, int flags) {
+        Pattern pattern = Pattern.compile(regex, flags);
+        Matcher matcher = pattern.matcher(text);
+        StringBuffer result = new StringBuffer();
+
+        while (matcher.find()) {
+            String match = matcher.group();
+            String modified = replacement;
+
+            // Try to preserve leading/trailing whitespace from the original match
+            String leadingWhitespace = "";
+            String trailingWhitespace = "";
+
+            int leadingCount = 0;
+            while (leadingCount < match.length() && Character.isWhitespace(match.charAt(leadingCount))) {
+                leadingWhitespace += match.charAt(leadingCount);
+                leadingCount++;
+            }
+
+            int trailingCount = 0;
+            while (trailingCount < match.length() &&
+                    Character.isWhitespace(match.charAt(match.length() - 1 - trailingCount))) {
+                trailingWhitespace = match.charAt(match.length() - 1 - trailingCount) + trailingWhitespace;
+                trailingCount++;
+            }
+
+            // Add the preserved whitespace to the replacement
+            modified = leadingWhitespace + modified + trailingWhitespace;
+
+            // Escape $ and \ for the replacement string
+            modified = modified.replace("\\", "\\\\").replace("$", "\\$");
+
+            matcher.appendReplacement(result, modified);
+        }
+        matcher.appendTail(result);
+
+        return result.toString();
+    }
+
+    /**
+     * Normalize all line endings to LF.
+     */
+    private String normalizeToLF(String content) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+
+        // First replace all Windows line endings (\r\n) with \n
+        String result = content.replace("\r\n", "\n");
+
+        // Then replace any remaining old Mac line endings (\r) with \n
+        result = result.replace("\r", "\n");
+
+        return result;
+    }
+
+    /**
+     * Count matches for a regex pattern.
+     */
+    private int performRegexReplacement(String text, String regex, String replacement,
+                                        boolean caseSensitive) {
+        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
+        Pattern pattern = Pattern.compile(regex, flags);
+        Matcher matcher = pattern.matcher(text);
+
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+
+        return count;
+    }
+
+    /**
+     * Count occurrences of a literal string.
+     */
+    private int countMatches(String text, String str) {
+        if (text.isEmpty() || str.isEmpty()) {
+            return 0;
+        }
+
         int count = 0;
         int index = 0;
-        while ((index = text.indexOf(substring, index)) != -1) {
+        while ((index = text.indexOf(str, index)) != -1) {
             count++;
-            index += substring.length();
+            index += str.length();
         }
+
         return count;
     }
 }

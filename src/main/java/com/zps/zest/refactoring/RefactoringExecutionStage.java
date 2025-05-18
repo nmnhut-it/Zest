@@ -1,7 +1,5 @@
 package com.zps.zest.refactoring;
 
-import com.google.gson.JsonObject;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
@@ -51,21 +49,11 @@ public class RefactoringExecutionStage implements PipelineStage {
             return;
         }
         
-        // Create execution manager and start the process
-        RefactoringExecutionManager executionManager = new RefactoringExecutionManager(project);
-        
-        // Execute the first step
-        boolean success = executionManager.executeStep(plan, progress);
-        if (!success) {
-            throw new PipelineExecutionException("Failed to execute the first refactoring step");
+        // Show the refactoring tool window to guide the user through the process
+        RefactoringToolWindow toolWindow = RefactoringToolWindow.showToolWindow(project, plan, progress);
+        if (toolWindow == null) {
+            throw new PipelineExecutionException("Failed to show refactoring tool window");
         }
-        
-        // Show the refactoring manager dialog to guide the user through the process
-        RefactoringProgress finalProgress = progress;
-        ApplicationManager.getApplication().invokeLater(() -> {
-            RefactoringManagerDialog dialog = new RefactoringManagerDialog(project, plan, finalProgress);
-            dialog.show();
-        });
         
         // Update the status message
         String statusMessage = String.format(
@@ -75,6 +63,4 @@ public class RefactoringExecutionStage implements PipelineStage {
         
         LOG.info(statusMessage);
     }
-    
-
 }

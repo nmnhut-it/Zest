@@ -127,20 +127,53 @@
    */
   function handleResponse(response) {
     const responseClone = response.clone();
+    const url = responseClone.url || '';
 
-    if (responseClone.url && responseClone.url.includes('completed')) {
-      console.log('Detected network response with completed in URL:', responseClone.url);
+    // Look for API responses that might contain completed chat data
+    if (url.includes('completed') || url.includes('/api/conversation')) {
+      console.log('Detected API response with completion data:', url);
 
-      setTimeout(() => {
-        window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);
-        window.__text_to_replace_ide___ = null;
-        if (window.intellijBridge) {
-          window.intellijBridge.callIDE('contentUpdated', { url: window.location.href });
+      // Try to handle it with the response parser
+      responseClone.json().then(data => {
+        console.log('Parsed response data:', data);
+        
+        // If we have the parser functions available, use them
+        if (window.parseResponseForCode && window.processExtractedCode) {
+          const codeBlocks = window.parseResponseForCode(data);
+          
+          if (codeBlocks && codeBlocks.length > 0) {
+            // We found code blocks, process them
+            window.processExtractedCode(codeBlocks);
+          } else {
+            // Fall back to DOM-based extraction if no code blocks found
+            fallbackToHtmlExtraction();
+          }
+        } else {
+          // Fall back to DOM-based extraction if parser not available
+          fallbackToHtmlExtraction();
         }
-      }, 1000);
+      }).catch(error => {
+        console.error('Error parsing API response:', error);
+        // Fall back to DOM-based extraction if parsing fails
+        fallbackToHtmlExtraction();
+      });
     }
 
     return response;
+  }
+
+  /**
+   * Falls back to HTML-based code extraction
+   */
+  function fallbackToHtmlExtraction() {
+    console.log('Falling back to HTML-based code extraction');
+    setTimeout(() => {
+      window.extractCodeToIntelliJ(!window.__text_to_replace_ide___ ? '__##use_selected_text##__' : window.__text_to_replace_ide___);
+      window.__text_to_replace_ide___ = null;
+      if (window.intellijBridge) {
+        window.intellijBridge.callIDE('contentUpdated', { url: window.location.href });
+      }
+    }, 1000);
   }
 
   /**

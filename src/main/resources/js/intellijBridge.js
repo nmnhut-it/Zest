@@ -26,8 +26,21 @@ window.intellijBridge = {
         reject(e);
       }
     });
+  },
+  
+  /**
+   * Extracts code from an API response and sends it to the IDE
+   * @param {Object} data - Object containing the code, language, and text to replace
+   * @returns {Promise} Promise that resolves when the code is sent to the IDE
+   */
+  extractCodeFromResponse: function(data) {
+    return this.callIDE('extractCodeFromResponse', {
+      code: data.code,
+      language: data.language,
+      textToReplace: data.textToReplace || '__##use_selected_text##__'
+    });
   }
 };
 
 window.shouldAutomaticallyCopy = true;
-console.log('IntelliJ Bridge initialized');
+console.log('IntelliJ Bridge initialized with response parsing support');

@@ -163,6 +163,10 @@ public class JCEFBrowserManager {
             // Inject the bridge script
             cefBrowser.executeJavaScript(bridgeScript, frame.getURL(), 0);
             
+            // Load and inject the response parser script
+            String responseParserScript = loadResourceAsString("/js/responseParser.js");
+            cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
+            
             // Load and inject the code extractor script
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);

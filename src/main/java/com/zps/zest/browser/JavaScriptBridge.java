@@ -101,6 +101,15 @@ public class JavaScriptBridge {
                     response.addProperty("success", true);
                     response.add("result", projectInfo);
                     break;
+                    
+                case "extractCodeFromResponse":
+                    String codeText = data.get("code").getAsString();
+                    String language = data.has("language") ? data.get("language").getAsString() : "";
+                    String extractTextToReplace = data.get("textToReplace").getAsString();
+                    boolean extractResult = handleExtractedCode(extractTextToReplace, codeText, language);
+                    response.addProperty("success", extractResult);
+                    break;
+                    
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -116,6 +125,43 @@ public class JavaScriptBridge {
             return gson.toJson(errorResponse);
         }
     }
+    
+    /**
+     * Handles code extracted from API responses
+     * 
+     * @param textToReplace The text to find and replace (can be special value __##use_selected_text##__)
+     * @param codeText The extracted code
+     * @param language The language of the code
+     * @return True if the operation was successful
+     */
+    private boolean handleExtractedCode(String textToReplace, String codeText, String language) {
+        LOG.info("Handling extracted code from API response, language: " + language);
+        
+        try {
+            // If special value is used, get selected text from editor
+            if ("__##use_selected_text##__".equals(textToReplace)) {
+                String selectedText = getSelectedTextFromEditor();
+                if (selectedText != null && !selectedText.isEmpty()) {
+                    textToReplace = selectedText;
+                } else {
+                    // No text selected, just insert the code
+                    return insertTextToEditor(codeText);
+                }
+            }
+            
+            // If we have valid text to replace, handle as code completion
+            if (textToReplace != null && !textToReplace.isEmpty()) {
+                return handleCodeComplete(textToReplace, codeText);
+            } else {
+                // No text to replace, just insert the code
+                return insertTextToEditor(codeText);
+            }
+        } catch (Exception e) {
+            LOG.error("Error handling extracted code", e);
+            return false;
+        }
+    }
+    
     /**
      * Shows a dialog with the specified title and message.
      */
@@ -412,6 +458,5 @@ public class JavaScriptBridge {
             String codeContext = document.getText(new TextRange(startOffset, endOffset));
             return codeContext;
         });
-
     }
 }

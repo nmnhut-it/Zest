@@ -9,7 +9,7 @@
 // Define the CodeMirror extractor function
 window.extractCodeToIntelliJ = function(textToReplace) {
     // First, check if there are any collapsed code blocks that need to be expanded
-    expandCollapsedCodeBlocks();
+    findAndClickExpandButtons();
     
     // Wait a short time to allow expansion to complete
     setTimeout(() => {
@@ -18,47 +18,74 @@ window.extractCodeToIntelliJ = function(textToReplace) {
             // If that fails, fall back to standard code blocks
             extractFromRegularBlocks(textToReplace);
         }
-    }, 100);
+    }, 200); // Slightly longer timeout to ensure expansion completes
     
     return true;
 };
 
-// Try to expand any collapsed code blocks
-function expandCollapsedCodeBlocks() {
+// Function to find and click expand buttons by their text content
+function findAndClickExpandButtons() {
+    console.log('Searching for expand buttons...');
+    
     try {
-        // Look for potential expand buttons using multiple approaches since :has() selector is not widely supported
-        // 1. Find buttons with "Expand" text
-        const allButtons = document.querySelectorAll('button');
-        let expandButtons = Array.from(allButtons).filter(button => 
-            button.textContent.trim().toLowerCase().includes('expand')
-        );
+        // Get all elements that might contain text
+        const allElements = document.querySelectorAll('*');
         
-        // 2. Find flex containers that look like buttons with SVG icons
-        const flexContainers = document.querySelectorAll('.flex.gap-1.items-center');
-        expandButtons = expandButtons.concat(Array.from(flexContainers).filter(container => {
-            // Check if it contains an SVG
-            return container.querySelector('svg') !== null;
-        }));
-        
-        // 3. Try to find buttons near code blocks
-        const codeBlocks = document.querySelectorAll('pre, .cm-editor');
-        codeBlocks.forEach(block => {
-            const parentElement = block.parentElement;
-            if (parentElement) {
-                const nearbyButtons = parentElement.querySelectorAll('button');
-                expandButtons = expandButtons.concat(Array.from(nearbyButtons));
-            }
+        // Filter to find elements with "Expand" text
+        const expandElements = Array.from(allElements).filter(element => {
+            const text = element.textContent.trim().toLowerCase();
+            return text === 'expand';
         });
         
-        // Click all potential expand buttons
-        console.log(`Found ${expandButtons.length} potential expand buttons`);
-        expandButtons.forEach(button => {
-            try {
-                console.log('Clicking potential expand button');
-                button.click();
-            } catch (clickError) {
-                console.log('Error clicking button:', clickError);
+        console.log(`Found ${expandElements.length} elements with 'expand' text`);
+        
+        // For each element with "Expand" text, find the closest clickable parent
+        expandElements.forEach((element, index) => {
+            console.log(`Examining expand element ${index}:`, element);
+            
+            // First check if the element itself is clickable
+            if (element.tagName === 'BUTTON' || element.tagName === 'A' || element.onclick) {
+                console.log('Element is directly clickable, clicking...');
+                element.click();
+                return;
             }
+            
+            // Find the closest parent that's a button, link, or has onClick
+            let parent = element.parentElement;
+            let depth = 0;
+            const maxDepth = 3; // Don't go too far up the tree
+            
+            while (parent && depth < maxDepth) {
+                console.log(`Checking parent at depth ${depth}:`, parent);
+                
+                if (parent.tagName === 'BUTTON' || 
+                    parent.tagName === 'A' || 
+                    parent.onclick || 
+                    parent.classList.contains('flex') && parent.querySelector('svg')) {
+                    console.log('Found clickable parent, clicking...');
+                    parent.click();
+                    return;
+                }
+                
+                parent = parent.parentElement;
+                depth++;
+            }
+            
+            console.log('No clickable parent found for this element');
+        });
+        
+        // Look specifically for flex containers with "Expand" text and SVG icons
+        const flexContainers = document.querySelectorAll('.flex');
+        const expandFlexContainers = Array.from(flexContainers).filter(container => {
+            const text = container.textContent.trim().toLowerCase();
+            const hasSvg = container.querySelector('svg') !== null;
+            return text.includes('expand') && hasSvg;
+        });
+        
+        console.log(`Found ${expandFlexContainers.length} flex containers with 'expand' text and SVG icons`);
+        expandFlexContainers.forEach(container => {
+            console.log('Clicking flex container with expand text:', container);
+            container.click();
         });
     } catch (e) {
         console.error('Error expanding code blocks:', e);

@@ -31,7 +31,7 @@ public class CodeCommentPromptCreationStage implements PipelineStage {
 
         // Add header with clear instructions
         promptBuilder.append("# CODE COMMENT GENERATION REQUEST\n\n");
-        promptBuilder.append("Please generate comprehensive comments for the following Java code selection.\n\n");
+        promptBuilder.append("Please generate comments for the following Java code selection.\n\n");
 
         // Include content with file extension information
         promptBuilder.append("## Selected code from: ").append(className != null ? className : "Unknown class").append("\n\n");
@@ -55,12 +55,13 @@ public class CodeCommentPromptCreationStage implements PipelineStage {
         promptBuilder.append("- Be concise but informative\n");
         promptBuilder.append("- Explain 'why' not just 'what' the code does\n");
         promptBuilder.append("- Maintain consistent style across all comments\n");
-        promptBuilder.append("- Use proper grammar and capitalization\n\n");
+        promptBuilder.append("- Use proper grammar and capitalization\n");
+        promptBuilder.append("- DO NOT add comment if the code line has good readability and can explain itself\n\n");
 
         // Request specific output format
         promptBuilder.append("## Requested Output Format\n\n");
-        promptBuilder.append("- Provide the fully commented code ready for direct implementation. ");
-        promptBuilder.append("- Include ONLY the code with proper comments - no explanations or additional text. ");
+        promptBuilder.append("- Provide the fully commented code ready for direct implementation. \n");
+        promptBuilder.append("- Include ONLY the code with proper comments - no explanations or additional text. \n");
         promptBuilder.append("- Maintain all existing code behavior exactly as is.\n\n");
 
         // Store the generated prompt in the context

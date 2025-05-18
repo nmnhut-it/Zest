@@ -5,6 +5,10 @@ import org.cef.handler.CefLoadHandlerAdapter;
 import org.cef.browser.CefFrame;
 import com.intellij.openapi.diagnostic.Logger;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Handler that injects JavaScript to automatically extract code
  * from CodeMirror editors using the existing intellijBridge.

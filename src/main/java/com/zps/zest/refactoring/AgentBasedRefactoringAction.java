@@ -60,6 +60,24 @@ public class AgentBasedRefactoringAction extends AnAction {
                     RefactoringStateManager stateManager = new RefactoringStateManager(project);
                     boolean isRefactoringInProgress = stateManager.isRefactoringInProgress();
                     
+                    // If there is a refactoring state, check if it's aborted or completed
+                    if (isRefactoringInProgress) {
+                        RefactoringProgress progress = stateManager.loadProgress();
+                        if (progress != null && (progress.getStatus() == RefactoringStatus.ABORTED || 
+                                                progress.getStatus() == RefactoringStatus.COMPLETED)) {
+                            // Clear the state to start a new refactoring
+                            LOG.info("Found aborted or completed refactoring. Clearing state to start fresh.");
+                            stateManager.clearRefactoringState();
+                            isRefactoringInProgress = false;
+                            
+                            // Close the tool window if it's open
+                            RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
+                        }
+                    } else {
+                        // Make sure the tool window is closed if no refactoring is in progress
+                        RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
+                    }
+                    
                     AgentBasedRefactoringPipeline pipeline;
                     
                     if (isRefactoringInProgress) {

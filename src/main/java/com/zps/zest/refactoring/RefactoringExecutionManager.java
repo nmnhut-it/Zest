@@ -55,31 +55,25 @@ public class RefactoringExecutionManager {
             return false;
         }
         
-        // Load additional context from the state manager
-        RefactoringStateManager stateManager = new RefactoringStateManager(project);
-        JsonObject contextJson = stateManager.loadContext();
+        // Extract target class name from the plan
+        String className = plan.getTargetClass();
+        String packageName = "";
         
-        if (contextJson == null) {
-            LOG.error("Failed to load refactoring context");
-            return false;
-        }
-        
-        // Extract target class name
-        String className = contextJson.has("className") ? contextJson.get("className").getAsString() : plan.getTargetClass();
-        String packageName = contextJson.has("packageName") ? contextJson.get("packageName").getAsString() : "";
-        
-        // Try to find the class file programmatically to get fresh context
+        // We don't need or use context.json - always get fresh class context
         PsiClass targetClass = findTargetClass(packageName, className);
         String updatedClassContext = null;
         
         if (targetClass != null) {
-            // Use ClassAnalyzer to get fresh class context
+            // Get the actual package name from the found class
+            packageName = targetClass.getContainingFile() instanceof PsiJavaFile ?
+                    ((PsiJavaFile)targetClass.getContainingFile()).getPackageName() : "";
+                    
+            // Use ClassAnalyzer to get fresh class context with any recent user modifications
             updatedClassContext = ClassAnalyzer.collectClassContext(targetClass);
-            LOG.info("Using fresh class context from ClassAnalyzer");
-        } else if (contextJson.has("classContext")) {
-            // Fall back to stored context
-            updatedClassContext = contextJson.get("classContext").getAsString();
-            LOG.info("Using stored class context");
+            LOG.info("Using fresh class context from ClassAnalyzer for step: " + progress.getCurrentStep());
+        } else {
+            LOG.error("Could not find target class: " + className);
+            return false;
         }
         
         if (updatedClassContext == null) {
@@ -90,10 +84,10 @@ public class RefactoringExecutionManager {
         // Remember if this is a continuation of a conversation or a new chat
         boolean isNewChat = isNewChatNeeded(progress);
         
-        // Create the execution prompt
+        // Create the execution prompt with the fresh context
         String executionPrompt = createStepExecutionPrompt(
                 plan, progress, currentIssue, currentStep, 
-                updatedClassContext, packageName, contextJson, isNewChat);
+                updatedClassContext, packageName, isNewChat);
         
         // If it's a new chat, first click the new chat button
         if (isNewChat) {
@@ -143,6 +137,7 @@ public class RefactoringExecutionManager {
     
     /**
      * Attempts to find the target class in the project.
+     * Uses the available class name information and tries multiple strategies.
      */
     private PsiClass findTargetClass(String packageName, String className) {
         try {
@@ -151,16 +146,29 @@ public class RefactoringExecutionManager {
                 com.intellij.psi.search.PsiShortNamesCache cache = com.intellij.psi.search.PsiShortNamesCache.getInstance(project);
                 PsiClass[] classes = cache.getClassesByName(className, com.intellij.psi.search.GlobalSearchScope.projectScope(project));
                 
-                // Find the class with the matching package
-                for (PsiClass psiClass : classes) {
-                    if (psiClass.getContainingFile() instanceof PsiJavaFile) {
-                        PsiJavaFile javaFile = (PsiJavaFile) psiClass.getContainingFile();
-                        if (javaFile.getPackageName().equals(packageName)) {
-                            return psiClass;
+                // If we have a package name, try to find an exact match first
+                if (packageName != null && !packageName.isEmpty()) {
+                    for (PsiClass psiClass : classes) {
+                        if (psiClass.getContainingFile() instanceof PsiJavaFile) {
+                            PsiJavaFile javaFile = (PsiJavaFile) psiClass.getContainingFile();
+                            if (javaFile.getPackageName().equals(packageName)) {
+                                LOG.info("Found target class by exact package match: " + packageName + "." + className);
+                                return psiClass;
+                            }
                         }
                     }
                 }
                 
+                // If no match with package or no package provided, just return the first class with matching name
+                if (classes.length > 0) {
+                    PsiClass foundClass = classes[0];
+                    String foundPackage = foundClass.getContainingFile() instanceof PsiJavaFile ? 
+                            ((PsiJavaFile)foundClass.getContainingFile()).getPackageName() : "unknown";
+                    LOG.info("Found target class by name only: " + foundPackage + "." + className);
+                    return foundClass;
+                }
+                
+                LOG.warn("Could not find target class: " + className);
                 return null;
             });
         } catch (Exception e) {
@@ -174,40 +182,65 @@ public class RefactoringExecutionManager {
      */
     private String createStepExecutionPrompt(RefactoringPlan plan, RefactoringProgress progress, 
                                              RefactoringIssue currentIssue, RefactoringStep currentStep,
-                                             String classContext, String packageName, JsonObject contextJson,
-                                             boolean isNewChat) {
+                                             String classContext, String packageName, boolean isNewChat) {
         StringBuilder prompt = new StringBuilder();
         
-        // If this is a new chat, include the full project and refactoring context
+        // If this is a new chat, include a brief introduction
         if (isNewChat) {
-            prompt.append("# Agent-Based Refactoring for Testability\n\n");
+            prompt.append("# Java Testability Refactoring Implementation\n\n");
             prompt.append("I'll help you implement a series of refactoring steps to improve the testability of ");
-            prompt.append(plan.getTargetClass()).append(". This is a structured refactoring process with multiple steps.\n\n");
-            
-            prompt.append("## Refactoring Plan Overview\n");
-            prompt.append("Total issues: ").append(plan.getIssues().size());
-            prompt.append(", Total steps: ").append(plan.getTotalStepCount()).append("\n\n");
-            
-            // List all issues and steps
-            for (RefactoringIssue issue : plan.getIssues()) {
-                prompt.append("- Issue ").append(issue.getId()).append(": ").append(issue.getTitle()).append("\n");
-                for (RefactoringStep step : issue.getSteps()) {
-                    prompt.append("  - Step ").append(step.getId()).append(": ").append(step.getTitle()).append("\n");
-                }
-            }
-            prompt.append("\n");
+            prompt.append(plan.getTargetClass()).append(".\n\n");
         }
         
         prompt.append("# Refactoring Step: ").append(currentStep.getTitle()).append("\n\n");
         
         prompt.append("## Context\n");
         prompt.append("- Issue: ").append(currentIssue.getTitle()).append("\n");
-        prompt.append("- Issue Description: ").append(currentIssue.getDescription()).append("\n");
         prompt.append("- Progress: Step ").append(progress.getCurrentStepIndex() + 1)
-              .append(" of ").append(currentIssue.getSteps().size())
-              .append(" in Issue ").append(progress.getCurrentIssueIndex() + 1)
-              .append(" of ").append(plan.getIssues().size()).append("\n\n");
+              .append("/").append(currentIssue.getSteps().size())
+              .append(" (Issue ").append(progress.getCurrentIssueIndex() + 1)
+              .append("/").append(plan.getIssues().size()).append(")\n\n");
         
+        // Add class context - gets the latest directly from ClassAnalyzer for each step
+        prompt.append("## Current Class\n");
+        
+        // Include package information if available
+        if (packageName != null && !packageName.isEmpty()) {
+            prompt.append("**Package:** ").append(packageName).append("\n\n");
+        }
+        
+        // Include the full class context from ClassAnalyzer - this reflects any recent changes
+        prompt.append("```java\n").append(classContext).append("\n```\n\n");
+        
+        prompt.append("## Implementation Instructions\n");
+        prompt.append("Implement this refactoring:\n");
+        prompt.append("1. Reason through each change you'll make and why it improves testability\n");
+        prompt.append("2. If you determine this specific aspect of code is already well-designed for testability, recommend skipping this step\n");
+        prompt.append("3. Otherwise, make only minimal changes needed to address the specific issue\n");
+        prompt.append("4. Ensure code maintains all existing functionality\n");
+        prompt.append("5. Verify your changes will compile correctly\n\n");
+        
+        prompt.append("## Response Format\n");
+        prompt.append("Follow this exact structure:\n\n");
+        prompt.append("◉ ANALYSIS: <Your reasoning process about how to approach this refactoring>\n\n");
+        prompt.append("◉ SUMMARY: <One sentence describing what the change accomplishes>\n\n");
+        prompt.append("◉ CHANGE #1\n");
+        prompt.append("  Location: Lines XX-YY\n");
+        prompt.append("  Replace:\n");
+        prompt.append("  ```java\n");
+        prompt.append("  // Exact code to be replaced\n");
+        prompt.append("  ```\n");
+        prompt.append("  With:\n");
+        prompt.append("  ```java\n");
+        prompt.append("  // New code\n");
+        prompt.append("  ```\n");
+        prompt.append("  Why: <Brief explanation of testability benefit>\n\n");
+        prompt.append("[Add more CHANGE sections as needed]\n\n");
+        prompt.append("◉ VALIDATION\n");
+        prompt.append("  <Verification of code correctness>\n");
+        prompt.append("  <Potential side effects>\n\n");
+        
+        // Step details at the end
         prompt.append("## Step Details\n");
         prompt.append(currentStep.getDescription()).append("\n\n");
         
@@ -219,37 +252,7 @@ public class RefactoringExecutionManager {
             prompt.append("**Required Change:** ").append(currentStep.getCodeChangeDescription()).append("\n\n");
         }
         
-        if (currentStep.getBefore() != null && !currentStep.getBefore().isEmpty()) {
-            prompt.append("**Code Before:**\n```java\n").append(currentStep.getBefore()).append("\n```\n\n");
-        }
-        
-        if (currentStep.getAfter() != null && !currentStep.getAfter().isEmpty()) {
-            prompt.append("**Suggested Code After:**\n```java\n").append(currentStep.getAfter()).append("\n```\n\n");
-        }
-        
-        // Add comprehensive class context
-        prompt.append("## Class Context\n\n");
-        
-        // Include package information
-        prompt.append("**Package:** ").append(packageName).append("\n\n");
-        
-        // Include imports
-        if (contextJson.has("imports")) {
-            prompt.append("**Imports:**\n```java\n").append(contextJson.get("imports").getAsString()).append("\n```\n\n");
-        }
-        
-        // Include the full class context from ClassAnalyzer
-        prompt.append("**Full Class Analysis:**\n").append(classContext).append("\n\n");
-        
-        // Add instructions for the LLM agent
-        prompt.append("## Instructions\n");
-        prompt.append("1. Analyze the refactoring step and its context\n");
-        prompt.append("2. Implement the changes according to the step description\n");
-        prompt.append("3. Provide the complete code after your changes\n");
-        prompt.append("4. Explain the changes made and how they improve testability\n");
-        prompt.append("5. After completion, I will mark this step as done and move to the next step\n\n");
-        
-        prompt.append("Please implement this refactoring step now.");
+        prompt.append("Implement this refactoring step now, following the exact format above.");
         
         return prompt.toString();
     }
@@ -258,9 +261,39 @@ public class RefactoringExecutionManager {
      * Sends a prompt to the chat box and activates the browser window.
      */
     private boolean sendPromptToChatBox(String prompt) {
-        // Get the appropriate system prompt
-        String systemPrompt = ConfigurationManager.getInstance(project).getCodeSystemPrompt();
-        
+        // Create a specialized system prompt for refactoring steps
+        String systemPrompt = "You are a specialized Java refactoring agent with superior expertise in improving code testability. "
+                + "\nAnalyze Java code to identify testability issues and implement precise refactorings that maintain functionality."
+                + "\n"
+                + "\nWhen implementing refactorings:"
+                + "\n1. First reason through your approach and explain your thought process"
+                + "\n2. If the specific aspect of code is already well-designed for testability, recommend skipping this step"
+                + "\n3. Otherwise, provide exact line numbers for changes"
+                + "\n4. Include before/after code blocks with minimum necessary changes"
+                + "\n5. Explain how each change improves testability"
+                + "\n6. Validate that code will compile and maintain functionality"
+                + "\n"
+                + "\nFormat your responses exactly like this: "
+                + "\n◉ ANALYSIS: <Your reasoning about how to approach this refactoring>"
+                + "\n◉ SUMMARY: <Either explanation of why no change is needed OR one-sentence overview of change> "
+                + "\n◉ CHANGE #1 "
+                + "\n  Location: Lines XX-YY "
+                + "\n  Replace: [code block with ```java] "
+                + "\n  With: [code block with ```java] "
+                + "\n  Why: <Brief testability benefit> "
+                + "\n◉ VALIDATION: <Verification of code correctness> <Potential side effects>"
+                + "\n"
+                + "\nFocus exclusively on testability issues such as:"
+                + "\n- Dependency injection opportunities"
+                + "\n- Removing static method calls"
+                + "\n- Extracting hard-coded values"
+                + "\n- Breaking down complex methods"
+                + "\n- Removing global state"
+                + "\n- Decoupling from external resources"
+                + "\n"
+                + "\nPreserve original functionality while improving testability."
+                + "\n/no_think";
+
         // Send the prompt to the chat box
         boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
         
@@ -330,6 +363,10 @@ public class RefactoringExecutionManager {
             
             // Clear the refactoring state
             stateManager.clearRefactoringState();
+            
+            // Only close the tool window when all steps are complete
+            // This branch is only reached at the end of the entire refactoring process
+            RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
             return false;
         }
         
@@ -370,7 +407,7 @@ public class RefactoringExecutionManager {
         currentStep.setStatus(RefactoringStepStatus.SKIPPED);
         progress.markStepSkipped(currentStep.getId());
         
-        // Move to the next step (same logic as complete)
+        // Move to the next step
         if (progress.getCurrentStepIndex() < currentIssue.getSteps().size() - 1) {
             progress.setCurrentStepIndex(progress.getCurrentStepIndex() + 1);
         } else if (progress.getCurrentIssueIndex() < plan.getIssues().size() - 1) {
@@ -392,6 +429,10 @@ public class RefactoringExecutionManager {
             
             // Clear the refactoring state
             stateManager.clearRefactoringState();
+            
+            // Only close the tool window when all steps are complete
+            // This branch is only reached at the end of the entire refactoring process
+            RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
             return false;
         }
         
@@ -416,6 +457,9 @@ public class RefactoringExecutionManager {
         
         // Clear the refactoring state
         stateManager.clearRefactoringState();
+        
+        // Close the tool window
+        RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
         
         // Show abort message
         ApplicationManager.getApplication().invokeLater(() -> {

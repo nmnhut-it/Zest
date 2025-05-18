@@ -52,6 +52,46 @@ public class RefactoringToolWindow {
      */
     public static RefactoringToolWindow showToolWindow(Project project, RefactoringPlan plan, RefactoringProgress progress) {
         try {
+            // Validate plan and progress
+            if (plan == null) {
+                LOG.error("Cannot show tool window: Refactoring plan is null");
+                Messages.showErrorDialog(project, 
+                        "No refactoring plan is available. Please start a new refactoring process.", 
+                        "No Refactoring Plan");
+                return null;
+            }
+            
+            if (plan.getIssues() == null || plan.getIssues().isEmpty()) {
+                LOG.error("Cannot show tool window: Refactoring plan has no issues");
+                Messages.showInfoMessage(project,
+                        "No testability issues were found in the selected class.", 
+                        "No Issues Found");
+                RefactoringStateManager stateManager = new RefactoringStateManager(project);
+                stateManager.clearRefactoringState();
+                return null;
+            }
+            
+            if (progress == null) {
+                LOG.error("Cannot show tool window: Refactoring progress is null");
+                Messages.showErrorDialog(project, 
+                        "Refactoring progress information is missing. Please start a new refactoring process.", 
+                        "No Progress Information");
+                RefactoringStateManager stateManager = new RefactoringStateManager(project);
+                stateManager.clearRefactoringState();
+                return null;
+            }
+            
+            // If a previous refactoring was completed or aborted, don't show the tool window
+            if (progress.getStatus() == RefactoringStatus.COMPLETED || progress.getStatus() == RefactoringStatus.ABORTED) {
+                LOG.info("Not showing tool window - refactoring was " + progress.getStatus().toString().toLowerCase());
+                Messages.showInfoMessage(project,
+                        "The previous refactoring was " + progress.getStatus().toString().toLowerCase() + ". Please start a new refactoring process.", 
+                        "Refactoring Already " + progress.getStatus().toString());
+                RefactoringStateManager stateManager = new RefactoringStateManager(project);
+                stateManager.clearRefactoringState();
+                return null;
+            }
+            
             // Create the tool window
             RefactoringToolWindow toolWindow = new RefactoringToolWindow(project, plan, progress);
             
@@ -83,11 +123,32 @@ public class RefactoringToolWindow {
     private void registerAndShow() {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
+                // Check if refactoring is still in progress
+                RefactoringStateManager stateManager = new RefactoringStateManager(project);
+                if (!stateManager.isRefactoringInProgress()) {
+                    LOG.info("Refactoring is no longer in progress - not showing tool window");
+                    return;
+                }
+                
                 // Get or create the tool window
                 ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
                 ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
                 
                 if (toolWindow == null) {
+                    // Check if the ID is registered but not available
+                    boolean hasToolWindowId = false;
+                    for (String id : toolWindowManager.getToolWindowIds()) {
+                        if (id.equals(TOOL_WINDOW_ID)) {
+                            hasToolWindowId = true;
+                            break;
+                        }
+                    }
+                    
+                    if (hasToolWindowId) {
+                        LOG.warn("Tool window ID exists but getToolWindow returned null - potential ID conflict");
+                    }
+                    
+                    // Register the tool window
                     toolWindow = toolWindowManager.registerToolWindow(TOOL_WINDOW_ID, true, ToolWindowAnchor.BOTTOM);
                 }
                 
@@ -514,6 +575,45 @@ public class RefactoringToolWindow {
             
             if (toolWindow != null) {
                 toolWindow.hide(null);
+            }
+        });
+    }
+    
+    /**
+     * Checks if there's an active refactoring in progress, and closes the tool window if not.
+     * This should be called whenever the refactoring state might have changed.
+     */
+    public static void checkAndCloseIfNoRefactoring(Project project) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                RefactoringStateManager stateManager = new RefactoringStateManager(project);
+                boolean isInProgress = stateManager.isRefactoringInProgress();
+                
+                // Also check if any refactoring plan exists and progress status
+                RefactoringPlan plan = stateManager.loadPlan();
+                RefactoringProgress progress = stateManager.loadProgress();
+                
+                // Only close if:
+                // 1. No refactoring is in progress according to the isRefactoringInProgress check OR
+                // 2. There is no plan OR
+                // 3. The progress is marked as COMPLETED or ABORTED
+                boolean shouldClose = !isInProgress || 
+                                     plan == null || 
+                                     (progress != null && 
+                                      (progress.getStatus() == RefactoringStatus.COMPLETED || 
+                                       progress.getStatus() == RefactoringStatus.ABORTED));
+                
+                if (shouldClose) {
+                    ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
+                    ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
+                    
+                    if (toolWindow != null && toolWindow.isVisible()) {
+                        LOG.info("No active refactoring found. Closing tool window.");
+                        toolWindow.hide(null);
+                    }
+                }
+            } catch (Exception e) {
+                LOG.error("Error checking refactoring status", e);
             }
         });
     }

@@ -22,6 +22,7 @@ The feature follows a pipeline architecture with these key components:
 3. **UI Components**
    - `RefactoringToolWindow`: Non-modal tool window showing refactoring progress and controls
    - Displays all refactoring steps in a table with their statuses
+   - Remains open throughout the entire refactoring process and only closes when all steps are complete
 
 4. **Pipeline Stages**
    - `RefactoringPlanningStage`: Creates LLM prompt for analyzing the class
@@ -31,14 +32,16 @@ The feature follows a pipeline architecture with these key components:
 5. **Execution Engine**
    - `RefactoringExecutionManager`: Handles the actual execution of refactoring steps
    - Manages chat interactions with the LLM, including context collection and chat continuity
+   - Gets fresh class context for each step to reflect previous changes
 
 ## State Files
 
-The feature uses three main state files:
+The feature uses two main state files:
 
 1. `current-plan.json`: Contains the full refactoring plan with issues and steps
 2. `current-progress.json`: Tracks the current progress (current issue/step, completed steps)
-3. `current-context.json`: Stores analysis context about the class being refactored
+
+> **Note**: No context file is needed as fresh class analysis is performed for each refactoring step to ensure all code changes are reflected.
 
 ## Key Workflows
 
@@ -59,12 +62,33 @@ The execution flow follows these steps:
 1. `RefactoringExecutionStage` shows the tool window and starts execution
 2. `RefactoringToolWindow` displays the plan and provides controls
 3. `RefactoringExecutionManager` handles each step:
-   - Loads comprehensive context (including fresh class analysis)
+   - Locates the target class in the project for each step
+   - Gets fresh class context using `ClassAnalyzer`
    - Manages chat continuity vs. starting new chats
    - Creates detailed prompts with all necessary context
    - Sends prompts to the LLM via `ChatboxUtilities`
 4. User reviews LLM implementations and confirms/skips/aborts steps
 5. Progress is continuously updated in `current-progress.json`
+6. Tool window remains open until all steps are completed or refactoring is aborted
+
+## Fresh Context Collection
+
+The system always collects fresh class context for each step:
+
+1. For each refactoring step, the current class is located in the project using its name
+2. `ClassAnalyzer.collectClassContext()` is called to get fresh analysis
+3. This ensures that each step has access to the most up-to-date code, reflecting any changes made in previous steps
+4. No context file is used - all analysis is done directly from the current state of the class files
+5. The prompt explicitly tells the LLM that it's seeing the latest version of the code, including all previous changes
+
+## Class Discovery Strategy
+
+The feature uses a robust strategy to locate the target class:
+
+1. Attempts to find the class using its name from the refactoring plan
+2. If multiple classes with the same name exist, the system picks the most appropriate one
+3. Once found, the package name is extracted from the actual class file
+4. This approach eliminates the need to store class metadata across steps
 
 ## Conversation Management
 
@@ -74,12 +98,26 @@ The feature intelligently manages chat conversations:
 - New chats receive full context including an overview of the entire plan
 - All chats include comprehensive class analysis from `ClassAnalyzer`
 
+## AI Response Format
+
+The LLM responses follow a standardized format for refactoring steps:
+
+1. **Summary**: A one-sentence overview of the change
+2. **Change details**: For each change, showing:
+   - Location: Precise line numbers
+   - Code to replace: Exact code being modified
+   - New code: Replacement code
+   - Reason: Brief explanation of testability benefit
+3. **Validation**: Verification that code will compile and work correctly after changes
+
+This structured format ensures clear, actionable refactoring instructions with precise line references.
+
 ## Integration Points
 
 ### 1. Class Analysis Integration
 
 The feature integrates with the `ClassAnalyzer` utility to provide rich context:
-- `ClassAnalyzer.collectClassContext()` is used to get fresh class structure
+- `ClassAnalyzer.collectClassContext()` is used to get fresh class structure for each step
 - Related classes are included in the context
 - Imports and package information are included
 
@@ -121,6 +159,16 @@ To add support for new types of refactorings:
    - Check `RefactoringStateManager` methods for proper file operations
    - Verify JSON serialization/deserialization in `saveProgress()` and `loadProgress()`
 
+4. **Tool Window Issues**: If the tool window doesn't behave correctly:
+   - Check `checkAndCloseIfNoRefactoring()` to ensure it's only closing when appropriate
+   - Verify the UI refresh logic in `refreshUI()`
+   - Ensure `syncStateFromDisk()` is properly loading the latest state
+
+5. **Class Discovery Issues**: If the system can't find the target class:
+   - Check `findTargetClass()` to ensure it's correctly searching for classes
+   - Verify that the class name in the refactoring plan is correct
+   - Look for any class renaming or refactoring that might have occurred
+
 ## Getting Started for Developers
 
 To start working on this feature:
@@ -137,14 +185,23 @@ Key files to understand first:
 - `RefactoringExecutionManager.java`: Core execution logic
 - `RefactoringToolWindow.java`: UI implementation
 
-## Future Improvements
+## State Management Details
 
-Potential areas for enhancement:
-1. Add better error recovery for failed refactoring steps
-2. Implement automatic testing of refactored code
-3. Support batch refactoring of multiple classes
-4. Add a visual diff viewer to preview changes
-5. Implement a history view of past refactorings
+The system uses a balanced approach to state management:
+
+1. **Persistent state files**:
+   - `current-plan.json`: Full refactoring plan (issues and steps)
+   - `current-progress.json`: Current position and execution state
+
+2. **Fresh analysis on demand**:
+   - Code context is always analyzed fresh for each step using the class finder and analyzer
+   - This ensures changes from previous steps are reflected
+   - No metadata is persisted between steps - everything is discovered dynamically
+
+3. **State synchronization**:
+   - UI synchronizes with disk state using `syncStateFromDisk()`
+   - Tool window automatically updates when state changes
+   - Progress is loaded fresh from disk for each operation
 
 ## Coding Standards
 

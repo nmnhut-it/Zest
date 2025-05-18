@@ -94,6 +94,11 @@ public class RefactoringPlanAnalysisStage implements PipelineStage {
             summary.append("## Issue ").append(issue.getId()).append(": ").append(issue.getTitle()).append("\n");
             summary.append("**Category:** ").append(issue.getCategory()).append("\n\n");
             summary.append(issue.getDescription()).append("\n\n");
+            
+            if (issue.getReasoning() != null && !issue.getReasoning().isEmpty()) {
+                summary.append("**Analysis:** ").append(issue.getReasoning()).append("\n\n");
+            }
+            
             summary.append("**Steps:**\n");
             
             for (RefactoringStep step : issue.getSteps()) {
@@ -159,6 +164,10 @@ public class RefactoringPlanAnalysisStage implements PipelineStage {
         
         if (issueJson.has("impact")) {
             issue.setImpact(issueJson.get("impact").getAsString());
+        }
+        
+        if (issueJson.has("reasoning")) {
+            issue.setReasoning(issueJson.get("reasoning").getAsString());
         }
         
         // Parse steps

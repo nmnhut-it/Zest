@@ -12,6 +12,7 @@ public class RefactoringIssue {
     private String description;
     private String category;
     private String impact;
+    private String reasoning;
     private List<RefactoringStep> steps;
     
     public RefactoringIssue() {
@@ -65,6 +66,14 @@ public class RefactoringIssue {
     
     public void setImpact(String impact) {
         this.impact = impact;
+    }
+    
+    public String getReasoning() {
+        return reasoning;
+    }
+    
+    public void setReasoning(String reasoning) {
+        this.reasoning = reasoning;
     }
     
     public List<RefactoringStep> getSteps() {

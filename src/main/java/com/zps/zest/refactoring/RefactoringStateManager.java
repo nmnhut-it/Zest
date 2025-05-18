@@ -26,7 +26,6 @@ public class RefactoringStateManager {
     private static final String REFACTORING_DIR = ".zest/refactorings";
     private static final String PLAN_FILE = "current-plan.json";
     private static final String PROGRESS_FILE = "current-progress.json";
-    private static final String CONTEXT_FILE = "current-context.json";
     
     private final Project project;
     private final Gson gson;
@@ -150,50 +149,24 @@ public class RefactoringStateManager {
     }
     
     /**
-     * Saves the refactoring context to disk.
-     * 
-     * @param contextJson The context as a JSON object
-     * @return true if the context was saved successfully, false otherwise
-     */
-    public boolean saveContext(JsonObject contextJson) {
-        try {
-            try (FileWriter writer = new FileWriter(getFilePath(CONTEXT_FILE).toFile())) {
-                gson.toJson(contextJson, writer);
-            }
-            LOG.info("Saved refactoring context");
-            return true;
-        } catch (IOException e) {
-            LOG.error("Failed to save refactoring context", e);
-            return false;
-        }
-    }
-    
-    /**
-     * Loads the refactoring context from disk.
-     * 
-     * @return The context as a JSON object, or null if no context exists or an error occurred
-     */
-    public JsonObject loadContext() {
-        File contextFile = getFilePath(CONTEXT_FILE).toFile();
-        if (!contextFile.exists()) {
-            return null;
-        }
-        
-        try (FileReader reader = new FileReader(contextFile)) {
-            return gson.fromJson(reader, JsonObject.class);
-        } catch (IOException e) {
-            LOG.error("Failed to load refactoring context", e);
-            return null;
-        }
-    }
-    
-    /**
      * Checks if a refactoring is currently in progress.
      * 
      * @return true if a refactoring is in progress, false otherwise
      */
     public boolean isRefactoringInProgress() {
-        return getFilePath(PROGRESS_FILE).toFile().exists();
+        // Check if progress file exists
+        boolean progressExists = getFilePath(PROGRESS_FILE).toFile().exists();
+        
+        if (progressExists) {
+            // Load the progress and check its status
+            RefactoringProgress progress = loadProgress();
+            if (progress != null) {
+                return progress.getStatus() == RefactoringStatus.IN_PROGRESS;
+            }
+        }
+        
+        // If progress file doesn't exist or can't be loaded, check if plan exists
+        return getFilePath(PLAN_FILE).toFile().exists();
     }
     
     /**
@@ -208,7 +181,6 @@ public class RefactoringStateManager {
         // Attempt to delete each file
         success &= deleteFileIfExists(getFilePath(PLAN_FILE).toFile());
         success &= deleteFileIfExists(getFilePath(PROGRESS_FILE).toFile());
-        success &= deleteFileIfExists(getFilePath(CONTEXT_FILE).toFile());
         
         if (success) {
             LOG.info("Cleared refactoring state");

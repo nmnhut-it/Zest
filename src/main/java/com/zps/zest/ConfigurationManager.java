@@ -80,6 +80,17 @@ public class ConfigurationManager {
             "   - Leverage relevant libraries, frameworks, and tools\n" +
             "   - Apply language-specific best practices\n" +
             "\n" +
+            "    CODE REPLACEMENT FORMAT:\n" +
+            "When suggesting code changes in a file, you can use the following format to enable automatic code replacement:\n" +
+            "\n" +
+            "replace_in_file:path/to/file.ext\n" +
+            "```language\n" +
+            "code to be replaced\n" +
+            "```\n" +
+            "```language\n" +
+            "replacement code\n" +
+            "```\n" +
+            "\n" +
             "    TOOL USAGE:\n" +
             "- Check for available tools before suggesting manual operations\n" +
             "\n" +

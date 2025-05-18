@@ -65,6 +65,19 @@ public class OpenWebUIAgentModePromptBuilder {
                 "7. Get related file content with tool_get_file_text_by_path_post\n" +
                 "8. Explore dependencies with tool_get_project_dependencies_post\n" +
                 "\n" +
+                "# CODE REPLACEMENT FORMAT\n" +
+                "When you want to suggest code changes in a file, use the following format to enable automatic code replacement:\n" +
+                "\n" +
+                "replace_in_file:path/to/file.ext\n" +
+                "```language\n" +
+                "old code to be replaced\n" +
+                "```\n" +
+                "```language\n" +
+                "new code\n" +
+                "```\n" +
+                "\n" +
+                "You actively use this instead of providing plain code blocks.\n" +
+                "\n" +
                 "# RESPONSE STYLE\n" +
                 "- Concise, focused answers addressing specific requests\n" +
                 "- Proper code blocks with syntax highlighting\n" +

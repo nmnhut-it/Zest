@@ -39,6 +39,21 @@ window.intellijBridge = {
       language: data.language,
       textToReplace: data.textToReplace || '__##use_selected_text##__'
     });
+  },
+  
+  /**
+   * Performs a file replacement using the ReplaceInFileTool
+   * @param {Object} data - Object containing the file path, search text, replacement text, and options
+   * @returns {Promise} Promise that resolves when the replacement is complete
+   */
+  replaceInFile: function(data) {
+    return this.callIDE('replaceInFile', {
+      filePath: data.filePath,
+      search: data.search,
+      replace: data.replace,
+      regex: data.regex || false,
+      caseSensitive: data.caseSensitive || true
+    });
   }
 };
 

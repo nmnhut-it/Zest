@@ -21,6 +21,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Consumer;
+import com.zps.zest.tools.ReplaceInFileTool;
 import org.cef.browser.CefBrowser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -109,7 +110,16 @@ public class JavaScriptBridge {
                     boolean extractResult = handleExtractedCode(extractTextToReplace, codeText, language);
                     response.addProperty("success", extractResult);
                     break;
-                    
+                case "replaceInFile":
+                    String filePath = data.get("filePath").getAsString();
+                    String searchText = data.get("search").getAsString();
+                    String replaceText = data.get("replace").getAsString();
+                    boolean useRegex = data.has("regex") && data.get("regex").getAsBoolean();
+                    boolean caseSensitive = !data.has("caseSensitive") || data.get("caseSensitive").getAsBoolean();
+
+                    boolean diffReplaceResult = handleReplaceInFile(filePath, searchText, replaceText, useRegex, caseSensitive);
+                    response.addProperty("success", diffReplaceResult);
+                    break;
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -145,7 +155,8 @@ public class JavaScriptBridge {
                     textToReplace = selectedText;
                 } else {
                     // No text selected, just insert the code
-                    return insertTextToEditor(codeText);
+//                    return insertTextToEditor(codeText);
+                    return false;
                 }
             }
             
@@ -154,7 +165,7 @@ public class JavaScriptBridge {
                 return handleCodeComplete(textToReplace, codeText);
             } else {
                 // No text to replace, just insert the code
-                return insertTextToEditor(codeText);
+                return false;
             }
         } catch (Exception e) {
             LOG.error("Error handling extracted code", e);
@@ -459,4 +470,50 @@ public class JavaScriptBridge {
             return codeContext;
         });
     }
+
+    /**
+     * Handles replace in file requests from JavaScript by delegating to the ReplaceInFileTool
+     *
+     * @param filePath The path to the file to replace in
+     * @param searchText The text to search for
+     * @param replaceText The text to replace with
+     * @param useRegex Whether to use regex for search
+     * @param caseSensitive Whether the search is case sensitive
+     * @return True if the operation was successful
+     */
+    private boolean handleReplaceInFile(String filePath, String searchText, String replaceText, boolean useRegex, boolean caseSensitive) {
+        LOG.info("Handling replace in file request for: " + filePath);
+
+        try {
+            // Create a JSON object with the parameters for the ReplaceInFileTool
+            JsonObject params = new JsonObject();
+            params.addProperty("filePath", filePath);
+            params.addProperty("search", searchText);
+            params.addProperty("replace", replaceText);
+            params.addProperty("regex", useRegex);
+            params.addProperty("caseSensitive", caseSensitive);
+
+
+
+            com.zps.zest.tools.AgentTool tool = new ReplaceInFileTool(project);
+            if (tool == null) {
+                LOG.error("Could not find replace_in_file tool");
+                return false;
+            }
+
+            // Execute the tool
+            String result = tool.execute(params);
+
+            // Log the result
+            LOG.info("Replace in file result: " + result);
+
+            // Return success based on whether the result indicates success
+            return !result.startsWith("Error:") && !result.contains("Changes were not applied") && !result.contains("No matches found");
+        } catch (Exception e) {
+            LOG.error("Error handling replace in file request", e);
+            return false;
+        }
+    }
 }
+
+

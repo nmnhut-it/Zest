@@ -70,8 +70,13 @@ public class RefactorForTestabilityAction extends AnAction {
                         indicator.setFraction((double) i / totalStages);
 
                         // Process the current stage
-                        stage.process(context);
-
+                        try {
+                            stage.process(context);
+                        }
+                        catch (Exception e){
+                            showError(project, new PipelineExecutionException("Error processing", e));
+                          return;
+                        }
                         // Update progress
                         indicator.setFraction((double) (i+1) / totalStages);
                     }

@@ -30,7 +30,6 @@ import java.util.List;
 /**
  * Ultra-simplified tool for searching and replacing text in files.
  * Uses a direct line-by-line approach with simple string operations for better performance.
- * Runs search and replace in background to avoid blocking UI.
  */
 public class ReplaceInFileTool extends BaseAgentTool {
     private static final Logger LOG = Logger.getInstance(ReplaceInFileTool.class);
@@ -125,10 +124,10 @@ public class ReplaceInFileTool extends BaseAgentTool {
     /**
      * Data class to hold the result of search and replace operation.
      */
-    private static class ReplaceResult {
+    public static class ReplaceResult {
         final String originalContent;
-        final String modifiedContent;
-        final int replacementCount;
+        public final String modifiedContent;
+        public final int replacementCount;
         
         ReplaceResult(String originalContent, String modifiedContent, int replacementCount) {
             this.originalContent = originalContent;
@@ -138,107 +137,155 @@ public class ReplaceInFileTool extends BaseAgentTool {
     }
     
     /**
-     * Perform the actual search and replace operation line by line.
-     * Ultra-simple implementation: replace trimmed search text with trimmed replace text.
+     * Ultra-simple implementation that:
+     * 1. Splits into lines & trims each line
+     * 2. Searches for the first line
+     * 3. If match found, checks subsequent lines
+     * 4. Replaces line by line, performing replacement on the original line,
+     *    replacing search text (trimmed) by replace text (trimmed)
      */
-    private ReplaceResult performSearchAndReplace(Path fullPath, String searchText, String replaceText,
+    public static ReplaceResult performSearchAndReplace(Path fullPath, String searchText, String replaceText,
                                                boolean caseSensitive, boolean ignoreWhitespace,
                                                ProgressIndicator indicator) throws Exception {
-        // Count total lines for progress reporting
-        long totalLines = Files.lines(fullPath).count();
-        long linesProcessed = 0;
-        int replacementCount = 0;
+        // Read all lines from the file
+        List<String> originalLines = Files.readAllLines(fullPath, StandardCharsets.UTF_8);
+        List<String> modifiedLines = new ArrayList<>(originalLines.size());
         
-        List<String> originalLines = new ArrayList<>();
-        List<String> modifiedLines = new ArrayList<>();
+        // 1. Split search and replace text into lines & trim each line if needed
+        String[] searchLines = searchText.split("\n");
+        String[] replaceLines = replaceText.split("\n");
         
-        // Prepare search text - trim if ignoring whitespace
-        String trimmedSearchText = ignoreWhitespace ? searchText.trim() : searchText;
-        String trimmedReplaceText = ignoreWhitespace ? replaceText.trim() : replaceText;
-        
-        // For both single-line and multi-line patterns
-        try (BufferedReader reader = Files.newBufferedReader(fullPath, StandardCharsets.UTF_8)) {
-            String line;
+        // If ignoring whitespace, trim each line
+        if (ignoreWhitespace) {
+            for (int i = 0; i < searchLines.length; i++) {
+                searchLines[i] = searchLines[i].trim();
+            }
             
-            // Process each line
-            while ((line = reader.readLine()) != null) {
-                originalLines.add(line);
-                
-                // Update progress periodically
-                linesProcessed++;
-                if (linesProcessed % 1000 == 0) {
-                    indicator.setFraction((double) linesProcessed / totalLines);
-                    indicator.setText2("Processed " + linesProcessed + " of " + totalLines + " lines");
-                }
-                
-                // Check if line contains the search text (using trimmed version for comparison)
-                String lineToCheck = ignoreWhitespace ? line.trim() : line;
-                boolean match = false;
-                
-                if (caseSensitive) {
-                    match = lineToCheck.contains(trimmedSearchText);
-                } else {
-                    match = lineToCheck.toLowerCase().contains(trimmedSearchText.toLowerCase());
-                }
-                
-                if (match) {
-                    // Found a match - replace directly in the original line
-                    String newLine;
-                    
-                    if (caseSensitive) {
-                        newLine = line.replace(trimmedSearchText, trimmedReplaceText);
-                    } else {
-                        // Case-insensitive replacement - have to do it manually
-                        String lineToSearch = line;
-                        String searchFor = trimmedSearchText;
-                        
-                        if (!caseSensitive) {
-                            lineToSearch = lineToSearch.toLowerCase();
-                            searchFor = searchFor.toLowerCase();
-                        }
-                        
-                        // Find all occurrences and replace them
-                        int lastIndex = 0;
-                        StringBuilder result = new StringBuilder();
-                        
-                        while (lastIndex < line.length()) {
-                            int indexOf = lineToSearch.indexOf(searchFor, lastIndex);
-                            if (indexOf == -1) {
-                                // No more occurrences
-                                result.append(line.substring(lastIndex));
-                                break;
-                            }
-                            
-                            // Add text up to this occurrence
-                            result.append(line.substring(lastIndex, indexOf));
-                            
-                            // Add the replacement
-                            result.append(trimmedReplaceText);
-                            
-                            // Move past this occurrence
-                            lastIndex = indexOf + searchFor.length();
-                        }
-                        
-                        newLine = result.toString();
-                    }
-                    
-                    modifiedLines.add(newLine);
-                    replacementCount++;
-                } else {
-                    // No match - keep line as is
-                    modifiedLines.add(line);
-                }
+            for (int i = 0; i < replaceLines.length; i++) {
+                replaceLines[i] = replaceLines[i].trim();
             }
         }
+        
+        // Process the file lines
+        int replacementCount = 0;
+        int lineIndex = 0;
+        
+        while (lineIndex < originalLines.size()) {
+            indicator.setFraction((double) lineIndex / originalLines.size());
+            
+            // 2. Search for the first line of the pattern
+            String currentLine = originalLines.get(lineIndex);
+            String lineToCheck = ignoreWhitespace ? currentLine.trim() : currentLine;
+            boolean foundFirstLine = false;
+            
+            if (caseSensitive) {
+                foundFirstLine = lineToCheck.contains(searchLines[0]);
+            } else {
+                foundFirstLine = lineToCheck.toLowerCase().contains(searchLines[0].toLowerCase());
+            }
+            
+            if (foundFirstLine && searchLines.length > 1) {
+                // This could be the start of a multi-line match
+                
+                // Check if we have enough lines left to potentially match
+                if (lineIndex + searchLines.length <= originalLines.size()) {
+                    // 3. Check subsequent lines for a complete match
+                    boolean isFullMatch = true;
+                    
+                    for (int i = 0; i < searchLines.length; i++) {
+                        String nextLine = originalLines.get(lineIndex + i);
+                        String nextLineToCheck = ignoreWhitespace ? nextLine.trim() : nextLine;
+                        
+                        boolean lineMatches = false;
+                        if (caseSensitive) {
+                            lineMatches = nextLineToCheck.contains(searchLines[i]);
+                        } else {
+                            lineMatches = nextLineToCheck.toLowerCase().contains(searchLines[i].toLowerCase());
+                        }
+                        
+                        if (!lineMatches) {
+                            isFullMatch = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isFullMatch) {
+                        // 4. We have a complete match - replace it
+                        String indentation = getIndentation(currentLine);
+                        replacementCount++;
+                        
+                        // Replace with the corresponding lines from replaceLine
+                        for (int i = 0; i < replaceLines.length; i++) {
+                            // Add the indentation to each replacement line
+                            modifiedLines.add(indentation + replaceLines[i]);
+                        }
+                        
+                        // Skip the matched lines
+                        lineIndex += searchLines.length;
+                        continue;
+                    }
+                }
+                
+                // If we get here, it wasn't a full match - just add the current line and continue
+                modifiedLines.add(currentLine);
+                lineIndex++;
+                continue;
+            } else if (foundFirstLine && searchLines.length == 1) {
+                // Single-line pattern match
+                String newLine;
+                
+                if (caseSensitive) {
+                    newLine = currentLine.replace(searchLines[0], replaceLines.length > 0 ? replaceLines[0] : "");
+                } else {
+                    // Case-insensitive replacement
+                    String lcLine = currentLine.toLowerCase();
+                    String lcSearch = searchLines[0].toLowerCase();
+                    int startPos = lcLine.indexOf(lcSearch);
+                    
+                    if (startPos >= 0) {
+                        newLine = currentLine.substring(0, startPos) +
+                                  (replaceLines.length > 0 ? replaceLines[0] : "") +
+                                  currentLine.substring(startPos + searchLines[0].length());
+                    } else {
+                        newLine = currentLine;
+                    }
+                }
+                
+                if (!newLine.equals(currentLine)) {
+                    replacementCount++;
+                }
+                
+                modifiedLines.add(newLine);
+                lineIndex++;
+                continue;
+            }
+            
+            // No match, keep the line as is
+            modifiedLines.add(currentLine);
+            lineIndex++;
+        }
+        
+        indicator.setFraction(1.0);
         
         // Build the complete content
         String originalContent = String.join("\n", originalLines);
         String modifiedContent = String.join("\n", modifiedLines);
         
-        indicator.setFraction(1.0);
-        indicator.setText("Search complete. " + replacementCount + " replacements found.");
-        
         return new ReplaceResult(originalContent, modifiedContent, replacementCount);
+    }
+    
+    /**
+     * Get the indentation (leading whitespace) from a line.
+     */
+    private static String getIndentation(String line) {
+        if (line == null) return "";
+        
+        int i = 0;
+        while (i < line.length() && Character.isWhitespace(line.charAt(i))) {
+            i++;
+        }
+        
+        return line.substring(0, i);
     }
 
     private Path resolvePath(String filePath) {

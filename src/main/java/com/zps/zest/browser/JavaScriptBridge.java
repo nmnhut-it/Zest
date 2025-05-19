@@ -534,128 +534,113 @@ public class JavaScriptBridge {
         LOG.info("Handling batch replace in file request for: " + filePath + " with " + replacements.size() + " replacements");
 
         try {
-            // First, read the file content to generate a preview
+            // 1. Resolve file
             java.io.File targetFile = new java.io.File(filePath);
             if (!targetFile.exists()) {
-                // Try to resolve relative path
                 String basePath = project.getBasePath();
-                if (basePath != null) {
+                if (basePath != null)
                     targetFile = new java.io.File(basePath, filePath);
-                }
             }
-            
             if (!targetFile.exists() || !targetFile.isFile()) {
                 LOG.error("File not found: " + filePath);
                 return false;
             }
-            
-            // Read the original content
-            String originalContent = new String(java.nio.file.Files.readAllBytes(targetFile.toPath()));
-            String modifiedContent = originalContent;
-            
-            // Apply all replacements to create a preview
+            java.nio.file.Path inputPath = targetFile.toPath();
+
+            // 2. Start with original lines/content
+            java.util.List<String> currentLines = java.nio.file.Files.readAllLines(inputPath, java.nio.charset.StandardCharsets.UTF_8);
+            String originalContent = String.join("\n", currentLines);
+
+            int totalReplacementCount = 0;
+
             for (int i = 0; i < replacements.size(); i++) {
                 com.google.gson.JsonObject replacement = replacements.get(i).getAsJsonObject();
                 String searchText = replacement.get("search").getAsString();
                 String replaceText = replacement.get("replace").getAsString();
-                boolean useRegex = replacement.has("regex") && replacement.get("regex").getAsBoolean();
                 boolean caseSensitive = !replacement.has("caseSensitive") || replacement.get("caseSensitive").getAsBoolean();
-                
-                // Apply this replacement to the content
+                boolean ignoreWhitespace = replacement.has("ignoreWhitespace") && replacement.get("ignoreWhitespace").getAsBoolean();
+                // performSearchAndReplace doesn't handle regex -- we skip it if true
+                boolean useRegex = replacement.has("regex") && replacement.get("regex").getAsBoolean();
                 if (useRegex) {
-                    // Handle regex replacement
-                    int flags = caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE;
-                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(searchText, flags);
-                    java.util.regex.Matcher matcher = pattern.matcher(modifiedContent);
-                    modifiedContent = matcher.replaceAll(replaceText);
-                } else {
-                    // Handle literal text replacement
-                    if (caseSensitive) {
-                        modifiedContent = modifiedContent.replace(searchText, replaceText);
-                    } else {
-                        // Case insensitive replacement
-                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                                java.util.regex.Pattern.quote(searchText), 
-                                java.util.regex.Pattern.CASE_INSENSITIVE);
-                        java.util.regex.Matcher matcher = pattern.matcher(modifiedContent);
-                        StringBuffer result = new StringBuffer();
-                        while (matcher.find()) {
-                            matcher.appendReplacement(result, java.util.regex.Matcher.quoteReplacement(replaceText));
-                        }
-                        matcher.appendTail(result);
-                        modifiedContent = result.toString();
-                    }
+                    LOG.warn("Regex mode is not supported in batchReplaceInFile when using performSearchAndReplace. Skipping this replacement.");
+                    continue;
                 }
+
+                // Write currentLines to a temp file for replace
+                java.nio.file.Path tempInput = java.nio.file.Files.createTempFile("batch_replace_", ".tmp");
+                java.nio.file.Files.write(tempInput, currentLines, java.nio.charset.StandardCharsets.UTF_8);
+
+                // Call performSearchAndReplace (returns ReplaceInFileTool.ReplaceResult)
+                ReplaceInFileTool.ReplaceResult result =
+                        ReplaceInFileTool.performSearchAndReplace(
+                                tempInput,
+                                searchText,
+                                replaceText,
+                                caseSensitive,
+                                ignoreWhitespace,
+                                new com.intellij.openapi.progress.EmptyProgressIndicator()
+                        );
+                totalReplacementCount += result.replacementCount;
+                currentLines = java.util.Arrays.asList(result.modifiedContent.split("\n", -1)); // preserve trailing empty line if present
+
+                // Clean up temp file
+                java.nio.file.Files.deleteIfExists(tempInput);
             }
-            
-            // If content is unchanged, return early
+
+            String modifiedContent = String.join("\n", currentLines);
+
             if (originalContent.equals(modifiedContent)) {
                 LOG.info("No changes made to file content after applying all replacements");
                 return true;
             }
-            
+
             // Show diff with all replacements
             final boolean[] userConfirmed = new boolean[1];
-
             java.io.File finalTargetFile = targetFile;
             String finalModifiedContent = modifiedContent;
+            int finalTotalReplacementCount = totalReplacementCount;
             ApplicationManager.getApplication().invokeAndWait(() -> {
-                // Create diff contents
                 com.intellij.diff.DiffContentFactory diffFactory = com.intellij.diff.DiffContentFactory.getInstance();
                 com.intellij.diff.contents.DocumentContent leftContent = diffFactory.create(originalContent);
                 com.intellij.diff.contents.DocumentContent rightContent = diffFactory.create(finalModifiedContent);
-                
-                // Create request with descriptive titles
+
                 com.intellij.diff.requests.SimpleDiffRequest diffRequest = new com.intellij.diff.requests.SimpleDiffRequest(
-                        "Batch Changes to " + finalTargetFile.getName() + " (" + replacements.size() + " replacements)",
+                        "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
                         leftContent,
                         rightContent,
                         "Original",
                         "After Replacements"
                 );
-                
-                // Show the diff dialog
+
                 com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, com.intellij.diff.DiffDialogHints.MODAL);
-                
-                // Ask for confirmation
+
                 int option = Messages.showYesNoDialog(
                         project,
-                        "Apply " + replacements.size() + " replacements to " + filePath + "?",
+                        "Apply " + finalTotalReplacementCount + " replacements to " + filePath + "?",
                         "Confirm Batch Changes",
-                        "Apply", // Yes button
-                        "Cancel", // No button
+                        "Apply",
+                        "Cancel",
                         Messages.getQuestionIcon()
                 );
-                
                 userConfirmed[0] = (option == Messages.YES);
             });
-            
-            // If user confirmed, apply the changes
+
             if (userConfirmed[0]) {
-                // Get VirtualFile for the file
-                com.intellij.openapi.vfs.VirtualFile vFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(targetFile.getPath());
+                com.intellij.openapi.vfs.VirtualFile vFile =
+                        com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(targetFile.getPath());
                 if (vFile == null) {
                     LOG.error("Could not find file in virtual file system: " + filePath);
                     return false;
                 }
-                
-                // Apply the changes
-                String finalModifiedContent1 = modifiedContent;
                 WriteCommandAction.runWriteCommandAction(project, () -> {
                     try {
-                        // Refresh to make sure we have the latest version
                         vFile.refresh(false, false);
-                        
-                        // Update file content
-                        vFile.setBinaryContent(finalModifiedContent1.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        
-                        // Open the file to show the changes
+                        vFile.setBinaryContent(finalModifiedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                         FileEditorManager.getInstance(project).openFile(vFile, true);
                     } catch (Exception e) {
                         LOG.error("Error updating file: " + filePath, e);
                     }
                 });
-                
                 return true;
             } else {
                 LOG.info("Batch changes were not applied - discarded by user");

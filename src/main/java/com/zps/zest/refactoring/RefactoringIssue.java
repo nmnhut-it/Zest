@@ -14,6 +14,7 @@ public class RefactoringIssue {
     private String impact;
     private String reasoning;
     private List<RefactoringStep> steps;
+    private String targetFile;
     
     public RefactoringIssue() {
         this.steps = new ArrayList<>();
@@ -86,5 +87,13 @@ public class RefactoringIssue {
     
     public void addStep(RefactoringStep step) {
         this.steps.add(step);
+    }
+
+    public String getTargetFile() {
+        return targetFile;
+    }
+
+    public void setTargetFile(String targetFile) {
+        this.targetFile = targetFile;
     }
 }

@@ -94,7 +94,7 @@
         <action id="Zest.AgentBasedRefactoringAction"
                 class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
                 text="ZPS: Agent-Based Refactoring for Testability"
-                description="Use an AI agent to implement testability refactoring" >
+                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction. First, we make a plan, then do it step by step, each allowing human feedback and manual interception." >
             <add-to-group group-id="GenerateGroup" anchor="first"
             />
         </action>

@@ -26,7 +26,7 @@ public class ConfigurationManager {
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final String DEFAULT_TEST_WRITING_MODEL = "unit_test_generator";
-    private static final String DEFAULT_CODE_MODEL = "qwen3-30b-a3b";
+    private static final String DEFAULT_CODE_MODEL = "qwen3:30b-a3b";
     private static final String DEFAULT_MCP_SERVER_URI = "http://localhost:8080/mcp";
     private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
@@ -83,7 +83,7 @@ public class ConfigurationManager {
             "    CODE REPLACEMENT FORMAT:\n" +
             "When suggesting code changes in a file, you can use the following format to enable automatic code replacement:\n" +
             "\n" +
-            "replace_in_file:path/to/file.ext\n" +
+            "replace_in_file:absolute/path/to/file.ext\n" +
             "```language\n" +
             "code to be replaced\n" +
             "```\n" +

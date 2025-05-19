@@ -68,7 +68,7 @@ public class OpenWebUIAgentModePromptBuilder {
                 "# CODE REPLACEMENT FORMAT\n" +
                 "When you want to suggest code changes in a file, use the following format to enable automatic code replacement:\n" +
                 "\n" +
-                "replace_in_file:path/to/file.ext\n" +
+                "replace_in_file:absolute/path/to/file.ext\n" +
                 "```language\n" +
                 "old code to be replaced\n" +
                 "```\n" +

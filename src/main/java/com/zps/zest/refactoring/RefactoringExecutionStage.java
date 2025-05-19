@@ -1,5 +1,6 @@
 package com.zps.zest.refactoring;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
@@ -30,9 +31,11 @@ public class RefactoringExecutionStage implements PipelineStage {
         RefactoringPlan plan = stateManager.loadPlan();
         if (plan == null) {
             LOG.error("No refactoring plan found");
-            Messages.showErrorDialog(project, 
-                    "No refactoring plan found. The previous plan may have been aborted or completed.", 
-                    "Refactoring Error");
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showErrorDialog(project, 
+                        "No refactoring plan found. The previous plan may have been aborted or completed.", 
+                        "Refactoring Error");
+            });
             return;
         }
         
@@ -43,9 +46,12 @@ public class RefactoringExecutionStage implements PipelineStage {
             stateManager.saveProgress(progress);
         } else if (progress.getStatus() == RefactoringStatus.ABORTED || progress.getStatus() == RefactoringStatus.COMPLETED) {
             LOG.info("Refactoring was previously " + progress.getStatus().toString().toLowerCase());
-            Messages.showInfoMessage(project,
-                    "The previous refactoring was " + progress.getStatus().toString().toLowerCase() + ". Starting a new refactoring process.",
-                    "Previous Refactoring " + progress.getStatus().toString());
+            RefactoringProgress finalProgress = progress;
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showInfoMessage(project,
+                        "The previous refactoring was " + finalProgress.getStatus().toString().toLowerCase() + ". Starting a new refactoring process.",
+                        "Previous Refactoring " + finalProgress.getStatus().toString());
+            });
             
             // Clear the old state and create a new progress
             stateManager.clearRefactoringState();
@@ -56,9 +62,11 @@ public class RefactoringExecutionStage implements PipelineStage {
         // Check if the plan is empty (no issues)
         if (plan.getIssues().isEmpty()) {
             LOG.info("No issues found in the refactoring plan");
-            Messages.showInfoMessage(project,
-                    "No testability issues were found in the class. It appears to be well-designed for testing already.", 
-                    "No Refactoring Needed");
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showInfoMessage(project,
+                        "No testability issues were found in the class. It appears to be well-designed for testing already.", 
+                        "No Refactoring Needed");
+            });
             stateManager.clearRefactoringState();
             return;
         }

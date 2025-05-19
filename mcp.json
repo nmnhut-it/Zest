@@ -6,13 +6,6 @@
         "-y",
         "@jetbrains/mcp-proxy"
       ]
-    },
-    "fs": {
-        "command": "npx",
-        "args": [
-          "@modelcontextprotocol/server-filesystem",
-            "C:\\Users\\LAP14364-local\\IdeaProjects\\Zest"
-        ]
     }
   }
 }

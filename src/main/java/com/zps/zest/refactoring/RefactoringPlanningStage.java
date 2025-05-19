@@ -104,6 +104,7 @@ public class RefactoringPlanningStage implements PipelineStage {
         prompt.append("      \"category\": \"<Dependency Injection|Static Dependencies|External Resources|etc.>\",\n");
         prompt.append("      \"impact\": \"<how this impacts testability>\",\n");
         prompt.append("      \"reasoning\": \"<your analysis of why this is an issue and how to address it>\",\n");
+        prompt.append("      \"targetFile\": \"<absolute path to the file containing this issue>\",\n");
         prompt.append("      \"steps\": [\n");
         prompt.append("        {\n");
         prompt.append("          \"id\": <integer>,\n");

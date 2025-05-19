@@ -1,8 +1,6 @@
 package com.zps.zest.refactoring;
 
-import java.util.Date;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Tracks the progress of a refactoring operation.
@@ -18,6 +16,11 @@ public class RefactoringProgress {
     private Date lastUpdateDate;
     private RefactoringStatus status;
     
+    // For final report generation
+    private List<String> completedChanges;
+    private Map<Integer, List<String>> problemsAfterIssue;
+    private Map<Integer, Set<String>> affectedClasses;
+    
     public RefactoringProgress() {
         this.completedStepIds = new HashSet<>();
         this.skippedStepIds = new HashSet<>();
@@ -25,6 +28,11 @@ public class RefactoringProgress {
         this.startDate = new Date();
         this.lastUpdateDate = new Date();
         this.status = RefactoringStatus.IN_PROGRESS;
+        
+        // Initialize report fields
+        this.completedChanges = new ArrayList<>();
+        this.problemsAfterIssue = new HashMap<>();
+        this.affectedClasses = new HashMap<>();
     }
     
     public RefactoringProgress(String planName) {
@@ -150,5 +158,47 @@ public class RefactoringProgress {
     public void markAborted() {
         this.status = RefactoringStatus.ABORTED;
         this.lastUpdateDate = new Date();
+    }
+    
+    /**
+     * Adds information about a completed change for reporting.
+     */
+    public void addCompletedChange(String changeDescription) {
+        if (this.completedChanges == null) {
+            this.completedChanges = new ArrayList<>();
+        }
+        this.completedChanges.add(changeDescription);
+    }
+    
+    /**
+     * Adds information about problems after completing an issue.
+     */
+    public void addProblemsAfterIssue(int issueId, List<String> problems) {
+        if (this.problemsAfterIssue == null) {
+            this.problemsAfterIssue = new HashMap<>();
+        }
+        this.problemsAfterIssue.put(issueId, problems);
+    }
+    
+    /**
+     * Adds information about classes affected by an issue.
+     */
+    public void addAffectedClasses(int issueId, Set<String> classNames) {
+        if (this.affectedClasses == null) {
+            this.affectedClasses = new HashMap<>();
+        }
+        this.affectedClasses.put(issueId, classNames);
+    }
+    
+    public List<String> getCompletedChanges() {
+        return completedChanges;
+    }
+    
+    public Map<Integer, List<String>> getProblemsAfterIssue() {
+        return problemsAfterIssue;
+    }
+    
+    public Map<Integer, Set<String>> getAffectedClasses() {
+        return affectedClasses;
     }
 }

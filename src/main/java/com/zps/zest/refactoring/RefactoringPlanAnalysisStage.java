@@ -170,6 +170,10 @@ public class RefactoringPlanAnalysisStage implements PipelineStage {
             issue.setReasoning(issueJson.get("reasoning").getAsString());
         }
         
+        if (issueJson.has("targetFile")) {
+            issue.setTargetFile(issueJson.get("targetFile").getAsString());
+        }
+        
         // Parse steps
         if (issueJson.has("steps") && issueJson.get("steps").isJsonArray()) {
             JsonArray stepsArray = issueJson.getAsJsonArray("steps");

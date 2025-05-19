@@ -49,6 +49,7 @@ public class ClassAnalyzer {
 
             // Add package info
             context.append("Package: ").append(javaFile.getPackageName()).append("\n\n");
+            context.append("File path: `").append(javaFile.getVirtualFile().getPath()).append("`\n\n");
 
             // Add imports
             context.append("Imports:\n");
@@ -139,6 +140,7 @@ public class ClassAnalyzer {
         contextInfo.append("Class structure:\n```java\n");
         contextInfo.append(getTextOfPsiElement(targetClass));
         contextInfo.append("\n```\n\n");
+        contextInfo.append("File path: `").append(targetClass.getContainingFile().getVirtualFile().getPath()).append("`\n\n");
 
         // Add class-level javadoc if available
         PsiDocComment classJavadoc = targetClass.getDocComment();

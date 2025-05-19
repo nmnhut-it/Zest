@@ -509,7 +509,9 @@ public class JavaScriptBridge {
 
             // Execute the tool
             String result = tool.execute(params);
-            Messages.showInfoMessage("Replace in file result: " + result, "Replace in File Result");
+            ApplicationManager.getApplication().invokeLater(()->{
+                Messages.showInfoMessage("Replace in file result: " + result, "Replace in File Result");
+            });
             // Log the result
             LOG.info("Replace in file result: " + result);
 

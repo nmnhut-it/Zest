@@ -1,6 +1,5 @@
 package com.zps.zest.refactoring;
 
-import com.google.gson.JsonObject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -8,15 +7,12 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
 import com.zps.zest.ClassAnalyzer;
-import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,35 +21,35 @@ import java.util.Map;
  * This class handles the interaction with the chat interface and tracks progress.
  */
 public class RefactoringExecutionManager {
-    private static final Logger LOG = Logger.getInstance(RefactoringExecutionManager.class);
     public static final String FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION = "Fix Problems and Verify Issue Implementation";
+    private static final Logger LOG = Logger.getInstance(RefactoringExecutionManager.class);
     private final Project project;
     private final RefactoringStateManager stateManager;
-    
+
     /**
      * Creates a new refactoring execution manager.
-     * 
+     *
      * @param project The project to execute refactorings for
      */
     public RefactoringExecutionManager(Project project) {
         this.project = project;
         this.stateManager = new RefactoringStateManager(project);
     }
-    
+
     /**
      * Executes a single refactoring step and updates progress.
-     * 
-     * @param plan The refactoring plan
+     *
+     * @param plan     The refactoring plan
      * @param progress The current progress
      * @return true if the step was executed successfully, false otherwise
      */
     public boolean executeStep(RefactoringPlan plan, RefactoringProgress progress) {
         LOG.info("Executing refactoring step: " + progress.getCurrentStep());
-        
+
         // Get the current issue and step
         RefactoringIssue currentIssue;
         RefactoringStep currentStep;
-        
+
         try {
             currentIssue = plan.getIssues().get(progress.getCurrentIssueIndex());
             currentStep = currentIssue.getSteps().get(progress.getCurrentStepIndex());
@@ -61,20 +57,20 @@ public class RefactoringExecutionManager {
             LOG.error("Invalid issue or step index", e);
             return false;
         }
-        
+
         // Extract target class name from the plan
         String className = plan.getTargetClass();
         String packageName = "";
-        
+
         // We don't need or use context.json - always get fresh class context
         PsiClass targetClass = findTargetClass(packageName, className);
         String updatedClassContext = null;
-        
+
         if (targetClass != null) {
             // Get the actual package name from the found class
             packageName = targetClass.getContainingFile() instanceof PsiJavaFile ?
-                    ((PsiJavaFile)targetClass.getContainingFile()).getPackageName() : "";
-                    
+                    ((PsiJavaFile) targetClass.getContainingFile()).getPackageName() : "";
+
             // Use ClassAnalyzer to get fresh class context with any recent user modifications
             updatedClassContext = ClassAnalyzer.collectClassContext(targetClass);
             LOG.info("Using fresh class context from ClassAnalyzer for step: " + progress.getCurrentStep());
@@ -82,20 +78,20 @@ public class RefactoringExecutionManager {
             LOG.error("Could not find target class: " + className);
             return false;
         }
-        
+
         if (updatedClassContext == null) {
             LOG.error("No class context available");
             return false;
         }
-        
+
         // Remember if this is a continuation of a conversation or a new chat
         boolean isNewChat = isNewChatNeeded(progress);
-        
+
         // Create the execution prompt with the fresh context
         String executionPrompt = createStepExecutionPrompt(
-                plan, progress, currentIssue, currentStep, 
+                plan, progress, currentIssue, currentStep,
                 updatedClassContext, packageName, isNewChat);
-        
+
         // If it's a new chat, first click the new chat button
         if (isNewChat) {
             boolean newChatClicked = ChatboxUtilities.clickNewChatButton(project);
@@ -104,44 +100,46 @@ public class RefactoringExecutionManager {
                 // Continue anyway, it might work
             }
         }
-        
+
         // Send the prompt to the chat box
         boolean sent = sendPromptToChatBox(executionPrompt);
         if (!sent) {
             LOG.error("Failed to send execution prompt to chat box");
             return false;
         }
-        
+
         // Update the step status
         currentStep.setStatus(RefactoringStepStatus.IN_PROGRESS);
-        
+
         // Save the updated progress
         return stateManager.saveProgress(progress);
     }
-    
+
     /**
      * Determines if a new chat is needed based on the progress.
      */
     private boolean isNewChatNeeded(RefactoringProgress progress) {
-        // If this is the first step, always start a new chat
-        if (progress.getCurrentIssueIndex() == 0 && progress.getCurrentStepIndex() == 0) {
-            return true;
-        }
-        
-        // Check if it's been more than 30 minutes since the last update
-        if (progress.getLastUpdateDate() != null) {
-            long elapsedTime = System.currentTimeMillis() - progress.getLastUpdateDate().getTime();
-            long thirtyMinutesInMillis = 30 * 60 * 1000;
-            
-            if (elapsedTime > thirtyMinutesInMillis) {
-                return true;
-            }
-        }
-        
-        // Otherwise, continue the same chat
-        return false;
+        return true;
+
+//        // If this is the first step, always start a new chat
+//        if (progress.getCurrentIssueIndex() == 0 && progress.getCurrentStepIndex() == 0) {
+//            return true;
+//        }
+//
+//        // Check if it's been more than 30 minutes since the last update
+//        if (progress.getLastUpdateDate() != null) {
+//            long elapsedTime = System.currentTimeMillis() - progress.getLastUpdateDate().getTime();
+//            long thirtyMinutesInMillis = 30 * 60 * 1000;
+//
+//            if (elapsedTime > thirtyMinutesInMillis) {
+//                return true;
+//            }
+//        }
+//
+//        // Otherwise, continue the same chat
+//        return false;
     }
-    
+
     /**
      * Attempts to find the target class in the project.
      * Uses the available class name information and tries multiple strategies.
@@ -152,7 +150,7 @@ public class RefactoringExecutionManager {
                 // Get all Java files
                 com.intellij.psi.search.PsiShortNamesCache cache = com.intellij.psi.search.PsiShortNamesCache.getInstance(project);
                 PsiClass[] classes = cache.getClassesByName(className, com.intellij.psi.search.GlobalSearchScope.projectScope(project));
-                
+
                 // If we have a package name, try to find an exact match first
                 if (packageName != null && !packageName.isEmpty()) {
                     for (PsiClass psiClass : classes) {
@@ -165,16 +163,16 @@ public class RefactoringExecutionManager {
                         }
                     }
                 }
-                
+
                 // If no match with package or no package provided, just return the first class with matching name
                 if (classes.length > 0) {
                     PsiClass foundClass = classes[0];
-                    String foundPackage = foundClass.getContainingFile() instanceof PsiJavaFile ? 
-                            ((PsiJavaFile)foundClass.getContainingFile()).getPackageName() : "unknown";
+                    String foundPackage = foundClass.getContainingFile() instanceof PsiJavaFile ?
+                            ((PsiJavaFile) foundClass.getContainingFile()).getPackageName() : "unknown";
                     LOG.info("Found target class by name only: " + foundPackage + "." + className);
                     return foundClass;
                 }
-                
+
                 LOG.warn("Could not find target class: " + className);
                 return null;
             });
@@ -183,89 +181,92 @@ public class RefactoringExecutionManager {
             return null;
         }
     }
-    
+
     /**
      * Creates a prompt for executing a specific refactoring step.
      */
-    private String createStepExecutionPrompt(RefactoringPlan plan, RefactoringProgress progress, 
+    private String createStepExecutionPrompt(RefactoringPlan plan, RefactoringProgress progress,
                                              RefactoringIssue currentIssue, RefactoringStep currentStep,
                                              String classContext, String packageName, boolean isNewChat) {
         StringBuilder prompt = new StringBuilder();
-        
+
         // If this is a new chat, include a brief introduction
         if (isNewChat) {
             prompt.append("# Java Testability Refactoring Implementation\n\n");
             prompt.append("I'll help you implement a series of refactoring steps to improve the testability of ");
             prompt.append(plan.getTargetClass()).append(".\n\n");
         }
-        
+
         prompt.append("# Refactoring Step: ").append(currentStep.getTitle()).append("\n\n");
-        
+
         prompt.append("## Context\n");
         prompt.append("- Issue: ").append(currentIssue.getTitle()).append("\n");
         prompt.append("- Progress: Step ").append(progress.getCurrentStepIndex() + 1)
-              .append("/").append(currentIssue.getSteps().size())
-              .append(" (Issue ").append(progress.getCurrentIssueIndex() + 1)
-              .append("/").append(plan.getIssues().size()).append(")\n\n");
-        
+                .append("/").append(currentIssue.getSteps().size())
+                .append(" (Issue ").append(progress.getCurrentIssueIndex() + 1)
+                .append("/").append(plan.getIssues().size()).append(")\n\n");
+
         // Add class context - gets the latest directly from ClassAnalyzer for each step
         prompt.append("## Current Class\n");
-        
+
         // Include package information if available
         if (packageName != null && !packageName.isEmpty()) {
             prompt.append("**Package:** ").append(packageName).append("\n\n");
         }
-        
+
         // Include the full class context from ClassAnalyzer - this reflects any recent changes
         prompt.append("```java\n").append(classContext).append("\n```\n\n");
-        
-        prompt.append("## Implementation Instructions\n");
-        prompt.append("Implement this refactoring:\n");
-        prompt.append("1. Reason through each change you'll make and why it improves testability\n");
-        prompt.append("2. If you determine this specific aspect of code is already well-designed for testability, recommend skipping this step\n");
-        prompt.append("3. Otherwise, make only minimal changes needed to address the specific issue\n");
-        prompt.append("4. Ensure code maintains all existing functionality\n");
-        prompt.append("5. Verify your changes will compile correctly\n\n");
-        
-        prompt.append("## Response Format\n");
-        prompt.append("Follow this exact structure:\n\n");
-        prompt.append("#### ANALYSIS: <Your reasoning process about how to approach this refactoring>\n\n");
-        prompt.append("#### SUMMARY: <One sentence describing what the change accomplishes>\n\n");
-        prompt.append("#### IMPLEMENTATION:\n\n");
-        prompt.append("replace_in_file:").append(currentStep.getFilePath() == null ? plan.getTargetClass() + ".java" : currentStep.getFilePath()).append("\n");
-        prompt.append("```java\n");
-        prompt.append("// code to be replaced - copy exact code from current class\n");
-        prompt.append("```\n");
-        prompt.append("```java\n");
-        prompt.append("// replacement code with testability improvements\n");
-        prompt.append("```\n\n");
-        prompt.append("Add more replace_in_file blocks as needed for multiple changes.\n\n");
-        prompt.append("#### VALIDATION\n");
-        prompt.append("  <Verification of code correctness>\n");
-        prompt.append("  <Potential side effects>\n\n");
-        prompt.append("After implementing, check for compiler errors or warnings:\n");
-        prompt.append("```\n");
-        prompt.append("tool_get_project_problems_post\n");
-        prompt.append("```\n\n");
-        
+        if (currentStep.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION) == false) {
+
+            prompt.append("## Implementation Instructions\n");
+            prompt.append("Implement this refactoring:\n");
+            prompt.append("1. Reason through each change you'll make and why it improves testability\n");
+            prompt.append("2. If you determine this specific aspect of code is already well-designed for testability, recommend skipping this step\n");
+            prompt.append("3. Otherwise, make only minimal changes needed to address the specific issue\n");
+            prompt.append("4. Ensure code maintains all existing functionality\n");
+            prompt.append("5. Verify your changes will compile correctly\n\n");
+
+            prompt.append("## Response Format\n");
+            prompt.append("Follow this exact structure:\n\n");
+            prompt.append("#### ANALYSIS: <Your reasoning process about how to approach this refactoring>\n\n");
+            prompt.append("#### SUMMARY: <One sentence describing what the change accomplishes>\n\n");
+            prompt.append("#### IMPLEMENTATION:\n\n");
+            prompt.append("replace_in_file:").append(currentStep.getFilePath() == null ? plan.getTargetClass() + ".java" : currentStep.getFilePath()).append("\n");
+            prompt.append("```java\n");
+            prompt.append("// code to be replaced - copy exact code from current class\n");
+            prompt.append("```\n");
+            prompt.append("```java\n");
+            prompt.append("// replacement code with testability improvements\n");
+            prompt.append("```\n\n");
+            prompt.append("Add more replace_in_file blocks as needed for multiple changes.\n\n");
+            prompt.append("#### VALIDATION\n");
+            prompt.append("  <Verification of code correctness>\n");
+            prompt.append("  <Potential side effects>\n\n");
+            prompt.append("After implementing, check for compiler errors or warnings:\n");
+            prompt.append("```\n");
+            prompt.append("tool_get_project_problems_post\n");
+            prompt.append("```\n\n");
+        }
+
         // Step details at the end
         prompt.append("## Step Details\n");
         prompt.append(currentStep.getDescription()).append("\n\n");
-        
         if (currentStep.getFilePath() != null && !currentStep.getFilePath().isEmpty()) {
             prompt.append("**File:** ").append(currentStep.getFilePath()).append("\n\n");
         }
-        
-        if (currentStep.getCodeChangeDescription() != null && !currentStep.getCodeChangeDescription().isEmpty()) {
-            prompt.append("**Required Change:** ").append(currentStep.getCodeChangeDescription()).append("\n\n");
+        if (currentStep.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION) == false) {
+
+            if (currentStep.getCodeChangeDescription() != null && !currentStep.getCodeChangeDescription().isEmpty()) {
+                prompt.append("**Required Change:** ").append(currentStep.getCodeChangeDescription()).append("\n\n");
+            }
+
+            prompt.append("IMPORTANT: Use the `replace_in_file` format for all code changes. This allows the changes to be applied automatically through the IDE's code replacement feature.\n\n");
+            prompt.append("Implement this refactoring step now, following the exact format above.");
         }
-        
-        prompt.append("IMPORTANT: Use the `replace_in_file` format for all code changes. This allows the changes to be applied automatically through the IDE's code replacement feature.\n\n");
-        prompt.append("Implement this refactoring step now, following the exact format above.");
-        
+
         return prompt.toString();
     }
-    
+
     /**
      * Sends a prompt to the chat box and activates the browser window.
      */
@@ -283,8 +284,8 @@ public class RefactoringExecutionManager {
                 + "\n6. Validate that code will compile and maintain functionality"
                 + "\n"
                 + "\nFormat your responses exactly like this: "
-                + "\n#### ANALYSIS: <Your reasoning about how to approach this refactoring>"
-                + "\n#### SUMMARY: <Either explanation of why no change is needed OR one-sentence overview of change> "
+                + "\n#### ANALYSIS:\n\n <Your reasoning about how to approach this refactoring>"
+                + "\n#### SUMMARY:\n\n <Either explanation of why no change is needed OR one-sentence overview of change> "
                 + "\n#### IMPLEMENTATION:"
                 + "\nreplace_in_file:absolute/path/to/file.java"
                 + "\n```java"
@@ -293,7 +294,7 @@ public class RefactoringExecutionManager {
                 + "\n```java"
                 + "\n// replacement code with improved testability"
                 + "\n```"
-                + "\n#### VALIDATION: <Verification of code correctness> <Potential side effects>"
+                + "\n#### VALIDATION:\n\n <Verification of code correctness> <Potential side effects>"
                 + "\n"
                 + "\nFocus exclusively on testability issues such as:"
                 + "\n- Dependency injection opportunities"
@@ -308,7 +309,7 @@ public class RefactoringExecutionManager {
 
         // Send the prompt to the chat box
         boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
-        
+
         // Activate browser tool window
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -316,29 +317,29 @@ public class RefactoringExecutionManager {
                 toolWindow.activate(null);
             }
         });
-        
+
         return success;
     }
-    
+
     /**
      * Completes the current step and moves to the next one.
-     * 
+     *
      * @return true if there are more steps to execute, false if the refactoring is complete
      */
     public boolean completeCurrentStepAndMoveToNext() {
         // Load the current plan and progress
         RefactoringPlan plan = stateManager.loadPlan();
         RefactoringProgress progress = stateManager.loadProgress();
-        
+
         if (plan == null || progress == null) {
             LOG.error("Failed to load refactoring plan or progress");
             return false;
         }
-        
+
         // Get the current issue and step
         RefactoringIssue currentIssue;
         RefactoringStep currentStep;
-        
+
         try {
             currentIssue = plan.getIssues().get(progress.getCurrentIssueIndex());
             currentStep = currentIssue.getSteps().get(progress.getCurrentStepIndex());
@@ -346,18 +347,18 @@ public class RefactoringExecutionManager {
             LOG.error("Invalid issue or step index", e);
             return false;
         }
-        
+
         // Record the summary of this completed step
         String completedChange = currentIssue.getTitle() + " - " + currentStep.getTitle();
         progress.addCompletedChange(completedChange);
-        
+
         // Mark the current step as complete
         currentStep.setStatus(RefactoringStepStatus.COMPLETED);
         progress.markStepComplete(currentStep.getId());
-        
+
         // Check if this was the last step of the current issue
         boolean isLastStepOfIssue = (progress.getCurrentStepIndex() >= currentIssue.getSteps().size() - 1);
-        
+
         // If this is the last step of the issue, check for problems and try to fix them
         if (isLastStepOfIssue) {
             LOG.info("Completed all steps in issue: " + currentIssue.getTitle() + ". Checking for problems.");
@@ -372,17 +373,17 @@ public class RefactoringExecutionManager {
 
             // Create a special step to fix any problems
             // This step will be shown in the UI and executed by Claude via MCP
-            if (!isProblemFixStep(currentStep)){
+            if (!isProblemFixStep(currentStep)) {
                 createFixProblemStep(currentIssue);
 
-            // Don't move to next issue yet - stay at the fix step
-            progress.setCurrentStepIndex(currentIssue.getSteps().size() - 1);
-        }
+                // Don't move to next issue yet - stay at the fix step
+                progress.setCurrentStepIndex(currentIssue.getSteps().size() - 1);
+            }
             stateManager.saveProgress(progress);
             stateManager.savePlan(plan);
             return true;
         }
-        
+
         // Move to the next step or issue
         if (!isLastStepOfIssue) {
             // More steps in the current issue
@@ -395,44 +396,44 @@ public class RefactoringExecutionManager {
             // All steps are complete - generate final report
             progress.markComplete();
             stateManager.saveProgress(progress);
-            
+
             // Generate and show final report
             generateFinalReport(plan, progress);
-            
+
             // Clear the refactoring state
             stateManager.clearRefactoringState();
-            
+
             // Only close the tool window when all steps are complete
             // This branch is only reached at the end of the entire refactoring process
             RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
             return false;
         }
-        
+
         // Save the updated progress and plan
         stateManager.saveProgress(progress);
         stateManager.savePlan(plan);
         return true;
     }
-    
+
     /**
      * Skips the current step and moves to the next one.
-     * 
+     *
      * @return true if there are more steps to execute, false if the refactoring is complete
      */
     public boolean skipCurrentStepAndMoveToNext() {
         // Load the current plan and progress
         RefactoringPlan plan = stateManager.loadPlan();
         RefactoringProgress progress = stateManager.loadProgress();
-        
+
         if (plan == null || progress == null) {
             LOG.error("Failed to load refactoring plan or progress");
             return false;
         }
-        
+
         // Get the current issue and step
         RefactoringIssue currentIssue;
         RefactoringStep currentStep;
-        
+
         try {
             currentIssue = plan.getIssues().get(progress.getCurrentIssueIndex());
             currentStep = currentIssue.getSteps().get(progress.getCurrentStepIndex());
@@ -440,11 +441,11 @@ public class RefactoringExecutionManager {
             LOG.error("Invalid issue or step index", e);
             return false;
         }
-        
+
         // Mark the current step as skipped
         currentStep.setStatus(RefactoringStepStatus.SKIPPED);
         progress.markStepSkipped(currentStep.getId());
-        
+
         // Move to the next step
         if (progress.getCurrentStepIndex() < currentIssue.getSteps().size() - 1) {
             progress.setCurrentStepIndex(progress.getCurrentStepIndex() + 1);
@@ -455,31 +456,33 @@ public class RefactoringExecutionManager {
             // All steps are complete or skipped
             progress.markComplete();
             stateManager.saveProgress(progress);
-            
+
             // Generate and show final report
             generateFinalReport(plan, progress);
-            
+
             // Clear the refactoring state
             stateManager.clearRefactoringState();
-            
+
             // Only close the tool window when all steps are complete
             // This branch is only reached at the end of the entire refactoring process
             RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
             return false;
         }
-        
+
         // Save the updated progress and plan
         stateManager.saveProgress(progress);
         stateManager.savePlan(plan);
         return true;
     }
-    boolean isProblemFixStep(RefactoringStep step){
+
+    boolean isProblemFixStep(RefactoringStep step) {
         return step.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION);
 
     }
+
     /**
      * Creates a new step to fix problems detected after completing an issue.
-     * 
+     *
      * @param issue The current issue
      */
     private void createFixProblemStep(RefactoringIssue issue) {
@@ -490,8 +493,8 @@ public class RefactoringExecutionManager {
         problemDescription.append("```\n");
         problemDescription.append("tool_get_project_problems_post\n");
         problemDescription.append("```\n\n");
-        problemDescription.append("If any problems are found, please fix them while maintaining the testability improvements already made.");
-        
+        problemDescription.append("Just call the tool, do nothing just yet.");
+
         // Create a new step
         RefactoringStep fixStep = new RefactoringStep();
         fixStep.setId(issue.getSteps().size() + 1); // Generate a new ID
@@ -509,27 +512,27 @@ public class RefactoringExecutionManager {
                 fixStep.setFilePath(plan.getTargetClass() + ".java");
             }
         }
-        
+
         // Add the step to the issue
         issue.getSteps().add(fixStep);
     }
-    
+
     /**
      * Generates a final report of the refactoring process and displays it.
      */
     private void generateFinalReport(RefactoringPlan plan, RefactoringProgress progress) {
         StringBuilder report = new StringBuilder();
-        
+
         // Report header
         report.append("# Refactoring Completed: ").append(plan.getName()).append("\n\n");
         report.append("## Target Class: ").append(plan.getTargetClass()).append("\n\n");
-        
+
         // Statistics
         int totalSteps = 0;
         for (RefactoringIssue issue : plan.getIssues()) {
             totalSteps += issue.getSteps().size();
         }
-        
+
         report.append("## Statistics\n");
         report.append("- **Start Date:** ").append(formatDate(progress.getStartDate())).append("\n");
         report.append("- **End Date:** ").append(formatDate(progress.getLastUpdateDate())).append("\n");
@@ -538,20 +541,20 @@ public class RefactoringExecutionManager {
         report.append("- **Completed Steps:** ").append(progress.getCompletedStepIds().size()).append("\n");
         report.append("- **Skipped Steps:** ").append(progress.getSkippedStepIds().size()).append("\n");
         report.append("- **Failed Steps:** ").append(progress.getFailedStepIds().size()).append("\n\n");
-        
+
         // Summary of changes by issue
         report.append("## Changes Implemented by Issue\n");
         List<String> changes = progress.getCompletedChanges();
         if (changes != null && !changes.isEmpty()) {
             // Group by issue
             Map<String, List<String>> changesByIssue = new java.util.HashMap<>();
-            
+
             for (String change : changes) {
                 String[] parts = change.split(" - ", 2);
                 if (parts.length >= 2) {
                     String issueTitle = parts[0];
                     String stepTitle = parts[1];
-                    
+
                     if (!changesByIssue.containsKey(issueTitle)) {
                         changesByIssue.put(issueTitle, new java.util.ArrayList<>());
                     }
@@ -564,7 +567,7 @@ public class RefactoringExecutionManager {
                     changesByIssue.get("Other").add(change);
                 }
             }
-            
+
             // Display by issue
             for (Map.Entry<String, List<String>> entry : changesByIssue.entrySet()) {
                 report.append("### ").append(entry.getKey()).append("\n");
@@ -576,16 +579,16 @@ public class RefactoringExecutionManager {
         } else {
             report.append("No changes were implemented.\n\n");
         }
-        
+
         // Conclusion
         report.append("## Conclusion\n");
         report.append("This refactoring has improved the testability of ").append(plan.getTargetClass());
         report.append(" by addressing ").append(plan.getIssues().size()).append(" testability issues. ");
         report.append("The code is now more maintainable and easier to test, which will lead to more reliable software.");
-        
+
         // Show the final report
         String finalReport = report.toString();
-        
+
         // Send the report to the browser
         ApplicationManager.getApplication().invokeLater(() -> {
             // First show a notification about the complete refactoring
@@ -594,21 +597,21 @@ public class RefactoringExecutionManager {
                     "The refactoring process has been completed successfully! A final report has been generated.",
                     "Refactoring Complete"
             );
-            
+
             // Send the report to the chat box
-            boolean sent = ChatboxUtilities.sendTextAndSubmit(project, 
+            boolean sent = ChatboxUtilities.sendTextAndSubmit(project,
                     "# Refactoring Complete - Final Report\n\n" +
-                    "Here is the final report for the completed refactoring:\n\n" + 
-                    finalReport, 
-                    true, 
+                            "Here is the final report for the completed refactoring:\n\n" +
+                            finalReport,
+                    true,
                     null);
-            
+
             if (!sent) {
                 LOG.warn("Failed to send final report to chat box");
             }
         });
     }
-    
+
     /**
      * Formats a date for the report.
      */
@@ -616,29 +619,29 @@ public class RefactoringExecutionManager {
         if (date == null) {
             return "Unknown";
         }
-        
+
         return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(date);
     }
-    
+
     /**
      * Aborts the refactoring process.
      */
     public void abortRefactoring() {
         // Load the current progress
         RefactoringProgress progress = stateManager.loadProgress();
-        
+
         if (progress != null) {
             // Mark the refactoring as aborted
             progress.markAborted();
             stateManager.saveProgress(progress);
         }
-        
+
         // Clear the refactoring state
         stateManager.clearRefactoringState();
-        
+
         // Close the tool window
         RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
-        
+
         // Show abort message
         ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showInfoMessage(

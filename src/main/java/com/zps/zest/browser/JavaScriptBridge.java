@@ -122,11 +122,14 @@ public class JavaScriptBridge {
                     break;
                     
                 case "batchReplaceInFile":
-                    String batchFilePath = data.get("filePath").getAsString();
-                    com.google.gson.JsonArray replacements = data.getAsJsonArray("replacements");
-                    
-                    boolean batchReplaceResult = handleBatchReplaceInFile(batchFilePath, replacements);
-                    response.addProperty("success", batchReplaceResult);
+                    ApplicationManager.getApplication().executeOnPooledThread(()->{
+                        String batchFilePath = data.get("filePath").getAsString();
+                        com.google.gson.JsonArray replacements = data.getAsJsonArray("replacements");
+
+                        boolean batchReplaceResult = handleBatchReplaceInFile(batchFilePath, replacements);
+//                        response.addProperty("success", batchReplaceResult);
+                    });
+
                     break;
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -522,7 +525,6 @@ public class JavaScriptBridge {
             return false;
         }
     }
-    
     /**
      * Handles batch replace in file requests from JavaScript by delegating to the ReplaceInFileTool multiple times
      *
@@ -533,6 +535,32 @@ public class JavaScriptBridge {
     private boolean handleBatchReplaceInFile(String filePath, com.google.gson.JsonArray replacements) {
         LOG.info("Handling batch replace in file request for: " + filePath + " with " + replacements.size() + " replacements");
 
+        // Ensure we're not blocking the EDT for file operations
+        if (ApplicationManager.getApplication().isDispatchThread()) {
+            final java.util.concurrent.atomic.AtomicBoolean result = new java.util.concurrent.atomic.AtomicBoolean(false);
+            ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                result.set(doHandleBatchReplaceInFile(filePath, replacements));
+            });
+            // Wait for completion - you may want to make this asynchronous if appropriate
+            try {
+                // Wait with a timeout to prevent indefinite blocking
+                for (int i = 0; i < 100 && !result.get(); i++) {
+                    Thread.sleep(100);
+                }
+                return result.get();
+            } catch (InterruptedException e) {
+                LOG.error("Interrupted while waiting for batch replace operation", e);
+                return false;
+            }
+        } else {
+            return doHandleBatchReplaceInFile(filePath, replacements);
+        }
+    }
+
+    /**
+     * Actual implementation of batch replace functionality, meant to be run off the EDT
+     */
+    private boolean doHandleBatchReplaceInFile(String filePath, com.google.gson.JsonArray replacements) {
         try {
             // 1. Resolve file
             java.io.File targetFile = new java.io.File(filePath);
@@ -594,57 +622,80 @@ public class JavaScriptBridge {
                 return true;
             }
 
-            // Show diff with all replacements
-            final boolean[] userConfirmed = new boolean[1];
-            java.io.File finalTargetFile = targetFile;
-            String finalModifiedContent = modifiedContent;
-            int finalTotalReplacementCount = totalReplacementCount;
-            ApplicationManager.getApplication().invokeAndWait(() -> {
-                com.intellij.diff.DiffContentFactory diffFactory = com.intellij.diff.DiffContentFactory.getInstance();
-                com.intellij.diff.contents.DocumentContent leftContent = diffFactory.create(originalContent);
-                com.intellij.diff.contents.DocumentContent rightContent = diffFactory.create(finalModifiedContent);
+            // Show diff with all replacements - must be done on EDT
+            final java.util.concurrent.atomic.AtomicBoolean userConfirmed = new java.util.concurrent.atomic.AtomicBoolean(false);
+            final java.io.File finalTargetFile = targetFile;
+            final String finalModifiedContent = modifiedContent;
+            final int finalTotalReplacementCount = totalReplacementCount;
 
-                com.intellij.diff.requests.SimpleDiffRequest diffRequest = new com.intellij.diff.requests.SimpleDiffRequest(
-                        "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
-                        leftContent,
-                        rightContent,
-                        "Original",
-                        "After Replacements"
-                );
-
-                com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, com.intellij.diff.DiffDialogHints.MODAL);
-
-                int option = Messages.showYesNoDialog(
-                        project,
-                        "Apply " + finalTotalReplacementCount + " replacements to " + filePath + "?",
-                        "Confirm Batch Changes",
-                        "Apply",
-                        "Cancel",
-                        Messages.getQuestionIcon()
-                );
-                userConfirmed[0] = (option == Messages.YES);
-            });
-
-            if (userConfirmed[0]) {
-                com.intellij.openapi.vfs.VirtualFile vFile =
-                        com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(targetFile.getPath());
-                if (vFile == null) {
-                    LOG.error("Could not find file in virtual file system: " + filePath);
-                    return false;
-                }
-                WriteCommandAction.runWriteCommandAction(project, () -> {
+            // Use invokeAndWait from a background thread, not from EDT
+            try {
+                ApplicationManager.getApplication().invokeAndWait(() -> {
                     try {
-                        vFile.refresh(false, false);
-                        vFile.setBinaryContent(finalModifiedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        FileEditorManager.getInstance(project).openFile(vFile, true);
+                        com.intellij.diff.DiffContentFactory diffFactory = com.intellij.diff.DiffContentFactory.getInstance();
+                        com.intellij.diff.contents.DocumentContent leftContent = diffFactory.create(originalContent);
+                        com.intellij.diff.contents.DocumentContent rightContent = diffFactory.create(finalModifiedContent);
+
+                        com.intellij.diff.requests.SimpleDiffRequest diffRequest = new com.intellij.diff.requests.SimpleDiffRequest(
+                                "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
+                                leftContent,
+                                rightContent,
+                                "Original",
+                                "After Replacements"
+                        );
+
+                        com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, com.intellij.diff.DiffDialogHints.MODAL);
+
+                        int option = Messages.showYesNoDialog(
+                                project,
+                                "Apply " + finalTotalReplacementCount + " replacements to " + filePath + "?",
+                                "Confirm Batch Changes",
+                                "Apply",
+                                "Cancel",
+                                Messages.getQuestionIcon()
+                        );
+                        userConfirmed.set(option == Messages.YES);
                     } catch (Exception e) {
-                        LOG.error("Error updating file: " + filePath, e);
+                        LOG.error("Error showing diff dialog", e);
                     }
                 });
-                return true;
+            } catch (Exception e) {
+                LOG.error("Error executing on EDT", e);
+                return false;
+            }
+
+            if (userConfirmed.get()) {
+                // Perform file update in write action - must be on EDT
+                try {
+                    com.intellij.openapi.vfs.VirtualFile vFile =
+                            com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(finalTargetFile.getPath());
+                    if (vFile == null) {
+                        LOG.error("Could not find file in virtual file system: " + filePath);
+                        return false;
+                    }
+
+                    // Execute write command action safely
+                    final java.util.concurrent.atomic.AtomicBoolean writeSuccess = new java.util.concurrent.atomic.AtomicBoolean(false);
+                    ApplicationManager.getApplication().invokeAndWait(() -> {
+                        WriteCommandAction.runWriteCommandAction(project, () -> {
+                            try {
+                                vFile.refresh(false, false);
+                                vFile.setBinaryContent(finalModifiedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                FileEditorManager.getInstance(project).openFile(vFile, true);
+                                writeSuccess.set(true);
+                            } catch (Exception e) {
+                                LOG.error("Error updating file: " + filePath, e);
+                            }
+                        });
+                    });
+                    return writeSuccess.get();
+                } catch (Exception e) {
+                    LOG.error("Error during write command execution", e);
+                    return false;
+                }
             } else {
                 LOG.info("Batch changes were not applied - discarded by user");
-                return false;
+                return true; // Still "successful" from a function perspective - user just chose not to apply
             }
         } catch (Exception e) {
             LOG.error("Error handling batch replace in file request", e);

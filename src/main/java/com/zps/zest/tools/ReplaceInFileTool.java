@@ -152,8 +152,8 @@ public class ReplaceInFileTool extends BaseAgentTool {
         List<String> modifiedLines = new ArrayList<>(originalLines.size());
         
         // 1. Split search and replace text into lines & trim each line if needed
-        String[] searchLines = searchText.split("\n");
-        String[] replaceLines = replaceText.split("\n");
+        String[] searchLines = searchText.split("(\r?\n)+");
+        String[] replaceLines = replaceText.split("(\r?\n)+");
         
         // If ignoring whitespace, trim each line
         if (ignoreWhitespace) {
@@ -204,19 +204,25 @@ public class ReplaceInFileTool extends BaseAgentTool {
                         }
                         
                         if (!lineMatches) {
-                            isFullMatch = false;
-                            break;
+                            if (nextLineToCheck.isEmpty() && searchLines[i].isEmpty()) {
+                                // Allow empty lines to match
+                            }
+                            else {
+                                isFullMatch = false;
+                                break;
+                            }
                         }
                     }
                     
                     if (isFullMatch) {
                         // 4. We have a complete match - replace it
-                        String indentation = getIndentation(currentLine);
                         replacementCount++;
                         
                         // Replace with the corresponding lines from replaceLine
                         for (int i = 0; i < replaceLines.length; i++) {
                             // Add the indentation to each replacement line
+                            String originalLine = originalLines.get(lineIndex + i- searchLines.length);
+                            String indentation = getIndentation(originalLine);
                             modifiedLines.add(indentation + replaceLines[i]);
                         }
                         

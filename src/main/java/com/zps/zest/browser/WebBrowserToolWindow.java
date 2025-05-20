@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Factory class for creating the web browser tool window.
+ * Updated for compatibility with newer IntelliJ Platform versions.
  */
 public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
     private static final Logger LOG = Logger.getInstance(WebBrowserToolWindow.class);
@@ -41,7 +42,7 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
                 // Add load state listener to track when pages finish loading
                 setupLoadStateListener(browserPanel, project);
 
-                // Create content and add it to the tool window
+                // Create content and add it to the tool window using modern API
                 ContentFactory contentFactory = ContentFactory.getInstance();
                 Content content = contentFactory.createContent(browserPanel.getComponent(), "", false);
                 toolWindow.getContentManager().addContent(content);
@@ -162,5 +163,11 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
         toolWindow.setTitle("ZPS Chat");
         toolWindow.setStripeTitle("ZPS Chat");
         toolWindow.setIcon(com.intellij.icons.AllIcons.General.Web);
+    }
+
+    @Override
+    public boolean shouldBeAvailable(@NotNull Project project) {
+        // This tool window should always be available
+        return true;
     }
 }

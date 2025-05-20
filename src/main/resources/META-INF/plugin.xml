@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.819</version>  <!-- Replace with your actual version -->
+    <version>1.9.821</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -46,28 +46,40 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
+    
     <projectListeners>
         <listener class="com.zps.zest.RagManagerProjectListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>
     </projectListeners>
+    
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Register the tool window factory -->
-<!--        <toolWindow id="AI Assistant"-->
-<!--                    anchor="right"-->
-<!--                    factoryClass="com.zps.zest.InteractiveAgentToolWindow"-->
-<!--                    icon="AllIcons.Nodes.Plugin"/>-->
-
         <!-- Register the web browser tool window factory -->
         <toolWindow id="ZPS Chat"
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
-                    icon="AllIcons.General.Web"/>
+                    icon="AllIcons.General.Web"
+                    canCloseContents="true"/>
+
+        <!-- Register the test writing tool window factory -->
+        <toolWindow id="Test Writing Assistant"
+                    anchor="bottom"
+                    factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
+                    icon="AllIcons.RunConfigurations.TestState.Run"
+                    canCloseContents="true"
+                    secondary="false"/>
+
+        <!-- Register the refactoring tool window factory -->
+        <toolWindow id="Refactoring for Testability"
+                    anchor="bottom"
+                    factoryClass="com.zps.zest.refactoring.RefactoringToolWindowFactory"
+                    icon="AllIcons.Actions.RefactoringBulb"
+                    canCloseContents="true"
+                    secondary="false"/>
 
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
-
 
     </extensions>
     <actions>
@@ -160,15 +172,5 @@
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-        <!--            <action id="com.example.inlinediff.ShowInlineDiff" class="com.zps.zest.tools.diff.InlineEditorDiffAction">-->
-        <!--                <add-to-group group-id="EditorPopupMenu" anchor="last"/>-->
-        <!--                <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>-->
-        <!--            </action>-->
-        <!--        <action id="Zest.ReloadWithCompatibility"-->
-        <!--                class="com.zps.zest.browser.actions.ReloadWithCompatibilityAction"-->
-        <!--                text="Reload ZPS Chat with Compatibility Mode"-->
-        <!--                description="Reload the current page with enhanced JavaScript compatibility fixes">-->
-        <!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
-        <!--        </action>-->
     </actions>
 </idea-plugin>

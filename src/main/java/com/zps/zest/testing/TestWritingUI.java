@@ -317,7 +317,6 @@ public class TestWritingUI {
             }
         });
     }
-
     private void closeToolWindow() {
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);

@@ -5,13 +5,13 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 
 /**
  * Tool window for managing the test writing process.
+ * This class provides programmatic control over the test writing tool window.
  */
 public class TestWritingToolWindow {
     private static final Logger LOG = Logger.getInstance(TestWritingToolWindow.class);
@@ -31,6 +31,10 @@ public class TestWritingToolWindow {
         this.stateManager = new TestWritingStateManager(project);
     }
 
+    /**
+     * Shows the test writing tool window with the specified plan and progress.
+     * This method creates and displays the tool window programmatically.
+     */
     public static TestWritingToolWindow showToolWindow(Project project, TestPlan plan, TestWritingProgress progress) {
         try {
             if (plan == null || plan.getScenarios().isEmpty() || progress == null) {
@@ -52,6 +56,9 @@ public class TestWritingToolWindow {
         }
     }
 
+    /**
+     * Checks if there's no active test writing and closes the tool window if needed.
+     */
     public static void checkAndCloseIfNoTestWriting(Project project) {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
@@ -73,6 +80,59 @@ public class TestWritingToolWindow {
         });
     }
 
+    /**
+     * Updates the tool window content to reflect the current state.
+     * This method should be called when the test writing state changes.
+     */
+    public static void updateToolWindowContent(Project project) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
+                ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
+
+                if (toolWindow != null) {
+                    TestWritingStateManager stateManager = new TestWritingStateManager(project);
+                    
+                    if (!stateManager.isTestWritingInProgress()) {
+                        // No active session - hide the tool window
+                        toolWindow.hide(null);
+                        return;
+                    }
+
+                    // Load current state and update content
+                    TestPlan plan = stateManager.loadPlan();
+                    TestWritingProgress progress = stateManager.loadProgress();
+                    
+                    if (plan != null && progress != null) {
+                        TestExecutionManager executionManager = new TestExecutionManager(project);
+                        TestWritingUI ui = new TestWritingUI(project, plan, progress, executionManager, stateManager);
+                        
+                        ContentFactory contentFactory = ContentFactory.getInstance();
+                        Content content = contentFactory.createContent(
+                            ui.createPanel(), 
+                            "Test Writing: " + plan.getTargetClass(), 
+                            false
+                        );
+                        
+                        toolWindow.getContentManager().removeAllContents(true);
+                        toolWindow.getContentManager().addContent(content);
+                        
+                        if (!toolWindow.isVisible()) {
+                            toolWindow.show(null);
+                        }
+                        
+                        LOG.info("Updated tool window content for: " + plan.getTargetClass());
+                    }
+                }
+            } catch (Exception e) {
+                LOG.error("Error updating tool window content", e);
+            }
+        });
+    }
+
+    /**
+     * Registers and shows the tool window if it doesn't exist, or updates its content if it does.
+     */
     private void registerAndShow() {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
@@ -80,17 +140,32 @@ public class TestWritingToolWindow {
                 ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
 
                 if (toolWindow == null) {
-                    toolWindow = toolWindowManager.registerToolWindow(TOOL_WINDOW_ID, true, ToolWindowAnchor.BOTTOM);
+                    LOG.warn("Tool window not found. It should be registered via plugin.xml. Attempting manual registration...");
+                    // Fallback: manually register if not found (shouldn't happen with proper plugin.xml)
+                    toolWindow = toolWindowManager.registerToolWindow(
+                        TOOL_WINDOW_ID, 
+                        true, 
+                        com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
+                    );
+                    toolWindow.setTitle("Test Writing Assistant");
+                    toolWindow.setIcon(com.intellij.icons.AllIcons.RunConfigurations.TestState.Run);
                 }
 
+                // Create and set content
                 TestWritingUI ui = new TestWritingUI(project, plan, progress, executionManager, stateManager);
-                ContentFactory contentFactory = ContentFactory.SERVICE.getInstance();
-                Content content = contentFactory.createContent(ui.createPanel(), "Test Writing: " + plan.getTargetClass(), false);
+                ContentFactory contentFactory = ContentFactory.getInstance();
+                Content content = contentFactory.createContent(
+                    ui.createPanel(), 
+                    "Test Writing: " + plan.getTargetClass(), 
+                    false
+                );
 
                 toolWindow.getContentManager().removeAllContents(true);
                 toolWindow.getContentManager().addContent(content);
                 toolWindow.setAvailable(true);
                 toolWindow.show(null);
+
+                LOG.info("Test writing tool window shown for: " + plan.getTargetClass());
 
                 // Start the execution
                 boolean success = executionManager.executeTestCase(plan, progress);

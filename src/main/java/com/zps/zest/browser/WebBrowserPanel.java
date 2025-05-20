@@ -33,7 +33,7 @@ public class WebBrowserPanel {
     /**
      * Simple class representing a browser mode.
      */
-    private static class BrowserMode {
+    static class BrowserMode {
         private final String name;
         private final Icon icon;
         private final String tooltip;

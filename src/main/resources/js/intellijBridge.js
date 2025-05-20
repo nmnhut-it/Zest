@@ -73,6 +73,7 @@ window.intellijBridge = {
    * @returns {Promise} Promise that resolves when the notification is sent to the IDE
    */
   notifyChatResponse: function(data) {
+
     return this.callIDE('notifyChatResponse', {
       content: data.content,
       id: data.id || ''

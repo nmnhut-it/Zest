@@ -16,7 +16,7 @@
      */
     window.parseResponseForCode = function(responseData) {
         try {
-            console.log('Parsing response data for code blocks:', responseData);
+//            console.log('Parsing response data for code blocks:', responseData);
             
             // Return early if no messages in the response
             if (!responseData || !responseData.messages || !Array.isArray(responseData.messages)) {
@@ -45,7 +45,7 @@
             
             // Extract code blocks from the message content
             const codeBlocks = extractCodeBlocks(latestMessage.content);
-            console.log('Extracted code blocks:', codeBlocks);
+//            console.log('Extracted code blocks:', codeBlocks);
             
             return codeBlocks;
         } catch (e) {
@@ -69,7 +69,7 @@
         
         // --- UPDATED REGEX BELOW ---
         // This regex now supports optional language tags and optional whitespace/newlines.
-        const replaceBlockRegex = /replace_in_file:(.*?)\s*?\n```(\w*)?\n([\s\S]*?)```\s*?\n```(\w*)?\n([\s\S]*?)```/g;
+        const replaceBlockRegex = /replace_in_file:(.*?)\s*\n\s*```\s*(\w*)\s*\n([\s\S]*?)```\s*\n\s*```\s*(\w*)\s*\n([\s\S]*?)```/g;
 
         // First check for replacement patterns
         let replaceMatch;
@@ -187,6 +187,9 @@
             // We've handled the replacements, so return early
             return;
         }
+        else {
+            console.log('No replacement blocks found');
+        }
         
         // If no replacement blocks or no replacement tool, fall back to regular code extraction
         // Find the most appropriate code block to extract
@@ -210,7 +213,7 @@
         
         // If we found a code block, send it to the IDE
         if (selectedBlock && window.intellijBridge && window.intellijBridge.extractCodeFromResponse) {
-            console.log('Sending extracted code to IDE:', selectedBlock);
+//            console.log('Sending extracted code to IDE:', selectedBlock);
             window.intellijBridge.extractCodeFromResponse({
                 code: selectedBlock.code,
                 language: selectedBlock.language,

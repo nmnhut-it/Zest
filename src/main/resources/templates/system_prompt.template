@@ -20,7 +20,7 @@ Format your responses exactly like this:
 #### IMPLEMENTATION:
 replace_in_file:absolute/path/to/file.java
 ```java
-// code to be replaced - copy exact code from current class
+// code to be replaced
 ```
 ```java
 // replacement code (new code) with improved testability

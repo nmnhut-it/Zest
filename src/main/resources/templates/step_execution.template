@@ -34,7 +34,7 @@ Follow this exact structure:
 
 replace_in_file:${filePath}
 ```java
-// code to be replaced - copy exact code from current class
+// code to be replaced
 ```
 ```java
 // replacement code (new code) with testability improvements

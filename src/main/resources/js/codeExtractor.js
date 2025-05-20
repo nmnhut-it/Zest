@@ -143,7 +143,7 @@ function extractFromEditor(cmEditor, textToReplace) {
     }
     
     // Send to IntelliJ using the bridge
-    console.log('code', code);
+//    console.log('code', code);
     if (window.intellijBridge && window.intellijBridge.callIDE) {
         window.intellijBridge.callIDE('codeCompleted', { 
             text: code, 

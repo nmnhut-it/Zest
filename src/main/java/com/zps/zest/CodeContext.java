@@ -96,4 +96,8 @@ public class CodeContext {
     public String getSelectedText(){
         return  this.selectedText ;
     }
+
+    public boolean isUsingTestWrightModel() {
+        return useTestWrightModel;
+    }
 }

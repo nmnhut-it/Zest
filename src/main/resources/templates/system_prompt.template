@@ -25,6 +25,10 @@ replace_in_file:absolute/path/to/file.java
 ```java
 // replacement code (new code) with improved testability
 ```
+
+DO NOT use tools except for `tool_get_project_problems_post` and `tool_create_new_file_with_text_post`.
+
+
 #### VALIDATION:
 
  <Verification of code correctness> <Potential side effects>

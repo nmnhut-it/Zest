@@ -75,12 +75,31 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
                     WebBrowserService browserService = WebBrowserService.getInstance(project);
 
-
                     // Start a new chat
                     ChatboxUtilities.clickNewChatButton(project);
 
-                    // Get the system prompt from configuration
-                    String systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                    // Get the system prompt - use test planning prompt if this is for test writing
+                    String systemPrompt;
+                    if (context.isUsingTestWrightModel()) {
+                        // Load test planning system prompt
+                        try {
+                            java.io.InputStream inputStream = getClass().getResourceAsStream("/templates/test_planning_system_prompt.template");
+                            if (inputStream != null) {
+                                systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                                inputStream.close();
+                                LOG.info("Loaded test planning system prompt from template");
+                            } else {
+                                LOG.warn("Test planning system prompt template not found, using default");
+                                systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                            }
+                        } catch (Exception e) {
+                            LOG.error("Error loading test planning system prompt", e);
+                            systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                        }
+                    } else {
+                        // Use default system prompt for refactoring
+                        systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                    }
 
                     // Send the text and mark the operation as complete
                     boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);

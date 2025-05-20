@@ -1,0 +1,78 @@
+# Review and Finalize Tests
+
+## Context
+
+- **Target Class**: ${targetClass}
+- **Test File**: ${testFilePath}
+- **Scenario**: ${scenarioTitle}
+- **Progress**: Final review for Scenario ${currentScenarioNumber} of ${totalScenarios}
+
+## Environment Information
+
+**Package**: ${packageName}
+**Operating System**: ${osName}
+**Terminal**: ${terminalType}
+
+## Review Instructions
+
+Now that we've completed implementing tests for this scenario, let's review and finalize them.
+
+### Comprehensive Review Process
+
+1. **Check for compilation errors and issues**:
+```
+tool_get_project_problems_post
+```
+
+2. **Get current file errors** (if working on a specific test file):
+```
+tool_get_current_file_errors_post
+```
+
+3. **Run the tests** to ensure they pass:
+```
+tool_execute_terminal_command_post
+```
+Use appropriate command for your build system:
+- Maven: `mvn test -Dtest=YourTestClass`
+- Gradle: `./gradlew test --tests YourTestClass`
+
+4. **Validate test structure** by exploring the test directory:
+```
+tool_list_directory_tree_in_folder_post
+```
+
+### Available Tools for Review
+
+Use these tools to thoroughly validate the test implementation:
+
+- **`tool_get_project_problems_post`** - Check for any compilation errors or warnings
+- **`tool_get_current_file_errors_post`** - Validate current test file syntax
+- **`tool_execute_terminal_command_post`** - Run tests and check output
+- **`tool_get_terminal_text_post`** - Review terminal output for test results
+- **`tool_reformat_current_file_post`** - Ensure proper code formatting
+- **`tool_list_files_in_folder_post`** - Check test file organization
+- **`tool_replace_specific_text_post`** - Make quick fixes if needed
+
+### Review Checklist
+
+Please perform these checks:
+
+1. **Compilation**: Ensure no syntax errors or missing imports
+2. **Test Execution**: Verify all tests pass successfully
+3. **Code Quality**: Check formatting, naming conventions, and structure
+4. **Coverage**: Validate that planned test cases are implemented
+5. **Assertions**: Ensure meaningful and comprehensive assertions
+6. **Setup/Teardown**: Verify proper test lifecycle management
+
+## Class Under Test
+
+**Package**: ${packageName}
+
+```java
+${classContext}
+```
+
+## Test Case & Instructions
+
+Please use the available tools to conduct a thorough review of the test implementation for this scenario. Start by calling `tool_get_project_problems_post` to check for any issues, then proceed with the review checklist above. Provide a summary of the test quality and any recommendations for improvement.

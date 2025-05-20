@@ -29,6 +29,7 @@ import java.util.function.Function;
  */
 public class WebBrowserPanel {
     private static final Logger LOG = Logger.getInstance(WebBrowserPanel.class);
+    private BrowserMode agentMode;
 
     /**
      * Simple class representing a browser mode.
@@ -111,6 +112,10 @@ public class WebBrowserPanel {
         }, browserManager.getBrowser().getCefBrowser());
     }
 
+    public void switchToAgentMode() {
+        setMode(agentMode);
+    }
+
     /**
      * Initialize available browser modes.
      */
@@ -140,12 +145,14 @@ public class WebBrowserPanel {
         ));
 
         // Add Advice Mode
-        browserModes.add(new BrowserMode(
+        this.agentMode = new BrowserMode(
                 "Agent Mode",
                 AllIcons.Actions.BuildAutoReloadChanges,
                 "It's like you have a software assembly line behind your back",
                 p -> new OpenWebUIAgentModePromptBuilder(project).buildPrompt()
-        ));
+        );
+        BrowserMode agentMode = this.agentMode;
+        browserModes.add(agentMode);
     }
 
     /**

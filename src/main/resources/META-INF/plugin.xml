@@ -127,12 +127,20 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
         </action>
 
+        <!-- Test Writing Implementation -->
+        <action id="Zest.AgentBasedTestWritingAction"
+                class="com.zps.zest.testing.AgentBasedTestWritingAction"
+                text="Agent: Step-by-Step Test Writing"
+                description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>
+        </action>
+
         <!-- Refactoring Implementation -->
         <action id="Zest.AgentBasedRefactoringAction"
                 class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
                 text="Agent: Step-by-Step Refactor for Testability"
                 description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
         </action>
 
         <!-- OTHER TOOLS -->

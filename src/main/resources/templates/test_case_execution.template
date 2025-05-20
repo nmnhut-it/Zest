@@ -1,0 +1,84 @@
+# Test Case Implementation Request
+
+## Context
+
+- **Target Class**: ${targetClass}
+- **Test File**: ${testFilePath}
+- **Scenario**: ${scenarioTitle}
+- **Test Case**: ${testCaseTitle}
+- **Progress**: Test Case ${currentTestCaseNumber} of ${totalTestCasesInScenario} in Scenario ${currentScenarioNumber} of ${totalScenarios}
+
+## Test Case Details
+
+**Description**: ${testCaseDescription}
+
+**Suggested Method Name**: ${testMethodName}
+
+**Setup Requirements**: ${setup}
+
+**Expected Assertions**: ${assertions}
+
+## Environment Information
+
+**Package**: ${packageName}
+**JUnit Version**: ${junitVersion}
+**Mockito Available**: ${mockitoAvailable}
+**Operating System**: ${osName}
+**Terminal**: ${terminalType}
+
+## Class Under Test
+
+```java
+${classContext}
+```
+
+## Available Development Tools
+
+If available, you can use these tools to enhance your test development:
+
+### Project Analysis Tools
+- **`tool_get_project_problems_post`** - Get compilation errors and warnings across the project
+- **`tool_get_current_file_errors_post`** - Get errors in the currently open file
+- **`tool_list_files_in_folder_post`** - Explore project structure and find related files
+- **`tool_list_directory_tree_in_folder_post`** - Get hierarchical view of project structure
+
+### File Management Tools  
+- **`tool_create_new_file_with_text_post`** - Create new test files or helper classes
+- **`tool_replace_specific_text_post`** - Make targeted edits to existing files
+- **`tool_reformat_current_file_post`** - Format code properly
+
+### Terminal Integration
+- **`tool_get_terminal_text_post`** - Check terminal output and command history
+- **`tool_execute_terminal_command_post`** - Run commands (Maven/Gradle builds, test execution)
+
+### Recommended Tool Usage for Testing:
+1. **Before writing tests**: Use `tool_get_project_problems_post` to check for existing issues
+2. **During development**: Use `tool_execute_terminal_command_post` to run `mvn compile` or `gradle build`
+3. **After writing tests**: Use `tool_execute_terminal_command_post` to run the specific tests
+4. **For test validation**: Use `tool_get_current_file_errors_post` to check for syntax errors
+5. **Project exploration**: Use `tool_list_directory_tree_in_folder_post` to understand test structure
+
+## Test Case & Instructions
+
+Please write a complete JUnit test method for this test case. Include all necessary imports, setup, execution, and assertions. Make sure the test is comprehensive and follows best practices for unit testing.
+
+### Requirements:
+- Use appropriate ${junitVersion} annotations (@Test, @BeforeEach, etc.)
+- Include meaningful test method name that describes what is being tested
+- **AVOID mocking whenever possible** - prefer real objects and constructor injection
+- Only use mocking for external dependencies (databases, web services, file systems)
+- Set up any necessary test data using real objects
+- Execute the method under test with appropriate parameters
+- Assert the expected behavior and outcomes
+- Handle any expected exceptions appropriately
+- Follow the AAA pattern (Arrange, Act, Assert) where applicable
+
+### Development Workflow:
+1. **Check for existing issues**: Call `tool_get_project_problems_post` first
+2. **Write the test method** following the requirements above
+3. **Validate compilation**: Use `tool_get_current_file_errors_post` 
+4. **Run the test**: Use `tool_execute_terminal_command_post` with appropriate test command
+5. **Fix any issues**: Use available tools to resolve problems
+6. **Reformat code**: Use `tool_reformat_current_file_post` for clean formatting
+
+Make full use of the available tools to ensure high-quality test implementation!

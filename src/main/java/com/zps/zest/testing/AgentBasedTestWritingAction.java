@@ -1,4 +1,4 @@
-package com.zps.zest.refactoring;
+package com.zps.zest.testing;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -18,11 +18,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Action that orchestrates the agent-based refactoring for testability.
+ * Action that orchestrates the agent-based test writing process.
  * This enhanced version uses a multi-step pipeline with state persistence.
  */
-public class AgentBasedRefactoringAction extends AnAction {
-    private static final Logger LOG = Logger.getInstance(AgentBasedRefactoringAction.class);
+public class AgentBasedTestWritingAction extends AnAction {
+    private static final Logger LOG = Logger.getInstance(AgentBasedTestWritingAction.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -32,70 +32,71 @@ public class AgentBasedRefactoringAction extends AnAction {
         context.setProject(e.getProject());
         context.setEditor(e.getData(CommonDataKeys.EDITOR));
         context.setPsiFile(e.getData(CommonDataKeys.PSI_FILE));
-        context.useTestWrightModel(false); // Use code model instead of test model
+        context.useTestWrightModel(true); // Use test model for test writing
 
         // Execute the pipeline
-        executeRefactoringPipeline(context);
+        executeTestWritingPipeline(context);
     }
 
     /**
-     * Executes the refactoring pipeline with appropriate stages.
+     * Executes the test writing pipeline with appropriate stages.
      */
-    private void executeRefactoringPipeline(CodeContext context) {
+    private void executeTestWritingPipeline(CodeContext context) {
         Project project = context.getProject();
         if (project == null) return;
 
         // Use a background task with progress indicators
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Agent-Based Refactoring for Testability", true) {
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Agent-Based Test Writing", true) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 indicator.setIndeterminate(false);
 
                 try {
-                    // Check if there's a refactoring in progress
-                    RefactoringStateManager stateManager = new RefactoringStateManager(project);
-                    boolean isRefactoringInProgress = stateManager.isRefactoringInProgress();
+                    // Check if there's a test writing in progress
+                    TestWritingStateManager stateManager = new TestWritingStateManager(project);
+                    boolean isTestWritingInProgress = stateManager.isTestWritingInProgress();
 
-                    // If there is a refactoring state, check if it's aborted or completed
-                    if (isRefactoringInProgress) {
-                        RefactoringProgress progress = stateManager.loadProgress();
-                        if (progress != null && (progress.getStatus() == RefactoringStatus.ABORTED ||
-                                progress.getStatus() == RefactoringStatus.COMPLETED)) {
-                            // Clear the state to start a new refactoring
-                            LOG.info("Found aborted or completed refactoring. Clearing state to start fresh.");
-                            stateManager.clearRefactoringState();
-                            isRefactoringInProgress = false;
+                    // If there is a test writing state, check if it's aborted or completed
+                    if (isTestWritingInProgress) {
+                        TestWritingProgress progress = stateManager.loadProgress();
+                        if (progress != null && (progress.getStatus() == TestWritingStatus.ABORTED ||
+                                progress.getStatus() == TestWritingStatus.COMPLETED)) {
+                            // Clear the state to start a new test writing session
+                            LOG.info("Found aborted or completed test writing. Clearing state to start fresh.");
+                            stateManager.clearTestWritingState();
+                            isTestWritingInProgress = false;
 
                             // Close the tool window if it's open
-                            RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
+                            TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
                         }
                     } else {
-                        // Make sure the tool window is closed if no refactoring is in progress
-                        RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
+                        // Make sure the tool window is closed if no test writing is in progress
+                        TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
                     }
 
+                    AgentBasedTestWritingPipeline pipeline;
                     WebBrowserService.getInstance(project).getBrowserPanel().switchToAgentMode();
-                    AgentBasedRefactoringPipeline pipeline;
 
-                    if (isRefactoringInProgress) {
-                        // Create a pipeline for resuming an existing refactoring
-                        pipeline = new AgentBasedRefactoringPipeline()
-                                .addStage(new ConfigurationStage())
-                                .addStage(new RefactoringExecutionStage());
+                    if (isTestWritingInProgress) {
+                        // Create a pipeline for resuming an existing test writing session
+                        pipeline = new AgentBasedTestWritingPipeline()
+                                .addStage(new TestConfigurationStage())
+                                .addStage(new TestExecutionStage());
 
-                        LOG.info("Resuming existing refactoring");
+                        LOG.info("Resuming existing test writing session");
                     } else {
-                        // Create a pipeline for starting a new refactoring
-                        pipeline = new AgentBasedRefactoringPipeline()
-                                .addStage(new ConfigurationStage())
+                        // Create a pipeline for starting a new test writing session
+                        pipeline = new AgentBasedTestWritingPipeline()
+                                .addStage(new TestConfigurationStage())
                                 .addStage(new TargetClassDetectionStage())
-                                .addStage(new ClassAnalysisStage())
-                                .addStage(new RefactoringPlanningStage())
+                                .addStage(new ClassAnalysisStage()) // Add ClassAnalysisStage
+                                .addStage(new TestAnalysisStage())
+                                .addStage(new TestPlanningStage())
                                 .addStage(new ChatboxLlmApiCallStage())
-                                .addStage(new RefactoringPlanAnalysisStage())
-                                .addStage(new RefactoringExecutionStage());
+                                .addStage(new TestPlanAnalysisStage())
+                                .addStage(new TestExecutionStage());
 
-                        LOG.info("Starting new refactoring pipeline");
+                        LOG.info("Starting new test writing pipeline");
                     }
 
                     // Execute each stage with progress updates
@@ -121,7 +122,7 @@ public class AgentBasedRefactoringAction extends AnAction {
                         indicator.setFraction((double) (i + 1) / totalStages);
                     }
 
-                    indicator.setText("Refactoring process initiated successfully!");
+                    indicator.setText("Test writing process initiated successfully!");
                     indicator.setFraction(1.0);
 
                 } catch (Exception e) {
@@ -136,18 +137,18 @@ public class AgentBasedRefactoringAction extends AnAction {
      */
     private void showError(Project project, PipelineExecutionException e) {
         e.printStackTrace();
-        LOG.error("Error in AgentBasedRefactoringAction: " + e.getMessage(), e);
+        LOG.error("Error in AgentBasedTestWritingAction: " + e.getMessage(), e);
         
         ApplicationManager.getApplication().invokeLater(() -> {
-            Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Refactoring for Testability Failed");
+            Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Test Writing Failed");
         });
     }
 }
 
 /**
- * Pipeline for the agent-based refactoring process.
+ * Pipeline for the agent-based test writing process.
  */
-class AgentBasedRefactoringPipeline {
+class AgentBasedTestWritingPipeline {
     private final List<PipelineStage> stages = new ArrayList<>();
 
     /**
@@ -156,7 +157,7 @@ class AgentBasedRefactoringPipeline {
      * @param stage The stage to add
      * @return This pipeline instance for method chaining
      */
-    public AgentBasedRefactoringPipeline addStage(PipelineStage stage) {
+    public AgentBasedTestWritingPipeline addStage(PipelineStage stage) {
         stages.add(stage);
         return this;
     }

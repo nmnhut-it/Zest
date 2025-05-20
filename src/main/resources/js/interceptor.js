@@ -101,6 +101,7 @@
                 "</info>\n\n";
               // Prepend project info to the user message
               data.messages[i].content = projectInfoText + data.messages[i].content;
+              data.params.function_calling = 'native';
               break;
             }
           }

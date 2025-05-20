@@ -111,13 +111,15 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
         // Send the prompt to the chat box
         boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt());
-        
-        // Activate browser tool window
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-        if (toolWindow != null) {
-            toolWindow.activate(null);
-        }
-        
+
+        // Activate browser tool window on EDT
+        ApplicationManager.getApplication().invokeLater(() -> {
+            ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
+            if (toolWindow != null) {
+                toolWindow.activate(null);
+            }
+        });
+
         return success;
     }
 
@@ -213,59 +215,59 @@ class GitChangesCollectionStage implements PipelineStage {
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
         LOG.info("Collecting git changes");
-        
+
         if (!(context instanceof GitCommitContext)) {
             throw new PipelineExecutionException("Invalid context type");
         }
-        
+
         GitCommitContext gitContext = (GitCommitContext) context;
         Project project = gitContext.getProject();
-        
+
         try {
             // Get the project base path
             String projectPath = project.getBasePath();
             if (projectPath == null) {
                 throw new PipelineExecutionException("Project path not found");
             }
-            
+
             // Get the current branch name
             String branchName = executeGitCommand(projectPath, "git rev-parse --abbrev-ref HEAD");
             gitContext.setBranchName(branchName.trim());
-            
+
             // Get list of changed files
             String changedFiles = executeGitCommand(projectPath, "git diff --name-status");
             gitContext.setChangedFiles(changedFiles);
-            
+
             // Get the git diff
             String gitDiff = executeGitCommand(projectPath, "git diff");
             gitContext.setGitDiff(gitDiff);
-            
+
             LOG.info("Git changes collected successfully");
         } catch (Exception e) {
             LOG.error("Error collecting git changes", e);
             throw new PipelineExecutionException("Failed to collect git changes: " + e.getMessage(), e);
         }
     }
-    
+
     /**
      * Executes a git command and returns the output.
      */
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
         LOG.info("Executing git command: " + command);
-        
+
         ProcessBuilder processBuilder = new ProcessBuilder();
         processBuilder.directory(new java.io.File(workingDir));
-        
+
         // Set up the command based on OS
         if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
             processBuilder.command("cmd.exe", "/c", command);
         } else {
             processBuilder.command("sh", "-c", command);
         }
-        
+
         Process process = processBuilder.start();
         StringBuilder output = new StringBuilder();
-        
+
         // Read the output
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
@@ -273,7 +275,7 @@ class GitChangesCollectionStage implements PipelineStage {
                 output.append(line).append("\n");
             }
         }
-        
+
         // Wait for the process to complete
         int exitCode = process.waitFor();
         if (exitCode != 0) {
@@ -285,10 +287,10 @@ class GitChangesCollectionStage implements PipelineStage {
                     error.append(line).append("\n");
                 }
             }
-            
+
             throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
         }
-        
+
         return output.toString();
     }
 }
@@ -302,41 +304,40 @@ class CommitPromptGenerationStage implements PipelineStage {
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
         LOG.info("Generating commit message prompt");
-        
+
         if (!(context instanceof GitCommitContext)) {
             throw new PipelineExecutionException("Invalid context type");
         }
-        
+
         GitCommitContext gitContext = (GitCommitContext) context;
-        
+
         // Get the git diff information
         String branchName = gitContext.getBranchName();
         String changedFiles = gitContext.getChangedFiles();
         String gitDiff = gitContext.getGitDiff();
-        
+
         if (changedFiles == null || changedFiles.isEmpty()) {
             throw new PipelineExecutionException("No changed files detected");
         }
-        
+
         // Build the prompt for the LLM
         StringBuilder prompt = new StringBuilder();
         prompt.append("# Git Commit Message Generator\n\n");
-        
+
         // Add instructions for the LLM
         prompt.append("## Instructions\n");
         prompt.append("Generate a well-structured, concise commit message based on the changes below. ");
-        prompt.append("Use the conventional commits format (type: description) where applicable. ");
         prompt.append("Focus on the WHY and WHAT, not just the how.\n\n");
-        
+
         prompt.append("## Current Branch\n");
         prompt.append("`").append(branchName).append("`\n\n");
-        
+
         prompt.append("## Changed Files\n");
         prompt.append("```\n").append(changedFiles).append("```\n\n");
-        
+
         prompt.append("## Git Diff\n");
         prompt.append("```diff\n").append(gitDiff).append("```\n\n");
-        
+
         prompt.append("## Output Format\n");
         prompt.append("Please format your response with TWO separate code blocks as follows:\n\n");
 
@@ -352,13 +353,13 @@ class CommitPromptGenerationStage implements PipelineStage {
         prompt.append("<longer description explaining the changes in detail>\n\n");
         prompt.append("<any breaking changes or issues closed>\n");
         prompt.append("```\n\n");
-        
+
         prompt.append("The commit messages should be clear, concise, and follow best practices. ");
-        prompt.append("Keep both blocks formatted for easy copying and pasting.");
-        
+        prompt.append("Keep both blocks formatted for easy copying and pasting./no_think");
+
         // Store the prompt in the context
         gitContext.setPrompt(prompt.toString());
-        
+
         LOG.info("Commit message prompt created successfully");
     }
 }

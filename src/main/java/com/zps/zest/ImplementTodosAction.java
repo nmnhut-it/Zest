@@ -135,17 +135,17 @@ public class ImplementTodosAction extends AnAction {
                     String implementedCode = callLlmForImplementation(selectedText, codeContext, e.getProject());
 
                     // Handle result
-                    if (implementedCode == null || implementedCode.isEmpty()) {
-                        throw new PipelineExecutionException("Failed to generate implementation");
-                    }
-
-                    indicator.setText("Implementation complete");
-                    indicator.setFraction(1.0);
-
-                    // Show enhanced diff and apply changes if accepted
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        showEnhancedDiff(e.getProject(), editor, selectedText, implementedCode, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
-                    });
+//                    if (implementedCode == null || implementedCode.isEmpty()) {
+//                        throw new PipelineExecutionException("Failed to generate implementation");
+//                    }
+//
+//                    indicator.setText("Implementation complete");
+//                    indicator.setFraction(1.0);
+//
+//                    // Show enhanced diff and apply changes if accepted
+//                    ApplicationManager.getApplication().invokeLater(() -> {
+//                        showEnhancedDiff(e.getProject(), editor, selectedText, implementedCode, selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
+//                    });
                 } catch (Exception ex) {
                     LOG.error("Error implementing TODOs", ex);
                     ApplicationManager.getApplication().invokeLater(() -> {
@@ -251,14 +251,14 @@ public class ImplementTodosAction extends AnAction {
             LOG.debug("TODO implementation prompt: " + prompt);
 
             // Call LLM API
-            LlmApiCallStage apiCallStage = new LlmApiCallStage();
+            ChatboxLlmApiCallStage apiCallStage = new ChatboxLlmApiCallStage();
             apiCallStage.process(context);
 
             // Extract code from response
-            CodeExtractionStage extractionStage = new CodeExtractionStage();
-            extractionStage.process(context);
+//            CodeExtractionStage extractionStage = new CodeExtractionStage();
+//            extractionStage.process(context);
 
-            String implementedCode = context.getTestCode(); // This will contain the extracted code
+            String implementedCode = context.getApiResponse(); // This will contain the extracted code
 
             if (implementedCode == null || implementedCode.isEmpty()) {
                 throw new PipelineExecutionException("LLM returned empty implementation");

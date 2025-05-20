@@ -83,7 +83,7 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     String systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
 
                     // Send the text and mark the operation as complete
-                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, true, systemPrompt);
+                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
                     sendCompleteFuture.complete(result);
                 });
             });

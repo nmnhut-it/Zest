@@ -1,11 +1,13 @@
 package com.zps.zest.browser;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.diff.DiffContentFactory;
 import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
+import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -17,13 +19,17 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
+import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.ReplaceInFileTool;
 import org.cef.browser.CefBrowser;
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +37,12 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -146,7 +157,7 @@ public class JavaScriptBridge {
 
                 case "batchReplaceInFile":
                     String batchFilePath = data.get("filePath").getAsString();
-                    com.google.gson.JsonArray replacements = data.getAsJsonArray("replacements");
+                    JsonArray replacements = data.getAsJsonArray("replacements");
                     // Run async - don't wait for result
                     ApplicationManager.getApplication().executeOnPooledThread(() -> {
                         handleBatchReplaceInFile(batchFilePath, replacements);
@@ -161,7 +172,16 @@ public class JavaScriptBridge {
                     notifyChatResponseReceived(content, messageId);
                     response.addProperty("success", true);
                     break;
-
+                case "showCodeDiffAndReplace":
+                    String codeContent = data.get("code").getAsString();
+                    String codeLanguage = data.has("language") ? data.get("language").getAsString() : "";
+                    String replaceTargetText = data.get("textToReplace").getAsString();
+                    // Run async - don't wait for result
+                    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                        handleShowCodeDiffAndReplace(replaceTargetText, codeContent, codeLanguage);
+                    });
+                    response.addProperty("success", true);
+                    break;
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -345,9 +365,9 @@ public class JavaScriptBridge {
                 public void consume(WindowWrapper wrapper) {
                     if (wrapper != null && wrapper.getWindow() != null) {
                         // Add a listener to detect when the diff window is closed
-                        wrapper.getWindow().addWindowListener(new java.awt.event.WindowAdapter() {
+                        wrapper.getWindow().addWindowListener(new WindowAdapter() {
                             @Override
-                            public void windowClosed(java.awt.event.WindowEvent e) {
+                            public void windowClosed(WindowEvent e) {
                                 // Ask user if they want to apply the changes
                                 int dialogResult = Messages.showYesNoDialog(
                                         project,
@@ -494,7 +514,7 @@ public class JavaScriptBridge {
             params.addProperty("regex", useRegex);
             params.addProperty("caseSensitive", caseSensitive);
 
-            com.zps.zest.tools.AgentTool tool = new ReplaceInFileTool(project);
+            AgentTool tool = new ReplaceInFileTool(project);
             if (tool == null) {
                 LOG.error("Could not find replace_in_file tool");
                 return false;
@@ -527,32 +547,32 @@ public class JavaScriptBridge {
      * @param replacements An array of replacement objects, each containing search and replace text
      * @return True if all operations were successful
      */
-    private boolean handleBatchReplaceInFile(String filePath, com.google.gson.JsonArray replacements) {
+    private boolean handleBatchReplaceInFile(String filePath, JsonArray replacements) {
         LOG.info("Handling batch replace in file request for: " + filePath + " with " + replacements.size() + " replacements");
 
         // Always run on background thread
         try {
             // 1. Resolve file
-            java.io.File targetFile = new java.io.File(filePath);
+            File targetFile = new File(filePath);
             if (!targetFile.exists()) {
                 String basePath = project.getBasePath();
                 if (basePath != null)
-                    targetFile = new java.io.File(basePath, filePath);
+                    targetFile = new File(basePath, filePath);
             }
             if (!targetFile.exists() || !targetFile.isFile()) {
                 LOG.error("File not found: " + filePath);
                 return false;
             }
-            java.nio.file.Path inputPath = targetFile.toPath();
+            Path inputPath = targetFile.toPath();
 
             // 2. Start with original lines/content
-            java.util.List<String> currentLines = java.nio.file.Files.readAllLines(inputPath, java.nio.charset.StandardCharsets.UTF_8);
+            List<String> currentLines = Files.readAllLines(inputPath, StandardCharsets.UTF_8);
             String originalContent = String.join("\n", currentLines);
 
             int totalReplacementCount = 0;
 
             for (int i = 0; i < replacements.size(); i++) {
-                com.google.gson.JsonObject replacement = replacements.get(i).getAsJsonObject();
+                JsonObject replacement = replacements.get(i).getAsJsonObject();
                 String searchText = replacement.get("search").getAsString();
                 String replaceText = replacement.get("replace").getAsString();
                 boolean caseSensitive = !replacement.has("caseSensitive") || replacement.get("caseSensitive").getAsBoolean();
@@ -565,8 +585,8 @@ public class JavaScriptBridge {
                 }
 
                 // Write currentLines to a temp file for replace
-                java.nio.file.Path tempInput = java.nio.file.Files.createTempFile("batch_replace_", ".tmp");
-                java.nio.file.Files.write(tempInput, currentLines, java.nio.charset.StandardCharsets.UTF_8);
+                Path tempInput = Files.createTempFile("batch_replace_", ".tmp");
+                Files.write(tempInput, currentLines, StandardCharsets.UTF_8);
 
                 // Call performSearchAndReplace
                 ReplaceInFileTool.ReplaceResult result =
@@ -576,13 +596,13 @@ public class JavaScriptBridge {
                                 replaceText,
                                 caseSensitive,
                                 ignoreWhitespace,
-                                new com.intellij.openapi.progress.EmptyProgressIndicator()
+                                new EmptyProgressIndicator()
                         );
                 totalReplacementCount += result.replacementCount;
-                currentLines = java.util.Arrays.asList(result.modifiedContent.split("\n", -1));
+                currentLines = Arrays.asList(result.modifiedContent.split("\n", -1));
 
                 // Clean up temp file
-                java.nio.file.Files.deleteIfExists(tempInput);
+                Files.deleteIfExists(tempInput);
             }
 
             String modifiedContent = String.join("\n", currentLines);
@@ -593,17 +613,17 @@ public class JavaScriptBridge {
             }
 
             // Show diff and handle user interaction on EDT
-            final java.io.File finalTargetFile = targetFile;
+            final File finalTargetFile = targetFile;
             final String finalModifiedContent = modifiedContent;
             final int finalTotalReplacementCount = totalReplacementCount;
 
             ApplicationManager.getApplication().invokeLater(() -> {
                 try {
-                    com.intellij.diff.DiffContentFactory diffFactory = com.intellij.diff.DiffContentFactory.getInstance();
-                    com.intellij.diff.contents.DocumentContent leftContent = diffFactory.create(originalContent);
-                    com.intellij.diff.contents.DocumentContent rightContent = diffFactory.create(finalModifiedContent);
+                    DiffContentFactory diffFactory = DiffContentFactory.getInstance();
+                    DocumentContent leftContent = diffFactory.create(originalContent);
+                    DocumentContent rightContent = diffFactory.create(finalModifiedContent);
 
-                    com.intellij.diff.requests.SimpleDiffRequest diffRequest = new com.intellij.diff.requests.SimpleDiffRequest(
+                    SimpleDiffRequest diffRequest = new SimpleDiffRequest(
                             "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
                             leftContent,
                             rightContent,
@@ -611,7 +631,7 @@ public class JavaScriptBridge {
                             "After Replacements"
                     );
 
-                    com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest, com.intellij.diff.DiffDialogHints.MODAL);
+                    DiffManager.getInstance().showDiff(project, diffRequest, DiffDialogHints.MODAL);
 
                     int option = Messages.showYesNoDialog(
                             project,
@@ -624,8 +644,8 @@ public class JavaScriptBridge {
 
                     if (option == Messages.YES) {
                         // Perform file update in write action
-                        com.intellij.openapi.vfs.VirtualFile vFile =
-                                com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(finalTargetFile.getPath());
+                        VirtualFile vFile =
+                                LocalFileSystem.getInstance().findFileByPath(finalTargetFile.getPath());
                         if (vFile == null) {
                             LOG.error("Could not find file in virtual file system: " + filePath);
                             return;
@@ -634,7 +654,7 @@ public class JavaScriptBridge {
                         WriteCommandAction.runWriteCommandAction(project, () -> {
                             try {
                                 vFile.refresh(false, false);
-                                vFile.setBinaryContent(finalModifiedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                vFile.setBinaryContent(finalModifiedContent.getBytes(StandardCharsets.UTF_8));
                                 FileEditorManager.getInstance(project).openFile(vFile, true);
                             } catch (Exception e) {
                                 LOG.error("Error updating file: " + filePath, e);
@@ -700,5 +720,211 @@ public class JavaScriptBridge {
         } else {
             LOG.info("No pending response future to complete");
         }
+    }
+
+    /**
+     * Handles showing diff and applying code replacement from the "To IDE" button
+     *
+     * @param textToReplace The text to find and replace (can be special value __##use_selected_text##__)
+     * @param codeContent The new code content
+     * @param language The language of the code
+     * @return True if the operation was successful
+     */
+    private boolean handleShowCodeDiffAndReplace(String textToReplace, String codeContent, String language) {
+        LOG.info("Handling show code diff and replace from To IDE button, language: " + language);
+
+        try {
+            // If special value is used, get selected text from editor
+            if ("__##use_selected_text##__".equals(textToReplace)) {
+                String selectedText = getSelectedTextFromEditor();
+                if (selectedText != null && !selectedText.isEmpty()) {
+                    textToReplace = selectedText;
+                } else {
+                    // No text selected, show error dialog
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        Messages.showWarningDialog(project,
+                                "No text is selected in the editor. Please select the text you want to replace.",
+                                "No Text Selected");
+                    });
+                    return false;
+                }
+            }
+
+            // If we have valid text to replace, show diff and handle replacement
+            if (textToReplace != null && !textToReplace.isEmpty()) {
+                return handleAdvancedCodeReplace(textToReplace, codeContent, language);
+            } else {
+                // No text to replace, offer to insert at cursor position
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    int option = Messages.showYesNoDialog(project,
+                            "No specific text to replace was found. Would you like to insert the code at the current cursor position?",
+                            "Insert Code",
+                            "Insert at Cursor",
+                            "Cancel",
+                            Messages.getQuestionIcon());
+
+                    if (option == Messages.YES) {
+                        insertTextToEditor(codeContent);
+                    }
+                });
+                return false;
+            }
+        } catch (Exception e) {
+            LOG.error("Error handling show code diff and replace", e);
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showErrorDialog(project,
+                        "Error processing code replacement: " + e.getMessage(),
+                        "Code Replacement Error");
+            });
+            return false;
+        }
+    }
+
+    /**
+     * Advanced code replacement with enhanced diff display and confirmation
+     *
+     * @param textToReplace The text to find and replace
+     * @param newCode The new code to replace it with
+     * @param language The programming language
+     * @return True if the operation was successful
+     */
+    private boolean handleAdvancedCodeReplace(String textToReplace, String newCode, String language) {
+        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+        if (editor == null) {
+            LOG.warn("No editor is currently open");
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showWarningDialog(project,
+                        "No editor is currently open.",
+                        "No Editor Available");
+            });
+            return false;
+        }
+
+        Document document = editor.getDocument();
+        String fullText = document.getText();
+
+        // Find the text to replace
+        int startOffset = -1;
+        if (startOffset == -1) {
+            // Try case-insensitive search
+            String lowerFullText = fullText.toLowerCase();
+            String lowerTextToReplace = textToReplace.toLowerCase();
+            int lowerStartOffset = lowerFullText.indexOf(lowerTextToReplace);
+
+            if (lowerStartOffset != -1) {
+                // Found case-insensitive match, get the actual text
+                startOffset = lowerStartOffset;
+                textToReplace = fullText.substring(startOffset, startOffset + textToReplace.length());
+            } else {
+                startOffset = fullText.indexOf(textToReplace);
+                String finalTextToReplace = textToReplace;
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    Messages.showWarningDialog(project,
+                            "The specified text was not found in the current file:\n\n" +
+                                    finalTextToReplace.substring(0, Math.min(100, finalTextToReplace.length())) +
+                                    (finalTextToReplace.length() > 100 ? "..." : ""),
+                            "Text Not Found");
+                });
+                return false;
+            }
+        } else {
+            startOffset = fullText.indexOf(textToReplace);
+        }
+
+        int endOffset = startOffset + textToReplace.length();
+
+        // Show diff in editor asynchronously
+        String finalTextToReplace1 = textToReplace;
+        int finalStartOffset = startOffset;
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                // Create a temporary document with the replaced content for diff
+                String currentContent = document.getText();
+                String newContent = currentContent.substring(0, finalStartOffset) + newCode + currentContent.substring(endOffset);
+
+                // Use IntelliJ's diff tool with enhanced titles
+                DiffManager diffManager = DiffManager.getInstance();
+
+                String fileName = "";
+                if (editor.getVirtualFile() != null) {
+                    fileName = editor.getVirtualFile().getName();
+                }
+
+                String diffTitle = "Code Replacement" + (fileName.isEmpty() ? "" : " in " + fileName);
+                if (!language.isEmpty()) {
+                    diffTitle += " (" + language + ")";
+                }
+
+                SimpleDiffRequest diffRequest = new SimpleDiffRequest(diffTitle,
+                        DiffContentFactory.getInstance().create(currentContent),
+                        DiffContentFactory.getInstance().create(newContent),
+                        "Current Code", "Code with IDE Changes");
+
+                // Setup hints for modal dialog with custom callback
+                String finalFileName = fileName;
+                DiffDialogHints hints = new DiffDialogHints(WindowWrapper.Mode.FRAME, editor.getComponent(), new Consumer<WindowWrapper>() {
+                    @Override
+                    public void consume(WindowWrapper wrapper) {
+                        if (wrapper != null && wrapper.getWindow() != null) {
+                            // Add a listener to detect when the diff window is closed
+                            wrapper.getWindow().addWindowListener(new WindowAdapter() {
+                                @Override
+                                public void windowClosed(WindowEvent e) {
+                                    // Ask user if they want to apply the changes with more context
+                                    String confirmMessage = "Do you want to apply these changes?\n\n" +
+                                            "Replacing " + finalTextToReplace1.length() + " characters with " + newCode.length() + " characters" +
+                                            (finalFileName.isEmpty() ? "" : " in " + finalFileName);
+
+                                    int dialogResult = Messages.showYesNoDialog(
+                                            project,
+                                            confirmMessage,
+                                            "Apply Code Replacement",
+                                            "Apply Changes",
+                                            "Cancel",
+                                            Messages.getQuestionIcon()
+                                    );
+
+                                    if (dialogResult == Messages.YES) {
+                                        // Apply the changes if accepted
+                                        WriteCommandAction.runWriteCommandAction(project, () -> {
+                                            try {
+                                                document.replaceString(finalStartOffset, endOffset, newCode);
+
+                                                // Show success message
+                                                ApplicationManager.getApplication().invokeLater(() -> {
+                                                    Messages.showInfoMessage(project,
+                                                            "Code replacement completed successfully!",
+                                                            "Replacement Success");
+                                                });
+                                            } catch (Exception ex) {
+                                                LOG.error("Error applying code replacement", ex);
+                                                ApplicationManager.getApplication().invokeLater(() -> {
+                                                    Messages.showErrorDialog(project,
+                                                            "Error applying code replacement: " + ex.getMessage(),
+                                                            "Replacement Error");
+                                                });
+                                            }
+                                        });
+                                    } else {
+                                        LOG.info("Code replacement cancelled by user");
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+
+                // Show diff dialog
+                diffManager.showDiff(project, diffRequest, hints);
+
+            } catch (Exception e) {
+                LOG.error("Error showing diff for code replacement", e);
+                Messages.showErrorDialog(project,
+                        "Error showing diff: " + e.getMessage(),
+                        "Diff Error");
+            }
+        });
+
+        return true; // Return immediately, don't wait for user interaction
     }
 }

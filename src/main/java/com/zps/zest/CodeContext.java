@@ -25,6 +25,7 @@ public class CodeContext {
     private boolean isMockitoPresent;
     private boolean useTestWrightModel = true;
     private String selectedText;
+    private String currentStageType; // Added to track which stage type we're at
 
     // Getters and setters
     public AnActionEvent getEvent() { return event; }
@@ -100,4 +101,7 @@ public class CodeContext {
     public boolean isUsingTestWrightModel() {
         return useTestWrightModel;
     }
+
+    public String getCurrentStageType() { return currentStageType; }
+    public void setCurrentStageType(String currentStageType) { this.currentStageType = currentStageType; }
 }

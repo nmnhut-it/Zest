@@ -83,23 +83,58 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     // Start a new chat
                     ChatboxUtilities.clickNewChatButton(project);
 
-                    // Get the system prompt - use test planning prompt if this is for test writing
+                    // Get the system prompt - determine which prompt to use based on stage type
                     String systemPrompt;
                     if (context.isUsingTestWrightModel()) {
-                        // Load test planning system prompt
-                        try {
-                            java.io.InputStream inputStream = getClass().getResourceAsStream("/templates/test_planning_system_prompt.template");
-                            if (inputStream != null) {
-                                systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                                inputStream.close();
-                                LOG.info("Loaded test planning system prompt from template");
-                            } else {
-                                LOG.warn("Test planning system prompt template not found, using default");
+                        String stageType = context.getCurrentStageType();
+                        if ("TESTABILITY_ANALYSIS".equals(stageType)) {
+                            // Load testability analysis system prompt
+                            try {
+                                java.io.InputStream inputStream = getClass().getResourceAsStream("/templates/testability_analysis_system_prompt.template");
+                                if (inputStream != null) {
+                                    systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                                    inputStream.close();
+                                    LOG.info("Loaded testability analysis system prompt from template");
+                                } else {
+                                    LOG.warn("Testability analysis system prompt template not found, using default");
+                                    systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                                }
+                            } catch (Exception e) {
+                                LOG.error("Error loading testability analysis system prompt", e);
                                 systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
                             }
-                        } catch (Exception e) {
-                            LOG.error("Error loading test planning system prompt", e);
-                            systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                        } else if ("TEST_PLANNING".equals(stageType)) {
+                            // Load test planning system prompt
+                            try {
+                                java.io.InputStream inputStream = getClass().getResourceAsStream("/templates/test_planning_system_prompt.template");
+                                if (inputStream != null) {
+                                    systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                                    inputStream.close();
+                                    LOG.info("Loaded test planning system prompt from template");
+                                } else {
+                                    LOG.warn("Test planning system prompt template not found, using default");
+                                    systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                                }
+                            } catch (Exception e) {
+                                LOG.error("Error loading test planning system prompt", e);
+                                systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                            }
+                        } else {
+                            // Default test system prompt for other stages
+                            try {
+                                java.io.InputStream inputStream = getClass().getResourceAsStream("/templates/test_system_prompt.template");
+                                if (inputStream != null) {
+                                    systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                                    inputStream.close();
+                                    LOG.info("Loaded default test system prompt from template");
+                                } else {
+                                    LOG.warn("Default test system prompt template not found, using config");
+                                    systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                                }
+                            } catch (Exception e) {
+                                LOG.error("Error loading default test system prompt", e);
+                                systemPrompt = ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode();
+                            }
                         }
                     } else {
                         // Use default system prompt for refactoring

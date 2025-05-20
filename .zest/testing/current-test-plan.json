@@ -1,0 +1,8 @@
+{
+  "name": "Test Suite for JavaScriptBridge",
+  "targetClass": "JavaScriptBridge",
+  "description": "Comprehensive test plan for JavaScriptBridge",
+  "testFilePath": "src/test/java/JavaScriptBridgeTest.java",
+  "createdDate": "May 21, 2025, 1:09:07 AM",
+  "scenarios": []
+}

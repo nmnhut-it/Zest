@@ -67,6 +67,9 @@ public class TestPlanningStage implements PipelineStage {
 
         // Store the prompt in the context
         context.setPrompt(prompt);
+        
+        // Set the current stage type so ChatboxLlmApiCallStage knows which system prompt to use
+        context.setCurrentStageType("TEST_PLANNING");
 
         LOG.info("Test planning stage completed successfully");
     }

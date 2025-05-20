@@ -91,9 +91,12 @@ public class AgentBasedTestWritingAction extends AnAction {
                                 .addStage(new TargetClassDetectionStage())
                                 .addStage(new ClassAnalysisStage()) // Add ClassAnalysisStage
                                 .addStage(new TestAnalysisStage())
-                                .addStage(new TestPlanningStage())
-                                .addStage(new ChatboxLlmApiCallStage(false))
-                                .addStage(new TestPlanAnalysisStage())
+                                .addStage(new TestabilityAnalysisStage()) // Testability analysis prompt creation
+                                .addStage(new ChatboxLlmApiCallStage(false)) // LLM call for testability analysis
+                                .addStage(new TestabilityAnalysisResponseStage()) // Process testability response
+                                .addStage(new TestPlanningStage()) // Test planning prompt creation (only if testability good)
+                                .addStage(new ChatboxLlmApiCallStage(false)) // LLM call for test planning
+                                .addStage(new TestPlanAnalysisStage()) // Process test plan response
                                 .addStage(new TestExecutionStage());
 
                         LOG.info("Starting new test writing pipeline");

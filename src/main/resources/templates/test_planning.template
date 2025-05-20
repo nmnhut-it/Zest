@@ -33,7 +33,9 @@ Analyze the provided Java class and create a detailed, test-by-test plan for wri
 
 ### Phase 2: Test Planning
 
-Create a structured test plan in JSON format with this exact schema:
+**CRITICAL**: Your response MUST be ONLY a JSON object wrapped in markdown code fences. No additional text before or after.
+
+For testable classes (4+/10), create a structured test plan in this exact JSON format:
 
 ```json
 {
@@ -63,6 +65,26 @@ Create a structured test plan in JSON format with this exact schema:
   ]
 }
 ```
+
+For classes with poor testability (0-3/10), return rejection response:
+
+```json
+{
+  "testabilityScore": <integer 0-3>,
+  "testabilityAnalysis": "<detailed analysis of testability issues>",
+  "rejection": true,
+  "suggestions": [
+    "<refactoring suggestion 1>",
+    "<refactoring suggestion 2>"
+  ]
+}
+```
+
+**IMPORTANT**: 
+- Respond ONLY with the JSON object above wrapped in ```json markdown tags
+- Do NOT include any explanatory text, comments, or additional content
+- Do NOT include thinking or reasoning outside the JSON structure
+- The JSON must be valid and parseable
 
 ## Important Guidelines
 
@@ -97,5 +119,7 @@ ${classContext}
 ${testCaseDescription}
 
 ${stepDescription}
+
+**FINAL REMINDER**: Your entire response must be ONLY the JSON object wrapped in ```json markdown tags with no additional text.
 
 DO NOT USE ANY TOOL SERVERS.

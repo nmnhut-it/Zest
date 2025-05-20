@@ -24,7 +24,8 @@ public class TestWritingUI {
 
     private final Project project;
     private final TestPlan plan;
-    private final TestWritingProgress progress;
+    private final TestWritingProgress progress; // Keep original for reference
+    private TestWritingProgress currentProgress; // Current progress that gets reloaded
     private final TestExecutionManager executionManager;
     private final TestWritingStateManager stateManager;
 
@@ -33,8 +34,24 @@ public class TestWritingUI {
         this.project = project;
         this.plan = plan;
         this.progress = progress;
+        this.currentProgress = progress; // Initialize with the same progress
         this.executionManager = executionManager;
         this.stateManager = stateManager;
+    }
+
+    /**
+     * Reloads the progress from disk to ensure we have the latest state.
+     */
+    private void reloadProgress() {
+        TestWritingProgress reloadedProgress = stateManager.loadProgress();
+        if (reloadedProgress != null) {
+            this.currentProgress = reloadedProgress;
+            LOG.info("Reloaded progress: Scenario " + (reloadedProgress.getCurrentScenarioIndex() + 1) + 
+                     ", Test Case " + (reloadedProgress.getCurrentTestCaseIndex() + 1) + 
+                     " (" + reloadedProgress.getCurrentTest() + ")");
+        } else {
+            LOG.warn("Failed to reload progress from disk - using current progress");
+        }
     }
 
     public JPanel createPanel() {
@@ -97,10 +114,12 @@ public class TestWritingUI {
         TestCase currentTestCase = null;
         
         try {
-            currentScenario = plan.getScenarios().get(progress.getCurrentScenarioIndex());
-            currentTestCase = currentScenario.getTestCases().get(progress.getCurrentTestCaseIndex());
+            // Use currentProgress instead of progress to get the latest state
+            currentScenario = plan.getScenarios().get(currentProgress.getCurrentScenarioIndex());
+            currentTestCase = currentScenario.getTestCases().get(currentProgress.getCurrentTestCaseIndex());
         } catch (IndexOutOfBoundsException e) {
-            // Handle case where there are no test cases
+            LOG.warn("Invalid scenario or test case index: scenario=" + currentProgress.getCurrentScenarioIndex() + 
+                     ", testCase=" + currentProgress.getCurrentTestCaseIndex());
         }
 
         if (currentTestCase != null) {
@@ -138,8 +157,9 @@ public class TestWritingUI {
 
     private JProgressBar createProgressBar() {
         int totalTestCases = 0;
-        int completedTestCases = progress.getCompletedTestCaseIds().size();
-        int skippedTestCases = progress.getSkippedTestCaseIds().size();
+        // Use currentProgress to get the latest counts
+        int completedTestCases = currentProgress.getCompletedTestCaseIds().size();
+        int skippedTestCases = currentProgress.getSkippedTestCaseIds().size();
 
         for (TestScenario scenario : plan.getScenarios()) {
             totalTestCases += scenario.getTestCases().size();
@@ -154,8 +174,9 @@ public class TestWritingUI {
     }
 
     private String getProgressStatusText() {
-        int scenarioIndex = progress.getCurrentScenarioIndex() + 1;
-        int testCaseIndex = progress.getCurrentTestCaseIndex() + 1;
+        // Use currentProgress to get the latest indices
+        int scenarioIndex = currentProgress.getCurrentScenarioIndex() + 1;
+        int testCaseIndex = currentProgress.getCurrentTestCaseIndex() + 1;
         int totalScenarios = plan.getScenarios().size();
 
         int totalTestCases = 0;
@@ -167,6 +188,8 @@ public class TestWritingUI {
     }
 
     private void executeTestCase() {
+        LOG.info("Execute button clicked - Current test: " + currentProgress.getCurrentTest());
+        
         int result = Messages.showYesNoCancelDialog(
                 "Has the test case been implemented successfully?",
                 "Test Case Implementation",
@@ -177,36 +200,55 @@ public class TestWritingUI {
         );
 
         if (result == Messages.YES) {
+            LOG.info("User selected: Completed Successfully");
             boolean hasMoreTestCases = executionManager.completeCurrentTestCaseAndMoveToNext();
+            LOG.info("completeCurrentTestCaseAndMoveToNext returned: " + hasMoreTestCases);
+            
             if (hasMoreTestCases) {
+                // CRITICAL FIX: Reload progress before refreshing UI
+                reloadProgress();
                 refreshUI();
                 try {
-                    executionManager.executeTestCase(plan, progress);
+                    // Use the reloaded progress for the next test case execution
+                    executionManager.executeTestCase(plan, currentProgress);
                 } catch (Exception e) {
+                    LOG.error("Error executing next test case", e);
                     showError(project, "Test Writing Error", e.getMessage());
                 }
             } else {
+                LOG.info("No more test cases - closing tool window");
                 closeToolWindow();
             }
         } else if (result == Messages.NO) {
+            LOG.info("User selected: Skip this Test Case");
             boolean hasMoreTestCases = executionManager.skipCurrentTestCaseAndMoveToNext();
+            LOG.info("skipCurrentTestCaseAndMoveToNext returned: " + hasMoreTestCases);
+            
             if (hasMoreTestCases) {
+                // CRITICAL FIX: Reload progress before refreshing UI
+                reloadProgress();
                 refreshUI();
                 try {
-                    executionManager.executeTestCase(plan, progress);
+                    // Use the reloaded progress for the next test case execution
+                    executionManager.executeTestCase(plan, currentProgress);
                 } catch (Exception e) {
+                    LOG.error("Error executing next test case after skip", e);
                     showError(project, "Test Writing Error", e.getMessage());
                     abortTestWriting();
                 }
             } else {
+                LOG.info("No more test cases after skip - closing tool window");
                 closeToolWindow();
             }
         } else {
+            LOG.info("User selected: Stop Test Writing");
             abortTestWriting();
         }
     }
 
     private void skipTestCase() {
+        LOG.info("Skip button clicked - Current test: " + currentProgress.getCurrentTest());
+        
         int result = Messages.showYesNoDialog(
                 "Are you sure you want to skip this test case?",
                 "Skip Test Case",
@@ -214,16 +256,24 @@ public class TestWritingUI {
         );
 
         if (result == Messages.YES) {
+            LOG.info("User confirmed skip");
             boolean hasMoreTestCases = executionManager.skipCurrentTestCaseAndMoveToNext();
+            LOG.info("skipCurrentTestCaseAndMoveToNext returned: " + hasMoreTestCases);
+            
             if (hasMoreTestCases) {
+                // CRITICAL FIX: Reload progress before refreshing UI
+                reloadProgress();
                 refreshUI();
                 try {
-                    executionManager.executeTestCase(plan, progress);
+                    // Use the reloaded progress for the next test case execution
+                    executionManager.executeTestCase(plan, currentProgress);
                 } catch (Exception e) {
+                    LOG.error("Error executing next test case after skip", e);
                     showError(project, "Test Writing Error", e.getMessage());
                     abortTestWriting();
                 }
             } else {
+                LOG.info("No more test cases after skip - closing tool window");
                 closeToolWindow();
             }
         }
@@ -245,6 +295,9 @@ public class TestWritingUI {
     private void refreshUI() {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
+                LOG.info("Refreshing UI with current progress: Scenario " + (currentProgress.getCurrentScenarioIndex() + 1) + 
+                         ", Test Case " + (currentProgress.getCurrentTestCaseIndex() + 1));
+                         
                 ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
                 ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
 
@@ -255,6 +308,9 @@ public class TestWritingUI {
 
                     toolWindow.getContentManager().removeAllContents(true);
                     toolWindow.getContentManager().addContent(content);
+                    LOG.info("UI refreshed successfully");
+                } else {
+                    LOG.warn("Tool window not found during refresh");
                 }
             } catch (Exception e) {
                 LOG.error("Error updating tool window content", e);

@@ -22,7 +22,10 @@ Analyze the provided Java class and create a detailed, step-by-step plan for ref
    - Lack of dependency injection
 
 ### Phase 2: Planning
-Create a structured refactoring plan in JSON format with this exact schema:
+
+**CRITICAL**: Your response MUST be ONLY a JSON object wrapped in markdown code fences. No additional text before or after.
+
+Create a structured refactoring plan in this exact JSON format:
 
 ```json
 {
@@ -51,6 +54,12 @@ Create a structured refactoring plan in JSON format with this exact schema:
 }
 ```
 
+**IMPORTANT**: 
+- Respond ONLY with the JSON object above wrapped in ```json markdown tags
+- Do NOT include any explanatory text, comments, or additional content
+- Do NOT include thinking or reasoning outside the JSON structure
+- The JSON must be valid and parseable
+
 ## Important Guidelines
 - Only include issues where the code actually needs improvement - if the code is already good for a particular testability factor, skip it and don't include it in the plan
 - Prioritize changes that will have the greatest impact on testability
@@ -68,4 +77,4 @@ Create a structured refactoring plan in JSON format with this exact schema:
 ${classContext}
 ```
 
-Now, analyze this class and produce a detailed refactoring plan following the instructions above. Be thorough, precise, and focus exclusively on testability concerns.
+**FINAL REMINDER**: Your entire response must be ONLY the JSON object wrapped in ```json markdown tags with no additional text.

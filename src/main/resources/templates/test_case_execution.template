@@ -81,4 +81,6 @@ Please write a complete JUnit test method for this test case. Include all necess
 5. **Fix any issues**: Use available tools to resolve problems
 6. **Reformat code**: Use `tool_reformat_current_file_post` for clean formatting
 
+IMPORTANT: ALWAYS explain before a tool use.
+
 Make full use of the available tools to ensure high-quality test implementation!

@@ -186,7 +186,8 @@ public class ChatboxUtilities {
      * @param text The text to be sent to the chat box
      * @return true if the operation was successful, false otherwise
      */
-    public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult, String systemPrompt) {
+    public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult, String systemPrompt,
+                                            boolean useNativeFunctionCalling) {
         if (project == null || text == null) {
             LOG.warn("Cannot send text and submit: Project or text is null");
             return false;
@@ -271,6 +272,7 @@ public class ChatboxUtilities {
                                 "\n" +
                                 "// Call the function with your message\n" +
                                 "window.__injected_system_prompt__ = '" + escapeJavaScriptString(systemPrompt) + "';\n" +
+                                "window.__should_use_native_function_calling__ = '" + useNativeFunctionCalling + "';\n" +
                                 "sendTextAndSubmit('" + escapedText + "');";
                 
                 browserService.executeJavaScript(script);

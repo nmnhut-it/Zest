@@ -92,7 +92,7 @@ public class AgentBasedTestWritingAction extends AnAction {
                                 .addStage(new ClassAnalysisStage()) // Add ClassAnalysisStage
                                 .addStage(new TestAnalysisStage())
                                 .addStage(new TestPlanningStage())
-                                .addStage(new ChatboxLlmApiCallStage())
+                                .addStage(new ChatboxLlmApiCallStage(false))
                                 .addStage(new TestPlanAnalysisStage())
                                 .addStage(new TestExecutionStage());
 

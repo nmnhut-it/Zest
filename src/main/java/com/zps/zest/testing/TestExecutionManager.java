@@ -341,7 +341,7 @@ public class TestExecutionManager {
             }
             
             // Send the prompt to the chat box
-            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
+            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, true);
 
             // Activate browser tool window
             ApplicationManager.getApplication().invokeLater(() -> {
@@ -629,7 +629,8 @@ public class TestExecutionManager {
                             "Here is the final report for the completed test writing session:\n\n" +
                             finalReport,
                     true,
-                    null);
+                    null,
+                    false);
 
             if (!sent) {
                 LOG.warn("Failed to send final report to chat box");

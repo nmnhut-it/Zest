@@ -263,7 +263,7 @@ public class RefactoringExecutionManager {
                 }
             }
             // Send the prompt to the chat box
-            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
+            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, false);
 
             // Activate browser tool window
             ApplicationManager.getApplication().invokeLater(() -> {
@@ -283,7 +283,7 @@ public class RefactoringExecutionManager {
                     + "\n/no_think";
 
             // Send the prompt to the chat box
-            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
+            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, false);
 
             // Activate browser tool window
             ApplicationManager.getApplication().invokeLater(() -> {
@@ -579,7 +579,7 @@ public class RefactoringExecutionManager {
                             "Here is the final report for the completed refactoring:\n\n" +
                             finalReport,
                     true,
-                    null);
+                    null, false);
 
             if (!sent) {
                 LOG.warn("Failed to send final report to chat box");

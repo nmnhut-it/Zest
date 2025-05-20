@@ -7,7 +7,7 @@ import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
-import groovy.json.StringEscapeUtils;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import com.intellij.openapi.diagnostic.Logger;
@@ -15,6 +15,11 @@ import com.intellij.openapi.diagnostic.Logger;
 public class ChatboxLlmApiCallStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(ChatboxLlmApiCallStage.class);
     private static final int TIMEOUT_SECONDS = 600; // 5 minutes (longer timeout for safety)
+    private boolean useNativeFunctionCalling;
+
+    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1) {
+        useNativeFunctionCalling1 = false;
+    }
 
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
@@ -37,7 +42,7 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
             CompletableFuture<String> responseFuture = jsBridge.waitForChatResponse(TIMEOUT_SECONDS);
 
             // Send the prompt using the same pattern as in the example
-            boolean sent = sendPromptToChatBoxAndSubmit(project, context.getPrompt(), context);
+            boolean sent = sendPromptToChatBoxAndSubmit(project, context.getPrompt(), context, useNativeFunctionCalling);
 
             if (!sent) {
                 throw new PipelineExecutionException("Failed to send prompt to chat box");
@@ -61,7 +66,7 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
     /**
      * Sends the generated prompt to the chat box, submits it, and activates the browser window.
      */
-    private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt, CodeContext context) {
+    private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt, CodeContext context, boolean useNativeFunctionCalling) {
         LOG.info("Sending generated prompt to chat box and submitting");
 
         // Activate browser tool window and send prompt asynchronously
@@ -102,7 +107,7 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     }
 
                     // Send the text and mark the operation as complete
-                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
+                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, useNativeFunctionCalling);
                     sendCompleteFuture.complete(result);
                 });
             });

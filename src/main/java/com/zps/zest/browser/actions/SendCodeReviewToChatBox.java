@@ -115,7 +115,7 @@ public class SendCodeReviewToChatBox extends AnAction {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
                     ChatboxUtilities.clickNewChatButton(project);
 
-                    ChatboxUtilities.sendTextAndSubmit(project, prompt, true, ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode());
+                    ChatboxUtilities.sendTextAndSubmit(project, prompt, true, ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false);
                 });
             });
 

@@ -108,7 +108,7 @@ public class GenerateTestToChatAction extends AnAction {
         String formattedPrompt = "# Generated Test Prompt\n\n" + prompt;
 
         // Send the prompt to the chat box
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt,false,"");
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt,false,"", false);
         
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");

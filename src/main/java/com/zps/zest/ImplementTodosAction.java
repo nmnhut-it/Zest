@@ -251,7 +251,7 @@ public class ImplementTodosAction extends AnAction {
             LOG.debug("TODO implementation prompt: " + prompt);
 
             // Call LLM API
-            ChatboxLlmApiCallStage apiCallStage = new ChatboxLlmApiCallStage();
+            ChatboxLlmApiCallStage apiCallStage = new ChatboxLlmApiCallStage(false);
             apiCallStage.process(context);
 
             // Extract code from response

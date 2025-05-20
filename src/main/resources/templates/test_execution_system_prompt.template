@@ -19,4 +19,6 @@ When development tools are available:
 - Use `tool_get_current_file_errors_post` to check syntax and imports
 - Use `tool_reformat_current_file_post` to ensure proper code formatting
 
+IMPORTANT: ALWAYS explain before a tool use. ONLY use tools when you find it necessary.
+
 /no_think

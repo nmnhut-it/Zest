@@ -91,7 +91,7 @@ public class AgentBasedRefactoringAction extends AnAction {
                                 .addStage(new TargetClassDetectionStage())
                                 .addStage(new ClassAnalysisStage())
                                 .addStage(new RefactoringPlanningStage())
-                                .addStage(new ChatboxLlmApiCallStage())
+                                .addStage(new ChatboxLlmApiCallStage(false))
                                 .addStage(new RefactoringPlanAnalysisStage())
                                 .addStage(new RefactoringExecutionStage());
 

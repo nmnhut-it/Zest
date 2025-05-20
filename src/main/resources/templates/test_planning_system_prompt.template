@@ -11,3 +11,5 @@ Key responsibilities:
 - Provide detailed reasoning for test scenarios and approaches
 - **MINIMIZE mocking** - prefer real objects and dependency injection patterns
 - Only recommend mocking for external systems (databases, web services, file systems)
+
+DO NOT USE ANY TOOL SERVERS.

@@ -110,7 +110,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         LOG.info("Sending commit message prompt to chat box");
 
         // Send the prompt to the chat box
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt());
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt(), false);
 
         // Activate browser tool window on EDT
         ApplicationManager.getApplication().invokeLater(() -> {

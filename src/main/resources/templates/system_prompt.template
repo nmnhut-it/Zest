@@ -27,7 +27,7 @@ replace_in_file:absolute/path/to/file.java
 ```
 
 DO NOT use tools except for `tool_get_project_problems_post` and `tool_create_new_file_with_text_post`.
-
+ALWAYS explain before a tool use.
 
 #### VALIDATION:
 

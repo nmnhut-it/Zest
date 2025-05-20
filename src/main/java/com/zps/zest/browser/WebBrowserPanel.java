@@ -71,6 +71,10 @@ public class WebBrowserPanel {
     private final List<BrowserMode> browserModes = new ArrayList<>();
     private BrowserMode currentMode;
 
+    public BrowserMode getCurrentMode() {
+        return currentMode;
+    }
+
     /**
      * Creates a new web browser panel.
      */

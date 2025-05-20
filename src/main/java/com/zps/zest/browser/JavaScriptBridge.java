@@ -65,6 +65,9 @@ public class JavaScriptBridge {
      * Handles a JavaScript query from the browser.
      */
     public String handleJavaScriptQuery(String query) {
+        if (!"Agent Mode".equals(WebBrowserService.getInstance(project).getBrowserPanel().getCurrentMode())){
+            return "Not Allowed";
+        }
         LOG.info("Received query from JavaScript: " + query);
 
         try {

@@ -1,0 +1,7 @@
+{
+  "name": "Refactor WebBrowserPanel for Testability",
+  "targetClass": "WebBrowserPanel",
+  "description": "Refactoring plan to improve testability of WebBrowserPanel",
+  "createdDate": "May 20, 2025, 7:48:52 PM",
+  "issues": []
+}

@@ -60,7 +60,7 @@
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
         // Handle system message based on mode
-        if (window.__zest_mode__ === 'Agent Mode' && window.__injected_system_prompt__) {
+        if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
           // In Agent Mode, override any existing system message or add a new one
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           if (systemMsgIndex >= 0) {
@@ -135,8 +135,8 @@
 
       // Try to handle it with the response parser
       responseClone.json().then(data => {
-        console.log('Parsed response data:', data);
-        
+//        console.log('Parsed response data:', data);
+
         // If we have the parser functions available, use them
         if (window.parseResponseForCode && window.processExtractedCode) {
           const codeBlocks = window.parseResponseForCode(data);
@@ -151,6 +151,16 @@
         } else {
           // Fall back to DOM-based extraction if parser not available
           fallbackToHtmlExtraction();
+        }
+        if (window.intellijBridge && window.intellijBridge.notifyChatResponse && data.messages) {
+              const assistantMessages = data.messages.filter(msg => msg.role === 'assistant');
+              if (assistantMessages.length > 0) {
+                const latestMessage = assistantMessages[assistantMessages.length - 1];
+                window.intellijBridge.notifyChatResponse({
+                  content: latestMessage.content,
+                  id: latestMessage.id
+                });
+              }
         }
       }).catch(error => {
         console.error('Error parsing API response:', error);

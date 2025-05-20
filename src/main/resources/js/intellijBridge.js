@@ -66,8 +66,19 @@ window.intellijBridge = {
       filePath: data.filePath,
       replacements: data.replacements
     });
+  },
+  /**
+   * Notifies the IDE about a new chat response received from the API
+   * @param {Object} data - Object containing the response content and message ID
+   * @returns {Promise} Promise that resolves when the notification is sent to the IDE
+   */
+  notifyChatResponse: function(data) {
+    return this.callIDE('notifyChatResponse', {
+      content: data.content,
+      id: data.id || ''
+    });
   }
 };
 
-window.shouldAutomaticallyCopy = true;
+window.shouldAutomaticallyCopy = false;
 console.log('IntelliJ Bridge initialized with response parsing support');

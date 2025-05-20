@@ -64,7 +64,45 @@ public class RefactoringPlanningStage implements PipelineStage {
             throw new PipelineExecutionException("Failed to save initial refactoring progress");
         }
         
-        // Build the prompt for the LLM to analyze testability issues and create a plan
+        // Build the prompt from template or use built-in prompt
+        String prompt = createPlanningPrompt(classContext);
+        
+        // Store the prompt in the context
+        context.setPrompt(prompt);
+        
+        LOG.info("Refactoring planning stage completed successfully");
+    }
+    
+    /**
+     * Creates a planning prompt either from a template file or using a built-in template.
+     */
+    private String createPlanningPrompt(String classContext) {
+        try {
+            // Try to load the planning prompt from resource template
+            String templatePath = "/templates/planning.template";
+            
+            java.io.InputStream inputStream = getClass().getResourceAsStream(templatePath);
+            if (inputStream != null) {
+                String template = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                inputStream.close();
+                
+                // Replace the class context placeholder
+                return template.replace("${classContext}", classContext);
+            } else {
+                LOG.warn("Planning template resource not found: " + templatePath + ". Using built-in template.");
+                return createBuiltInPlanningPrompt(classContext);
+            }
+        } catch (Exception e) {
+            LOG.error("Error creating planning prompt from template", e);
+            // Fall back to built-in template
+            return createBuiltInPlanningPrompt(classContext);
+        }
+    }
+    
+    /**
+     * Creates a built-in planning prompt as a fallback.
+     */
+    private String createBuiltInPlanningPrompt(String classContext) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("# Expert Java Testability Refactoring Planner\n\n");
         
@@ -125,12 +163,13 @@ public class RefactoringPlanningStage implements PipelineStage {
         prompt.append("## Important Guidelines\n");
         prompt.append("- Only include issues where the code actually needs improvement - if the code is already good for a particular testability factor, skip it and don't include it in the plan\n");
         prompt.append("- Prioritize changes that will have the greatest impact on testability\n");
-        prompt.append("- Each step should be small, precise, and focused on a single change\n");
+        prompt.append("- Each step should handle multiple related changes (up to 10) but not exceed 20 lines of code change\n");
+        prompt.append("- Group logical changes together rather than creating overly fine-grained steps\n");
         prompt.append("- Suggest concrete 'before' and 'after' code snippets for each step\n");
         prompt.append("- Ensure that all suggested changes preserve the original functionality\n");
         prompt.append("- Use standard Java design patterns when appropriate (e.g., dependency injection, factory pattern)\n");
         prompt.append("- Consider testability impact within the broader context of the codebase\n");
-        prompt.append("- Keep refactoring steps small and cohesive for better validation\n\n");
+        prompt.append("- Keep refactoring steps cohesive but not too small\n\n");
         
         prompt.append("## Class to Analyze\n\n");
         prompt.append("```java\n");
@@ -139,9 +178,6 @@ public class RefactoringPlanningStage implements PipelineStage {
         
         prompt.append("Now, analyze this class and produce a detailed refactoring plan following the instructions above. Be thorough, precise, and focus exclusively on testability concerns.");
         
-        // Store the prompt in the context
-        context.setPrompt(prompt.toString());
-        
-        LOG.info("Refactoring planning stage completed successfully");
+        return prompt.toString();
     }
 }

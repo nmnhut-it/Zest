@@ -29,6 +29,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bridge for communication between JavaScript in the browser and Java code in IntelliJ.
@@ -122,14 +123,21 @@ public class JavaScriptBridge {
                     break;
                     
                 case "batchReplaceInFile":
-                    ApplicationManager.getApplication().executeOnPooledThread(()->{
                         String batchFilePath = data.get("filePath").getAsString();
                         com.google.gson.JsonArray replacements = data.getAsJsonArray("replacements");
 
                         boolean batchReplaceResult = handleBatchReplaceInFile(batchFilePath, replacements);
 //                        response.addProperty("success", batchReplaceResult);
-                    });
 
+                    break;
+                case "notifyChatResponse":
+                    String content = data.get("content").getAsString();
+                    String messageId = data.has("id") ? data.get("id").getAsString() : "";
+
+                    // Notify any registered listeners
+                    notifyChatResponseReceived(content, messageId);
+
+                    response.addProperty("success", true);
                     break;
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -298,7 +306,7 @@ public class JavaScriptBridge {
         // Find the text to replace
         int startOffset = text.indexOf(textToReplace);
         if (startOffset == -1) {
-            showDialog("Code Complete Error", "Could not find the text to replace in the current editor", "error");
+//            showDialog("Code Complete Error", "Could not find the text to replace in the current editor", "error");
             return false;
         }
         
@@ -700,6 +708,52 @@ public class JavaScriptBridge {
         } catch (Exception e) {
             LOG.error("Error handling batch replace in file request", e);
             return false;
+        }
+    }
+    /**
+     * Add these fields to the JavaScriptBridge class
+     */
+    private CompletableFuture<String> pendingResponseFuture = null;
+    private String lastProcessedMessageId = null;
+
+    /**
+     * Waits for the next chat response
+     * @param timeoutSeconds Maximum time to wait in seconds
+     * @return CompletableFuture that will be completed when a response is received
+     */
+    public CompletableFuture<String> waitForChatResponse(int timeoutSeconds) {
+        // Create a new future if there isn't one already or if the existing one is completed
+        if (pendingResponseFuture == null || pendingResponseFuture.isDone()) {
+            pendingResponseFuture = new CompletableFuture<>();
+        }
+
+        // Add timeout
+        return pendingResponseFuture.orTimeout(timeoutSeconds, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Notifies about a new chat response
+     * @param content The response content
+     * @param messageId The message ID
+     */
+    private void notifyChatResponseReceived(String content, String messageId) {
+        // Avoid processing the same message multiple times
+        if (messageId != null && messageId.equals(lastProcessedMessageId)) {
+            LOG.info("Ignoring duplicate message ID: " + messageId);
+            return;
+        }
+
+        LOG.info("Received chat response with ID: " + messageId);
+
+        // Update the last processed ID
+        lastProcessedMessageId = messageId;
+
+        // Complete the future if it exists
+        if (pendingResponseFuture != null && !pendingResponseFuture.isDone()) {
+            LOG.info("Completing pending response future with content length: " + (content != null ? content.length() : 0));
+            pendingResponseFuture.complete(content);
+        } else {
+            LOG.info("No pending response future to complete");
         }
     }
 }

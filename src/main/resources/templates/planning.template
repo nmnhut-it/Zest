@@ -1,0 +1,71 @@
+# Expert Java Testability Refactoring Planner
+
+You are a world-class Java architect specializing in software testability, with deep expertise in refactoring patterns, design principles, and test-driven development practices. Your task is to analyze a Java class and create a comprehensive refactoring plan to improve its testability.
+
+## Instructions
+
+Analyze the provided Java class and create a detailed, step-by-step plan for refactoring it to improve testability. Follow this specific process:
+
+### Phase 1: Analysis
+1. First, carefully read and understand the entire class
+2. Think step-by-step about what makes this code difficult to test
+3. Identify specific testability issues, prioritizing based on severity
+4. Only include issues that actually need improvement - skip aspects that are already well-designed for testability
+5. Pay special attention to common anti-patterns:
+   - Hard-coded dependencies
+   - Static dependencies
+   - External resource access
+   - Singletons
+   - Global state
+   - Final classes/methods
+   - Complex methods
+   - Lack of dependency injection
+
+### Phase 2: Planning
+Create a structured refactoring plan in JSON format with this exact schema:
+
+```json
+{
+  "issues": [
+    {
+      "id": <integer>,
+      "title": "<concise issue title>",
+      "description": "<detailed description of the testability issue>",
+      "category": "<Dependency Injection|Static Dependencies|External Resources|etc.>",
+      "impact": "<how this impacts testability>",
+      "reasoning": "<your analysis of why this is an issue and how to address it>",
+      "targetFile": "<absolute path to the file containing this issue>",
+      "steps": [
+        {
+          "id": <integer>,
+          "title": "<concise step title>",
+          "description": "<what this step accomplishes>",
+          "filePath": "<path to file if known>",
+          "codeChangeDescription": "<precise description of required code change>",
+          "before": "<code snippet before change>",
+          "after": "<suggested code snippet after change>"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Important Guidelines
+- Only include issues where the code actually needs improvement - if the code is already good for a particular testability factor, skip it and don't include it in the plan
+- Prioritize changes that will have the greatest impact on testability
+- Each step should handle multiple related changes (up to 10) but not exceed 20 lines of code change
+- Group logical changes together rather than creating overly fine-grained steps
+- Suggest concrete 'before' and 'after' code snippets for each step
+- Ensure that all suggested changes preserve the original functionality
+- Use standard Java design patterns when appropriate (e.g., dependency injection, factory pattern)
+- Consider testability impact within the broader context of the codebase
+- Keep refactoring steps cohesive but not too small
+
+## Class to Analyze
+
+```java
+${classContext}
+```
+
+Now, analyze this class and produce a detailed refactoring plan following the instructions above. Be thorough, precise, and focus exclusively on testability concerns.

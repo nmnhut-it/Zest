@@ -44,6 +44,7 @@ public class RefactoringExecutionManager {
      * @return true if the step was executed successfully, false otherwise
      */
     public boolean executeStep(RefactoringPlan plan, RefactoringProgress progress) {
+        // todo: surround non-trival code with try-catch
         LOG.info("Executing refactoring step: " + progress.getCurrentStep());
 
         // Get the current issue and step
@@ -102,7 +103,7 @@ public class RefactoringExecutionManager {
         }
 
         // Send the prompt to the chat box
-        boolean sent = sendPromptToChatBox(executionPrompt);
+        boolean sent = sendPromptToChatBox(executionPrompt, currentStep);
         if (!sent) {
             LOG.error("Failed to send execution prompt to chat box");
             return false;
@@ -188,138 +189,114 @@ public class RefactoringExecutionManager {
     private String createStepExecutionPrompt(RefactoringPlan plan, RefactoringProgress progress,
                                              RefactoringIssue currentIssue, RefactoringStep currentStep,
                                              String classContext, String packageName, boolean isNewChat) {
-        StringBuilder prompt = new StringBuilder();
 
-        // If this is a new chat, include a brief introduction
-        if (isNewChat) {
-            prompt.append("# Java Testability Refactoring Implementation\n\n");
-            prompt.append("I'll help you implement a series of refactoring steps to improve the testability of ");
-            prompt.append(plan.getTargetClass()).append(".\n\n");
-        }
+        try {
+            // Load the appropriate template based on the step type
+            String templatePath = currentStep.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION)
+                    ? "/templates/fix_problems.template"
+                    : "/templates/step_execution.template";
 
-        prompt.append("# Refactoring Step: ").append(currentStep.getTitle()).append("\n\n");
-
-        prompt.append("## Context\n");
-        prompt.append("- Issue: ").append(currentIssue.getTitle()).append("\n");
-        prompt.append("- Progress: Step ").append(progress.getCurrentStepIndex() + 1)
-                .append("/").append(currentIssue.getSteps().size())
-                .append(" (Issue ").append(progress.getCurrentIssueIndex() + 1)
-                .append("/").append(plan.getIssues().size()).append(")\n\n");
-
-        // Add class context - gets the latest directly from ClassAnalyzer for each step
-        prompt.append("## Current Class\n");
-
-        // Include package information if available
-        if (packageName != null && !packageName.isEmpty()) {
-            prompt.append("**Package:** ").append(packageName).append("\n\n");
-        }
-
-        // Include the full class context from ClassAnalyzer - this reflects any recent changes
-        prompt.append("```java\n").append(classContext).append("\n```\n\n");
-        if (currentStep.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION) == false) {
-
-            prompt.append("## Implementation Instructions\n");
-            prompt.append("Implement this refactoring:\n");
-            prompt.append("1. Reason through each change you'll make and why it improves testability\n");
-            prompt.append("2. If you determine this specific aspect of code is already well-designed for testability, recommend skipping this step\n");
-            prompt.append("3. Otherwise, make only minimal changes needed to address the specific issue\n");
-            prompt.append("4. Ensure code maintains all existing functionality\n");
-            prompt.append("5. Verify your changes will compile correctly\n\n");
-
-            prompt.append("## Response Format\n");
-            prompt.append("Follow this exact structure:\n\n");
-            prompt.append("#### ANALYSIS: <Your reasoning process about how to approach this refactoring>\n\n");
-            prompt.append("#### SUMMARY: <One sentence describing what the change accomplishes>\n\n");
-            prompt.append("#### IMPLEMENTATION:\n\n");
-            prompt.append("replace_in_file:").append(currentStep.getFilePath() == null ? plan.getTargetClass() + ".java" : currentStep.getFilePath()).append("\n");
-            prompt.append("```java\n");
-            prompt.append("// code to be replaced - copy exact code from current class\n");
-            prompt.append("```\n");
-            prompt.append("```java\n");
-            prompt.append("// replacement code with testability improvements\n");
-            prompt.append("```\n\n");
-            prompt.append("Add more replace_in_file blocks as needed for multiple changes.\n\n");
-            prompt.append("#### VALIDATION\n");
-            prompt.append("  <Verification of code correctness>\n");
-            prompt.append("  <Potential side effects>\n\n");
-            prompt.append("After implementing, check for compiler errors or warnings:\n");
-            prompt.append("```\n");
-            prompt.append("tool_get_project_problems_post\n");
-            prompt.append("```\n\n");
-        }
-
-        // Step details at the end
-        prompt.append("## Step Details\n");
-        prompt.append(currentStep.getDescription()).append("\n\n");
-        if (currentStep.getFilePath() != null && !currentStep.getFilePath().isEmpty()) {
-            prompt.append("**File:** ").append(currentStep.getFilePath()).append("\n\n");
-        }
-        if (currentStep.getTitle().equals(FIX_PROBLEMS_AND_VERIFY_ISSUE_IMPLEMENTATION) == false) {
-
-            if (currentStep.getCodeChangeDescription() != null && !currentStep.getCodeChangeDescription().isEmpty()) {
-                prompt.append("**Required Change:** ").append(currentStep.getCodeChangeDescription()).append("\n\n");
+            // Load resource from classpath
+            java.io.InputStream inputStream = getClass().getResourceAsStream(templatePath);
+            if (inputStream == null) {
+                LOG.warn("Template resource not found: " + templatePath + ". Using built-in template.");
+                // Fall back to built-in template if resource not found
+//                return createBuiltInStepExecutionPrompt(plan, progress, currentIssue, currentStep,
+//                        classContext, packageName, isNewChat);
+                return "";
             }
 
-            prompt.append("IMPORTANT: Use the `replace_in_file` format for all code changes. This allows the changes to be applied automatically through the IDE's code replacement feature.\n\n");
-            prompt.append("Implement this refactoring step now, following the exact format above.");
-        }
+            // Read the template file
+            String template = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            inputStream.close();
 
-        return prompt.toString();
+            // Replace placeholders with actual values
+            String filePath = currentStep.getFilePath() == null ? plan.getTargetClass() + ".java" : currentStep.getFilePath();
+
+            template = template.replace("${targetClass}", plan.getTargetClass())
+                    .replace("${stepTitle}", currentStep.getTitle())
+                    .replace("${issueTitle}", currentIssue.getTitle())
+                    .replace("${currentStepNumber}", String.valueOf(progress.getCurrentStepIndex() + 1))
+                    .replace("${totalStepsInIssue}", String.valueOf(currentIssue.getSteps().size()))
+                    .replace("${currentIssueNumber}", String.valueOf(progress.getCurrentIssueIndex() + 1))
+                    .replace("${totalIssues}", String.valueOf(plan.getIssues().size()))
+                    .replace("${packageName}", packageName != null ? packageName : "")
+                    .replace("${classContext}", classContext)
+                    .replace("${stepDescription}", currentStep.getDescription())
+                    .replace("${filePath}", filePath);
+
+            // Replace optional fields
+            if (currentStep.getCodeChangeDescription() != null && !currentStep.getCodeChangeDescription().isEmpty()) {
+                template = template.replace("${codeChangeDescription}", currentStep.getCodeChangeDescription());
+            } else {
+                template = template.replace("${codeChangeDescription}", "");
+                // Remove the line if empty
+                template = template.replace("\n**Required Change:** \n\n", "");
+            }
+
+            return template;
+        } catch (Exception e) {
+            LOG.error("Error creating step execution prompt from template", e);
+            // Fall back to built-in template
+//            return createBuiltInStepExecutionPrompt(plan, progress, currentIssue, currentStep,
+//                    classContext, packageName, isNewChat);
+            return  "";
+        }
     }
 
     /**
      * Sends a prompt to the chat box and activates the browser window.
      */
-    private boolean sendPromptToChatBox(String prompt) {
-        // Create a specialized system prompt for refactoring steps
-        String systemPrompt = "You are a specialized Java refactoring agent with superior expertise in improving code testability. "
-                + "\nAnalyze Java code to identify testability issues and implement precise refactorings that maintain functionality."
-                + "\n"
-                + "\nWhen implementing refactorings:"
-                + "\n1. First reason through your approach and explain your thought process"
-                + "\n2. If the specific aspect of code is already well-designed for testability, recommend skipping this step"
-                + "\n3. Otherwise, use the replace_in_file format for code changes"
-                + "\n4. Include exact code blocks to replace with the new improved code"
-                + "\n5. Explain how each change improves testability"
-                + "\n6. Validate that code will compile and maintain functionality"
-                + "\n"
-                + "\nFormat your responses exactly like this: "
-                + "\n#### ANALYSIS:\n\n <Your reasoning about how to approach this refactoring>"
-                + "\n#### SUMMARY:\n\n <Either explanation of why no change is needed OR one-sentence overview of change> "
-                + "\n#### IMPLEMENTATION:"
-                + "\nreplace_in_file:absolute/path/to/file.java"
-                + "\n```java"
-                + "\n// exact code to be replaced"
-                + "\n```"
-                + "\n```java"
-                + "\n// replacement code with improved testability"
-                + "\n```"
-                + "\n#### VALIDATION:\n\n <Verification of code correctness> <Potential side effects>"
-                + "\n"
-                + "\nFocus exclusively on testability issues such as:"
-                + "\n- Dependency injection opportunities"
-                + "\n- Removing static method calls"
-                + "\n- Extracting hard-coded values"
-                + "\n- Breaking down complex methods"
-                + "\n- Removing global state"
-                + "\n- Decoupling from external resources"
-                + "\n"
-                + "\nPreserve original functionality while improving testability."
-                + "\n/no_think";
-
-        // Send the prompt to the chat box
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
-
-        // Activate browser tool window
-        ApplicationManager.getApplication().invokeLater(() -> {
-            ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-            if (toolWindow != null) {
-                toolWindow.activate(null);
+    private boolean sendPromptToChatBox(String prompt, RefactoringStep currentStep) {
+        try {
+            // Try to load the system prompt from template resource
+            String systemPrompt = "";
+            String templatePath = "/templates/system_prompt.template";
+            if (isProblemFixStep(currentStep)) {
+                java.io.InputStream inputStream = getClass().getResourceAsStream(templatePath);
+                if (inputStream != null) {
+                    systemPrompt = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    inputStream.close();
+                    LOG.info("Loaded system prompt from resource template");
+                } else {
+                    LOG.warn("System prompt template resource not found, using built-in system prompt");
+                }
             }
-        });
+            // Send the prompt to the chat box
+            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
 
-        return success;
+            // Activate browser tool window
+            ApplicationManager.getApplication().invokeLater(() -> {
+                ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
+                if (toolWindow != null) {
+                    toolWindow.activate(null);
+                }
+            });
+
+            return success;
+        } catch (Exception e) {
+            LOG.error("Error sending prompt to chat box", e);
+
+            // Fall back to built-in system prompt
+            String systemPrompt = "You are a specialized Java refactoring agent with superior expertise in improving code testability. "
+                    + "\nAnalyze Java code to identify testability issues and implement precise refactorings that maintain functionality."
+                    + "\n/no_think";
+
+            // Send the prompt to the chat box
+            boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt);
+
+            // Activate browser tool window
+            ApplicationManager.getApplication().invokeLater(() -> {
+                ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
+                if (toolWindow != null) {
+                    toolWindow.activate(null);
+                }
+            });
+
+            return success;
+        }
     }
+
 
     /**
      * Completes the current step and moves to the next one.
@@ -359,26 +336,22 @@ public class RefactoringExecutionManager {
         // Check if this was the last step of the current issue
         boolean isLastStepOfIssue = (progress.getCurrentStepIndex() >= currentIssue.getSteps().size() - 1);
 
-        // If this is the last step of the issue, check for problems and try to fix them
-        if (isLastStepOfIssue) {
-            LOG.info("Completed all steps in issue: " + currentIssue.getTitle() + ". Checking for problems.");
+        // Check if current step is a problem fix step
+        boolean isFixProblemStep = isProblemFixStep(currentStep);
 
-            // We'll create a prompt that Claude will use to check for problems
-            // This is handled by the MCP protocol via the browser integration
-            // The result will be included in the next prompt when a fix step is created
+        // If this is the last step of the issue and not a fix problem step, check for problems and try to fix them
+        if (isLastStepOfIssue && !isFixProblemStep) {
+            LOG.info("Completed all steps in issue: " + currentIssue.getTitle() + ". Checking for problems.");
 
             // Create a placeholder entry for problems to be filled with actual data
             // from the chat interaction
             progress.addProblemsAfterIssue(currentIssue.getId(), new ArrayList<>());
 
             // Create a special step to fix any problems
-            // This step will be shown in the UI and executed by Claude via MCP
-            if (!isProblemFixStep(currentStep)) {
-                createFixProblemStep(currentIssue);
+            createFixProblemStep(currentIssue);
 
-                // Don't move to next issue yet - stay at the fix step
-                progress.setCurrentStepIndex(currentIssue.getSteps().size() - 1);
-            }
+            // Don't move to next issue yet - stay at the fix step
+            progress.setCurrentStepIndex(currentIssue.getSteps().size() - 1);
             stateManager.saveProgress(progress);
             stateManager.savePlan(plan);
             return true;
@@ -388,25 +361,28 @@ public class RefactoringExecutionManager {
         if (!isLastStepOfIssue) {
             // More steps in the current issue
             progress.setCurrentStepIndex(progress.getCurrentStepIndex() + 1);
-        } else if (progress.getCurrentIssueIndex() < plan.getIssues().size() - 1) {
-            // Move to the next issue - we know there are no problems with the current issue
-            progress.setCurrentIssueIndex(progress.getCurrentIssueIndex() + 1);
-            progress.setCurrentStepIndex(0);
         } else {
-            // All steps are complete - generate final report
-            progress.markComplete();
-            stateManager.saveProgress(progress);
+            // This is either a fix problem step or the last step of the issue
+            // If it's a fix problem step, or if there are no problems, move to the next issue
+            if (progress.getCurrentIssueIndex() < plan.getIssues().size() - 1) {
+                // Move to the next issue
+                progress.setCurrentIssueIndex(progress.getCurrentIssueIndex() + 1);
+                progress.setCurrentStepIndex(0);
+            } else {
+                // All steps are complete - generate final report
+                progress.markComplete();
+                stateManager.saveProgress(progress);
 
-            // Generate and show final report
-            generateFinalReport(plan, progress);
+                // Generate and show final report
+                generateFinalReport(plan, progress);
 
-            // Clear the refactoring state
-            stateManager.clearRefactoringState();
+                // Clear the refactoring state
+                stateManager.clearRefactoringState();
 
-            // Only close the tool window when all steps are complete
-            // This branch is only reached at the end of the entire refactoring process
-            RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
-            return false;
+                // Only close the tool window when all steps are complete
+                RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
+                return false;
+            }
         }
 
         // Save the updated progress and plan
@@ -414,7 +390,6 @@ public class RefactoringExecutionManager {
         stateManager.savePlan(plan);
         return true;
     }
-
     /**
      * Skips the current step and moves to the next one.
      *
@@ -650,5 +625,6 @@ public class RefactoringExecutionManager {
                     "Refactoring Aborted"
             );
         });
+
     }
 }

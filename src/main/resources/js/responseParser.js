@@ -67,18 +67,19 @@
         const codeBlocks = [];
         const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
         
-        // Extract replacement blocks with format: replace_in_file:path/to/file.java
-        const replaceBlockRegex = /replace_in_file:(.*?)\n```(\w*)\n([\s\S]*?)```\n```(\w*)\n([\s\S]*?)```/g;
-        
+        // --- UPDATED REGEX BELOW ---
+        // This regex now supports optional language tags and optional whitespace/newlines.
+        const replaceBlockRegex = /replace_in_file:(.*?)\s*?\n```(\w*)?\n([\s\S]*?)```\s*?\n```(\w*)?\n([\s\S]*?)```/g;
+
         // First check for replacement patterns
         let replaceMatch;
         while ((replaceMatch = replaceBlockRegex.exec(content)) !== null) {
             const filePath = replaceMatch[1].trim();
-            const searchLanguage = replaceMatch[2].trim().toLowerCase() || 'text';
+            const searchLanguage = (replaceMatch[2] || '').trim().toLowerCase() || 'text';
             const searchCode = replaceMatch[3];
-            const replaceLanguage = replaceMatch[4].trim().toLowerCase() || 'text';
+            const replaceLanguage = (replaceMatch[4] || '').trim().toLowerCase() || 'text';
             const replaceCode = replaceMatch[5];
-            
+
             codeBlocks.push({
                 type: 'replacement',
                 filePath: filePath,
@@ -89,25 +90,24 @@
                 fullMatch: replaceMatch[0]
             });
         }
-        
+
         // Then extract regular code blocks
         let match;
         while ((match = codeBlockRegex.exec(content)) !== null) {
             // Skip blocks that were already captured as part of replacement blocks
             let isPartOfReplacement = false;
             for (const block of codeBlocks) {
-                if (block.type === 'replacement' && 
-                    (content.indexOf(match[0]) >= content.indexOf(block.fullMatch) && 
+                if (block.type === 'replacement' &&
+                    (content.indexOf(match[0]) >= content.indexOf(block.fullMatch) &&
                      content.indexOf(match[0]) <= content.indexOf(block.fullMatch) + block.fullMatch.length)) {
                     isPartOfReplacement = true;
                     break;
                 }
             }
-            
+
             if (!isPartOfReplacement) {
-                const language = match[1].trim().toLowerCase() || 'text';
+                const language = (match[1] || '').trim().toLowerCase() || 'text';
                 const code = match[2];
-                
                 codeBlocks.push({
                     type: 'code',
                     language: language,

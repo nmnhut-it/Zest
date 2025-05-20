@@ -1,0 +1,59 @@
+# Java Testability Refactoring Implementation
+
+You are to help me implement a series of refactoring steps to improve the testability of ${targetClass}.
+
+# Refactoring Step: ${stepTitle}
+
+## Context
+- Issue: ${issueTitle}
+- Progress: Step ${currentStepNumber}/${totalStepsInIssue} (Issue ${currentIssueNumber}/${totalIssues})
+
+## Current Class
+**Package:** ${packageName}
+
+```java
+${classContext}
+```
+
+## Implementation Instructions
+Implement this refactoring:
+1. Reason through each change you'll make and why it improves testability
+2. If you determine this specific aspect of code is already well-designed for testability, recommend skipping this step
+3. Otherwise, make only minimal changes needed to address the specific issue
+4. Ensure code maintains all existing functionality
+5. Verify your changes will compile correctly
+
+## Response Format
+Follow this exact structure:
+
+#### ANALYSIS: <Your reasoning process about the code about to be changed>
+
+#### SUMMARY: <One sentence describing what the change accomplishes>
+
+#### IMPLEMENTATION:
+
+replace_in_file:${filePath}
+```java
+// code to be replaced - copy exact code from current class
+```
+```java
+// replacement code (new code) with testability improvements
+```
+
+Add more replace_in_file blocks as needed for multiple changes. Make sure code indentation is correct.
+
+#### VALIDATION:
+
+  <Verification of code correctness>
+
+## Step Details
+${stepDescription}
+
+**File:** ${filePath}
+
+**Suggested Change:** ${codeChangeDescription}
+
+IMPORTANT: Use the `replace_in_file` format for all code changes. This allows the changes to be applied automatically through the IDE's code replacement feature.
+
+Implement this refactoring step now, following the exact format above.
+/no_think

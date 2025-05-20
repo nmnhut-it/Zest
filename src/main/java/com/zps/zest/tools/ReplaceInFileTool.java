@@ -148,7 +148,7 @@ public class ReplaceInFileTool extends BaseAgentTool {
                                                boolean caseSensitive, boolean ignoreWhitespace,
                                                ProgressIndicator indicator) throws Exception {
         // Read all lines from the file
-        List<String> originalLines = Files.readAllLines(fullPath, StandardCharsets.UTF_8);
+        List<String> originalLines = Files.readAllLines(fullPath, StandardCharsets.UTF_8).stream().filter(v->v.isEmpty() == false).toList();
         List<String> modifiedLines = new ArrayList<>(originalLines.size());
         
         // 1. Split search and replace text into lines & trim each line if needed
@@ -217,13 +217,10 @@ public class ReplaceInFileTool extends BaseAgentTool {
                     if (isFullMatch) {
                         // 4. We have a complete match - replace it
                         replacementCount++;
-                        
                         // Replace with the corresponding lines from replaceLine
                         for (int i = 0; i < replaceLines.length; i++) {
                             // Add the indentation to each replacement line
-                            String originalLine = originalLines.get(lineIndex + i- searchLines.length);
-                            String indentation = getIndentation(originalLine);
-                            modifiedLines.add(indentation + replaceLines[i]);
+                            modifiedLines.add(replaceLines[i]);
                         }
                         
                         // Skip the matched lines

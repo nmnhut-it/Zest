@@ -10,13 +10,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.zps.zest.ClassAnalysisStage;
-import com.zps.zest.CodeContext;
-import com.zps.zest.ConfigurationStage;
-import com.zps.zest.LlmApiCallStage;
-import com.zps.zest.PipelineExecutionException;
-import com.zps.zest.PipelineStage;
-import com.zps.zest.TargetClassDetectionStage;
+import com.zps.zest.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -60,17 +54,17 @@ public class AgentBasedRefactoringAction extends AnAction {
                     // Check if there's a refactoring in progress
                     RefactoringStateManager stateManager = new RefactoringStateManager(project);
                     boolean isRefactoringInProgress = stateManager.isRefactoringInProgress();
-                    
+
                     // If there is a refactoring state, check if it's aborted or completed
                     if (isRefactoringInProgress) {
                         RefactoringProgress progress = stateManager.loadProgress();
-                        if (progress != null && (progress.getStatus() == RefactoringStatus.ABORTED || 
-                                                progress.getStatus() == RefactoringStatus.COMPLETED)) {
+                        if (progress != null && (progress.getStatus() == RefactoringStatus.ABORTED ||
+                                progress.getStatus() == RefactoringStatus.COMPLETED)) {
                             // Clear the state to start a new refactoring
                             LOG.info("Found aborted or completed refactoring. Clearing state to start fresh.");
                             stateManager.clearRefactoringState();
                             isRefactoringInProgress = false;
-                            
+
                             // Close the tool window if it's open
                             RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
                         }
@@ -78,15 +72,15 @@ public class AgentBasedRefactoringAction extends AnAction {
                         // Make sure the tool window is closed if no refactoring is in progress
                         RefactoringToolWindow.checkAndCloseIfNoRefactoring(project);
                     }
-                    
+
                     AgentBasedRefactoringPipeline pipeline;
-                    
+
                     if (isRefactoringInProgress) {
                         // Create a pipeline for resuming an existing refactoring
                         pipeline = new AgentBasedRefactoringPipeline()
                                 .addStage(new ConfigurationStage())
                                 .addStage(new RefactoringExecutionStage());
-                                
+
                         LOG.info("Resuming existing refactoring");
                     } else {
                         // Create a pipeline for starting a new refactoring
@@ -95,10 +89,10 @@ public class AgentBasedRefactoringAction extends AnAction {
                                 .addStage(new TargetClassDetectionStage())
                                 .addStage(new ClassAnalysisStage())
                                 .addStage(new RefactoringPlanningStage())
-                                .addStage(new LlmApiCallStage())
+                                .addStage(new ChatboxLlmApiCallStage())
                                 .addStage(new RefactoringPlanAnalysisStage())
                                 .addStage(new RefactoringExecutionStage());
-                                
+
                         LOG.info("Starting new refactoring pipeline");
                     }
 
@@ -110,21 +104,24 @@ public class AgentBasedRefactoringAction extends AnAction {
                                 .replace("Stage", "")
                                 .replaceAll("([A-Z])", " $1").trim();
 
-                        indicator.setText("Stage " + (i+1) + "/" + totalStages + ": " + stageName);
+                        indicator.setText("Stage " + (i + 1) + "/" + totalStages + ": " + stageName);
                         indicator.setFraction((double) i / totalStages);
 
                         // Process the current stage
-                        stage.process(context);
+                        try {
+                            stage.process(context);
+                        } catch (PipelineExecutionException e) {
+                            showError(project, e);
+                            break;
+                        }
 
                         // Update progress
-                        indicator.setFraction((double) (i+1) / totalStages);
+                        indicator.setFraction((double) (i + 1) / totalStages);
                     }
 
                     indicator.setText("Refactoring process initiated successfully!");
                     indicator.setFraction(1.0);
 
-                } catch (PipelineExecutionException e) {
-                    showError(project, e);
                 } catch (Exception e) {
                     showError(project, new PipelineExecutionException("Unexpected error", e));
                 }

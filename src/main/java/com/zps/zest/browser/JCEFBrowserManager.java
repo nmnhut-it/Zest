@@ -60,6 +60,12 @@ public class JCEFBrowserManager {
                 setupJavaScriptBridge(cefBrowser, frame);
                 new AutoCodeExtractorWithBridge().onLoadEnd(cefBrowser, frame, httpStatusCode);
             }
+
+            @Override
+            public void onLoadError(CefBrowser browser, CefFrame frame, ErrorCode errorCode, String errorText, String failedUrl) {
+                setupJavaScriptBridge(browser, frame);
+                new AutoCodeExtractorWithBridge().onLoadEnd(browser, frame, errorCode.getCode());
+            }
         }, browser.getCefBrowser());
 //        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
 
@@ -309,5 +315,9 @@ public class JCEFBrowserManager {
             }
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    public JavaScriptBridge getJavaScriptBridge() {
+        return jsBridge;
     }
 }

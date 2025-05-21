@@ -90,7 +90,9 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                         ChatboxUtilities.clickNewChatButton(project);
                     }
                     else {
-                        ChatboxUtilities.newChat(project,model);
+                        ChatboxUtilities.clickNewChatButton(project);
+                        String script = "window.__selected_model_name__ = '" + model + "';";
+                        browserService.executeJavaScript(script);
                     }
 
 

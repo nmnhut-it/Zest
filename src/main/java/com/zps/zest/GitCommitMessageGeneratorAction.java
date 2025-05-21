@@ -9,11 +9,9 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.vcs.VcsDataKeys;
-import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
@@ -21,7 +19,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -30,6 +27,9 @@ import java.util.List;
  */
 public class GitCommitMessageGeneratorAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(GitCommitMessageGeneratorAction.class);
+
+    // Hardcoded or configurable model name for new chat; can be refactored to support user selection.
+    private static final String DEFAULT_MODEL_NAME = "Qwen2.5-Coder-7B";
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -85,8 +85,8 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                         throw new PipelineExecutionException("Failed to generate commit message prompt");
                     }
 
-                    // Send the analysis to the chat box
-                    boolean success = sendPromptToChatBox(project, prompt);
+                    // Send the analysis to the chat box using newChat with the chosen model
+                    boolean success = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
                     if (!success) {
                         throw new PipelineExecutionException("Failed to send commit prompt to chat box");
                     }
@@ -104,15 +104,21 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Sends the commit message prompt to the chat box and activates the browser window.
+     * Sends the commit message prompt to the chat box using newChat and activates the browser window.
+     * @param modelName the name of the model to use (e.g., "Qwen2.5-Coder-7B")
      */
-    private boolean sendPromptToChatBox(Project project, String prompt) {
-        LOG.info("Sending commit message prompt to chat box");
+    private boolean sendPromptToChatBox(Project project, String prompt, String modelName) {
+        LOG.info("Sending commit message prompt to chat box using new chat and model: " + modelName);
 
-        // Send the prompt to the chat box
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt(), false);
-//        ChatboxUtilities.newChat(project, "Qwen2.5-Coder-7B", prompt);
-//        ChatboxUtilities.sendTextAndSubmit(project, prompt, false, "",false);
+        // Start a new chat with the desired model and prompt
+
+        ChatboxUtilities.clickNewChatButton(project);
+// Use browserService.executeJavaScript() before creating the new chat
+        String script = "window.__selected_model_name__ = '" + modelName + "';";
+        WebBrowserService.getInstance(project).executeJavaScript(script);
+        ChatboxUtilities.sendTextAndSubmit(project, prompt,false, null, false);
+// Then call newChat as usual
+//        ChatboxUtilities.newChat(project, modelName, prompt);
         // Activate browser tool window on EDT
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -334,7 +340,7 @@ class CommitPromptGenerationStage implements PipelineStage {
         prompt.append("`").append(branchName).append("`\n\n");
 
         prompt.append("## Changed Files\n");
-        prompt.append("```\n").append(changedFiles).append("```\n\n");
+        prompt.append("```").append("\n").append(changedFiles).append("```\n\n");
 
         prompt.append("## Git Diff\n");
         prompt.append("```diff\n").append(gitDiff).append("```\n\n");

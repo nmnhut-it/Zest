@@ -182,9 +182,9 @@ public class ChatboxUtilities {
         return true; // Return optimistically since we're now async
     }
 
-    public static boolean newChat(Project project, String model) {
-        return newChat(project, model, null);
-    }
+//    public static boolean newChat(Project project, String model) {
+//        return newChat(project, model, null);
+//    }
 
     public static boolean newChat(Project project, String model, String prompt){
         if (project == null) {
@@ -207,7 +207,7 @@ public class ChatboxUtilities {
 
         String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
 
-        url +="/?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8);
+//        url +="/?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8);
 //        if (prompt != null) {
 //            url +="?q=" + URLEncoder.encode(prompt, StandardCharsets.UTF_8);
 //        }
@@ -215,7 +215,7 @@ public class ChatboxUtilities {
         browserPanel.getBrowserManager().getBrowser().getCefBrowser().loadURL( url);
         // Wait for page to load before clicking new chat button
         try {
-            Thread.sleep(1000);
+            Thread.sleep(100);
         } catch (InterruptedException e) {
             return true;
 //        } catch (ExecutionException e) {

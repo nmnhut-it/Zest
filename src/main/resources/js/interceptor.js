@@ -47,7 +47,7 @@
   };
 
   /**
-   * Enhances request body with real-time project info
+   * Enhances request body with real-time project info and dynamic model selection
    * @param {string} body - The original request body
    * @returns {string} The modified request body
    */
@@ -57,11 +57,17 @@
     try {
       const data = JSON.parse(body);
 
+      // === Inject the dynamically selected model if present ===
+      if (window.__selected_model_name__) {
+        data.model = window.__selected_model_name__;
+        // Optionally log:
+        console.log('[Interceptor] Overwrote model with', window.__selected_model_name__);
+      }
+
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
         // Handle system message based on mode
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
-          // In Agent Mode, override any existing system message or add a new one
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           if (systemMsgIndex >= 0) {
             // Override existing system message
@@ -84,11 +90,9 @@
 
         // Add project context info to user messages if in Agent Mode
         if (window.__zest_mode__ === 'Agent Mode' && window.__project_info__) {
-          // Find the most recent user message
           for (let i = data.messages.length - 1; i >= 0; i--) {
             if (data.messages[i].role === 'user') {
               const info = window.__project_info__;
-              // Format the project info
               const projectInfoText = "<info>\n" +
                 "\n" +
                 "Project Name: " + info.projectName + "\n" +
@@ -100,12 +104,10 @@
                 "Code Context:\n```\n" + info.codeContext + "\n```\n" +
                 "\n" +
                 "</info>\n\n";
-              // Prepend project info to the user message
               data.messages[i].content = projectInfoText + data.messages[i].content;
               if (window.__should_use_native_function_calling__){
                 data.params.function_calling =  'native';
-              }
-              else {
+              } else {
                 data.params.function_calling =  'default';
               }
               break;
@@ -114,9 +116,8 @@
         }
       }
 
-      // Handle knowledge collection integration if present
+      // Knowledge collection integration if present
       if (data.files && Array.isArray(data.files)) {
-        // Ensure any file-related parameters are properly set
         console.log('Request includes files/collections');
       }
 
@@ -136,42 +137,33 @@
     const responseClone = response.clone();
     const url = responseClone.url || '';
 
-    // Look for API responses that might contain completed chat data
     if (url.includes('completed') || url.includes('/api/conversation')) {
+      window.__selected_model_name__ = null;
       console.log('Detected API response with completion data:', url);
 
-      // Try to handle it with the response parser
       responseClone.json().then(data => {
-//        console.log('Parsed response data:', data);
-
-        // If we have the parser functions available, use them
         if (window.parseResponseForCode && window.processExtractedCode) {
           const codeBlocks = window.parseResponseForCode(data);
-          
           if (codeBlocks && codeBlocks.length > 0) {
-            // We found code blocks, process them
             window.processExtractedCode(codeBlocks);
           } else {
-            // Fall back to DOM-based extraction if no code blocks found
             fallbackToHtmlExtraction();
           }
         } else {
-          // Fall back to DOM-based extraction if parser not available
           fallbackToHtmlExtraction();
         }
         if (window.intellijBridge && window.intellijBridge.notifyChatResponse && data.messages) {
-              const assistantMessages = data.messages.filter(msg => msg.role === 'assistant');
-              if (assistantMessages.length > 0) {
-                const latestMessage = assistantMessages[assistantMessages.length - 1];
-                window.intellijBridge.notifyChatResponse({
-                  content: latestMessage.content,
-                  id: latestMessage.id
-                });
-              }
+          const assistantMessages = data.messages.filter(msg => msg.role === 'assistant');
+          if (assistantMessages.length > 0) {
+            const latestMessage = assistantMessages[assistantMessages.length - 1];
+            window.intellijBridge.notifyChatResponse({
+              content: latestMessage.content,
+              id: latestMessage.id
+            });
+          }
         }
       }).catch(error => {
         console.error('Error parsing API response:', error);
-        // Fall back to DOM-based extraction if parsing fails
         fallbackToHtmlExtraction();
       });
     }
@@ -179,9 +171,6 @@
     return response;
   }
 
-  /**
-   * Falls back to HTML-based code extraction
-   */
   function fallbackToHtmlExtraction() {
     console.log('Falling back to HTML-based code extraction');
     setTimeout(() => {
@@ -193,11 +182,6 @@
     }, 1000);
   }
 
-  /**
-   * Determines if a URL is an OpenWebUI API endpoint
-   * @param {string} url - The URL to check
-   * @returns {boolean} True if the URL is an OpenWebUI API endpoint
-   */
   function isOpenWebUIEndpoint(url) {
     return typeof url === 'string' && (
       url.includes('/api/chat/completions') ||
@@ -208,21 +192,17 @@
 
   // Override the fetch function to intercept and modify requests
   window.fetch = function(input, init) {
-    // Clone the init object to avoid modifying the original
     let newInit = init ? {...init} : {};
     let url = input instanceof Request ? input.url : input;
 
-    // Check if this is an API request to OpenWebUI
     if (isOpenWebUIEndpoint(url)) {
       console.log('Intercepting OpenWebUI API request:', url);
       if (window.__zest_mode__ === 'Agent Mode') {
         console.log('Agent Mode active: Adding project context to user message');
       }
 
-      // Get real-time project info from IDE before processing the request
       return window.updateProjectInfo()
         .then(() => {
-          // If there's a body in the request, modify it
           if (newInit.body) {
             const originalBody = newInit.body;
             if (typeof originalBody === 'string') {
@@ -233,7 +213,6 @@
               console.log('FormData or URLSearchParams body not modified');
               return originalFetch(input, newInit).then(handleResponse);
             } else if (originalBody instanceof Blob) {
-              // Handle Blob body (requires async processing)
               return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = function() {
@@ -250,7 +229,6 @@
               });
             }
           } else if (input instanceof Request) {
-            // If input is a Request object with a body
             return input.clone().text().then(body => {
               const modifiedBody = enhanceRequestBody(body);
               const newRequest = new Request(input, {
@@ -269,16 +247,13 @@
             });
           }
 
-          // Default case if none of the above conditions match
           return originalFetch(input, newInit).then(handleResponse);
         })
         .catch(error => {
           console.error('Error updating project info:', error);
-          // Continue with the request even if project info update fails
           return originalFetch(input, init).then(handleResponse);
         });
     } else {
-      // For non-API requests, just use the original fetch
       return originalFetch(input, init).then(handleResponse);
     }
   };

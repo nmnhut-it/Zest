@@ -69,14 +69,14 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                                 .replace("Stage", "")
                                 .replaceAll("([A-Z])", " $1").trim();
 
-                        indicator.setText("Stage " + (i+1) + "/" + totalStages + ": " + stageName);
+                        indicator.setText("Stage " + (i + 1) + "/" + totalStages + ": " + stageName);
                         indicator.setFraction((double) i / totalStages);
 
                         // Process the current stage
                         stage.process(context);
 
                         // Update progress
-                        indicator.setFraction((double) (i+1) / totalStages);
+                        indicator.setFraction((double) (i + 1) / totalStages);
                     }
 
                     // Get the analysis result from the context
@@ -110,9 +110,9 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         LOG.info("Sending commit message prompt to chat box");
 
         // Send the prompt to the chat box
-        ChatboxUtilities.newChat(project, "Qwen2.5-Coder-7B");
         boolean success = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt(), false);
-
+//        ChatboxUtilities.newChat(project, "Qwen2.5-Coder-7B", prompt);
+//        ChatboxUtilities.sendTextAndSubmit(project, prompt, false, "",false);
         // Activate browser tool window on EDT
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -121,7 +121,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             }
         });
 
-        return success;
+        return true;
     }
 
     /**
@@ -131,7 +131,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         e.printStackTrace();
         LOG.error("Error in GitCommitMessageGeneratorAction: " + e.getMessage(), e);
 
-        ApplicationManager.getApplication().invokeLater(()->{
+        ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
         });
     }

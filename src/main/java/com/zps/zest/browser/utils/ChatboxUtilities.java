@@ -8,13 +8,10 @@ import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.WebBrowserToolWindow;
 import org.apache.commons.lang.StringEscapeUtils;
 
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -185,7 +182,11 @@ public class ChatboxUtilities {
         return true; // Return optimistically since we're now async
     }
 
-    public static boolean newChat(Project project, String model){
+    public static boolean newChat(Project project, String model) {
+        return newChat(project, model, null);
+    }
+
+    public static boolean newChat(Project project, String model, String prompt){
         if (project == null) {
             LOG.warn("Cannot click new chat button: Project is null");
             return false;
@@ -205,12 +206,16 @@ public class ChatboxUtilities {
         }
 
         String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+
         url +="/?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8);
+//        if (prompt != null) {
+//            url +="?q=" + URLEncoder.encode(prompt, StandardCharsets.UTF_8);
+//        }
         AtomicBoolean success = new AtomicBoolean(false);
         browserPanel.getBrowserManager().getBrowser().getCefBrowser().loadURL( url);
         // Wait for page to load before clicking new chat button
         try {
-            Thread.sleep(5000);
+            Thread.sleep(1000);
         } catch (InterruptedException e) {
             return true;
 //        } catch (ExecutionException e) {

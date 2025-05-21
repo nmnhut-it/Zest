@@ -143,6 +143,9 @@
 
       responseClone.json().then(data => {
         if (window.parseResponseForCode && window.processExtractedCode) {
+           setTimeout(()=>{
+                    window.injectToIDEButtons();
+                  },1);
           const codeBlocks = window.parseResponseForCode(data);
           if (codeBlocks && codeBlocks.length > 0) {
             window.processExtractedCode(codeBlocks);
@@ -151,6 +154,7 @@
           }
         } else {
           fallbackToHtmlExtraction();
+
         }
         if (window.intellijBridge && window.intellijBridge.notifyChatResponse && data.messages) {
           const assistantMessages = data.messages.filter(msg => msg.role === 'assistant');

@@ -188,7 +188,6 @@ public class JavaScriptBridge {
                     response.addProperty("success", true);
                     break;
                 case "showCodeDiffAndReplace":
-                    if (isNotAgentMode) break;
                     String codeContent = data.get("code").getAsString();
                     String codeLanguage = data.has("language") ? data.get("language").getAsString() : "";
                     String replaceTargetText = data.get("textToReplace").getAsString();
@@ -737,7 +736,6 @@ public class JavaScriptBridge {
             LOG.info("No pending response future to complete");
         }
     }
-
     /**
      * Handles showing diff and applying code replacement from the "To IDE" button
      *
@@ -756,13 +754,32 @@ public class JavaScriptBridge {
                 if (selectedText != null && !selectedText.isEmpty()) {
                     textToReplace = selectedText;
                 } else {
-                    // No text selected, show error dialog
+                    // No text selected, offer to insert at cursor position
                     ApplicationManager.getApplication().invokeLater(() -> {
-                        Messages.showWarningDialog(project,
-                                "No text is selected in the editor. Please select the text you want to replace.",
-                                "No Text Selected");
+                        int option = Messages.showYesNoDialog(project,
+                                "No text is selected in the editor.\n\n" +
+                                        "Choose how to handle the code:\n" +
+                                        "• Yes: Insert at current cursor position\n" +
+                                        "• No: Show the code in a dialog for manual copying\n" +
+                                        "• Cancel: Do nothing",
+                                "No Text Selected",
+                                "Insert at Cursor",
+                                "Skip",
+                                Messages.getQuestionIcon());
+
+                        if (option == Messages.YES) {
+                            // Insert at cursor position
+                            insertTextToEditor(codeContent);
+                            Messages.showInfoMessage(project,
+                                    "Code inserted at cursor position successfully!",
+                                    "Code Inserted");
+                        } else if (option == Messages.NO) {
+                            // Show code in a dialog for manual copying
+//                            showCodeDialog(codeContent, language);
+                        }
+                        // If CANCEL, do nothing
                     });
-                    return false;
+                    return true; // Return true since we handled the case
                 }
             }
 
@@ -770,10 +787,10 @@ public class JavaScriptBridge {
             if (textToReplace != null && !textToReplace.isEmpty()) {
                 return handleAdvancedCodeReplace(textToReplace, codeContent, language);
             } else {
-                // No text to replace, offer to insert at cursor position
+                // Fallback to insert at cursor if somehow textToReplace is empty
                 ApplicationManager.getApplication().invokeLater(() -> {
                     int option = Messages.showYesNoDialog(project,
-                            "No specific text to replace was found. Would you like to insert the code at the current cursor position?",
+                            "Would you like to insert the code at the current cursor position?",
                             "Insert Code",
                             "Insert at Cursor",
                             "Cancel",
@@ -796,6 +813,21 @@ public class JavaScriptBridge {
         }
     }
 
+    /**
+     * Shows code in a dialog for manual inspection and copying
+     * @param code The code content
+     * @param language The programming language
+     */
+    private void showCodeDialog(String code, String language) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            String title = "Generated Code" + (language.isEmpty() ? "" : " (" + language + ")");
+            String message = "Here is the generated code:\n\n" + code + "\n\n" +
+                    "You can copy this code manually and paste it where needed.";
+
+            // Use a scrollable dialog for long code
+            Messages.showInfoMessage(project, message, title);
+        });
+    }
     /**
      * Advanced code replacement with enhanced diff display and confirmation
      *

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.820-SNAPSHOT"
+version = "1.9.823-SNAPSHOT"
 
 repositories {
     mavenCentral()

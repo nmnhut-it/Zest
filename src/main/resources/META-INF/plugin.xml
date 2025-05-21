@@ -20,14 +20,15 @@
   <h3>🚀 Features That Actually Work:</h3>
   <ul>
     <li><b>Test Generation:</b> Right-click, generate test, grab coffee, return to find beautiful JUnit tests that actually compile!</li>
-    <li><b>TODO Implementation:</b> Select code with TODOs, right-click, and watch as they transform into real, working code. Magic? Nope, just robots doing your work.</li>
+    <li><b>Testability:</b> Receive practical advice on how to refactor your code for better testability and maintainability.</li>
     <li><b>Smart Code Analysis:</b> Zest analyzes your classes, imports, and dependencies to create context-aware implementations.</li>
-    <li><b>Enhanced Diff Viewer:</b> See exactly what changed before accepting, because trust issues are healthy in software development.</li>
+
+    <li><b>TODO Implementation:</b> Select code with TODOs, right-click, and watch as they transform into real, working code. Magic? Nope, just robots doing your work.</li>
     <li><b>Integrated Chat Zingplay:</b> Access Chat Zingplay within IntelliJ, with bidirectional communication between your code and web content.</li>
     <li><b>Git Commit Messages:</b> Automatically generate meaningful commit messages based on your changes, so you can stop typing "fixed stuff" at 2 AM.</li>
     <li><b>Code Review:</b> Get AI-powered code reviews for your classes directly in Chat ZPS without waiting for your colleagues.</li>
     <li><b>Smart Comments:</b> Generate meaningful comments for selected code segments that actually explain what's happening.</li>
-    <li><b>Testability Advisor:</b> Receive practical advice on how to refactor your code for better testability and maintainability.</li>
+
   </ul>
 
   <p>Zest plays nice with both JUnit 4 and JUnit 5, and intelligently detects Mockito to use it when available (we're not monsters).</p>

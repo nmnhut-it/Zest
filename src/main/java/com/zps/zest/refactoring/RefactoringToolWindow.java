@@ -230,7 +230,7 @@ public class RefactoringToolWindow {
                 toolWindow.getContentManager().addContent(content);
 
                 // Activate the tool window
-                toolWindow.setAvailable(true);
+//                toolWindow.setAvailable(true);
                 toolWindow.show(null);
 
                 LOG.info("Refactoring tool window shown for: " + plan.getTargetClass());

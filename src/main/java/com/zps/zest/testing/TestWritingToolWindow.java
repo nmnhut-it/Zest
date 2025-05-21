@@ -162,7 +162,7 @@ public class TestWritingToolWindow {
 
                 toolWindow.getContentManager().removeAllContents(true);
                 toolWindow.getContentManager().addContent(content);
-                toolWindow.setAvailable(true);
+//                toolWindow.setAvailable(true);
                 toolWindow.show(null);
 
                 LOG.info("Test writing tool window shown for: " + plan.getTargetClass());

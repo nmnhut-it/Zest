@@ -52,7 +52,7 @@ public class TestWritingToolWindowFactory implements ToolWindowFactory, DumbAwar
         toolWindow.setTitle("Test Writing Assistant");
         toolWindow.setStripeTitle("Test Writing");
         toolWindow.setIcon(com.intellij.icons.AllIcons.RunConfigurations.TestState.Run);
-        toolWindow.setAvailable(true);
+//        toolWindow.setAvailable(true);
     }
 
     @Override
@@ -95,7 +95,7 @@ public class TestWritingToolWindowFactory implements ToolWindowFactory, DumbAwar
             
             toolWindow.getContentManager().removeAllContents(true);
             toolWindow.getContentManager().addContent(content);
-            toolWindow.setAvailable(true);
+//            toolWindow.setAvailable(true);
             toolWindow.show(null);
             
             LOG.info("Test Writing UI created successfully for: " + plan.getTargetClass());

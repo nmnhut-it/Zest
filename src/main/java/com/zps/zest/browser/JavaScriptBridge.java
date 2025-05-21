@@ -66,10 +66,9 @@ public class JavaScriptBridge {
      */
     public String handleJavaScriptQuery(String query) {
         WebBrowserPanel.BrowserMode currentMode = WebBrowserService.getInstance(project).getBrowserPanel().getCurrentMode();
-        if (!"Agent Mode"
-                .equals(currentMode.getName())){
-            return "Not Allowed";
-        }
+        boolean isNotAgentMode = !"Agent Mode"
+                .equals(currentMode.getName());
+
         LOG.info("Received query from JavaScript: " + query);
 
         try {
@@ -87,6 +86,8 @@ public class JavaScriptBridge {
                     break;
 
                 case "insertText":
+                    if (isNotAgentMode) break;
+
                     String text = data.get("text").getAsString();
                     // Run async - don't wait for result
                     ApplicationManager.getApplication().invokeLater(() -> {
@@ -102,6 +103,8 @@ public class JavaScriptBridge {
                     break;
 
                 case "codeCompleted":
+                    if (isNotAgentMode) break;
+
                     String textToReplace = data.get("textToReplace").getAsString();
                     String resultText = data.get("text").getAsString();
                     // Run async - don't wait for result
@@ -130,6 +133,7 @@ public class JavaScriptBridge {
                     break;
 
                 case "getProjectInfo":
+
                     // This is the only one we keep synchronous as you mentioned it's important
                     JsonObject projectInfo = getProjectInfo();
                     response.addProperty("success", true);
@@ -137,6 +141,8 @@ public class JavaScriptBridge {
                     break;
 
                 case "extractCodeFromResponse":
+                    if (isNotAgentMode) break;
+
                     String codeText = data.get("code").getAsString();
                     String language = data.has("language") ? data.get("language").getAsString() : "";
                     String extractTextToReplace = data.get("textToReplace").getAsString();
@@ -148,6 +154,8 @@ public class JavaScriptBridge {
                     break;
 
                 case "replaceInFile":
+                    if (isNotAgentMode) break;
+
                     String filePath = data.get("filePath").getAsString();
                     String searchText = data.get("search").getAsString();
                     String replaceText = data.get("replace").getAsString();
@@ -161,6 +169,8 @@ public class JavaScriptBridge {
                     break;
 
                 case "batchReplaceInFile":
+                    if (isNotAgentMode) break;
+
                     String batchFilePath = data.get("filePath").getAsString();
                     JsonArray replacements = data.getAsJsonArray("replacements");
                     // Run async - don't wait for result
@@ -178,6 +188,7 @@ public class JavaScriptBridge {
                     response.addProperty("success", true);
                     break;
                 case "showCodeDiffAndReplace":
+                    if (isNotAgentMode) break;
                     String codeContent = data.get("code").getAsString();
                     String codeLanguage = data.has("language") ? data.get("language").getAsString() : "";
                     String replaceTargetText = data.get("textToReplace").getAsString();

@@ -16,9 +16,14 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(ChatboxLlmApiCallStage.class);
     private static final int TIMEOUT_SECONDS = 600; // 5 minutes (longer timeout for safety)
     private boolean useNativeFunctionCalling;
+    String model;
 
     public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1) {
+        this(useNativeFunctionCalling1, null);
+    }
+    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1, String model) {
         useNativeFunctionCalling1 = false;
+        this.model = model;
     }
 
     @Override
@@ -81,7 +86,13 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     WebBrowserService browserService = WebBrowserService.getInstance(project);
 
                     // Start a new chat
-                    ChatboxUtilities.clickNewChatButton(project);
+                    if (model == null){
+                        ChatboxUtilities.clickNewChatButton(project);
+                    }
+                    else {
+                        ChatboxUtilities.newChat(project,model);
+                    }
+
 
                     // Get the system prompt - determine which prompt to use based on stage type
                     String systemPrompt;

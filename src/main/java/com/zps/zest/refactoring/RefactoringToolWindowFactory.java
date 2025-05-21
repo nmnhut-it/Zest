@@ -60,7 +60,7 @@ public class RefactoringToolWindowFactory implements ToolWindowFactory, DumbAwar
         toolWindow.setTitle("Refactoring for Testability");
         toolWindow.setStripeTitle("Refactoring");
         toolWindow.setIcon(com.intellij.icons.AllIcons.Actions.RefactoringBulb);
-        toolWindow.setAvailable(true);
+//        toolWindow.setAvailable(true);
     }
 
     @Override
@@ -103,7 +103,7 @@ public class RefactoringToolWindowFactory implements ToolWindowFactory, DumbAwar
             
             toolWindow.getContentManager().removeAllContents(true);
             toolWindow.getContentManager().addContent(content);
-            toolWindow.setAvailable(true);
+//            toolWindow.setAvailable(true);
             toolWindow.show(null);
             
             LOG.info("Refactoring UI created successfully for: " + plan.getTargetClass());

@@ -68,6 +68,7 @@
             data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
           } else {
             // Add new system message at the beginning
+            console.log("Adding system message to the beginning of messages", window.__injected_system_prompt__);
             data.messages.unshift({
               role: 'system',
               content: window.__injected_system_prompt__

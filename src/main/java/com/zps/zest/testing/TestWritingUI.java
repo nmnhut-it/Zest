@@ -49,8 +49,32 @@ public class TestWritingUI {
             LOG.info("Reloaded progress: Scenario " + (reloadedProgress.getCurrentScenarioIndex() + 1) + 
                      ", Test Case " + (reloadedProgress.getCurrentTestCaseIndex() + 1) + 
                      " (" + reloadedProgress.getCurrentTest() + ")");
+            
+            // Validate the indices to ensure they're within bounds
+            validateProgressIndices();
         } else {
             LOG.warn("Failed to reload progress from disk - using current progress");
+        }
+    }
+
+    /**
+     * Validates that the current progress indices are within valid bounds.
+     */
+    private void validateProgressIndices() {
+        int scenarioIndex = currentProgress.getCurrentScenarioIndex();
+        int testCaseIndex = currentProgress.getCurrentTestCaseIndex();
+        
+        // Check if scenario index is valid
+        if (scenarioIndex >= plan.getScenarios().size()) {
+            LOG.warn("Invalid scenario index: " + scenarioIndex + ", total scenarios: " + plan.getScenarios().size());
+            return;
+        }
+        
+        // Check if test case index is valid for the current scenario
+        TestScenario currentScenario = plan.getScenarios().get(scenarioIndex);
+        if (testCaseIndex >= currentScenario.getTestCases().size()) {
+            LOG.warn("Invalid test case index: " + testCaseIndex + " for scenario " + scenarioIndex + 
+                     ", total test cases in scenario: " + currentScenario.getTestCases().size());
         }
     }
 
@@ -114,15 +138,28 @@ public class TestWritingUI {
         TestCase currentTestCase = null;
         
         try {
-            // Use currentProgress instead of progress to get the latest state
-            currentScenario = plan.getScenarios().get(currentProgress.getCurrentScenarioIndex());
-            currentTestCase = currentScenario.getTestCases().get(currentProgress.getCurrentTestCaseIndex());
-        } catch (IndexOutOfBoundsException e) {
-            LOG.warn("Invalid scenario or test case index: scenario=" + currentProgress.getCurrentScenarioIndex() + 
-                     ", testCase=" + currentProgress.getCurrentTestCaseIndex());
+            int scenarioIndex = currentProgress.getCurrentScenarioIndex();
+            int testCaseIndex = currentProgress.getCurrentTestCaseIndex();
+            
+            // Validate indices before accessing
+            if (scenarioIndex >= 0 && scenarioIndex < plan.getScenarios().size()) {
+                currentScenario = plan.getScenarios().get(scenarioIndex);
+                
+                if (testCaseIndex >= 0 && testCaseIndex < currentScenario.getTestCases().size()) {
+                    currentTestCase = currentScenario.getTestCases().get(testCaseIndex);
+                } else {
+                    LOG.warn("Invalid test case index: " + testCaseIndex + 
+                             " for scenario with " + currentScenario.getTestCases().size() + " test cases");
+                }
+            } else {
+                LOG.warn("Invalid scenario index: " + scenarioIndex + 
+                         " with " + plan.getScenarios().size() + " total scenarios");
+            }
+        } catch (Exception e) {
+            LOG.error("Error accessing current test case", e);
         }
 
-        if (currentTestCase != null) {
+        if (currentTestCase != null && currentScenario != null) {
             // Test case header
             JPanel testCaseHeaderPanel = new JPanel(new BorderLayout());
             JLabel testCaseTitleLabel = new JLabel("<html><b>" + currentTestCase.getTitle() + "</b></html>");
@@ -149,7 +186,14 @@ public class TestWritingUI {
             scrollPane.setPreferredSize(new Dimension(300, 75));
             infoPanel.add(scrollPane, BorderLayout.CENTER);
         } else {
-            infoPanel.add(new JLabel("No test cases available"), BorderLayout.CENTER);
+            // Show appropriate message based on the state
+            String message;
+            if (currentProgress.getCurrentScenarioIndex() >= plan.getScenarios().size()) {
+                message = "All scenarios completed";
+            } else {
+                message = "No test cases available or invalid state";
+            }
+            infoPanel.add(new JLabel(message), BorderLayout.CENTER);
         }
 
         return infoPanel;
@@ -157,34 +201,67 @@ public class TestWritingUI {
 
     private JProgressBar createProgressBar() {
         int totalTestCases = 0;
-        // Use currentProgress to get the latest counts
         int completedTestCases = currentProgress.getCompletedTestCaseIds().size();
         int skippedTestCases = currentProgress.getSkippedTestCaseIds().size();
 
+        // Calculate total test cases across all scenarios
         for (TestScenario scenario : plan.getScenarios()) {
             totalTestCases += scenario.getTestCases().size();
         }
 
         JProgressBar progressBar = new JProgressBar(0, totalTestCases);
-        progressBar.setValue(completedTestCases + skippedTestCases);
+        int processedTestCases = completedTestCases + skippedTestCases;
+        progressBar.setValue(processedTestCases);
         progressBar.setStringPainted(true);
-        progressBar.setString(String.format("%d of %d test cases completed", completedTestCases, totalTestCases));
+        
+        // More detailed progress string
+        progressBar.setString(String.format("%d completed, %d skipped, %d total (%d remaining)", 
+                                           completedTestCases, skippedTestCases, totalTestCases,
+                                           totalTestCases - processedTestCases));
 
         return progressBar;
     }
 
     private String getProgressStatusText() {
-        // Use currentProgress to get the latest indices
-        int scenarioIndex = currentProgress.getCurrentScenarioIndex() + 1;
-        int testCaseIndex = currentProgress.getCurrentTestCaseIndex() + 1;
-        int totalScenarios = plan.getScenarios().size();
+        try {
+            // Use currentProgress to get the latest indices
+            int scenarioIndex = currentProgress.getCurrentScenarioIndex();
+            int testCaseIndex = currentProgress.getCurrentTestCaseIndex();
+            int totalScenarios = plan.getScenarios().size();
 
-        int totalTestCases = 0;
-        if (scenarioIndex <= totalScenarios && scenarioIndex > 0) {
-            totalTestCases = plan.getScenarios().get(scenarioIndex - 1).getTestCases().size();
+            // Validate indices before proceeding
+            if (scenarioIndex >= totalScenarios) {
+                LOG.warn("Scenario index out of bounds: " + scenarioIndex + "/" + totalScenarios);
+                return "Test Writing Complete";
+            }
+
+            TestScenario currentScenario = plan.getScenarios().get(scenarioIndex);
+            int totalTestCasesInScenario = currentScenario.getTestCases().size();
+
+            // Check if we've completed all test cases in current scenario
+            if (testCaseIndex >= totalTestCasesInScenario) {
+                // This scenario is complete, check if there are more scenarios
+                if (scenarioIndex + 1 >= totalScenarios) {
+                    return "All Scenarios Complete";
+                } else {
+                    // This indicates a state inconsistency - we should have moved to next scenario
+                    LOG.warn("Test case index exceeds scenario size: testCase=" + testCaseIndex + 
+                             ", maxInScenario=" + totalTestCasesInScenario + ", scenario=" + scenarioIndex);
+                    return String.format("Scenario %d/%d Complete", scenarioIndex + 1, totalScenarios);
+                }
+            }
+
+            // Convert to 1-based for display
+            int displayScenarioIndex = scenarioIndex + 1;
+            int displayTestCaseIndex = testCaseIndex + 1;
+
+            return String.format("Scenario %d/%d, Test Case %d/%d", 
+                               displayScenarioIndex, totalScenarios, 
+                               displayTestCaseIndex, totalTestCasesInScenario);
+        } catch (Exception e) {
+            LOG.error("Error calculating progress status", e);
+            return "Progress Status Error";
         }
-
-        return String.format("Scenario %d/%d, Test Case %d/%d", scenarioIndex, totalScenarios, testCaseIndex, totalTestCases);
     }
 
     private void executeTestCase() {

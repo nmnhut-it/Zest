@@ -2,13 +2,19 @@ package com.zps.zest.browser.utils;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.WebBrowserToolWindow;
 import org.apache.commons.lang.StringEscapeUtils;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -177,6 +183,42 @@ public class ChatboxUtilities {
         });
 
         return true; // Return optimistically since we're now async
+    }
+
+    public static boolean newChat(Project project, String model){
+        if (project == null) {
+            LOG.warn("Cannot click new chat button: Project is null");
+            return false;
+        }
+
+        WebBrowserService browserService = WebBrowserService.getInstance(project);
+        if (browserService == null) {
+            LOG.warn("Cannot click new chat button: Browser service is null");
+            return false;
+        }
+
+        // Get the current URL to check if page is loaded
+        WebBrowserPanel browserPanel = browserService.getBrowserPanel();
+        if (browserPanel == null) {
+            LOG.warn("Cannot click new chat button: Browser panel is null");
+            return false;
+        }
+
+        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        url +="/?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8);
+        AtomicBoolean success = new AtomicBoolean(false);
+        browserPanel.getBrowserManager().getBrowser().getCefBrowser().loadURL( url);
+        // Wait for page to load before clicking new chat button
+        try {
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            return true;
+//        } catch (ExecutionException e) {
+//            return true;
+//        } catch (TimeoutException e) {
+//            return true;
+        }
+        return true;
     }
     /**
      * Sends text to the chat box and clicks the send button in one operation,

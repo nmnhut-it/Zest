@@ -229,7 +229,7 @@ public class TestPlanAnalysisStage implements PipelineStage {
         
         return scenario;
     }
-    
+
     /**
      * Parses a test case from a JSON object.
      */

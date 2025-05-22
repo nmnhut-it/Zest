@@ -9,47 +9,47 @@ package com.zps.zest.autocomplete.utils;
  * - External reference-based completion
  */
 public class AutocompletePromptBuilder {
-    public static final String ONLY_REMAINING = "IMPORTANT: Only return the part of the text to be inserted at cursor position.\n" +
-            "RESPECT the prefix";
+    public static final String ONLY_REMAINING = "IMPORTANT: Only return the part of the text to be inserted at cursor position. \n";
 
     // System prompts for different completion scenarios
     public static final String MINIMAL_SYSTEM_PROMPT =
-            "You are a code completion assistant. Return ONLY the code that should be inserted at the cursor position. " +
-                    "Do not include explanations, markdown formatting, or any other text.\n\n" +
+            "You are a code completion assistant. \nIMPORTANT: Return ONLY the code that should be inserted at the cursor position. " +
+                    "Do not include explanations, markdown formatting, backtick or any other text.\n\n" +
                     "Examples:\n" +
-                    "Input: for (int i = 0; i < <CURSOR>\n" +
-                    "Output: arr.length; i++)\n\n" +
-                    "Input: public void setName(String name) {\n    this.<CURSOR>\n" +
-                    "Output: name = name;";
+                    "Input: \n `for (int i = 0; i < <CURSOR>`\n" +
+                    "Output: `arr.length; i++)`\n\n" +
+                    "Input: `public void setName(String name) {\n    this.<CURSOR>`\n" +
+                    "Output: `name = name;`";
 
     public static final String JAVADOC_SYSTEM_PROMPT =
             "You are a documentation assistant. Generate ONLY the complete JavaDoc/JSDoc comment block that should be inserted at the cursor position. " +
                     "Include proper @param, @return, @throws tags as needed. Start with /** and end with */. " +
                     "Do not include explanations or any other text.\n\n" +
                     "Examples:\n" +
-                    "Input: <CURSOR>\n    public String getName() { return name; }\n" +
-                    "Output: /**\n     * Gets the name.\n     * @return the name\n     */\n\n" +
-                    "Input: <CURSOR>\n    public void setAge(int age) throws IllegalArgumentException {\n" +
-                    "Output: /**\n     * Sets the age.\n     * @param age the age to set\n     * @throws IllegalArgumentException if age is negative\n     */";
+                    "Input: `<CURSOR>\n    public String getName() { return name; }`\n" +
+                    "Output: `/**\n     * Gets the name.\n     * @return the name\n     */`\n\n" +
+                    "Input: `<CURSOR>\n    public void setAge(int age) throws IllegalArgumentException {`\n" +
+                    "Output: `/**\n     * Sets the age.\n     * @param age the age to set\n     * @throws IllegalArgumentException if age is negative\n     */`";
 
     public static final String LINE_COMMENT_SYSTEM_PROMPT =
-            "You are a comment completion assistant. Return ONLY the comment text that explains why this code exists or its purpose. " +
+            "You are a comment completion assistant. Return ONLY the comment text that explains why this code exists or its purpose. The comment MUST be a natural continuation of the existing sentence if such sentences are available"+
                     "Focus on business logic, edge cases, or important context. Be concise. " +
                     "Do not include the '//' prefix or any explanations.\n\n" +
                     "Examples:\n" +
-                    "Input: // <CURSOR>\n    if (user.getAge() < 0) throw new IllegalArgumentException();\n" +
-                    "Output: Validate age to prevent negative values in business logic\n\n" +
-                    "Input: // <CURSOR>\n    Thread.sleep(100);\n" +
-                    "Output: Brief pause to prevent overwhelming the API with requests";
+                    "Input: `// <CURSOR>\n    if (user.getAge() < 0) throw new IllegalArgumentException();`\n" +
+                    "Output: `Validate age to prevent negative values in business logic`\n\n" +
+                    "Input: `// <CURSOR>\n    Thread.sleep(100);`\n" +
+                    "Output: `Brief pause to prevent overwhelming the API with requests`";
 
     public static final String EXTERNAL_REFERENCE_PROMPT =
             "You are a code completion assistant. Based on common patterns and best practices, return ONLY the code that should be inserted at the cursor position. " +
                     "Do not include explanations, markdown formatting, or any other text.\n\n" +
                     "Examples:\n" +
-                    "Input: List<String> names = new ArrayList<>();\n    names.<CURSOR>\n" +
-                    "Output: add(\n\n" +
-                    "Input: try {\n    // code\n} <CURSOR>\n" +
-                    "Output: catch (Exception e) {\n    e.printStackTrace();\n}";
+                    "Input: `List<String> names = new ArrayList<>();\n    names.<CURSOR>`\n" +
+                    "Output: `add(`\n\n" +
+                    "Input: `try {\n    // code\n} <CURSOR>`\n" +
+                    "Output: `catch (Exception e) {\n    e.printStackTrace();\n}`";
+
 
     private String systemPrompt = "";
     private String fileContext = "";

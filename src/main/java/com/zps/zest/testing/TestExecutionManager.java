@@ -9,6 +9,7 @@ import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiJavaFile;
 import com.zps.zest.ClassAnalyzer;
+import com.zps.zest.TestFrameworkUtils;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 
 import java.util.ArrayList;
@@ -181,7 +182,6 @@ public class TestExecutionManager {
             return null;
         }
     }
-
     /**
      * Creates a prompt for executing a specific test case.
      */
@@ -207,12 +207,23 @@ public class TestExecutionManager {
 
             // Replace placeholders with actual values
             String testFilePath = currentTestCase.getTestFilePath() == null ? plan.getTestFilePath() : currentTestCase.getTestFilePath();
-            
-            // Get JUnit and Mockito information from the class context if available
-            String junitVersion = "JUnit 5"; // Default
-            String mockitoAvailable = "available"; // Default assumption
+
+            // Get framework information using static utility methods
+            String junitVersion = TestFrameworkUtils.detectJUnitVersion(project);
+            String mockitoAvailable = TestFrameworkUtils.isMockitoAvailable(project) ? "available" : "not available";
+            String mockitoVersion = TestFrameworkUtils.detectMockitoVersion(project);
+            String buildTool = TestFrameworkUtils.detectBuildTool(project);
+            String frameworksSummary = TestFrameworkUtils.getFrameworksSummary(project);
+            String recommendedAssertions = TestFrameworkUtils.getRecommendedAssertionStyle(project);
+            String environmentInfo = TestFrameworkUtils.getEnvironmentInfo();
+            String completeFrameworkInfo = TestFrameworkUtils.getCompleteFrameworkInfo(project);
+
+            // Get environment information
             String osName = System.getProperty("os.name", "Unknown");
-            String terminalType = getTerminalType(osName);
+            String terminalType = TestFrameworkUtils.getTerminalType(osName);
+
+            // Collect test class structure information
+            String testClassStructure = collectTestClassStructureInfo(testFilePath);
 
             template = template.replace("${targetClass}", plan.getTargetClass())
                     .replace("${testCaseTitle}", currentTestCase.getTitle())
@@ -227,8 +238,15 @@ public class TestExecutionManager {
                     .replace("${testFilePath}", testFilePath != null ? testFilePath : "")
                     .replace("${junitVersion}", junitVersion)
                     .replace("${mockitoAvailable}", mockitoAvailable)
+                    .replace("${mockitoVersion}", mockitoVersion != null ? mockitoVersion : "N/A")
+                    .replace("${buildTool}", buildTool)
+                    .replace("${frameworksSummary}", frameworksSummary)
+                    .replace("${recommendedAssertions}", recommendedAssertions)
+                    .replace("${environmentInfo}", environmentInfo)
+                    .replace("${completeFrameworkInfo}", completeFrameworkInfo)
                     .replace("${osName}", osName)
-                    .replace("${terminalType}", terminalType);
+                    .replace("${terminalType}", terminalType)
+                    .replace("${testClassStructure}", testClassStructure);
 
             // Replace optional fields
             if (currentTestCase.getTestMethodName() != null && !currentTestCase.getTestMethodName().isEmpty()) {
@@ -260,6 +278,45 @@ public class TestExecutionManager {
         }
     }
 
+    /**
+     * Collects test class structure information if the test class exists.
+     *
+     * @param testFilePath The path to the test file
+     * @return A string representation of the test class structure, or empty if class doesn't exist
+     */
+    private String collectTestClassStructureInfo(String testFilePath) {
+        if (testFilePath == null || testFilePath.isEmpty()) {
+            return "Test class will be created.";
+        }
+
+        try {
+            // Try to find the test class
+            PsiClass testClass = ClassAnalyzer.findTestClass(project, testFilePath);
+
+            if (testClass == null) {
+                return "Test class will be created at: " + testFilePath;
+            }
+
+            StringBuilder structureInfo = new StringBuilder();
+            structureInfo.append("## Existing Test Class Structure\n\n");
+            structureInfo.append("```java\n");
+            structureInfo.append(ClassAnalyzer.collectTestClassStructure(testClass));
+            structureInfo.append("\n```\n\n");
+
+            // Collect subclass structures if any
+            String subclassStructures = ClassAnalyzer.collectTestSubclassStructures(project, testClass);
+            if (!subclassStructures.isEmpty()) {
+                structureInfo.append("## Test Subclasses\n\n");
+                structureInfo.append(subclassStructures);
+            }
+
+            return structureInfo.toString();
+
+        } catch (Exception e) {
+            LOG.warn("Error collecting test class structure: " + e.getMessage());
+            return "Test class structure could not be analyzed. Test class will be created or updated at: " + testFilePath;
+        }
+    }
     /**
      * Creates a built-in test case execution prompt as a fallback.
      */

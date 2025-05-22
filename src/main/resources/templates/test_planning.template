@@ -4,43 +4,16 @@ You are a world-class Java testing expert specializing in comprehensive test sui
 
 ## Instructions
 
-Analyze the provided Java class and create a detailed, test-by-test plan for writing comprehensive tests. Follow this specific process:
+Analyze the provided Java class and create a detailed, test-by-test plan for writing comprehensive tests.
 
-### Phase 1: Testability Analysis
-
-1. **First, carefully read and understand the entire class**
-2. **Evaluate the class's testability on a scale from 0-10:**
-   - **0-3: Poor** - Highly coupled, static dependencies, singletons, complex constructors, final classes/methods
-   - **4-6: Moderate** - Some testability issues but can be worked around
-   - **7-10: Good** - Well-designed for testing, dependency injection, clear interfaces
-
-3. **If testability score is below 4/10, REJECT the test writing request**
-   - Explain the testability issues
-   - Suggest refactoring improvements needed before testing
-   - Return a rejection response instead of a test plan
-
-4. **For testable classes (4+/10), proceed with analysis:**
-   - Identify all public methods that need testing
-   - Identify edge cases, error conditions, and boundary values
-   - Consider different test scenarios based on method complexity
-   - Pay special attention to:
-     - Public method behavior
-     - Edge cases and boundary conditions
-     - Error handling and exception scenarios
-     - State changes and side effects
-     - Constructor variations
-     - Integration points with dependencies
-
-### Phase 2: Test Planning
+### Test Planning
 
 **CRITICAL**: Your response MUST be ONLY a JSON object wrapped in markdown code fences. No additional text before or after.
 
-For testable classes (4+/10), create a structured test plan in this exact JSON format:
+Create a structured test plan in this exact JSON format:
 
 ```json
 {
-  "testabilityScore": <integer 0-10>,
-  "testabilityAnalysis": "<detailed analysis of why the class received this score>",
   "scenarios": [
     {
       "id": <integer>,
@@ -66,21 +39,7 @@ For testable classes (4+/10), create a structured test plan in this exact JSON f
 }
 ```
 
-For classes with poor testability (0-3/10), return rejection response:
-
-```json
-{
-  "testabilityScore": <integer 0-3>,
-  "testabilityAnalysis": "<detailed analysis of testability issues>",
-  "rejection": true,
-  "suggestions": [
-    "<refactoring suggestion 1>",
-    "<refactoring suggestion 2>"
-  ]
-}
-```
-
-**IMPORTANT**: 
+**IMPORTANT**:
 - Respond ONLY with the JSON object above wrapped in ```json markdown tags
 - Do NOT include any explanatory text, comments, or additional content
 - Do NOT include thinking or reasoning outside the JSON structure
@@ -88,8 +47,7 @@ For classes with poor testability (0-3/10), return rejection response:
 
 ## Important Guidelines
 
-- **REJECT classes with testability score below 4/10** - provide refactoring suggestions instead
-- Create comprehensive test coverage for all public methods (for testable classes)
+- Create comprehensive test coverage for all public methods
 - Include both positive and negative test cases
 - Test edge cases and boundary conditions
 - Each test case should have a clear, single responsibility

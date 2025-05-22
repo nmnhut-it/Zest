@@ -21,12 +21,36 @@
 ## Environment Information
 
 **Package**: ${packageName}
+**Available Frameworks**: ${frameworksSummary}
 **JUnit Version**: ${junitVersion}
-**Mockito Available**: ${mockitoAvailable}
+**Mockito**: ${mockitoAvailable} (${mockitoVersion})
+**Recommended Assertions**: ${recommendedAssertions}
+**Build Tool**: ${buildTool}
 **Operating System**: ${osName}
 **Terminal**: ${terminalType}
+
+## Framework Details
+
+${completeFrameworkInfo}
 
 ## Class Under Test
 
 ```java
 ${classContext}
+```
+
+## Test Class Information
+
+${testClassStructure}
+
+## Instructions
+
+Please implement the test case above. Consider the existing test class structure (if any) to:
+- Avoid duplicate test methods
+- Follow established naming patterns
+- Reuse existing setup methods or fields where appropriate
+- Maintain consistency with existing test style
+- Use the available testing frameworks detected: ${frameworksSummary}
+- Follow the recommended assertion style: ${recommendedAssertions}
+
+If the test class doesn't exist yet, create it with proper structure including necessary imports, fields, and setup methods.

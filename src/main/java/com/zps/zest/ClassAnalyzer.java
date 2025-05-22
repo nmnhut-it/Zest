@@ -1,12 +1,16 @@
 package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -21,7 +25,7 @@ public class ClassAnalyzer {
 
     /**
      * Collects class context information for the given class.
-     * 
+     *
      * @param targetClass The class to analyze
      * @return A string representation of the class context
      */
@@ -29,10 +33,10 @@ public class ClassAnalyzer {
         return ApplicationManager.getApplication().runReadAction(
                 (Computable<String>) () -> collectClassContextInternal(targetClass));
     }
-    
+
     /**
      * Collects code context information around a selection within a file.
-     * 
+     *
      * @param psiFile The file containing the selection
      * @param selectionStart The start offset of the selection
      * @param selectionEnd The end offset of the selection
@@ -44,7 +48,7 @@ public class ClassAnalyzer {
             if (!(psiFile instanceof PsiJavaFile)) {
                 return "Not a Java file";
             }
-            
+
             PsiJavaFile javaFile = (PsiJavaFile) psiFile;
 
             // Add package info
@@ -64,7 +68,7 @@ public class ClassAnalyzer {
 
             PsiMethod containingMethod = PsiTreeUtil.getParentOfType(startElement, PsiMethod.class);
             PsiClass containingClass = null;
-            
+
             if (containingMethod != null) {
                 containingClass = containingMethod.getContainingClass();
             } else {
@@ -104,7 +108,7 @@ public class ClassAnalyzer {
                 // Add related classes
                 Set<PsiClass> relatedClasses = new HashSet<>();
                 collectRelatedClasses(containingClass, relatedClasses);
-                
+
                 if (containingMethod != null) {
                     collectClassesInMethod(containingMethod, relatedClasses);
                 }
@@ -116,7 +120,7 @@ public class ClassAnalyzer {
                         if (cls.equals(containingClass)) continue; // Skip the containing class itself
 
                         context.append(cls.isInterface() ? "Interface: " : "Class: ")
-                              .append(cls.getQualifiedName()).append("\n");
+                                .append(cls.getQualifiedName()).append("\n");
 
                         // Include class structure
                         context.append("```java\n");
@@ -128,6 +132,209 @@ public class ClassAnalyzer {
 
             return context.toString();
         });
+    }
+
+    /**
+     * Finds a test class by its file path.
+     *
+     * @param project The project to search in
+     * @param testFilePath The path to the test file
+     * @return The test class if found, null otherwise
+     */
+    @Nullable
+    public static PsiClass findTestClass(Project project, String testFilePath) {
+        return ApplicationManager.getApplication().runReadAction((Computable<PsiClass>) () -> {
+            try {
+                // Find the file by path
+                com.intellij.openapi.vfs.VirtualFile virtualFile =
+                        com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(testFilePath);
+
+                if (virtualFile == null) {
+                    return null;
+                }
+
+                // Get the PSI file
+                PsiFile psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile);
+                if (!(psiFile instanceof PsiJavaFile)) {
+                    return null;
+                }
+
+                PsiJavaFile javaFile = (PsiJavaFile) psiFile;
+                PsiClass[] classes = javaFile.getClasses();
+
+                // Return the first public class (typically the test class)
+                for (PsiClass psiClass : classes) {
+                    if (psiClass.hasModifierProperty(PsiModifier.PUBLIC)) {
+                        return psiClass;
+                    }
+                }
+
+                // If no public class, return the first class
+                return classes.length > 0 ? classes[0] : null;
+
+            } catch (Exception e) {
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Collects the structure of a test class (methods and fields without body).
+     *
+     * @param testClass The test class to analyze
+     * @return A string representation of the test class structure
+     */
+    public static String collectTestClassStructure(PsiClass testClass) {
+        return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+            StringBuilder structure = new StringBuilder();
+
+            // Add class declaration
+            structure.append("public class ").append(testClass.getName());
+
+            // Add extends
+            PsiClass superClass = testClass.getSuperClass();
+            if (superClass != null && !Objects.equals(superClass.getName(), "Object")) {
+                structure.append(" extends ").append(superClass.getName());
+            }
+
+            // Add implements
+            PsiClassType[] implementsTypes = testClass.getImplementsListTypes();
+            if (implementsTypes.length > 0) {
+                structure.append(" implements ");
+                for (int i = 0; i < implementsTypes.length; i++) {
+                    structure.append(implementsTypes[i].getClassName());
+                    if (i < implementsTypes.length - 1) {
+                        structure.append(", ");
+                    }
+                }
+            }
+            structure.append(" {\n\n");
+
+            // Add fields
+            PsiField[] fields = testClass.getFields();
+            if (fields.length > 0) {
+                structure.append("    // Fields\n");
+                for (PsiField field : fields) {
+                    structure.append("    ");
+                    if (field.hasModifierProperty(PsiModifier.PRIVATE)) structure.append("private ");
+                    if (field.hasModifierProperty(PsiModifier.PROTECTED)) structure.append("protected ");
+                    if (field.hasModifierProperty(PsiModifier.PUBLIC)) structure.append("public ");
+                    if (field.hasModifierProperty(PsiModifier.STATIC)) structure.append("static ");
+                    if (field.hasModifierProperty(PsiModifier.FINAL)) structure.append("final ");
+
+                    structure.append(field.getType().getPresentableText())
+                            .append(" ")
+                            .append(field.getName())
+                            .append(";\n");
+                }
+                structure.append("\n");
+            }
+
+            // Add methods (signatures only)
+            PsiMethod[] methods = testClass.getMethods();
+            if (methods.length > 0) {
+                structure.append("    // Methods\n");
+                for (PsiMethod method : methods) {
+                    // Skip inherited Object methods
+                    if (method.getContainingClass() != testClass) {
+                        continue;
+                    }
+
+                    structure.append("    ");
+
+                    // Add annotations (common test annotations)
+                    PsiAnnotation[] annotations = method.getAnnotations();
+                    for (PsiAnnotation annotation : annotations) {
+                        String annotationName = annotation.getQualifiedName();
+                        if (annotationName != null && (
+                                annotationName.contains("Test") ||
+                                        annotationName.contains("Before") ||
+                                        annotationName.contains("After") ||
+                                        annotationName.contains("Setup") ||
+                                        annotationName.contains("TearDown"))) {
+                            structure.append("@").append(getSimpleName(annotationName)).append(" ");
+                        }
+                    }
+
+                    // Add modifiers
+                    if (method.hasModifierProperty(PsiModifier.PRIVATE)) structure.append("private ");
+                    if (method.hasModifierProperty(PsiModifier.PROTECTED)) structure.append("protected ");
+                    if (method.hasModifierProperty(PsiModifier.PUBLIC)) structure.append("public ");
+                    if (method.hasModifierProperty(PsiModifier.STATIC)) structure.append("static ");
+                    if (method.hasModifierProperty(PsiModifier.FINAL)) structure.append("final ");
+
+                    // Add return type
+                    PsiType returnType = method.getReturnType();
+                    if (returnType != null) {
+                        structure.append(returnType.getPresentableText()).append(" ");
+                    }
+
+                    // Add method name and parameters
+                    structure.append(method.getName()).append("(");
+
+                    PsiParameter[] parameters = method.getParameterList().getParameters();
+                    for (int i = 0; i < parameters.length; i++) {
+                        PsiParameter param = parameters[i];
+                        structure.append(param.getType().getPresentableText())
+                                .append(" ")
+                                .append(param.getName());
+                        if (i < parameters.length - 1) {
+                            structure.append(", ");
+                        }
+                    }
+                    structure.append(");\n");
+                }
+            }
+
+            structure.append("}");
+            return structure.toString();
+        });
+    }
+
+    /**
+     * Finds and collects structures of test subclasses.
+     *
+     * @param project The project to search in
+     * @param testClass The test class to find subclasses for
+     * @return A string representation of subclass structures
+     */
+    public static String collectTestSubclassStructures(Project project, PsiClass testClass) {
+        return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+            StringBuilder structures = new StringBuilder();
+
+            try {
+                // Find all classes that extend the test class
+                com.intellij.psi.search.searches.ClassInheritorsSearch.SearchParameters searchParams =
+                        new com.intellij.psi.search.searches.ClassInheritorsSearch.SearchParameters(
+                                testClass, GlobalSearchScope.projectScope(project), true, false, false);
+
+                java.util.Collection<PsiClass> subclasses =
+                        com.intellij.psi.search.searches.ClassInheritorsSearch.search(searchParams).findAll();
+
+                if (!subclasses.isEmpty()) {
+                    for (PsiClass subclass : subclasses) {
+                        if (subclass.equals(testClass)) continue; // Skip the class itself
+
+                        structures.append("Subclass: ").append(subclass.getName()).append("\n");
+                        structures.append("```java\n");
+                        structures.append(collectTestClassStructure(subclass));
+                        structures.append("\n```\n\n");
+                    }
+                }
+            } catch (Exception e) {
+                // If search fails, just return empty
+            }
+
+            return structures.toString();
+        });
+    }
+
+    /**
+     * Helper method to get simple name from qualified name.
+     */
+    private static String getSimpleName(String qualifiedName) {
+        int lastDot = qualifiedName.lastIndexOf('.');
+        return lastDot >= 0 ? qualifiedName.substring(lastDot + 1) : qualifiedName;
     }
 
     /**
@@ -161,7 +368,7 @@ public class ClassAnalyzer {
             if (cls.equals(targetClass)) continue; // Skip the target class itself
 
             contextInfo.append(cls.isInterface() ? "Interface: " : "Class: ")
-                      .append(cls.getQualifiedName()).append("\n");
+                    .append(cls.getQualifiedName()).append("\n");
 
             // Include class structure
             contextInfo.append("```java\n");

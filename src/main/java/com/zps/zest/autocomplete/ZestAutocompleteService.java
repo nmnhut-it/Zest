@@ -2,6 +2,7 @@ package com.zps.zest.autocomplete;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
@@ -187,8 +188,8 @@ public final class ZestAutocompleteService implements Disposable {
                 // Make API request
                 CompletableFuture.runAsync(() -> {
                     try {
-                        CodeContext context = createCodeContext(editor, enhancedPrompt, config);
-                        AutocompleteApiStage apiStage = new AutocompleteApiStage();
+                        CodeContext context = ReadAction.compute(()->createCodeContext(editor, enhancedPrompt, config));
+                        AutocompleteApiStage apiStage = new AutocompleteApiStage(project);
                         apiStage.process(context);
 
                         String completion = context.getApiResponse();

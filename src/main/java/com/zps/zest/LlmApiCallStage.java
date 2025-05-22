@@ -29,17 +29,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Enhanced stage for making API calls to the LLM with streaming support and background processing.
  */
 public class LlmApiCallStage implements PipelineStage {
-    private static final String NOTIFICATION_GROUP_ID = "Zest LLM";
-    private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final int CONNECTION_TIMEOUT_MS = 480_000;
-    private static final int READ_TIMEOUT_MS = 120_000;
+    public static final String NOTIFICATION_GROUP_ID = "Zest LLM";
+    public static final int MAX_RETRY_ATTEMPTS = 3;
+    public static final int CONNECTION_TIMEOUT_MS = 480_000;
+    public static final int READ_TIMEOUT_MS = 120_000;
 
     // Streaming feedback settings
-    private Notification activeNotification;
-    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
-    private final StringBuilder streamedResponse = new StringBuilder();
-    private long lastUpdateTimestamp = 0;
-    private static final long UPDATE_THROTTLE_MS = 500; // Update HUD at most every 500ms
+    public Notification activeNotification;
+    public final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    public final StringBuilder streamedResponse = new StringBuilder();
+    public long lastUpdateTimestamp = 0;
+    public static final long UPDATE_THROTTLE_MS = 500; // Update HUD at most every 500ms
 
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
@@ -188,7 +188,7 @@ public class LlmApiCallStage implements PipelineStage {
      * @param project The current project
      * @throws IOException If an error occurs during the API call
      */
-    private void streamLlmApi(String apiUrl, String model, String authToken, String prompt,
+    public void streamLlmApi(String apiUrl, String model, String authToken, String prompt,
                               ProgressIndicator indicator, Project project) throws IOException {
         // Determine which API format to use based on URL
         if (apiUrl.contains("openwebui") || apiUrl.contains("chat.zingplay") || apiUrl.contains("talk.zingplay")) {
@@ -201,7 +201,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Streams from OpenWebUI/Zingplay compatible API.
      */
-    private void streamOpenWebUIApi(String apiUrl, String model, String authToken, String prompt,
+    public void streamOpenWebUIApi(String apiUrl, String model, String authToken, String prompt,
                                     ProgressIndicator indicator, Project project) throws IOException {
         URL url = new URL(apiUrl);
         HttpURLConnection connection = setupConnection(url, authToken);
@@ -241,7 +241,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Streams from Ollama compatible API.
      */
-    private void streamOllamaApi(String apiUrl, String model, String authToken, String prompt,
+    public void streamOllamaApi(String apiUrl, String model, String authToken, String prompt,
                                  ProgressIndicator indicator, Project project) throws IOException {
         URL url = new URL(apiUrl);
         HttpURLConnection connection = setupConnection(url, authToken);
@@ -271,7 +271,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Helper method to set up an HTTP connection.
      */
-    private HttpURLConnection setupConnection(URL url, String authToken) throws IOException {
+    public HttpURLConnection setupConnection(URL url, String authToken) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
@@ -288,7 +288,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Helper method to send the payload to the connection.
      */
-    private void sendPayload(HttpURLConnection connection, String payload) throws IOException {
+    public void sendPayload(HttpURLConnection connection, String payload) throws IOException {
         try (OutputStream os = connection.getOutputStream()) {
             byte[] input = payload.getBytes(StandardCharsets.UTF_8);
             os.write(input, 0, input.length);
@@ -299,14 +299,14 @@ public class LlmApiCallStage implements PipelineStage {
      * Functional interface for processing streamed chunks.
      */
     @FunctionalInterface
-    private interface StreamChunkProcessor {
+    public interface StreamChunkProcessor {
         String processChunk(String chunk);
     }
 
     /**
      * Processes a streaming response from the API.
      */
-    private void processStreamingResponse(HttpURLConnection connection, ProgressIndicator indicator,
+    public void processStreamingResponse(HttpURLConnection connection, ProgressIndicator indicator,
                                           Project project, StreamChunkProcessor processor) throws IOException {
         int responseCode = connection.getResponseCode();
 
@@ -370,7 +370,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Standard (non-streaming) API call method.
      */
-    private String callLlmApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
+    public String callLlmApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
         // Determine which API format to use based on URL
         if (apiUrl.contains("openwebui") || apiUrl.contains("chat.zingplay") || apiUrl.contains("talk.zingplay")) {
             String s = null;
@@ -388,7 +388,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Makes a non-streaming API call to the OpenWebUI/Zingplay compatible API.
      */
-    private String callOpenWebUIApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
+    public String callOpenWebUIApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
         try {
             URL url = new URL(apiUrl);
             HttpURLConnection connection = setupConnection(url, authToken);
@@ -451,7 +451,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Makes a non-streaming API call to the Ollama compatible API.
      */
-    private String callOllamaApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
+    public String callOllamaApi(String apiUrl, String model, String authToken, String prompt) throws IOException {
         try {
             URL url = new URL(apiUrl);
             HttpURLConnection connection = setupConnection(url, authToken);
@@ -509,7 +509,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Escapes JSON string values.
      */
-    private String escapeJson(String input) {
+    public String escapeJson(String input) {
         return input.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
@@ -520,7 +520,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Determines if streaming should be used based on configuration.
      */
-    private boolean shouldUseStreaming(ConfigurationManager config) {
+    public boolean shouldUseStreaming(ConfigurationManager config) {
         // Use the configured value from the configuration
         return true;
     }
@@ -528,7 +528,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Shows the initial streaming notification.
      */
-    private void showStreamingNotification(Project project, @NlsContexts.NotificationContent String message) {
+    public void showStreamingNotification(Project project, @NlsContexts.NotificationContent String message) {
         ApplicationManager.getApplication().invokeLater(() -> {
             if (activeNotification != null) {
                 activeNotification.expire();
@@ -550,7 +550,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Updates the streaming notification with new content.
      */
-    private void updateStreamingNotification(Project project,
+    public void updateStreamingNotification(Project project,
                                              @NlsContexts.NotificationContent String message,
                                              boolean isComplete) {
         ApplicationManager.getApplication().invokeLater(() -> {
@@ -579,7 +579,7 @@ public class LlmApiCallStage implements PipelineStage {
     /**
      * Gets a preview of the text for the notification.
      */
-    private String getPreviewText(StringBuilder fullText) {
+    public String getPreviewText(StringBuilder fullText) {
         // Limit the preview to avoid huge notifications
         int maxLength = 100;
         String text;

@@ -28,7 +28,7 @@ public enum AcceptType {
     NEXT_LINE;
 
     // Pattern for word boundary detection (matches word chars or non-word chars)
-    private static final Pattern WORD_PATTERN = Pattern.compile("\\w+|\\W+");
+    private static final Pattern WORD_PATTERN = Pattern.compile("\\w+\\s?|\\W+\\s?");
 
     /**
      * Extracts the text to accept based on the accept type and completion text.

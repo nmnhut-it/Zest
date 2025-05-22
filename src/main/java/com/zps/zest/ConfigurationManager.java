@@ -100,6 +100,7 @@ public class ConfigurationManager {
             "    Ask questions to clarify requirements, explain reasoning, and think step-by-step while maintaining system awareness. Provide clear code examples with explanations./no_think";
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
+    public static final String QWEN_2_5_CODER_7_B = "Qwen2.5-Coder-7B";
 
     // Register project listener to clean up closed projects
     static {
@@ -129,7 +130,7 @@ public class ConfigurationManager {
     private boolean enableAutocomplete = true;
     private int autocompleteDelay = 300; // ms
     private boolean enableMultilineCompletions = true;
-    private String autocompleteModel = "Qwen2.5-Coder-7B";
+    private String autocompleteModel = QWEN_2_5_CODER_7_B;
 
     /**
      * Private constructor to enforce singleton pattern per project.

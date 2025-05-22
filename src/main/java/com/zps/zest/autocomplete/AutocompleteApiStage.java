@@ -1,32 +1,32 @@
 package com.zps.zest.autocomplete;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.zps.zest.CodeContext;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.LlmApiCallStage;
 import com.zps.zest.PipelineExecutionException;
 import com.zps.zest.autocomplete.utils.AutocompletePromptBuilder;
 import com.zps.zest.autocomplete.utils.ContextGatherer;
 
 /**
  * Enhanced AutocompleteApiStage following Tabby ML best practices.
- * Optimized for fast, accurate code completions.
+ * Optimized for fast, accurate code completions with special handling for:
+ * - Standard code completion
+ * - JavaDoc/JSDoc generation
+ * - Line comment completion
  */
-public class AutocompleteApiStage extends LlmApiCallStage {
+public class AutocompleteApiStage extends OpenWebUiApiCallStage {
     private static final Logger LOG = Logger.getInstance(AutocompleteApiStage.class);
 
-    // Optimized settings for autocomplete
-    private static final int AUTOCOMPLETE_TIMEOUT_MS = 8000; // Slightly longer for better results
-    private static final int MAX_COMPLETION_TOKENS = 150;    // Focused completions
-    private static final double AUTOCOMPLETE_TEMPERATURE = 0.2; // More deterministic
-    private static final double AUTOCOMPLETE_TOP_P = 0.8;   // More focused
 
-    // Minimal system prompt following Tabby ML approach
-    private static final String MINIMAL_SYSTEM_PROMPT =
-            "Complete the code. Only return the completion text, no explanations.";
+    public AutocompleteApiStage(Project project) {
+        super(new Builder().systemPrompt(AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT).streaming(false).model(ConfigurationManager.getInstance(project).getAutocompleteModel()));
+    }
+
 
     @Override
     public void process(CodeContext context) throws PipelineExecutionException {
@@ -34,7 +34,9 @@ public class AutocompleteApiStage extends LlmApiCallStage {
 
         try {
             // Enhanced context preparation
-            enhanceContextForAutocomplete(context);
+            ReadAction.run(()->{
+                enhanceContextForAutocomplete(context);
+            });
 
             // Optimize configuration for autocomplete
             optimizeConfigurationForAutocomplete(context);
@@ -53,6 +55,7 @@ public class AutocompleteApiStage extends LlmApiCallStage {
 
     /**
      * Enhanced context preparation using Tabby ML patterns.
+     * Now with special handling for JavaDoc and line comments.
      */
     private void enhanceContextForAutocomplete(CodeContext context) {
         Editor editor = context.getEditor();
@@ -74,27 +77,46 @@ public class AutocompleteApiStage extends LlmApiCallStage {
             ContextGatherer.CursorContext cursorContext =
                     ContextGatherer.gatherEnhancedCursorContext(editor, psiFile);
 
-            // Gather file context  
+            // Gather file context
             String fileContext = ContextGatherer.gatherFileContext(editor, psiFile);
 
             // Detect language
             String language = detectLanguage(editor, psiFile);
 
-            // Build minimal, effective prompt
-            String enhancedPrompt = AutocompletePromptBuilder.createContextAwarePrompt(
-                    fileContext,
-                    cursorContext.getPrefixContext(),
-                    cursorContext.getSuffixContext(),
-                    language
-            );
+            // Check if we need special handling for comments
+            String prefix = cursorContext.getPrefixContext();
+            String suffix = cursorContext.getSuffixContext();
+            boolean isJavadocContext = isJavadocContext(prefix);
+            boolean isLineCommentContext = isLineCommentContext(prefix);
+
+            String enhancedPrompt;
+
+            if (isJavadocContext) {
+                // Create JavaDoc-specific prompt
+                enhancedPrompt = createJavadocPrompt(fileContext, prefix, suffix, language);
+                context.setCurrentStageType("JAVADOC_COMPLETION_API");
+                LOG.debug("JavaDoc completion context prepared for language: " + language);
+            }
+            else if (isLineCommentContext) {
+                // Create line comment-specific prompt
+                enhancedPrompt = createLineCommentPrompt(fileContext, prefix, suffix, language);
+                context.setCurrentStageType("LINE_COMMENT_COMPLETION_API");
+                LOG.debug("Line comment completion context prepared for language: " + language);
+            }
+            else {
+                // Standard code completion
+                enhancedPrompt = AutocompletePromptBuilder.createContextAwarePrompt(
+                        fileContext,
+                        prefix,
+                        suffix,
+                        language
+                );
+                context.setCurrentStageType("ENHANCED_AUTOCOMPLETE_API");
+                LOG.debug("Enhanced autocomplete context prepared for language: " + language);
+            }
 
             // Set the enhanced prompt
             context.setPrompt(enhancedPrompt);
-
-            // Store additional context for debugging
-            context.setCurrentStageType("ENHANCED_AUTOCOMPLETE_API");
-
-            LOG.debug("Enhanced autocomplete context prepared for language: " + language);
 
         } catch (Exception e) {
             LOG.warn("Failed to enhance autocomplete context, falling back to basic", e);
@@ -103,12 +125,84 @@ public class AutocompleteApiStage extends LlmApiCallStage {
     }
 
     /**
+     * Checks if the cursor is positioned to complete a JavaDoc/JSDoc comment.
+     */
+    private boolean isJavadocContext(String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return false;
+        }
+
+        // Get the last line of prefix to determine context
+        String[] lines = prefix.split("\n");
+        if (lines.length == 0) {
+            return false;
+        }
+
+        String lastLine = lines[lines.length - 1].trim();
+
+        // Check for JavaDoc/JSDoc comment start
+        return lastLine.startsWith("/**") || lastLine.equals("/*");
+    }
+
+    /**
+     * Checks if the cursor is positioned to complete a line comment.
+     */
+    private boolean isLineCommentContext(String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return false;
+        }
+
+        // Get the last line of prefix to determine context
+        String[] lines = prefix.split("\n");
+        if (lines.length == 0) {
+            return false;
+        }
+
+        String lastLine = lines[lines.length - 1].trim();
+
+        // Check for line comment
+        return lastLine.startsWith("//");
+    }
+
+    /**
+     * Creates a specialized prompt for JavaDoc/JSDoc completion.
+     */
+    private String createJavadocPrompt(String fileContext, String prefix, String suffix, String language) {
+        AutocompletePromptBuilder builder = new AutocompletePromptBuilder()
+                .withSystemPrompt(
+                       AutocompletePromptBuilder.JAVADOC_SYSTEM_PROMPT
+                )
+                .withFileContext(fileContext)
+                .withPrefix(prefix)
+                .withSuffix(suffix)
+                .withLanguage(language);
+
+        return builder.build();
+    }
+
+    /**
+     * Creates a specialized prompt for line comment completion.
+     */
+    private String createLineCommentPrompt(String fileContext, String prefix, String suffix, String language) {
+        AutocompletePromptBuilder builder = new AutocompletePromptBuilder()
+                .withSystemPrompt(
+                       AutocompletePromptBuilder.LINE_COMMENT_SYSTEM_PROMPT
+                )
+                .withFileContext(fileContext)
+                .withPrefix(prefix)
+                .withSuffix(suffix)
+                .withLanguage(language);
+
+        return builder.build();
+    }
+
+    /**
      * Fallback to basic context if enhanced gathering fails.
      */
     private void fallbackToBasicContext(CodeContext context) {
         // Use the legacy approach for backward compatibility
         String basicPrompt = new AutocompletePromptBuilder()
-                .withSystemPrompt(MINIMAL_SYSTEM_PROMPT)
+                .withSystemPrompt(AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT)
                 .withFileContext(context.getClassContext() != null ? context.getClassContext() : "")
                 .withCursorPosition(getCurrentCursorContext(context))
                 .withLanguage(getLanguageFromFile(context))

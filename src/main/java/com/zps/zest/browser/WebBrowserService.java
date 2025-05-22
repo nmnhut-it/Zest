@@ -13,7 +13,7 @@ import org.jetbrains.annotations.NotNull;
 @Service(Service.Level.PROJECT)
 public final class WebBrowserService {
     private static final Logger LOG = Logger.getInstance(WebBrowserService.class);
-//    private static final String DEFAULT_CHAT_URL = "https://chat.zingplay.com";
+
     
     private final Project project;
     private WebBrowserPanel browserPanel;

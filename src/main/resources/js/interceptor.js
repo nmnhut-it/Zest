@@ -57,6 +57,9 @@
     try {
       const data = JSON.parse(body);
 
+      // === Add isFromZest flag ===
+      data.custom_tool = 'Zest';
+
       // === Inject the dynamically selected model if present ===
       if (window.__selected_model_name__) {
         data.model = window.__selected_model_name__;

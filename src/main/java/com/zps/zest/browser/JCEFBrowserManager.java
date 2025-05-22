@@ -23,7 +23,6 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 @SuppressWarnings("removal")
 public class JCEFBrowserManager {
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
-    private static final String DEFAULT_URL = "https://chat.zingplay.com";
 
     private final JBCefBrowser browser;
     private final Project project;
@@ -139,7 +138,7 @@ public class JCEFBrowserManager {
             // Add a handler for the query
             jsQuery.addHandler((query) -> {
                 try {
-                    // Process the query using the JavaScriptBridge
+                    // Process the query using the JavaScriptBridge (now with chunked messaging support)
                     String result = jsBridge.handleJavaScriptQuery(query);
                     return new JBCefJSQuery.Response(result);
                 } catch (Exception e) {
@@ -149,9 +148,9 @@ public class JCEFBrowserManager {
             });
 
             // Load the bridge script template
-            String bridgeScript = loadResourceAsString("/js/intellijBridge.js");
+            String bridgeScript = loadResourceAsString("/js/intellijBridgeChunked.js");
             
-            // Replace the placeholder with the actual JBCefJSQuery.inject call
+            // Replace the placeholder with the actual JBCefJSQuery.inject call for single messages
             String jsQueryInject = jsQuery.inject("request",
                     "function(response) { " +
                             "  console.log('Received success response from IDE'); " +
@@ -163,8 +162,21 @@ public class JCEFBrowserManager {
                             "  reject({code: errorCode, message: errorMessage}); " +
                             "}");
             
-            // Replace the placeholder with the actual JBCefJSQuery inject code
+            // Replace the placeholder with the actual JBCefJSQuery inject code for single messages
             bridgeScript = bridgeScript.replace("[[JBCEF_QUERY_INJECT]]", jsQueryInject);
+            
+            // For chunked messages, we use the same query handler but with chunk data
+            String chunkQueryInject = jsQuery.inject("chunkRequest",
+                    "function(response) { " +
+                            "  console.log('Chunk sent successfully'); " +
+                            "  resolve(); " +  // Resolve the Promise for successful chunk sending
+                            "}",
+                    "function(errorCode, errorMessage) { " +
+                            "  console.error('Chunk send error:', errorCode, errorMessage); " +
+                            "  reject({code: errorCode, message: errorMessage}); " +
+                            "}");
+            // Replace the chunk placeholder
+            bridgeScript = bridgeScript.replace("[[JBCEF_CHUNK_INJECT]]", chunkQueryInject);
 
             // Inject the bridge script
             cefBrowser.executeJavaScript(bridgeScript, frame.getURL(), 0);
@@ -177,7 +189,7 @@ public class JCEFBrowserManager {
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
             
-            LOG.info("JavaScript bridge initialized successfully");
+            LOG.info("JavaScript bridge initialized successfully with chunked messaging support");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
         }
@@ -197,6 +209,30 @@ public class JCEFBrowserManager {
                         "    console.log('Dialog shown successfully');\n" +
                         "  }).catch(function(error) {\n" +
                         "    console.error('Bridge test failed:', error);\n" +
+                        "  });\n" +
+                        "} else {\n" +
+                        "  console.error('Bridge not initialized');\n" +
+                        "}");
+    }
+
+    /**
+     * Tests chunked messaging by sending a large message.
+     */
+    public void testChunkedMessaging() {
+        executeJavaScript(
+                "if (window.intellijBridge) {\n" +
+                        "  // Create a large message (over 1.4KB) to test chunking\n" +
+                        "  const largeText = 'This is a test of chunked messaging. '.repeat(100);\n" +
+                        "  console.log('Testing chunked messaging with message size:', largeText.length);\n" +
+                        "  \n" +
+                        "  intellijBridge.callIDE('showDialog', {\n" +
+                        "    title: 'Chunked Message Test',\n" +
+                        "    message: largeText,\n" +
+                        "    type: 'info'\n" +
+                        "  }).then(function(result) {\n" +
+                        "    console.log('Chunked message sent successfully');\n" +
+                        "  }).catch(function(error) {\n" +
+                        "    console.error('Chunked message test failed:', error);\n" +
                         "  });\n" +
                         "} else {\n" +
                         "  console.error('Bridge not initialized');\n" +

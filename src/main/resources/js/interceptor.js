@@ -58,7 +58,7 @@
       const data = JSON.parse(body);
 
       // === Add isFromZest flag ===
-      data.custom_tool = 'Zest';
+      data.custom_tool = 'Zest|' + (window.__zest_usage__  ? window.__zest_usage__ : "NORMAL_CHAT");
 
       // === Inject the dynamically selected model if present ===
       if (window.__selected_model_name__) {
@@ -142,6 +142,7 @@
 
     if (url.includes('completed') || url.includes('/api/conversation')) {
       window.__selected_model_name__ = null;
+      window.__zest_usage__ = null;
       console.log('Detected API response with completion data:', url);
 
       responseClone.json().then(data => {

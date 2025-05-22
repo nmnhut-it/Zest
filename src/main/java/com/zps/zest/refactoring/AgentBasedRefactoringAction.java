@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.*;
 import com.zps.zest.browser.WebBrowserService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -91,7 +92,7 @@ public class AgentBasedRefactoringAction extends AnAction {
                                 .addStage(new TargetClassDetectionStage())
                                 .addStage(new ClassAnalysisStage())
                                 .addStage(new RefactoringPlanningStage())
-                                .addStage(new ChatboxLlmApiCallStage(false))
+                                .addStage(new ChatboxLlmApiCallStage(false, ChatboxUtilities.EnumUsage.AGENT_REFACTORING))
                                 .addStage(new RefactoringPlanAnalysisStage())
                                 .addStage(new RefactoringExecutionStage());
 

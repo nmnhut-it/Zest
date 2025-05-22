@@ -18,6 +18,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.PsiErrorElementUtil;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -251,7 +252,7 @@ public class ImplementTodosAction extends AnAction {
             LOG.debug("TODO implementation prompt: " + prompt);
 
             // Call LLM API
-            ChatboxLlmApiCallStage apiCallStage = new ChatboxLlmApiCallStage(false);
+            ChatboxLlmApiCallStage apiCallStage = new ChatboxLlmApiCallStage(false, ChatboxUtilities.EnumUsage.IMPLEMENT_TODOS);
             apiCallStage.process(context);
 
             // Extract code from response

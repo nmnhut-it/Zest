@@ -118,7 +118,7 @@ public class SendTestPipelineToChatBox extends AnAction {
                     // The ChatboxUtilities.sendTextAndSubmit method now handles waiting for page load
                     ChatboxUtilities.clickNewChatButton(project);
 
-                    ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true,ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false);
+                    ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true,ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false, ChatboxUtilities.EnumUsage.CHAT_WRITE_TESTS);
 
                 });
             });

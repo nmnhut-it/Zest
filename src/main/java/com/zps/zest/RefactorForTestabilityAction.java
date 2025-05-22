@@ -112,7 +112,7 @@ public class RefactorForTestabilityAction extends AnAction {
         LOG.info("Sending testability analysis to chat box");
 
         // Send the analysis to the chat box
-        boolean success = ChatboxUtilities.sendTextAndSubmit(project, analysis, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt(), false);
+        boolean success = ChatboxUtilities.sendTextAndSubmit(project, analysis, false, ConfigurationManager.getInstance(project).getCodeSystemPrompt(), false, ChatboxUtilities.EnumUsage.CHAT_REFACTOR_ADVISORY);
         
         // Activate browser tool window
         ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");

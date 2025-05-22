@@ -6,6 +6,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -108,7 +109,7 @@ public class BackgroundPipelineExecutor {
                 .addStage(new TargetClassDetectionStage())
                 .addStage(new ClassAnalysisStage())
                 .addStage(new TestPromptCreationStage())
-                .addStage(new LlmApiCallStage())
+                .addStage(new ChatboxLlmApiCallStage(false, ChatboxUtilities.EnumUsage.AGENT_ONE_CLICK_TEST))
                 .addStage(new CodeExtractionStage())
                 .addStage(new ImportHandlingStage())  // New stage for handling imports before file creation
                 .addStage(new TestFileCreationStage())

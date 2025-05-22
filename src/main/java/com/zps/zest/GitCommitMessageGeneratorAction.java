@@ -116,7 +116,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 // Use browserService.executeJavaScript() before creating the new chat
         String script = "window.__selected_model_name__ = '" + modelName + "';";
         WebBrowserService.getInstance(project).executeJavaScript(script);
-        ChatboxUtilities.sendTextAndSubmit(project, prompt,false, null, false);
+        ChatboxUtilities.sendTextAndSubmit(project, prompt,false, null, false, ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE);
 // Then call newChat as usual
 //        ChatboxUtilities.newChat(project, modelName, prompt);
         // Activate browser tool window on EDT

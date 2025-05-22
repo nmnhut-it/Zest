@@ -2,14 +2,11 @@ package com.zps.zest.browser.utils;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.WebBrowserToolWindow;
 import org.apache.commons.lang.StringEscapeUtils;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,91 +18,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChatboxUtilities {
     private static final Logger LOG = Logger.getInstance(ChatboxUtilities.class);
     private static final long PAGE_LOAD_TIMEOUT_SECONDS = 1;
-    
-    /**
-     * Sends text to the chat box input field, ensuring the page is fully loaded first.
-     * 
-     * @param project The current project
-     * @param text The text to be sent to the chat box
-     * @return true if the operation was successful, false otherwise
-     */
-    public static boolean sendTextToChatBox(Project project, String text) {
-        if (project == null || text == null) {
-            LOG.warn("Cannot send text to chat box: Project or text is null");
-            return false;
-        }
-        
-        WebBrowserService browserService = WebBrowserService.getInstance(project);
-        if (browserService == null) {
-            LOG.warn("Cannot send text to chat box: Browser service is null");
-            return false;
-        }
-        
-        // Get the current URL to check if page is loaded
-        WebBrowserPanel browserPanel = browserService.getBrowserPanel();
-        if (browserPanel == null) {
-            LOG.warn("Cannot send text to chat box: Browser panel is null");
-            return false;
-        }
-        
-        String currentUrl = browserPanel.getCurrentUrl();
-        AtomicBoolean success = new AtomicBoolean(false);
-        
-        // Wait for page to load before sending text
-        waitForPageToLoad(project, currentUrl).thenAccept(loaded -> {
-            if (loaded) {
-                LOG.info("Page loaded, sending text to chat box");
-                String escapedText = escapeJavaScriptString(text);
-                
-                // Create a more robust script that handles the chat input in different ways
-                String script =
-                        "function sendTextToChatbox(textToSend) {" + "\n"+
-                                "  try {" + "\n"+
-                                "    console.log('Sending text to chatbox...');" + "\n"+
-                                "    const chatInput = document.getElementById('chat-input');" + "\n"+
-                                "    " + "\n"+
-                                "    if (!chatInput) {" + "\n"+
-                                "      console.error('Chat input element not found');" + "\n"+
-                                "      return false;" + "\n"+
-                                "    }" + "\n"+
-                                "    " + "\n"+
-                                "    // Clear any existing content" + "\n"+
-                                "    chatInput.innerHTML = '';" + "\n"+
-                                "    " + "\n"+
-                                "    // Create a paragraph element with the text" + "\n"+
-                                "    const p = document.createElement('p');" + "\n"+
-                                "    p.textContent = textToSend;" + "\n"+
-                                "    chatInput.appendChild(p);" + "\n"+
-                                "    " + "\n"+
-                                "    // Trigger input event to ensure the UI recognizes the change" + "\n"+
-                                "    const inputEvent = new Event('input', { bubbles: true });" + "\n"+
-                                "    chatInput.dispatchEvent(inputEvent);" + "\n"+
-                                "    " + "\n"+
-                                "    console.log('Text successfully sent to chat box');" + "\n"+
-                                "    return true;" + "\n"+
-                                "  } catch (error) {" + "\n"+
-                                "    console.error('Error sending text to chat box:', error);" + "\n"+
-                                "    return false;" + "\n"+
-                                "  }" + "\n"+
-                                "}" + "\n"+
-                                "" + "\n"+
-                                "// Call the function with your text\n" + "\n"+
-                                "sendTextToChatbox('" + escapedText + "');";
-                // TODO: update this
-                browserService.executeJavaScript(script);
-                success.set(true);
-            } else {
-                LOG.warn("Page did not load within timeout, text not sent to chat box");
-                success.set(false);
-            }
-        }).exceptionally(ex -> {
-            LOG.error("Error waiting for page to load: " + ex.getMessage(), ex);
-            success.set(false);
-            return null;
-        });
-        
-        return true; // Return optimistically since we're now async
-    }
 
     /**
      * Clicks the "New Chat" button in the browser, ensuring the page is fully loaded first.
@@ -186,44 +98,24 @@ public class ChatboxUtilities {
 //        return newChat(project, model, null);
 //    }
 
-    public static boolean newChat(Project project, String model, String prompt){
-        if (project == null) {
-            LOG.warn("Cannot click new chat button: Project is null");
-            return false;
-        }
+    public enum EnumUsage {
+        // Agent-based actions (step-by-step with human interaction)
+        AGENT_TEST_WRITING,           // Agent: Step-by-Step Test Writing
+        AGENT_REFACTORING,            // Agent: Step-by-Step Refactor for Testability
+        AGENT_ONE_CLICK_TEST,         // Agent: One-click Write Test
+        AGENT_GENERATE_COMMENTS,      // Agent: Write Comment for Selected Text
 
-        WebBrowserService browserService = WebBrowserService.getInstance(project);
-        if (browserService == null) {
-            LOG.warn("Cannot click new chat button: Browser service is null");
-            return false;
-        }
+        // Implementation actions
+        IMPLEMENT_TODOS,              // Implement Your TODOs
 
-        // Get the current URL to check if page is loaded
-        WebBrowserPanel browserPanel = browserService.getBrowserPanel();
-        if (browserPanel == null) {
-            LOG.warn("Cannot click new chat button: Browser panel is null");
-            return false;
-        }
+        // Chat-based actions
+        CHAT_CODE_REVIEW,             // Chat: Review This Class
+        CHAT_REFACTOR_ADVISORY,       // Chat: Refactor Advisory for Testability
+        CHAT_WRITE_TESTS,             // Chat: Write Tests for This Class
+        CHAT_GIT_COMMIT_MESSAGE,      // Chat: Generate Git Commit Message
 
-        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
-
-//        url +="/?model=" + URLEncoder.encode(model, StandardCharsets.UTF_8);
-//        if (prompt != null) {
-//            url +="?q=" + URLEncoder.encode(prompt, StandardCharsets.UTF_8);
-//        }
-        AtomicBoolean success = new AtomicBoolean(false);
-        browserPanel.getBrowserManager().getBrowser().getCefBrowser().loadURL( url);
-        // Wait for page to load before clicking new chat button
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            return true;
-//        } catch (ExecutionException e) {
-//            return true;
-//        } catch (TimeoutException e) {
-//            return true;
-        }
-        return true;
+        // Developer tools
+//        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools
     }
     /**
      * Sends text to the chat box and clicks the send button in one operation,
@@ -234,7 +126,7 @@ public class ChatboxUtilities {
      * @return true if the operation was successful, false otherwise
      */
     public static boolean sendTextAndSubmit(Project project, String text, boolean copyFirstResult, String systemPrompt,
-                                            boolean useNativeFunctionCalling) {
+                                            boolean useNativeFunctionCalling, EnumUsage enumUsage) {
         if (project == null || text == null) {
             LOG.warn("Cannot send text and submit: Project or text is null");
             return false;
@@ -305,7 +197,9 @@ public class ChatboxUtilities {
                                 "      }\n" +
                                 "      \n" +
                                 "      // Step 6: Click the send button\n" +
+                                "      window.__zest_usage__ = '" + enumUsage.name() +"';\n"+
                                 "      sendButton.click();\n" +
+                                "      window.shouldAutomaticallyCopy =  " +copyFirstResult +";\n" +
                                 "      window.shouldAutomaticallyCopy =  " +copyFirstResult +";\n" +
                                 "      console.log('Message successfully sent');\n" +
                                 "    }, 300);\n" + // 300ms delay to ensure the UI has updated

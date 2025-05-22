@@ -15,15 +15,17 @@ import com.intellij.openapi.diagnostic.Logger;
 public class ChatboxLlmApiCallStage implements PipelineStage {
     private static final Logger LOG = Logger.getInstance(ChatboxLlmApiCallStage.class);
     private static final int TIMEOUT_SECONDS = 600; // 5 minutes (longer timeout for safety)
+    private final ChatboxUtilities.EnumUsage enumUsage;
     private boolean useNativeFunctionCalling;
     String model;
 
-    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1) {
-        this(useNativeFunctionCalling1, null);
+    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1, ChatboxUtilities.EnumUsage enumUsage) {
+        this(useNativeFunctionCalling1, null, enumUsage);
     }
-    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1, String model) {
+    public ChatboxLlmApiCallStage(boolean useNativeFunctionCalling1, String model, ChatboxUtilities.EnumUsage enumUsage) {
         useNativeFunctionCalling1 = false;
         this.model = model;
+        this.enumUsage = enumUsage;
     }
 
     @Override
@@ -155,7 +157,7 @@ public class ChatboxLlmApiCallStage implements PipelineStage {
                     }
 
                     // Send the text and mark the operation as complete
-                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, useNativeFunctionCalling);
+                    boolean result = ChatboxUtilities.sendTextAndSubmit(project, prompt, false, systemPrompt, useNativeFunctionCalling, enumUsage);
                     sendCompleteFuture.complete(result);
                 });
             });

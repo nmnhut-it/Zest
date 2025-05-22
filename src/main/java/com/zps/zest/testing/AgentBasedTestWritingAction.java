@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.*;
 import com.zps.zest.browser.WebBrowserService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -92,10 +93,10 @@ public class AgentBasedTestWritingAction extends AnAction {
                                 .addStage(new ClassAnalysisStage()) // Add ClassAnalysisStage
                                 .addStage(new TestAnalysisStage())
                                 .addStage(new TestabilityAnalysisStage()) // Testability analysis prompt creation
-                                .addStage(new ChatboxLlmApiCallStage(false)) // LLM call for testability analysis
+                                .addStage(new ChatboxLlmApiCallStage(false, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING)) // LLM call for testability analysis
                                 .addStage(new TestabilityAnalysisResponseStage()) // Process testability response
                                 .addStage(new TestPlanningStage()) // Test planning prompt creation (only if testability good)
-                                .addStage(new ChatboxLlmApiCallStage(false)) // LLM call for test planning
+                                .addStage(new ChatboxLlmApiCallStage(false,ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING)) // LLM call for test planning
                                 .addStage(new TestPlanAnalysisStage()) // Process test plan response
                                 .addStage(new TestExecutionStage());
 

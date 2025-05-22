@@ -1,269 +1,290 @@
-# Zest Autocomplete Feature Implementation Plan
+# Zest Autocomplete Feature Documentation
 
 ## Overview
 
-This document outlines the comprehensive plan for implementing an AI-powered autocomplete feature in the Zest IntelliJ plugin, leveraging the existing LLM API infrastructure and drawing inspiration from Continue.dev's autocomplete implementation.
+The Zest autocomplete feature provides AI-powered code completion suggestions within IntelliJ IDEA. It's been enhanced based on Tabby ML patterns to deliver fast, accurate, and contextually relevant code completions.
 
-## Table of Contents
-
-1. [Architecture Overview](#architecture-overview)
-2. [Implementation Phases](#implementation-phases)
-3. [Technical Requirements](#technical-requirements)
-4. [Integration Points](#integration-points)
-5. [Development Timeline](#development-timeline)
-
-## Architecture Overview
-
-The Zest autocomplete system will be built around the following core components:
+## Architecture
 
 ### Core Components
 
-```mermaid
-graph TB
-    A[ZestAutocompleteService] --> B[AutocompleteApiStage]
-    A --> C[ZestInlayRenderer]
-    A --> D[ZestCompletionCache]
-    
-    E[Editor Listeners] --> A
-    F[Settings Service] --> A
-    G[Status Widget] --> A
-    
-    B --> H[Existing LlmApiCallStage]
-    I[User Actions] --> A
+```
+src/main/java/com/zps/zest/autocomplete/
+├── ZestAutocompleteService.java          # Main service orchestrator
+├── AutocompleteApiStage.java             # API integration and response processing
+├── ZestCompletionData.java               # Data structures for completions
+├── ZestInlayRenderer.java                # Visual rendering of completions
+├── ZestPendingCompletion.java            # Legacy completion wrapper
+├── ZestAutocompleteProjectComponent.java # Project initialization
+├── actions/                              # User interaction handlers
+│   ├── AcceptCompletionAction.java
+│   ├── RejectCompletionAction.java
+│   └── TestAutocompleteAction.java
+├── listeners/                            # Editor event handlers
+│   ├── ZestAutocompleteDocumentListener.java
+│   └── ZestAutocompleteCaretListener.java
+├── ui/
+│   └── ZestAutocompleteStatusWidget.java
+└── utils/                                # Helper utilities
+    ├── AutocompletePromptBuilder.java
+    ├── ContextGatherer.java
+    └── CompletionCache.java
 ```
 
-### Key Services
+## Key Classes
 
-1. **ZestAutocompleteService** - Central orchestrator for all autocomplete functionality
-2. **AutocompleteApiStage** - Specialized API handler extending your existing LLM infrastructure
-3. **ZestInlayRenderer** - Custom renderer for displaying completions in the editor
-4. **Editor Integration Layer** - Listeners and handlers for editor events
-5. **Configuration Integration** - Settings and preferences management
+### 1. ZestAutocompleteService
 
-## Implementation Phases
+**Purpose**: Central orchestrator for all autocomplete functionality
 
-### Phase 1: Foundation (Week 1-2)
-**MVP - Basic Autocomplete**
+**Key Methods**:
+- `triggerAutocomplete(Editor editor)` - Initiates completion request
+- `acceptCompletion(Editor editor)` - Accepts displayed completion
+- `rejectCompletion(Editor editor)` - Dismisses completion
+- `clearCompletion(Editor editor)` - Clears any active completion
 
-#### 1.1 Core Service Architecture
-- [ ] Create `ZestAutocompleteService` as project-level service
-- [ ] Implement `ZestPendingCompletion` data structure
-- [ ] Basic configuration integration with existing settings
+**Lifecycle**:
+1. Registers/unregisters editors automatically
+2. Manages completion cache (LRU, max 100 items)
+3. Handles API requests in background threads
+4. Coordinates with rendering system
 
-#### 1.2 API Integration
-- [ ] Create `AutocompleteApiStage` extending existing pipeline architecture
-- [ ] Implement specialized prompts for code completion
-- [ ] Add timeout and cancellation support
+### 2. AutocompleteApiStage
 
-#### 1.3 Basic Editor Integration
-- [ ] Implement document change listeners
-- [ ] Create caret position change handlers
-- [ ] Basic completion triggering logic
+**Purpose**: Handles LLM API integration with autocomplete-specific optimizations
 
-#### 1.4 Simple Rendering
-- [ ] Create `ZestInlayRenderer` for inline completions
-- [ ] Implement basic gray text display
-- [ ] Single-line completion support
+**Key Features**:
+- Enhanced prompt generation using Tabby ML patterns
+- Aggressive response cleaning and validation
+- Configuration optimization (temperature=0.2, max_tokens=150)
+- Fallback mechanisms for robustness
 
-### Phase 2: Core Functionality (Week 3-4)
-**Enhanced Features**
-
-#### 2.1 Advanced Rendering
-- [ ] Multi-line completion support
-- [ ] Improved visual styling
-- [ ] Completion preview enhancements
-
-#### 2.2 User Actions
-- [ ] Accept completion (Tab key)
-- [ ] Reject completion (Esc key)
-- [ ] Partial accept functionality (Ctrl+Right)
-
-#### 2.3 Smart Completion Logic
-- [ ] Context-aware triggering
-- [ ] Deduplication of existing code
-- [ ] Language-specific handling
-
-#### 2.4 Status Integration
-- [ ] Status bar widget for autocomplete state
-- [ ] Loading indicators
-- [ ] Error state handling
-
-### Phase 3: Polish & Optimization (Week 5-6)
-**Production Ready**
-
-#### 3.1 Performance Optimization
-- [ ] Response caching
-- [ ] Request debouncing
-- [ ] Background processing improvements
-
-#### 3.2 Advanced Features
-- [ ] Settings panel integration
-- [ ] Multiple completion options
-- [ ] Context gathering improvements
-
-#### 3.3 Error Handling & UX
-- [ ] Comprehensive error handling
-- [ ] User feedback mechanisms
-- [ ] Graceful degradation
-
-## Technical Requirements
-
-### Dependencies
-
-```gradle
-dependencies {
-    // Existing dependencies
-    implementation 'com.google.code.gson:gson:2.8.9'
-    
-    // Additional dependencies for autocomplete
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.6.4'
-}
+**Response Processing Pipeline**:
+```
+Raw LLM Response → Clean Markdown → Remove Explanations → Validate Code → Filter Length
 ```
 
-### Project Structure
+### 3. ContextGatherer
 
+**Purpose**: Extracts relevant code context for better completions
+
+**Key Methods**:
+- `gatherEnhancedCursorContext(Editor, PsiFile)` - Modern context extraction
+- `gatherCursorContext(Editor, PsiFile)` - Legacy compatibility method
+- `gatherFileContext(Editor, PsiFile)` - Broader file context
+
+**Context Extraction**:
+- **Prefix**: Up to 10 lines before cursor + current line prefix
+- **Suffix**: Current line suffix + up to 5 lines after cursor
+- **File**: Structural elements (imports, class declarations, method signatures)
+
+### 4. AutocompletePromptBuilder
+
+**Purpose**: Constructs optimized prompts for the LLM
+
+**Approaches**:
+- **Minimal** (recommended): Simple, Tabby ML-style prompts
+- **Legacy** (fallback): Verbose, instruction-heavy prompts
+
+**Example Minimal Prompt**:
 ```
-src/main/java/com/zps/zest/
-├── autocomplete/
-│   ├── ZestAutocompleteService.java
-│   ├── AutocompleteApiStage.java
-│   ├── ZestInlayRenderer.java
-│   ├── ZestPendingCompletion.java
-│   ├── actions/
-│   │   ├── AcceptCompletionAction.java
-│   │   ├── RejectCompletionAction.java
-│   │   └── PartialAcceptCompletionAction.java
-│   ├── listeners/
-│   │   ├── ZestAutocompleteDocumentListener.java
-│   │   ├── ZestAutocompleteCaretListener.java
-│   │   └── ZestAutocompleteEditorListener.java
-│   ├── ui/
-│   │   ├── ZestAutocompleteStatusWidget.java
-│   │   └── ZestAutocompleteSettings.java
-│   └── utils/
-│       ├── CompletionCache.java
-│       ├── ContextGatherer.java
-│       └── PromptBuilder.java
-```
-
-## Integration Points
-
-### 1. Existing LLM Infrastructure
-
-The autocomplete feature will leverage your existing `LlmApiCallStage` with these modifications:
+Complete the code. Only return the completion text, no explanations.
 
 ```java
-public class AutocompleteApiStage extends LlmApiCallStage {
-    private static final int AUTOCOMPLETE_TIMEOUT_MS = 5000;
-    private static final String AUTOCOMPLETE_SYSTEM_PROMPT = 
-        "You are an AI code completion assistant...";
-    
-    @Override
-    protected String buildPrompt(CodeContext context) {
-        // Specialized prompt for autocomplete
-        return new AutocompletePromptBuilder()
-            .withFileContext(context.getFileContent())
-            .withCursorPosition(context.getCursorPosition())
-            .withLanguage(context.getLanguage())
-            .build();
-    }
-    
-    @Override
-    protected boolean shouldUseStreaming(ConfigurationManager config) {
-        // Prefer non-streaming for faster initial response
-        return false;
+public class Example {
+    public void method() {
+        String text = "hello";<CURSOR>
     }
 }
 ```
+```
 
-### 2. Configuration System
+### 5. ZestInlayRenderer
 
-Extend your existing `ConfigurationManager`:
+**Purpose**: Visual rendering of completions in the editor
+
+**Features**:
+- Single-line inline rendering
+- Multi-line block rendering with indicators
+- Replace range highlighting
+- Theme-aware styling
+
+**Rendering Pipeline**:
+```
+CompletionItem → Calculate Visible Text → Create Inlays → Display → Track for Cleanup
+```
+
+## Data Flow
+
+### 1. Trigger Flow
+```
+User Types → DocumentListener → Service.triggerAutocomplete() →
+Delay (250ms) → ContextGatherer → PromptBuilder → API Call →
+Response Processing → Cache → Renderer → Display
+```
+
+### 2. Accept Flow
+```
+User Presses Tab → AcceptCompletionAction → Service.acceptCompletion() →
+Document Modification → Cursor Movement → Cleanup
+```
+
+### 3. Reject Flow
+```
+User Presses Esc → RejectCompletionAction → Service.rejectCompletion() →
+Clear Rendering → Cleanup
+```
+
+## Configuration
+
+### Settings (in ConfigurationManager)
 
 ```java
-public class ConfigurationManager {
-    // Existing configuration...
-    
-    // Autocomplete-specific settings
-    private boolean enableAutocomplete = true;
-    private int autocompleteDelay = 300; // ms
-    private boolean enableMultilineCompletions = true;
-    private String autocompleteModel = "default";
-    
-    // Getters and setters...
-}
+// Autocomplete settings
+private boolean enableAutocomplete = true;           // Master toggle
+private int autocompleteDelay = 300;                 // Trigger delay (ms)
+private boolean enableMultilineCompletions = true;   // Multi-line support
+private String autocompleteModel = "code_expert";    // Model preference
 ```
 
-### 3. Notification System
-
-Integrate with your existing `ZestNotifications`:
+### API Optimization
 
 ```java
-public class ZestNotifications {
-    public static void showAutocompleteError(Project project, String message) {
-        showNotification(project, "Zest Autocomplete", message, 
-                        NotificationType.WARNING);
-    }
-    
-    public static void showAutocompleteStatus(Project project, String status) {
-        showNotification(project, "Zest Autocomplete", status, 
-                        NotificationType.INFORMATION);
-    }
+// AutocompleteApiStage constants
+private static final int AUTOCOMPLETE_TIMEOUT_MS = 8000;     // API timeout
+private static final int MAX_COMPLETION_TOKENS = 150;       // Token limit
+private static final double AUTOCOMPLETE_TEMPERATURE = 0.2; // Determinism
+private static final double AUTOCOMPLETE_TOP_P = 0.8;       // Focus
+```
+
+## Testing & Debugging
+
+### Test Action
+Use `TestAutocompleteAction` to manually trigger and debug:
+- Shows service status
+- Displays cache statistics
+- Manually triggers completion
+- Reports errors
+
+### Logging
+Enable debug logging for:
+```
+com.zps.zest.autocomplete.ZestAutocompleteService
+com.zps.zest.autocomplete.AutocompleteApiStage
+com.zps.zest.autocomplete.utils.ContextGatherer
+```
+
+### Common Issues & Solutions
+
+1. **No completions appearing**:
+    - Check `isAutocompleteEnabled()` in config
+    - Verify API connectivity
+    - Check document/caret listeners are registered
+
+2. **Poor completion quality**:
+    - Review prompt construction in `AutocompletePromptBuilder`
+    - Check context gathering in `ContextGatherer`
+    - Verify response cleaning in `AutocompleteApiStage`
+
+3. **Performance issues**:
+    - Monitor cache hit rates
+    - Check API response times
+    - Verify proper cleanup of rendering contexts
+
+## Development Guidelines
+
+### Adding New Features
+
+1. **Context Enhancement**:
+    - Modify `ContextGatherer` to extract additional context
+    - Update `AutocompletePromptBuilder` to utilize new context
+    - Test with various code scenarios
+
+2. **Rendering Improvements**:
+    - Extend `ZestInlayRenderer` for new visual features
+    - Update `ZestCompletionData` if new data structures needed
+    - Ensure proper cleanup in `RenderingContext.dispose()`
+
+3. **API Optimizations**:
+    - Modify `AutocompleteApiStage` for API improvements
+    - Update response processing pipeline
+    - Add new validation rules as needed
+
+### Code Style
+
+- Follow existing IntelliJ plugin patterns
+- Use proper logging with appropriate levels
+- Handle exceptions gracefully with fallbacks
+- Maintain backward compatibility where possible
+- Document public APIs thoroughly
+
+### Testing Strategy
+
+1. **Unit Tests**: Focus on `ContextGatherer` and `AutocompletePromptBuilder`
+2. **Integration Tests**: Test full completion flow
+3. **Manual Testing**: Use `TestAutocompleteAction` extensively
+4. **Performance Tests**: Monitor cache efficiency and API response times
+
+## Plugin Integration
+
+### Registration (plugin.xml)
+```xml
+<extensions defaultExtensionNs="com.intellij">
+    <projectService serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>
+</extensions>
+
+<actions>
+    <action id="ZestAcceptCompletion" 
+            class="com.zps.zest.autocomplete.actions.AcceptCompletionAction">
+        <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+    </action>
+    <action id="ZestRejectCompletion" 
+            class="com.zps.zest.autocomplete.actions.RejectCompletionAction">
+        <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
+    </action>
+</actions>
+```
+
+### Service Lifecycle
+- **Initialization**: Automatic via `ZestAutocompleteProjectComponent`
+- **Editor Registration**: Automatic via `EditorFactoryListener`
+- **Cleanup**: Automatic on project close/editor release
+
+## Future Enhancements
+
+### Planned Features
+1. **Partial Acceptance**: Accept word/line at a time
+2. **Multiple Suggestions**: Cycle through alternatives
+3. **Smart Triggering**: Context-aware activation
+4. **Analytics**: Completion acceptance rates
+5. **Model Selection**: Per-language model preferences
+
+### Extension Points
+1. **Custom Context Providers**: Plugin-specific context extraction
+2. **Custom Renderers**: Alternative completion displays
+3. **Custom Validators**: Domain-specific completion filtering
+4. **Custom Triggers**: Non-typing based activation
+
+## Troubleshooting
+
+### Debug Checklist
+1. ✅ Service initialized? Check project component logs
+2. ✅ Listeners registered? Check editor factory events
+3. ✅ Context extracted? Check context gatherer output
+4. ✅ API called? Check autocomplete API stage logs
+5. ✅ Response received? Check API response processing
+6. ✅ Rendering attempted? Check inlay renderer logs
+
+### Performance Monitoring
+```java
+// Add to ZestAutocompleteService for monitoring
+public String getPerformanceStats() {
+    return String.format(
+        "Cache: %d/%d, Active: %d, Last API: %dms",
+        completionCache.size(), MAX_CACHE_SIZE,
+        activeCompletions.size(), lastApiDuration
+    );
 }
 ```
 
-## Development Timeline
-
-### Week 1: Foundation Setup
-- **Day 1-2**: Create core service architecture
-- **Day 3-4**: Implement basic API integration
-- **Day 5**: Set up editor listeners and basic triggering
-
-### Week 2: MVP Implementation
-- **Day 1-2**: Implement basic rendering system
-- **Day 3-4**: Add user actions (accept/reject)
-- **Day 5**: Integration testing and bug fixes
-
-### Week 3: Enhanced Features
-- **Day 1-2**: Multi-line completion support
-- **Day 3-4**: Smart completion logic and deduplication
-- **Day 5**: Status widget and visual improvements
-
-### Week 4: Polish & Testing
-- **Day 1-2**: Performance optimization and caching
-- **Day 3-4**: Comprehensive testing and error handling
-- **Day 5**: Documentation and final integration
-
-### Week 5-6: Advanced Features (Optional)
-- Settings panel integration
-- Advanced context gathering
-- Multiple completion providers
-- User experience refinements
-
-## Success Metrics
-
-1. **Performance**: Completions triggered within 300ms of typing pause
-2. **Accuracy**: >80% completion acceptance rate
-3. **Stability**: <1% error rate in completion requests
-4. **User Experience**: Seamless integration with existing workflow
-
-## Risk Mitigation
-
-1. **API Reliability**: Implement robust error handling and fallback mechanisms
-2. **Performance Impact**: Use background processing and smart caching
-3. **User Disruption**: Provide easy enable/disable toggle
-4. **Integration Issues**: Extensive testing with existing Zest features
-
-## Next Steps
-
-1. Review and approve this implementation plan
-2. Set up development environment and dependencies
-3. Begin Phase 1 implementation
-4. Regular progress reviews and adjustments
-
----
-
-**Last Updated**: December 2024  
-**Status**: Planning Phase  
-**Estimated Completion**: 4-6 weeks
+This documentation provides a comprehensive guide for developers to understand, maintain, and extend the Zest autocomplete feature.

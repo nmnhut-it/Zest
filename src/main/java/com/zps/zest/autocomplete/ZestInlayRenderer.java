@@ -3,177 +3,345 @@ package com.zps.zest.autocomplete;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorCustomElementRenderer;
 import com.intellij.openapi.editor.Inlay;
-import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.colors.EditorFontType;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.ui.JBColor;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
-import java.awt.font.FontRenderContext;
-import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Custom renderer for displaying autocomplete suggestions as inline inlays.
- * Renders completion text in a subtle, grayed-out style.
+ * Enhanced inlay renderer following Tabby ML patterns.
+ * Supports multi-line rendering, replace ranges, and sophisticated display logic.
  */
-public class ZestInlayRenderer implements EditorCustomElementRenderer {
-    private final String completionText;
-    private final boolean isMultiLine;
-    private final String firstLine;
-    private final Font font;
-    private final Color textColor;
-    
-    public ZestInlayRenderer(String completionText, Editor editor) {
-        this.completionText = completionText;
-        this.isMultiLine = completionText.contains("\n");
-        this.firstLine = isMultiLine 
-            ? completionText.substring(0, completionText.indexOf('\n'))
-            : completionText;
-        
-        // Get editor font and styling
-        this.font =new Font(Font.SANS_SERIF, Font.ITALIC, 12);
-        this.textColor = getCompletionTextColor(editor);
-    }
-    
-    @Override
-    public int calcWidthInPixels(@NotNull Inlay inlay) {
-        Graphics2D g = (Graphics2D) inlay.getEditor().getContentComponent().getGraphics();
-        if (g == null) {
-            // Fallback calculation
-            return firstLine.length() * 7; // Approximate character width
+public class ZestInlayRenderer {
+
+    /**
+     * Rendering context similar to Tabby ML's approach.
+     */
+    public static class RenderingContext {
+        private final String id;
+        private final Editor editor;
+        private final int offset;
+        private final ZestCompletionData.CompletionItem item;
+        private final List<Inlay<?>> inlays;
+        private final List<RangeHighlighter> markups;
+        private final long displayTime;
+
+        public RenderingContext(String id, Editor editor, int offset,
+                                ZestCompletionData.CompletionItem item) {
+            this.id = id;
+            this.editor = editor;
+            this.offset = offset;
+            this.item = item;
+            this.inlays = new ArrayList<>();
+            this.markups = new ArrayList<>();
+            this.displayTime = System.currentTimeMillis();
         }
-        
-        FontMetrics metrics = g.getFontMetrics(font);
-        return metrics.stringWidth(firstLine);
+
+        // Getters
+        public String getId() { return id; }
+        public Editor getEditor() { return editor; }
+        public int getOffset() { return offset; }
+        public ZestCompletionData.CompletionItem getItem() { return item; }
+        public List<Inlay<?>> getInlays() { return inlays; }
+        public List<RangeHighlighter> getMarkups() { return markups; }
+        public long getDisplayTime() { return displayTime; }
+
+        public long getElapsedTime() {
+            return System.currentTimeMillis() - displayTime;
+        }
+
+        public void addInlay(Inlay<?> inlay) {
+            inlays.add(inlay);
+        }
+
+        public void addMarkup(RangeHighlighter markup) {
+            markups.add(markup);
+        }
+
+        /**
+         * Cleans up all rendering elements.
+         */
+        public void dispose() {
+            inlays.forEach(inlay -> {
+                if (inlay.isValid()) {
+                    inlay.dispose();
+                }
+            });
+
+            markups.forEach(markup -> {
+                if (markup.isValid()) {
+                    editor.getMarkupModel().removeHighlighter(markup);
+                }
+            });
+
+            inlays.clear();
+            markups.clear();
+        }
     }
-    
-    @Override
-    public int calcHeightInPixels(@NotNull Inlay inlay) {
-        // For inline completions, we use the line height
-        return inlay.getEditor().getLineHeight();
+
+    /**
+     * Creates and displays a completion following Tabby ML patterns.
+     */
+    public static RenderingContext show(Editor editor, int offset,
+                                        ZestCompletionData.CompletionItem item) {
+
+        String completionId = "zest-" + System.currentTimeMillis();
+        RenderingContext context = new RenderingContext(completionId, editor, offset, item);
+
+        // Calculate what text to display
+        String visibleText = item.getVisibleText(offset);
+        if (visibleText.isEmpty()) {
+            return context; // Nothing to display
+        }
+
+        // Handle multi-line vs single-line completions
+        if (item.isMultiLine()) {
+            renderMultiLineCompletion(context, visibleText, offset);
+        } else {
+            renderSingleLineCompletion(context, visibleText, offset);
+        }
+
+        return context;
     }
-    
-    @Override
-    public void paint(@NotNull Inlay inlay, @NotNull Graphics g, @NotNull Rectangle targetRegion, @NotNull TextAttributes textAttributes) {
-        Graphics2D g2d = (Graphics2D) g.create();
-        
-        try {
-            // Enable anti-aliasing for smoother text
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            
-            // Set font and color
-            g2d.setFont(font);
-            g2d.setColor(textColor);
-            
-            // Calculate text position
-            FontMetrics metrics = g2d.getFontMetrics();
-            int textY = targetRegion.y + metrics.getAscent();
-            
-            // Draw the completion text
-            if (isMultiLine) {
-                drawMultiLineCompletion(g2d, targetRegion.x, textY, metrics, inlay);
-            } else {
-                g2d.drawString(firstLine, targetRegion.x, textY);
+
+    /**
+     * Renders a single-line completion.
+     */
+    private static void renderSingleLineCompletion(RenderingContext context,
+                                                   String text, int offset) {
+        Editor editor = context.getEditor();
+
+        // Create inline renderer
+        InlineCompletionRenderer renderer = new InlineCompletionRenderer(text, editor, false);
+
+        // Add inline element
+        Inlay<?> inlay = editor.getInlayModel().addInlineElement(offset, true, renderer);
+        if (inlay != null) {
+            context.addInlay(inlay);
+        }
+    }
+
+    /**
+     * Renders a multi-line completion following Tabby ML approach.
+     */
+    private static void renderMultiLineCompletion(RenderingContext context,
+                                                  String text, int offset) {
+        Editor editor = context.getEditor();
+        String[] lines = text.split("\n");
+
+        if (lines.length == 0) return;
+
+        // Render first line inline
+        if (!lines[0].isEmpty()) {
+            InlineCompletionRenderer firstLineRenderer =
+                    new InlineCompletionRenderer(lines[0], editor, true);
+            Inlay<?> firstInlay = editor.getInlayModel().addInlineElement(offset, true, firstLineRenderer);
+            if (firstInlay != null) {
+                context.addInlay(firstInlay);
             }
-            
-        } finally {
-            g2d.dispose();
+        }
+
+        // Render subsequent lines as block elements
+        for (int i = 1; i < lines.length; i++) {
+            BlockCompletionRenderer blockRenderer =
+                    new BlockCompletionRenderer(lines[i], editor, i);
+            Inlay<?> blockInlay = editor.getInlayModel().addBlockElement(
+                    offset, true, false, -i, blockRenderer);
+            if (blockInlay != null) {
+                context.addInlay(blockInlay);
+            }
+        }
+
+        // Handle replace range if needed
+        ZestCompletionData.Range replaceRange = context.getItem().getReplaceRange();
+        if (replaceRange.getLength() > 0) {
+            // Add markup to show text that will be replaced
+            RangeHighlighter markup = createReplaceRangeMarkup(editor, replaceRange);
+            if (markup != null) {
+                context.addMarkup(markup);
+            }
         }
     }
-    
+
     /**
-     * Draws multi-line completion with visual indicators.
+     * Creates markup for replace range highlighting.
      */
-    private void drawMultiLineCompletion(Graphics2D g2d, int x, int y, FontMetrics metrics, Inlay inlay) {
-        // Draw the first line
-        g2d.drawString(firstLine, x, y);
-        
-        // Add visual indicator for multi-line completion
-        int indicatorX = x + metrics.stringWidth(firstLine) + 5;
-        int indicatorY = y - metrics.getAscent() / 2;
-        
-        // Draw a small arrow or indicator
-        g2d.setColor(textColor.darker());
-        g2d.drawString("⋯", indicatorX, y); // Use ellipsis to indicate more content
-        
-        // Optionally show line count
-        String[] lines = completionText.split("\n");
-        if (lines.length > 2) {
-            String lineCount = "+" + (lines.length - 1) + " lines";
-            g2d.setFont(font.deriveFont(font.getSize() * 0.8f));
-            g2d.drawString(lineCount, indicatorX + 15, y);
+    private static RangeHighlighter createReplaceRangeMarkup(Editor editor,
+                                                             ZestCompletionData.Range range) {
+        TextAttributes attributes = new TextAttributes();
+        attributes.setBackgroundColor(JBColor.YELLOW.darker());
+        attributes.setForegroundColor(JBColor.GRAY);
+
+        return editor.getMarkupModel().addRangeHighlighter(
+                range.getStart(),
+                range.getEnd(),
+                1000, // High layer
+                attributes,
+                com.intellij.openapi.editor.markup.HighlighterTargetArea.EXACT_RANGE
+        );
+    }
+
+    /**
+     * Inline completion renderer for single lines and first line of multi-line.
+     */
+    private static class InlineCompletionRenderer implements EditorCustomElementRenderer {
+        private final String text;
+        private final Editor editor;
+        private final boolean isFirstLineOfMulti;
+        private final Font font;
+        private final Color textColor;
+
+        public InlineCompletionRenderer(String text, Editor editor, boolean isFirstLineOfMulti) {
+            this.text = text;
+            this.editor = editor;
+            this.isFirstLineOfMulti = isFirstLineOfMulti;
+            this.font = getCompletionFont(editor);
+            this.textColor = getCompletionColor(editor);
+        }
+
+        @Override
+        public int calcWidthInPixels(@NotNull Inlay inlay) {
+            Graphics2D g = getGraphics(inlay);
+            if (g == null) {
+                return text.length() * 8; // Fallback
+            }
+
+            FontMetrics metrics = g.getFontMetrics(font);
+            int width = metrics.stringWidth(text);
+
+            // Add indicator width for multi-line
+            if (isFirstLineOfMulti) {
+                width += metrics.stringWidth(" ⋯");
+            }
+
+            return Math.max(width, 1);
+        }
+
+        @Override
+        public void paint(@NotNull Inlay inlay, @NotNull Graphics g,
+                          @NotNull Rectangle targetRect, @NotNull TextAttributes textAttributes) {
+            Graphics2D g2d = (Graphics2D) g.create();
+
+            try {
+                // Enable anti-aliasing
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+                // Set font and color
+                g2d.setFont(font);
+                g2d.setColor(textColor);
+
+                // Calculate text position
+                FontMetrics metrics = g2d.getFontMetrics();
+                int textY = targetRect.y + metrics.getAscent();
+
+                // Draw main text
+                g2d.drawString(text, targetRect.x, textY);
+
+                // Draw multi-line indicator
+                if (isFirstLineOfMulti) {
+                    int indicatorX = targetRect.x + metrics.stringWidth(text);
+                    g2d.setColor(textColor.darker());
+                    g2d.drawString(" ⋯", indicatorX, textY);
+                }
+
+            } finally {
+                g2d.dispose();
+            }
+        }
+
+        private Graphics2D getGraphics(Inlay inlay) {
+            Component component = inlay.getEditor().getContentComponent();
+            return component != null ? (Graphics2D) component.getGraphics() : null;
         }
     }
-    
+
     /**
-     * Gets the appropriate color for completion text based on editor theme.
+     * Block completion renderer for additional lines in multi-line completions.
      */
-    private Color getCompletionTextColor(Editor editor) {
-        // Try to get a subtle gray color that works with the current theme
-        EditorColorsManager colorsManager = EditorColorsManager.getInstance();
-        
-        // Use comment color as base but make it even more subtle
-        Color commentColor =EditorColors.PREVIEW_BORDER_COLOR.getDefaultColor();
-        if (commentColor != null) {
-            // Make it more transparent/subtle
-            return new Color(
-                commentColor.getRed(),
-                commentColor.getGreen(), 
-                commentColor.getBlue(),
-                128 // 50% alpha for subtlety
-            );
+    private static class BlockCompletionRenderer implements EditorCustomElementRenderer {
+        private final String text;
+        private final Editor editor;
+        private final int lineIndex;
+        private final Font font;
+        private final Color textColor;
+
+        public BlockCompletionRenderer(String text, Editor editor, int lineIndex) {
+            this.text = text;
+            this.editor = editor;
+            this.lineIndex = lineIndex;
+            this.font = getCompletionFont(editor);
+            this.textColor = getCompletionColor(editor);
         }
-        
-        // Fallback colors for light/dark themes
+
+        @Override
+        public int calcWidthInPixels(@NotNull Inlay inlay) {
+            Graphics2D g = getGraphics(inlay);
+            if (g == null) {
+                return text.length() * 8;
+            }
+
+            FontMetrics metrics = g.getFontMetrics(font);
+            return Math.max(metrics.stringWidth(text), 1);
+        }
+
+        @Override
+        public int calcHeightInPixels(@NotNull Inlay inlay) {
+            return inlay.getEditor().getLineHeight();
+        }
+
+        @Override
+        public void paint(@NotNull Inlay inlay, @NotNull Graphics g,
+                          @NotNull Rectangle targetRect, @NotNull TextAttributes textAttributes) {
+            Graphics2D g2d = (Graphics2D) g.create();
+
+            try {
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+                g2d.setFont(font);
+                g2d.setColor(textColor);
+
+                FontMetrics metrics = g2d.getFontMetrics();
+                int textY = targetRect.y + metrics.getAscent();
+
+                g2d.drawString(text, targetRect.x, textY);
+
+            } finally {
+                g2d.dispose();
+            }
+        }
+
+        private Graphics2D getGraphics(Inlay inlay) {
+            Component component = inlay.getEditor().getContentComponent();
+            return component != null ? (Graphics2D) component.getGraphics() : null;
+        }
+    }
+
+    /**
+     * Gets the appropriate font for completion text.
+     */
+    private static Font getCompletionFont(Editor editor) {
+        Font editorFont = editor.getColorsScheme().getFont(EditorFontType.PLAIN);
+        return editorFont.deriveFont(Font.ITALIC, editorFont.getSize() * 0.95f);
+    }
+
+    /**
+     * Gets the appropriate color for completion text based on theme.
+     */
+    private static Color getCompletionColor(Editor editor) {
         Color backgroundColor = editor.getColorsScheme().getDefaultBackground();
         boolean isDarkTheme = backgroundColor.getRed() + backgroundColor.getGreen() + backgroundColor.getBlue() < 384;
-        
+
         if (isDarkTheme) {
-            return new Color(160, 160, 160, 128); // Light gray with transparency
+            return new Color(150, 150, 150, 160); // Light gray with transparency
         } else {
-            return new Color(100, 100, 100, 128); // Dark gray with transparency
+            return new Color(120, 120, 120, 160); // Dark gray with transparency
         }
-    }
-    
-    /**
-     * Gets the full completion text.
-     */
-    public String getCompletionText() {
-        return completionText;
-    }
-    
-    /**
-     * Checks if this is a multi-line completion.
-     */
-    public boolean isMultiLine() {
-        return isMultiLine;
-    }
-    
-    /**
-     * Gets the first line of the completion for display purposes.
-     */
-    public String getFirstLine() {
-        return firstLine;
-    }
-    
-    /**
-     * Creates a renderer for single-line completions.
-     */
-    public static ZestInlayRenderer createSingleLine(String completionText, Editor editor) {
-        // Ensure single line by taking only the first line if multiple exist
-        String singleLine = completionText.contains("\n") 
-            ? completionText.substring(0, completionText.indexOf('\n'))
-            : completionText;
-        return new ZestInlayRenderer(singleLine, editor);
-    }
-    
-    /**
-     * Creates a renderer for multi-line completions.
-     */
-    public static ZestInlayRenderer createMultiLine(String completionText, Editor editor) {
-        return new ZestInlayRenderer(completionText, editor);
     }
 }

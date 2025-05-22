@@ -3,201 +3,263 @@ package com.zps.zest.autocomplete.utils;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Utility class for gathering context information around the cursor position
- * to provide better autocomplete suggestions.
+ * Enhanced context gatherer following Tabby ML patterns.
+ * Provides focused, relevant context for better completions.
  */
 public class ContextGatherer {
-    private static final int CONTEXT_LINES_BEFORE = 10;
-    private static final int CONTEXT_LINES_AFTER = 5;
-    private static final int MAX_CONTEXT_LENGTH = 1500; // Characters
-    
+    private static final int MAX_PREFIX_LINES = 10;
+    private static final int MAX_SUFFIX_LINES = 5;
+    private static final int MAX_LINE_LENGTH = 120;
+
     /**
-     * Gathers context around the current cursor position.
-     * 
-     * @param editor The editor instance
-     * @param selectedText Any currently selected text
-     * @return Context string with cursor position marked
+     * Enhanced cursor context gathering following Tabby ML patterns.
      */
-    public static String gatherCursorContext(Editor editor, String selectedText) {
-        if (editor == null) {
-            return "";
-        }
-        
+    public static CursorContext gatherEnhancedCursorContext(@NotNull Editor editor, @Nullable PsiFile psiFile) {
         Document document = editor.getDocument();
-        int caretOffset = editor.getCaretModel().getOffset();
-        int currentLine = document.getLineNumber(caretOffset);
-        
-        // Calculate context range
-        int startLine = Math.max(0, currentLine - CONTEXT_LINES_BEFORE);
-        int endLine = Math.min(document.getLineCount() - 1, currentLine + CONTEXT_LINES_AFTER);
-        
-        StringBuilder context = new StringBuilder();
-        
-        // Add lines before cursor
-        for (int line = startLine; line < currentLine; line++) {
-            context.append(getLineText(document, line)).append("\n");
-        }
-        
-        // Add current line with cursor marker
-        String currentLineText = getLineText(document, currentLine);
+        int offset = editor.getCaretModel().getOffset();
+
+        // Get current line info
+        int currentLine = document.getLineNumber(offset);
         int lineStartOffset = document.getLineStartOffset(currentLine);
-        int cursorPosInLine = caretOffset - lineStartOffset;
-        
-        if (cursorPosInLine <= currentLineText.length()) {
-            String beforeCursor = currentLineText.substring(0, cursorPosInLine);
-            String afterCursor = currentLineText.substring(cursorPosInLine);
-            
-            context.append(beforeCursor);
-            context.append("<CURSOR>"); // Marker for cursor position
-            context.append(afterCursor);
-            context.append("\n");
-        } else {
-            context.append(currentLineText).append("<CURSOR>\n");
-        }
-        
-        // Add lines after cursor
-        for (int line = currentLine + 1; line <= endLine; line++) {
-            context.append(getLineText(document, line)).append("\n");
-        }
-        
-        // Trim to max length if necessary
-        String result = context.toString();
-        if (result.length() > MAX_CONTEXT_LENGTH) {
-            result = trimToMaxLength(result, MAX_CONTEXT_LENGTH);
-        }
-        
-        return result;
+        int lineEndOffset = document.getLineEndOffset(currentLine);
+
+        // Calculate prefix and suffix on current line
+        String currentLineText = document.getText(new TextRange(lineStartOffset, lineEndOffset));
+        int positionInLine = offset - lineStartOffset;
+
+        String currentLinePrefix = currentLineText.substring(0, positionInLine);
+        String currentLineSuffix = currentLineText.substring(positionInLine);
+
+        // Gather multi-line prefix context
+        String prefixContext = gatherPrefixContext(document, currentLine, currentLinePrefix);
+
+        // Gather suffix context
+        String suffixContext = gatherSuffixContext(document, currentLine, currentLineSuffix);
+
+        // Detect indentation
+        String indentation = detectIndentation(currentLineText);
+
+        return new CursorContext(
+                prefixContext,
+                suffixContext,
+                currentLinePrefix,
+                currentLineSuffix,
+                indentation,
+                offset,
+                currentLine
+        );
     }
-    
+
     /**
-     * Gathers broader file context for better understanding.
-     * 
-     * @param editor The editor instance
-     * @return File context including imports, class declaration, and method signatures
+     * Gathers cursor context (backward compatibility method).
      */
-    public static String gatherFileContext(Editor editor) {
-        if (editor == null) {
-            return "";
-        }
-        
-        Document document = editor.getDocument();
-        String fullText = document.getText();
-        
-        // For very large files, limit context
-        if (fullText.length() > MAX_CONTEXT_LENGTH * 3) {
-            return gatherReducedFileContext(document);
-        }
-        
-        return fullText;
+    public static String gatherCursorContext(@NotNull Editor editor, @Nullable PsiFile psiFile) {
+        CursorContext context = gatherEnhancedCursorContext(editor, psiFile);
+        return context.getPrefixContext() + "<CURSOR>" + context.getSuffixContext();
     }
-    
+
     /**
-     * Gets the text of a specific line, handling edge cases.
+     * Gathers prefix context (code before cursor).
      */
-    private static String getLineText(Document document, int lineNumber) {
-        if (lineNumber < 0 || lineNumber >= document.getLineCount()) {
-            return "";
+    private static String gatherPrefixContext(Document document, int currentLine, String currentLinePrefix) {
+        StringBuilder prefix = new StringBuilder();
+
+        // Start from a few lines above, but not too many
+        int startLine = Math.max(0, currentLine - MAX_PREFIX_LINES);
+
+        // Add preceding lines
+        for (int line = startLine; line < currentLine; line++) {
+            int lineStart = document.getLineStartOffset(line);
+            int lineEnd = document.getLineEndOffset(line);
+            String lineText = document.getText(new TextRange(lineStart, lineEnd));
+
+            // Filter out very long lines or empty lines at the beginning
+            if (lineText.trim().isEmpty() && prefix.length() == 0) {
+                continue;
+            }
+
+            if (lineText.length() > MAX_LINE_LENGTH) {
+                lineText = lineText.substring(0, MAX_LINE_LENGTH) + "...";
+            }
+
+            prefix.append(lineText).append("\n");
         }
-        
-        int lineStart = document.getLineStartOffset(lineNumber);
-        int lineEnd = document.getLineEndOffset(lineNumber);
-        
-        return document.getText(new TextRange(lineStart, lineEnd));
+
+        // Add current line prefix
+        prefix.append(currentLinePrefix);
+
+        return prefix.toString();
     }
-    
+
     /**
-     * Trims text to maximum length while preserving the cursor marker.
+     * Gathers suffix context (code after cursor).
      */
-    private static String trimToMaxLength(String text, int maxLength) {
-        if (text.length() <= maxLength) {
-            return text;
+    private static String gatherSuffixContext(Document document, int currentLine, String currentLineSuffix) {
+        StringBuilder suffix = new StringBuilder();
+
+        // Add current line suffix if not empty
+        if (!currentLineSuffix.trim().isEmpty()) {
+            suffix.append(currentLineSuffix);
         }
-        
-        int cursorPos = text.indexOf("<CURSOR>");
-        if (cursorPos == -1) {
-            return text.substring(0, maxLength);
+
+        // Add following lines
+        int totalLines = document.getLineCount();
+        int endLine = Math.min(totalLines, currentLine + MAX_SUFFIX_LINES + 1);
+
+        for (int line = currentLine + 1; line < endLine; line++) {
+            int lineStart = document.getLineStartOffset(line);
+            int lineEnd = document.getLineEndOffset(line);
+            String lineText = document.getText(new TextRange(lineStart, lineEnd));
+
+            if (lineText.length() > MAX_LINE_LENGTH) {
+                lineText = lineText.substring(0, MAX_LINE_LENGTH) + "...";
+            }
+
+            suffix.append("\n").append(lineText);
         }
-        
-        // Try to center around cursor position
-        int halfLength = maxLength / 2;
-        int start = Math.max(0, cursorPos - halfLength);
-        int end = Math.min(text.length(), start + maxLength);
-        
-        // Adjust start if we're at the end
-        if (end - start < maxLength) {
-            start = Math.max(0, end - maxLength);
-        }
-        
-        return text.substring(start, end);
+
+        return suffix.toString();
     }
-    
+
     /**
-     * Gathers reduced context for large files (imports, class structure, current method).
+     * Detects the indentation pattern of the current line.
      */
-    private static String gatherReducedFileContext(Document document) {
-        String fullText = document.getText();
-        StringBuilder context = new StringBuilder();
-        
-        // Add package and imports (first ~500 chars)
-        String[] lines = fullText.split("\n");
-        int importEndLine = 0;
-        
-        for (int i = 0; i < Math.min(lines.length, 50); i++) {
-            String line = lines[i].trim();
-            if (line.startsWith("package ") || line.startsWith("import ") || line.isEmpty() || line.startsWith("//")) {
-                context.append(lines[i]).append("\n");
-                importEndLine = i;
-            } else if (line.startsWith("public class") || line.startsWith("class ") || line.startsWith("public interface")) {
-                context.append(lines[i]).append("\n");
+    private static String detectIndentation(String lineText) {
+        StringBuilder indentation = new StringBuilder();
+
+        for (char ch : lineText.toCharArray()) {
+            if (ch == ' ' || ch == '\t') {
+                indentation.append(ch);
+            } else {
                 break;
             }
         }
-        
-        // Add current method context (if we can find it)
-        // This is a simplified approach - a more sophisticated version would use PSI
-        context.append("\n// ... (file content abbreviated for context) ...\n");
-        
+
+        return indentation.toString();
+    }
+
+    /**
+     * Gathers broader file context for the prompt.
+     */
+    public static String gatherFileContext(@NotNull Editor editor, @Nullable PsiFile psiFile) {
+        Document document = editor.getDocument();
+        String fullText = document.getText();
+
+        // For large files, extract key structural elements
+        if (fullText.length() > 3000) {
+            return extractStructuralContext(fullText);
+        }
+
+        return fullText;
+    }
+
+    /**
+     * Extracts key structural elements from large files.
+     */
+    private static String extractStructuralContext(String fullText) {
+        StringBuilder context = new StringBuilder();
+        String[] lines = fullText.split("\n");
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            // Include package, imports, class/interface declarations, method signatures
+            if (trimmed.startsWith("package ") ||
+                    trimmed.startsWith("import ") ||
+                    trimmed.contains("class ") ||
+                    trimmed.contains("interface ") ||
+                    (trimmed.contains("(") && (trimmed.contains("public ") ||
+                            trimmed.contains("private ") || trimmed.contains("protected ")))) {
+
+                context.append(line).append("\n");
+            }
+        }
+
         return context.toString();
     }
-    
+
     /**
-     * Determines if the current position is at the beginning of a line (after whitespace).
+     * Represents cursor context information.
      */
-    public static boolean isAtLineStart(Editor editor) {
-        if (editor == null) {
-            return false;
+    public static class CursorContext {
+        private final String prefixContext;
+        private final String suffixContext;
+        private final String currentLinePrefix;
+        private final String currentLineSuffix;
+        private final String indentation;
+        private final int offset;
+        private final int lineNumber;
+
+        public CursorContext(String prefixContext, String suffixContext,
+                             String currentLinePrefix, String currentLineSuffix,
+                             String indentation, int offset, int lineNumber) {
+            this.prefixContext = prefixContext;
+            this.suffixContext = suffixContext;
+            this.currentLinePrefix = currentLinePrefix;
+            this.currentLineSuffix = currentLineSuffix;
+            this.indentation = indentation;
+            this.offset = offset;
+            this.lineNumber = lineNumber;
         }
-        
-        Document document = editor.getDocument();
-        int caretOffset = editor.getCaretModel().getOffset();
-        int currentLine = document.getLineNumber(caretOffset);
-        int lineStart = document.getLineStartOffset(currentLine);
-        
-        String textBeforeCursor = document.getText(new TextRange(lineStart, caretOffset));
-        return textBeforeCursor.trim().isEmpty();
-    }
-    
-    /**
-     * Gets the indentation of the current line.
-     */
-    public static String getCurrentIndentation(Editor editor) {
-        if (editor == null) {
-            return "";
+
+        // Getters
+        public String getPrefixContext() {
+            return prefixContext;
         }
-        
-        Document document = editor.getDocument();
-        int caretOffset = editor.getCaretModel().getOffset();
-        int currentLine = document.getLineNumber(caretOffset);
-        
-        String lineText = getLineText(document, currentLine);
-        int indentEnd = 0;
-        
-        while (indentEnd < lineText.length() && Character.isWhitespace(lineText.charAt(indentEnd))) {
-            indentEnd++;
+
+        public String getSuffixContext() {
+            return suffixContext;
         }
-        
-        return lineText.substring(0, indentEnd);
+
+        public String getCurrentLinePrefix() {
+            return currentLinePrefix;
+        }
+
+        public String getCurrentLineSuffix() {
+            return currentLineSuffix;
+        }
+
+        public String getIndentation() {
+            return indentation;
+        }
+
+        public int getOffset() {
+            return offset;
+        }
+
+        public int getLineNumber() {
+            return lineNumber;
+        }
+
+        /**
+         * Checks if we're at the start of a line (only whitespace before cursor).
+         */
+        public boolean isAtLineStart() {
+            return currentLinePrefix.trim().isEmpty();
+        }
+
+        /**
+         * Checks if we're likely inside a method body.
+         */
+        public boolean isInMethodBody() {
+            return prefixContext.contains("{") &&
+                    prefixContext.lastIndexOf("{") > prefixContext.lastIndexOf("}");
+        }
+
+        /**
+         * Gets the expected indentation for the next line.
+         */
+        public String getNextLineIndentation() {
+            if (currentLinePrefix.trim().endsWith("{")) {
+                // Add one level of indentation
+                return indentation + (indentation.contains("\t") ? "\t" : "    ");
+            }
+            return indentation;
+        }
     }
 }

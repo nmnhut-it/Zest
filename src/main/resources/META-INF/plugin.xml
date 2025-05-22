@@ -53,6 +53,13 @@
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
+        <!-- Register autocomplete service -->
+        <projectService serviceInterface="com.zps.zest.autocomplete.ZestAutocompleteService"
+                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>
+
+        <!-- Startup activity to initialize autocomplete service -->
+        <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>
+
     </extensions>
     <actions>
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true">
@@ -131,6 +138,29 @@
                 text="Toggle ZPS Chat Developer Tools"
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- Autocomplete Actions (hidden from menus, triggered by keyboard shortcuts) -->
+        <action id="Zest.AcceptCompletion"
+                class="com.zps.zest.autocomplete.actions.AcceptCompletionAction"
+                text="Accept Autocomplete Suggestion"
+                description="Accept the current autocomplete suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+        </action>
+
+        <action id="Zest.RejectCompletion"
+                class="com.zps.zest.autocomplete.actions.RejectCompletionAction"
+                text="Reject Autocomplete Suggestion"
+                description="Reject the current autocomplete suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
+        </action>
+
+        <!-- Test action for debugging autocomplete -->
+        <action id="Zest.TestAutocomplete"
+                class="com.zps.zest.autocomplete.actions.TestAutocompleteAction"
+                text="Test Autocomplete Service"
+                description="Test the autocomplete service (debug only)">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>

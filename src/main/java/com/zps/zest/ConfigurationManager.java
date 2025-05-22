@@ -124,6 +124,12 @@ public class ConfigurationManager {
     // System prompts
     private String systemPrompt;
     private String codeSystemPrompt;
+    
+    // Autocomplete settings
+    private boolean enableAutocomplete = true;
+    private int autocompleteDelay = 300; // ms
+    private boolean enableMultilineCompletions = true;
+    private String autocompleteModel = "Qwen2.5-Coder-7B";
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -228,6 +234,25 @@ public class ConfigurationManager {
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
                 systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
                 codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+                
+                // Load autocomplete settings
+                String enableAutocompleteStr = props.getProperty("enableAutocomplete");
+                if (enableAutocompleteStr != null) {
+                    enableAutocomplete = Boolean.parseBoolean(enableAutocompleteStr);
+                }
+                
+                try {
+                    autocompleteDelay = Integer.parseInt(props.getProperty("autocompleteDelay", "300"));
+                } catch (NumberFormatException e) {
+                    autocompleteDelay = 300;
+                }
+                
+                String enableMultilineStr = props.getProperty("enableMultilineCompletions");
+                if (enableMultilineStr != null) {
+                    enableMultilineCompletions = Boolean.parseBoolean(enableMultilineStr);
+                }
+                
+                autocompleteModel = props.getProperty("autocompleteModel", CODE_EXPERT);
 
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
@@ -281,6 +306,12 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", mcpServerUri);
             props.setProperty("systemPrompt", systemPrompt);
             props.setProperty("codeSystemPrompt", codeSystemPrompt);
+            
+            // Autocomplete settings
+            props.setProperty("enableAutocomplete", String.valueOf(enableAutocomplete));
+            props.setProperty("autocompleteDelay", String.valueOf(autocompleteDelay));
+            props.setProperty("enableMultilineCompletions", String.valueOf(enableMultilineCompletions));
+            props.setProperty("autocompleteModel", autocompleteModel);
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -448,6 +479,10 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
             props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
             props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+            props.setProperty("enableAutocomplete", "true");
+            props.setProperty("autocompleteDelay", "300");
+            props.setProperty("enableMultilineCompletions", "true");
+            props.setProperty("autocompleteModel", CODE_EXPERT);
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -565,5 +600,38 @@ public class ConfigurationManager {
                 "---------\n" +
                 "Bạn đang trong một cuộc họp. Bạn sẽ lắng nghe, đặt câu hỏi để làm rõ và thách thức tôi bằng các câu hỏi. Bạn hỏi tôi từng câu hỏi một để giúp tôi giải quyết vấn đề hoặc tìm ra điểm yếu, hoặc để đưa ra một ý tưởng mới hoặc giải quyết các vấn đề.";
         return s;
+    }
+    
+    // Autocomplete settings getters and setters
+    public boolean isAutocompleteEnabled() {
+        return enableAutocomplete;
+    }
+    
+    public void setAutocompleteEnabled(boolean enabled) {
+        this.enableAutocomplete = enabled;
+    }
+    
+    public int getAutocompleteDelay() {
+        return autocompleteDelay;
+    }
+    
+    public void setAutocompleteDelay(int delay) {
+        this.autocompleteDelay = delay;
+    }
+    
+    public boolean isMultilineCompletionsEnabled() {
+        return enableMultilineCompletions;
+    }
+    
+    public void setMultilineCompletionsEnabled(boolean enabled) {
+        this.enableMultilineCompletions = enabled;
+    }
+    
+    public String getAutocompleteModel() {
+        return autocompleteModel;
+    }
+    
+    public void setAutocompleteModel(String model) {
+        this.autocompleteModel = model;
     }
 }

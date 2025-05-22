@@ -1,5 +1,6 @@
 package com.zps.zest.browser;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -21,7 +22,7 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  * Manages the JCEF browser instance and provides a simplified API for browser interactions.
  */
 @SuppressWarnings("removal")
-public class JCEFBrowserManager {
+public class JCEFBrowserManager implements Disposable {
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
 
     private final JBCefBrowser browser;
@@ -277,6 +278,8 @@ public class JCEFBrowserManager {
                 LOG.info("Closing Developer Tools");
                 SwingUtilities.getWindowAncestor(devToolsBrowser.getComponent()).dispose();
                 devToolsBrowser = null;
+                if (!browser.isDisposed())
+                    browser.dispose();
                 devToolsVisible = false;
             }
             return true;
@@ -356,4 +359,7 @@ public class JCEFBrowserManager {
     public JavaScriptBridge getJavaScriptBridge() {
         return jsBridge;
     }
+
+
+
 }

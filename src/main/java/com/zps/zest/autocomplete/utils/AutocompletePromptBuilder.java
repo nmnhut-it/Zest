@@ -9,47 +9,76 @@ package com.zps.zest.autocomplete.utils;
  * - External reference-based completion
  */
 public class AutocompletePromptBuilder {
-    public static final String ONLY_REMAINING = "IMPORTANT: Only return the part of the text to be inserted at cursor position. \n";
+    public static final String ONLY_REMAINING = "\nIMPORTANT: Only return the part of the text to be inserted at cursor position. Do not include any text that already exists before the cursor.\n";
 
     // System prompts for different completion scenarios
     public static final String MINIMAL_SYSTEM_PROMPT =
-            "You are a code completion assistant. \nIMPORTANT: Return ONLY the code that should be inserted at the cursor position. " +
-                    "Do not include explanations, markdown formatting, backtick or any other text.\n\n" +
-                    "Examples:\n" +
-                    "Input: \n `for (int i = 0; i < <CURSOR>`\n" +
+            "You are a precise code completion assistant. Your task is to complete code at the cursor position marked with <CURSOR>.\n\n" +
+                    "RULES:\n" +
+                    "1. Return ONLY the code that should be inserted at the cursor position\n" +
+                    "2. Do not repeat any existing code that appears before the cursor\n" +
+                    "3. Do not include explanations, markdown formatting, backticks, or any other text\n" +
+                    "4. Ensure the completion creates syntactically correct and logically sound code\n" +
+                    "5. Consider the context and follow common programming patterns\n\n" +
+                    "EXAMPLES:\n" +
+                    "Input: `for (int i = 0; i < <CURSOR>`\n" +
                     "Output: `arr.length; i++)`\n\n" +
                     "Input: `public void setName(String name) {\n    this.<CURSOR>`\n" +
-                    "Output: `name = name;`";
+                    "Output: `name = name;\n}`\n\n" +
+                    "Input: `List<String> items = new ArrayList<>();\nitems.<CURSOR>`\n" +
+                    "Output: `add(`";
 
     public static final String JAVADOC_SYSTEM_PROMPT =
-            "You are a documentation assistant. Generate ONLY the complete JavaDoc/JSDoc comment block that should be inserted at the cursor position. " +
-                    "Include proper @param, @return, @throws tags as needed. Start with /** and end with */. " +
-                    "Do not include explanations or any other text.\n\n" +
-                    "Examples:\n" +
-                    "Input: `<CURSOR>\n    public String getName() { return name; }`\n" +
-                    "Output: `/**\n     * Gets the name.\n     * @return the name\n     */`\n\n" +
-                    "Input: `<CURSOR>\n    public void setAge(int age) throws IllegalArgumentException {`\n" +
-                    "Output: `/**\n     * Sets the age.\n     * @param age the age to set\n     * @throws IllegalArgumentException if age is negative\n     */`";
+            "You are a documentation generation assistant. Your task is to generate complete JavaDoc/JSDoc comments for the code that follows the cursor position.\n\n" +
+                    "RULES:\n" +
+                    "1. Generate ONLY the complete comment block that should be inserted at the cursor\n" +
+                    "2. Do not repeat any existing comment text that appears before the cursor\n" +
+                    "3. Start with /** and end with */ (for block comments) or use appropriate comment syntax\n" +
+                    "4. Include relevant @param, @return, @throws, @deprecated tags based on the method signature\n" +
+                    "5. Write clear, concise descriptions that explain the purpose and behavior\n" +
+                    "6. Do not include explanations or any text outside the comment block\n\n" +
+                    "EXAMPLES:\n" +
+                    "Input: `/*<CURSOR>\npublic String getName() { return name; }`\n" +
+                    "Output: `/**\n     * Gets the name of this object.\n     * @return the name as a String\n     */`\n\n" +
+                    "Input: `<CURSOR>\npublic void setAge(int age) throws IllegalArgumentException {\n    if (age < 0) throw new IllegalArgumentException(\"Age cannot be negative\");\n    this.age = age;\n}`\n" +
+                    "Output: `/**\n     * Sets the age of this person.\n     * @param age the age to set, must be non-negative\n     * @throws IllegalArgumentException if age is negative\n     */`";
 
     public static final String LINE_COMMENT_SYSTEM_PROMPT =
-            "You are a comment completion assistant. Return ONLY the comment text that explains why this code exists or its purpose. The comment MUST be a natural continuation of the existing sentence if such sentences are available"+
-                    "Focus on business logic, edge cases, or important context. Be concise. " +
-                    "Do not include the '//' prefix or any explanations.\n\n" +
-                    "Examples:\n" +
-                    "Input: `// <CURSOR>\n    if (user.getAge() < 0) throw new IllegalArgumentException();`\n" +
-                    "Output: `Validate age to prevent negative values in business logic`\n\n" +
-                    "Input: `// <CURSOR>\n    Thread.sleep(100);`\n" +
-                    "Output: `Brief pause to prevent overwhelming the API with requests`";
+            "You are a code commenting assistant. Your task is to complete line comments that explain the purpose or reasoning behind the code.\n\n" +
+                    "RULES:\n" +
+                    "1. Return ONLY the comment text (without the // prefix)\n" +
+                    "2. Do not repeat any existing comment text that appears before the cursor\n" +
+                    "3. If there's existing comment text, continue the sentence naturally by providing only the remaining words\n" +
+                    "4. Focus on WHY the code exists, not WHAT it does (the code shows what)\n" +
+                    "5. Explain business logic, edge cases, performance considerations, or important context\n" +
+                    "6. Keep comments concise but informative\n" +
+                    "7. Do not include explanations or any text outside the comment\n\n" +
+                    "EXAMPLES:\n" +
+                    "Input: `// <CURSOR>\nif (user.getAge() < 0) throw new IllegalArgumentException(\"Invalid age\");`\n" +
+                    "Output: `Validate age to prevent business logic errors with negative values`\n\n" +
+                    "Input: `// This function needs to <CURSOR>\nfunction optimizeQuery() { ... }`\n" +
+                    "Output: `be called before any database operations to improve performance`\n\n" +
+                    "Input: `// Need to wait here because <CURSOR>\nThread.sleep(100);`\n" +
+                    "Output: `the API has rate limiting that requires delays between requests`\n\n" +
+                    "Input: `// <CURSOR>\nString result = expensive_operation().toLowerCase().trim();`\n" +
+                    "Output: `Cache the result since this operation is called frequently in the main loop`";
 
     public static final String EXTERNAL_REFERENCE_PROMPT =
-            "You are a code completion assistant. Based on common patterns and best practices, return ONLY the code that should be inserted at the cursor position. " +
-                    "Do not include explanations, markdown formatting, or any other text.\n\n" +
-                    "Examples:\n" +
-                    "Input: `List<String> names = new ArrayList<>();\n    names.<CURSOR>`\n" +
+            "You are a code completion assistant with knowledge of common programming patterns and best practices. Complete the code at the cursor position using established patterns.\n\n" +
+                    "RULES:\n" +
+                    "1. Return ONLY the code that should be inserted at the cursor position\n" +
+                    "2. Do not repeat any existing code that appears before the cursor\n" +
+                    "3. Follow language conventions and common patterns\n" +
+                    "4. Consider the surrounding context to determine the most appropriate completion\n" +
+                    "5. Ensure the completion follows best practices for the given language\n" +
+                    "6. Do not include explanations, markdown formatting, or any other text\n\n" +
+                    "EXAMPLES:\n" +
+                    "Input: `List<String> names = new ArrayList<>();\nnames.<CURSOR>`\n" +
                     "Output: `add(`\n\n" +
-                    "Input: `try {\n    // code\n} <CURSOR>`\n" +
-                    "Output: `catch (Exception e) {\n    e.printStackTrace();\n}`";
-
+                    "Input: `try {\n    processData();\n} <CURSOR>`\n" +
+                    "Output: `catch (Exception e) {\n    logger.error(\"Failed to process data\", e);\n    throw new ProcessingException(\"Data processing failed\", e);\n}`\n\n" +
+                    "Input: `@Override\npublic boolean equals(Object obj) {\n    if (this == obj) return true;\n    if (obj == null || getClass() != obj.getClass()) return false;\n    <CURSOR>`\n" +
+                    "Output: `Person person = (Person) obj;\n    return Objects.equals(name, person.name) && age == person.age;`";
 
     private String systemPrompt = "";
     private String fileContext = "";
@@ -183,8 +212,8 @@ public class AutocompletePromptBuilder {
         String lastLine = lines[lines.length - 1].trim();
 
         // Check for JavaDoc/JSDoc comment start
-        if (lastLine.startsWith("/**") ||
-                (lastLine.equals("/*") && "java".equalsIgnoreCase(language) || "javascript".equalsIgnoreCase(language))) {
+        if (lastLine.startsWith("/**") || lastLine.equals("/*") ||
+                (lastLine.startsWith("/*") && !lastLine.endsWith("*/"))) {
             return CompletionContext.JAVADOC;
         }
 
@@ -202,24 +231,24 @@ public class AutocompletePromptBuilder {
     }
 
     /**
-     * Builds a minimal, effective prompt following Tabby ML patterns.
+     * Builds a minimal, effective prompt following best practices.
      */
     private String buildMinimalPrompt() {
         StringBuilder prompt = new StringBuilder();
 
-        // Minimal system instruction
+        // Clear system instruction with examples
         prompt.append(MINIMAL_SYSTEM_PROMPT).append("\n\n");
 
-        // Add focused context
+        // Add focused context if available
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
-            prompt.append("Context:\n```").append(language).append("\n");
+            prompt.append("CONTEXT:\n```").append(language).append("\n");
             prompt.append(relevantContext);
             prompt.append("\n```\n\n");
         }
 
-        // The actual completion request - minimal and clear
-        prompt.append("Code to complete:\n```").append(language).append("\n");
+        // The completion request with clear formatting
+        prompt.append("COMPLETE THIS CODE:\n```").append(language).append("\n");
         prompt.append(prefixContext);
         prompt.append("<CURSOR>");
         if (!suffixContext.isEmpty()) {
@@ -227,6 +256,7 @@ public class AutocompletePromptBuilder {
         }
         prompt.append("\n```");
         prompt.append(ONLY_REMAINING);
+
         return prompt.toString();
     }
 
@@ -239,29 +269,27 @@ public class AutocompletePromptBuilder {
         // JavaDoc specific system instruction
         prompt.append(JAVADOC_SYSTEM_PROMPT).append("\n\n");
 
-        // Extract method signature if available
+        // Extract method signature and class context
         String methodSignature = findMethodSignature();
         String className = findClassName();
 
-        // Add context
-        prompt.append("Context:\n```").append(language).append("\n");
+        // Add structured context
+        prompt.append("CONTEXT:\n```").append(language).append("\n");
         if (!className.isEmpty()) {
             prompt.append("// Class: ").append(className).append("\n");
         }
 
-        // Include surrounding code for better context
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
             prompt.append(relevantContext).append("\n");
         }
 
-        // Add current position
+        // Current position and following code
         prompt.append(prefixContext);
         prompt.append("<CURSOR>");
 
-        // Include following code to help understand what needs to be documented
         if (!suffixContext.isEmpty()) {
-            String truncatedSuffix = truncateContext(suffixContext, 800);
+            String truncatedSuffix = truncateContext(suffixContext, 1000);
             prompt.append("\n").append(truncatedSuffix);
         }
         prompt.append("\n```");
@@ -279,8 +307,8 @@ public class AutocompletePromptBuilder {
         // Line comment specific system instruction
         prompt.append(LINE_COMMENT_SYSTEM_PROMPT).append("\n\n");
 
-        // Add context
-        prompt.append("Code context:\n```").append(language).append("\n");
+        // Add structured context
+        prompt.append("CODE TO COMMENT:\n```").append(language).append("\n");
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
             prompt.append(relevantContext).append("\n");
@@ -289,9 +317,9 @@ public class AutocompletePromptBuilder {
         prompt.append(prefixContext);
         prompt.append("<CURSOR>");
 
-        // Add code that follows the comment for context
+        // Add code that follows for better context understanding
         if (!suffixContext.isEmpty()) {
-            String truncatedSuffix = truncateContext(suffixContext, 500);
+            String truncatedSuffix = truncateContext(suffixContext, 600);
             prompt.append("\n").append(truncatedSuffix);
         }
         prompt.append("\n```");
@@ -309,18 +337,16 @@ public class AutocompletePromptBuilder {
         // External reference specific system instruction
         prompt.append(EXTERNAL_REFERENCE_PROMPT).append("\n\n");
 
-        // Add context
-        prompt.append("Code context:\n```").append(language).append("\n");
+        // Add structured context
+        prompt.append("CODE CONTEXT:\n```").append(language).append("\n");
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
             prompt.append(relevantContext).append("\n");
         }
 
-        // Add current code up to cursor
         prompt.append(prefixContext);
         prompt.append("<CURSOR>");
 
-        // Add following code if available
         if (!suffixContext.isEmpty()) {
             prompt.append(suffixContext);
         }
@@ -340,7 +366,7 @@ public class AutocompletePromptBuilder {
         if (!systemPrompt.isEmpty()) {
             prompt.append(systemPrompt).append("\n\n");
         } else {
-            prompt.append("Return only the code completion that should be inserted at <CURSOR>. No explanations or formatting.\n\n");
+            prompt.append("Complete the code at the <CURSOR> position. Return only the completion text without explanations or formatting.\n\n");
         }
 
         // Add language context
@@ -349,7 +375,7 @@ public class AutocompletePromptBuilder {
         // Add file context if available
         if (!fileContext.isEmpty()) {
             prompt.append("File Context:\n```").append(language.toLowerCase()).append("\n");
-            prompt.append(truncateContext(fileContext, 800));
+            prompt.append(truncateContext(fileContext, 1000));
             prompt.append("\n```\n\n");
         }
 
@@ -372,6 +398,8 @@ public class AutocompletePromptBuilder {
         return prompt.toString();
     }
 
+    // ... (rest of the methods remain the same as they're primarily helper methods)
+
     /**
      * Extracts only the most relevant context around the cursor.
      */
@@ -380,15 +408,13 @@ public class AutocompletePromptBuilder {
             return "";
         }
 
-        // Find the cursor position in the full context
         String fullContext = fileContext;
         String[] lines = fullContext.split("\n");
 
-        // Look for current method/class context
         StringBuilder context = new StringBuilder();
         int contextLines = 0;
 
-        // Add class declaration and imports if present
+        // Add package, imports, and class declarations
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.startsWith("package ") || trimmed.startsWith("import ") ||
@@ -396,11 +422,11 @@ public class AutocompletePromptBuilder {
                     trimmed.contains("public class") || trimmed.contains("private class")) {
                 context.append(line).append("\n");
                 contextLines++;
-                if (contextLines >= 5) break; // Limit initial context
+                if (contextLines >= 5) break;
             }
         }
 
-        // Add method signature if we're inside a method
+        // Add current method context
         String methodContext = findCurrentMethodContext();
         if (!methodContext.isEmpty()) {
             context.append(methodContext).append("\n");
@@ -443,12 +469,10 @@ public class AutocompletePromptBuilder {
 
         for (String line : lines) {
             String trimmed = line.trim();
-            // Skip empty lines and other comments
             if (trimmed.isEmpty() || trimmed.startsWith("*") || trimmed.startsWith("//")) {
                 continue;
             }
 
-            // Method signature typically contains parentheses and ends with { or ;
             if (trimmed.contains("(") && (trimmed.contains("{") ||
                     trimmed.endsWith(";") ||
                     trimmed.contains("throws"))) {
@@ -457,7 +481,6 @@ public class AutocompletePromptBuilder {
                 break;
             }
 
-            // Multi-line method signatures
             if (trimmed.contains("(") ||
                     (signature.length() > 0 && !trimmed.contains("*/"))) {
                 signature.append(trimmed).append(" ");
@@ -481,7 +504,6 @@ public class AutocompletePromptBuilder {
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.contains("class ") || trimmed.contains("interface ")) {
-                // Extract class name using simple regex-like approach
                 int classIdx = trimmed.indexOf("class ") + 6;
                 if (trimmed.contains("interface ")) {
                     classIdx = trimmed.indexOf("interface ") + 10;
@@ -506,7 +528,6 @@ public class AutocompletePromptBuilder {
             return context;
         }
 
-        // Try to keep important parts (imports, class declaration)
         String[] lines = context.split("\n");
         StringBuilder truncated = new StringBuilder();
         int currentLength = 0;
@@ -515,11 +536,10 @@ public class AutocompletePromptBuilder {
 
         for (String line : lines) {
             if (currentLength + line.length() > maxLength && truncated.length() > maxLength / 2) {
-                truncated.append("\n// ... (truncated for brevity) ...\n");
+                truncated.append("\n// ... (context truncated) ...\n");
                 break;
             }
 
-            // Always include package, imports, and class declaration
             String trimmedLine = line.trim();
             if (trimmedLine.startsWith("package ") ||
                     trimmedLine.startsWith("import ") ||
@@ -535,7 +555,6 @@ public class AutocompletePromptBuilder {
                     inImports = false;
                 }
             } else if (!inImports || foundClassDeclaration) {
-                // Include other lines if we have space
                 truncated.append(line).append("\n");
                 currentLength += line.length() + 1;
             }
@@ -545,7 +564,7 @@ public class AutocompletePromptBuilder {
     }
 
     /**
-     * Creates a context-aware prompt similar to Tabby ML approach.
+     * Creates a context-aware prompt with best practices.
      */
     public static String createContextAwarePrompt(String fileContext, String prefix, String suffix, String language) {
         return new AutocompletePromptBuilder()

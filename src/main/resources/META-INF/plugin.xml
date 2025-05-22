@@ -140,21 +140,22 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
-        <!-- Autocomplete Actions (hidden from menus, triggered by keyboard shortcuts) -->
+        <!-- Autocomplete Actions (TAB key handling) -->
         <action id="Zest.AcceptCompletion"
                 class="com.zps.zest.autocomplete.actions.AcceptCompletionAction"
                 text="Accept Autocomplete Suggestion"
                 description="Accept the current autocomplete suggestion">
         </action>
 
-        <!-- Partial Acceptance Actions -->
+        <!-- Smart Tab Completion: word -> line -> full -->
         <action id="Zest.AcceptWordCompletion"
                 class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"
-                text="Accept Next Word"
-                description="Accept the next word from the autocomplete suggestion">
+                text="Smart Tab Completion"  
+                description="Smart tab completion: first tab = word, second = line, third+ = full">
             <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
         </action>
 
+        <!-- Keep line completion action for explicit use -->
         <action id="Zest.AcceptLineCompletion"
                 class="com.zps.zest.autocomplete.actions.AcceptLineCompletionAction"
                 text="Accept Next Line"
@@ -173,6 +174,14 @@
                 class="com.zps.zest.autocomplete.actions.TestAutocompleteAction"
                 text="Test Autocomplete Service"
                 description="Test the autocomplete service (debug only)">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+        </action>
+
+        <!-- Smart completion test action -->
+        <action id="Zest.TestSmartCompletion"
+                class="com.zps.zest.autocomplete.actions.TestSmartCompletionAction"
+                text="Test Smart Tab Completion"
+                description="Trigger autocomplete to test smart tab completion behavior">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
     </actions>

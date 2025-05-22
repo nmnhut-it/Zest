@@ -46,6 +46,7 @@ public final class ZestAutocompleteService implements Disposable {
     private final Map<Editor, ZestAutocompleteDocumentListener> documentListeners = new ConcurrentHashMap<>();
     private final Map<Editor, ZestAutocompleteCaretListener> caretListeners = new ConcurrentHashMap<>();
     private final Map<Editor, ZestInlayRenderer.RenderingContext> renderingContexts = new ConcurrentHashMap<>();
+    private final Map<Editor, Integer> tabAcceptCounts = new ConcurrentHashMap<>();
 
     private CompletableFuture<Void> currentRequest;
     private boolean isEnabled = true;
@@ -185,11 +186,15 @@ public final class ZestAutocompleteService implements Disposable {
                         detectLanguage(editor, psiFile)
                 );
 
-                // Make API request
+                // Make API request with context-aware system prompt
                 CompletableFuture.runAsync(() -> {
                     try {
                         CodeContext context = ReadAction.compute(()->createCodeContext(editor, enhancedPrompt, config));
-                        AutocompleteApiStage apiStage = new AutocompleteApiStage(project);
+                        
+                        // Detect completion context and create appropriate API stage
+                        String systemPrompt = detectCompletionContextAndGetSystemPrompt(cursorContext.getPrefixContext());
+                        AutocompleteApiStage apiStage = new AutocompleteApiStage(project, systemPrompt);
+                        
                         apiStage.process(context);
 
                         String completion = context.getApiResponse();
@@ -197,6 +202,11 @@ public final class ZestAutocompleteService implements Disposable {
                             // Create completion item with proper range
                             ZestCompletionData.CompletionItem item = createCompletionItem(
                                     completion.trim(), cursorContext);
+
+                            // Skip if completion was filtered out
+                            if (item == null) {
+                                return;
+                            }
 
                             // Cache the result
                             completionCache.put(cacheKey, item);
@@ -221,12 +231,18 @@ public final class ZestAutocompleteService implements Disposable {
      */
     private ZestCompletionData.CompletionItem createCompletionItem(String completion,
                                                                    ContextGatherer.CursorContext context) {
+        // Skip completion if it shares significant content with current line
+        String currentLineSuffix = context.getCurrentLineSuffix().trim();
+        if (!currentLineSuffix.isEmpty() && completion.trim().startsWith(currentLineSuffix)) {
+            LOG.debug("Skipping completion - shares content with current line");
+            return null;
+        }
+
         int startOffset = context.getOffset();
         int endOffset = startOffset;
 
         // Calculate replace range based on current line suffix
-        String currentLineSuffix = context.getCurrentLineSuffix();
-        if (!currentLineSuffix.trim().isEmpty()) {
+        if (!currentLineSuffix.isEmpty()) {
             // If there's meaningful content after cursor, we might want to replace it
             // This is a simplified version - Tabby ML has more sophisticated logic
             if (completion.startsWith(currentLineSuffix.trim())) {
@@ -261,6 +277,9 @@ public final class ZestAutocompleteService implements Disposable {
 
                 activeCompletions.put(editor, completion);
                 renderingContexts.put(editor, renderingContext);
+                
+                // Reset tab count when new completion is shown
+                tabAcceptCounts.put(editor, 0);
 
                 LOG.debug("Displayed enhanced autocomplete: " +
                         item.getInsertText().substring(0, Math.min(50, item.getInsertText().length())));
@@ -276,6 +295,32 @@ public final class ZestAutocompleteService implements Disposable {
      */
     public void acceptCompletion(Editor editor) {
         acceptCompletion(editor, AcceptType.FULL_COMPLETION);
+    }
+
+    /**
+     * Smart tab completion: cycles through word -> line -> full completion
+     */
+    public void handleTabCompletion(Editor editor) {
+        if (!hasActiveCompletion(editor)) {
+            return;
+        }
+
+        int tabCount = tabAcceptCounts.getOrDefault(editor, 0) + 1;
+        tabAcceptCounts.put(editor, tabCount);
+
+        AcceptType acceptType;
+        switch (tabCount) {
+            case 1:
+                acceptType = AcceptType.NEXT_WORD;
+                break;
+            case 2:
+                acceptType = AcceptType.NEXT_LINE;
+                break;
+            default:
+                acceptType = AcceptType.FULL_COMPLETION;
+        }
+
+        acceptCompletion(editor, acceptType);
     }
 
     /**
@@ -331,6 +376,8 @@ public final class ZestAutocompleteService implements Disposable {
 
             completion.accept();
             clearCompletion(editor);
+            // Reset tab count after completion
+            tabAcceptCounts.remove(editor);
 
             LOG.debug("Accepted enhanced autocomplete suggestion with type: " + acceptType);
 
@@ -438,6 +485,9 @@ public final class ZestAutocompleteService implements Disposable {
         if (completion != null) {
             completion.dispose();
         }
+        
+        // Reset tab count
+        tabAcceptCounts.remove(editor);
     }
 
     public boolean hasActiveCompletion(Editor editor) {
@@ -469,6 +519,38 @@ public final class ZestAutocompleteService implements Disposable {
         return String.valueOf((cursorContext.getPrefixContext() +
                 cursorContext.getSuffixContext() +
                 cursorContext.getOffset()).hashCode());
+    }
+
+    /**
+     * Detects completion context and returns appropriate system prompt.
+     */
+    private String detectCompletionContextAndGetSystemPrompt(String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
+        }
+
+        // Get the last line of prefix to determine context
+        String[] lines = prefix.split("\n");
+        if (lines.length == 0) {
+            return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
+        }
+
+        String lastLine = lines[lines.length - 1].trim();
+
+        // Check for JavaDoc/JSDoc comment start
+        if (lastLine.startsWith("/**") || lastLine.equals("/*")) {
+            LOG.debug("Detected JavaDoc completion context");
+            return AutocompletePromptBuilder.JAVADOC_SYSTEM_PROMPT;
+        }
+
+        // Check for line comment
+        if (lastLine.startsWith("//")) {
+            LOG.debug("Detected line comment completion context");
+            return AutocompletePromptBuilder.LINE_COMMENT_SYSTEM_PROMPT;
+        }
+
+        // Default to minimal system prompt for code completion
+        return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
     }
 
     /**
@@ -520,6 +602,7 @@ public final class ZestAutocompleteService implements Disposable {
         documentListeners.clear();
         caretListeners.clear();
         completionCache.clear();
+        tabAcceptCounts.clear();
 
         LOG.info("Enhanced ZestAutocompleteService disposed for project: " + project.getName());
     }

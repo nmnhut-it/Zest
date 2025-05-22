@@ -94,22 +94,44 @@ public enum AcceptType {
 
     /**
      * Calculates the remaining text after accepting a portion.
-     * 
+     * If the beginning of the original and accepted text are the same,
+     * it skips over the shared prefix.
+     *
      * @param originalText The original completion text
      * @param acceptedText The text that was accepted
      * @return The remaining text, or null if no continuation is possible
      */
     public static String calculateRemainingText(@NotNull String originalText, @NotNull String acceptedText) {
-        if (acceptedText.isEmpty() || !originalText.startsWith(acceptedText)) {
-            return null; // Invalid acceptance
+        if (acceptedText.isEmpty()) {
+            return null; // Nothing accepted
         }
-        
-        if (acceptedText.length() >= originalText.length()) {
-            return null; // Nothing remaining
+
+        // Find the longest common prefix
+        int prefixLength = commonPrefixLength(originalText, acceptedText);
+        if (prefixLength == 0) {
+            return null; // No match, invalid acceptance
         }
-        
-        return originalText.substring(acceptedText.length());
+
+        if (prefixLength >= originalText.length()) {
+            return null; // Nothing left to complete
+        }
+
+        return originalText.substring(prefixLength);
     }
+
+    /**
+     * Calculates the length of the common prefix between two strings.
+     */
+    private static int commonPrefixLength(@NotNull String a, @NotNull String b) {
+        int minLength = Math.min(a.length(), b.length());
+        for (int i = 0; i < minLength; i++) {
+            if (a.charAt(i) != b.charAt(i)) {
+                return i;
+            }
+        }
+        return minLength;
+    }
+
 
     /**
      * Determines if the given text represents a complete word.

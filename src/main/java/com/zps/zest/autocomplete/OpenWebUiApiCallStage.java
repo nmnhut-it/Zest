@@ -19,7 +19,7 @@ public class OpenWebUiApiCallStage extends LlmApiCallStage {
 
     public static final Gson GSON = new Gson();
     private static final int MAX_COMPLETION_TOKENS = 50;
-    private static final double AUTOCOMPLETE_TEMPERATURE = 0.55;
+    private static final double AUTOCOMPLETE_TEMPERATURE = -1;
     private final String model;
     private final String systemPrompt;
     private final boolean streaming;
@@ -56,7 +56,9 @@ public class OpenWebUiApiCallStage extends LlmApiCallStage {
 
         // Params object
         JsonObject params = new JsonObject();
-        params.addProperty("temperature", autocompleteTemperature);
+        if (autocompleteTemperature > 0) {
+            params.addProperty("temperature", autocompleteTemperature);
+        }
         params.addProperty("max_tokens", maxCompletionTokens);
         root.add("params", params);
 

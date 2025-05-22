@@ -101,6 +101,20 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
         cleaned = cleaned.replaceAll("```[a-zA-Z]*\\s*", "");
         cleaned = cleaned.replaceAll("```", "");
 
+        // Remove backticks wrapping the entire response
+        cleaned = cleaned.trim();
+        if (cleaned.startsWith("`") && cleaned.endsWith("`")) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+        }
+        
+        // Remove multiple backticks at start/end
+        while (cleaned.startsWith("`")) {
+            cleaned = cleaned.substring(1).trim();
+        }
+        while (cleaned.endsWith("`")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 1).trim();
+        }
+
         // Remove common LLM prefixes and explanations
         cleaned = cleaned.replaceAll("^(Here's|This|The|You can|To complete|Completion:).*?\\n", "");
         cleaned = cleaned.replaceAll("^(Complete|Add|Insert|Replace).*?:\\s*", "");

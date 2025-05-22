@@ -271,9 +271,19 @@ public final class ZestAutocompleteService implements Disposable {
     }
 
     /**
-     * Accepts completion with proper replace range handling.
+     * Accepts completion with proper replace range handling and partial acceptance support.
      */
     public void acceptCompletion(Editor editor) {
+        acceptCompletion(editor, AcceptType.FULL_COMPLETION);
+    }
+
+    /**
+     * Accepts completion with specified acceptance type (full, word, or line).
+     * 
+     * @param editor The editor instance
+     * @param acceptType The type of acceptance (full, word, or line)
+     */
+    public void acceptCompletion(Editor editor, AcceptType acceptType) {
         ZestCompletionData.PendingCompletion completion = activeCompletions.get(editor);
         if (completion == null || !completion.isActive()) {
             return;
@@ -281,29 +291,127 @@ public final class ZestAutocompleteService implements Disposable {
 
         try {
             ZestCompletionData.CompletionItem item = completion.getItem();
+            String fullCompletionText = item.getInsertText();
+            
+            // Calculate what text to actually accept based on accept type
+            String textToAccept = AcceptType.extractAcceptableText(fullCompletionText, acceptType);
+            if (textToAccept.isEmpty()) {
+                LOG.debug("No text to accept for type: " + acceptType);
+                return;
+            }
+
             Document document = editor.getDocument();
+            ZestCompletionData.Range replaceRange = item.getReplaceRange();
 
             VirtualFile virtualFile = editor.getVirtualFile();
             if (virtualFile == null)
                 return;
+                
             WriteCommandAction.runWriteCommandAction(project,"autocomplete","Zest", (Runnable) () -> {
-                // Replace the range with the completion text
-                ZestCompletionData.Range replaceRange = item.getReplaceRange();
-                document.replaceString(replaceRange.getStart(), replaceRange.getEnd(),
-                        item.getInsertText());
+                // Replace the range with the accepted text
+                document.replaceString(replaceRange.getStart(), replaceRange.getEnd(), textToAccept);
 
                 // Move cursor to end of inserted text
-                editor.getCaretModel().moveToOffset(replaceRange.getStart() + item.getInsertText().length());
+                editor.getCaretModel().moveToOffset(replaceRange.getStart() + textToAccept.length());
             }, PsiUtil.getPsiFile(project, virtualFile));
+
+            // Publish acceptance event
+            publishCompletionAccepted(editor, item, acceptType, textToAccept);
+
+            // Handle partial acceptance continuation
+            if (acceptType != AcceptType.FULL_COMPLETION) {
+                String remainingText = AcceptType.calculateRemainingText(fullCompletionText, textToAccept);
+                if (remainingText != null && !remainingText.trim().isEmpty()) {
+                    // Create continuation completion
+                    handlePartialAcceptanceContinuation(editor, completion, item, textToAccept, remainingText);
+                    return; // Don't clear completion yet
+                }
+            }
 
             completion.accept();
             clearCompletion(editor);
 
-            LOG.debug("Accepted enhanced autocomplete suggestion");
+            LOG.debug("Accepted enhanced autocomplete suggestion with type: " + acceptType);
 
         } catch (Exception e) {
             LOG.warn("Failed to accept enhanced completion", e);
         }
+    }
+
+    /**
+     * Handles continuation after partial acceptance.
+     */
+    private void handlePartialAcceptanceContinuation(Editor editor, 
+                                                   ZestCompletionData.PendingCompletion originalCompletion,
+                                                   ZestCompletionData.CompletionItem originalItem,
+                                                   String acceptedText, 
+                                                   String remainingText) {
+        try {
+            // Calculate new offset after insertion
+            int newOffset = editor.getCaretModel().getOffset();
+            
+            // Create continuation item with remaining text
+            ZestCompletionData.Range newRange = new ZestCompletionData.Range(newOffset, newOffset);
+            ZestCompletionData.CompletionItem continuationItem = new ZestCompletionData.CompletionItem(
+                remainingText, newRange, null, originalItem.getConfidence()
+            );
+
+            // Create new pending completion for continuation
+            ZestCompletionData.PendingCompletion continuationCompletion = new ZestCompletionData.PendingCompletion(
+                continuationItem, editor, originalCompletion.getOriginalContext() + acceptedText
+            );
+
+            // Replace current completion with continuation
+            activeCompletions.put(editor, continuationCompletion);
+
+            // Update rendering context
+            clearRenderingContext(editor);
+            ZestInlayRenderer.RenderingContext newRenderingContext = 
+                ZestInlayRenderer.show(editor, newOffset, continuationItem);
+            renderingContexts.put(editor, newRenderingContext);
+
+            // Publish continuation event
+            publishCompletionContinued(editor, originalItem, continuationItem, acceptedText);
+
+            LOG.debug("Created continuation completion with remaining text: " + 
+                     remainingText.substring(0, Math.min(30, remainingText.length())));
+
+        } catch (Exception e) {
+            LOG.warn("Failed to create continuation completion", e);
+            // Fall back to clearing completion
+            clearCompletion(editor);
+        }
+    }
+
+    /**
+     * Clears only the rendering context without affecting the pending completion.
+     */
+    private void clearRenderingContext(Editor editor) {
+        ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.remove(editor);
+        if (renderingContext != null) {
+            renderingContext.dispose();
+        }
+    }
+
+    /**
+     * Publishes completion accepted event.
+     */
+    private void publishCompletionAccepted(Editor editor, ZestCompletionData.CompletionItem item, 
+                                         AcceptType acceptType, String acceptedText) {
+        // TODO: Implement message bus publishing when event system is integrated
+        LOG.debug("Completion accepted - type: " + acceptType + ", text: " + 
+                 acceptedText.substring(0, Math.min(20, acceptedText.length())));
+    }
+
+    /**
+     * Publishes completion continued event.
+     */
+    private void publishCompletionContinued(Editor editor, ZestCompletionData.CompletionItem originalItem,
+                                          ZestCompletionData.CompletionItem continuationItem, String acceptedPortion) {
+        // TODO: Implement message bus publishing when event system is integrated
+        LOG.debug("Completion continued - accepted: " + 
+                 acceptedPortion.substring(0, Math.min(20, acceptedPortion.length())) +
+                 ", remaining: " + continuationItem.getInsertText().substring(0, Math.min(20, continuationItem.getInsertText().length())));
     }
 
     public void rejectCompletion(Editor editor) {

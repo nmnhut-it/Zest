@@ -145,7 +145,22 @@
                 class="com.zps.zest.autocomplete.actions.AcceptCompletionAction"
                 text="Accept Autocomplete Suggestion"
                 description="Accept the current autocomplete suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl TAB"/>
+        </action>
+
+        <!-- Partial Acceptance Actions -->
+        <action id="Zest.AcceptWordCompletion"
+                class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"
+                text="Accept Next Word"
+                description="Accept the next word from the autocomplete suggestion">
             <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+        </action>
+
+        <action id="Zest.AcceptLineCompletion"
+                class="com.zps.zest.autocomplete.actions.AcceptLineCompletionAction"
+                text="Accept Next Line"
+                description="Accept the next line from the autocomplete suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB" second-keystroke="TAB"/>
         </action>
 
         <action id="Zest.RejectCompletion"

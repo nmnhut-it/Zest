@@ -13,62 +13,62 @@ import com.zps.zest.autocomplete.events.ZestCompletionEventPublisher;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * ✅ SIMPLIFIED document listener for reliable triggering.
- * Focuses on core functionality that works with 200ms debouncing.
+ * ✅ SIMPLIFIED document listener for CODE-ONLY completion.
+ * Explicitly blocks comment and javadoc completion.
  */
 public class ZestAutocompleteDocumentListener implements DocumentListener {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteDocumentListener.class);
-    
+
     private final ZestAutocompleteService autocompleteService;
     private final Editor editor;
-    
+
     public ZestAutocompleteDocumentListener(ZestAutocompleteService autocompleteService, Editor editor) {
         this.autocompleteService = autocompleteService;
         this.editor = editor;
-        LOG.debug("ZestAutocompleteDocumentListener created for editor");
+        LOG.debug("ZestAutocompleteDocumentListener created for editor - CODE COMPLETION ONLY");
     }
-    
+
     @Override
     public void documentChanged(@NotNull DocumentEvent event) {
         LOG.debug("Document changed: " + event);
-        
 
         handleDocumentChange(event);
     }
-    
+
     /**
-     * ✅ SIMPLIFIED: Much simpler logic focusing on what actually works
+     * ✅ SIMPLIFIED: Code-only logic with explicit comment/javadoc blocking
      */
     private void handleDocumentChange(DocumentEvent event) {
         int oldLength = event.getOldLength();
         int newLength = event.getNewLength();
-        
+
         // Handle deletions - always clear completions
         if (oldLength > 0 && newLength == 0) {
             LOG.debug("Text deleted, clearing completion");
             autocompleteService.clearCompletion(editor);
             return;
         }
-        
+
         // Handle insertions - the main case for triggering
         if (oldLength == 0 && newLength > 0) {
             String insertedText = event.getNewFragment().toString();
-            
 
-            if (shouldTriggerForInsertion(insertedText, event)) {
-                LOG.debug("Triggering autocomplete for insertion: '{}'", insertedText);
+            if (shouldTriggerCodeCompletion(insertedText, event)) {
+                LOG.debug("Triggering CODE completion for insertion: '{}'", insertedText);
                 autocompleteService.triggerAutocomplete(editor);
             } else {
                 LOG.debug("Skipping trigger for insertion: '{}'", insertedText);
+                // ✅ NEW: Check if this might be a comment/javadoc trigger for future
+                checkForCommentOrJavadocTrigger(insertedText, event);
             }
             return;
         }
-        
+
         // Handle replacements - clear existing, maybe trigger new
         if (oldLength > 0 && newLength > 0) {
             LOG.debug("Text replaced, clearing completion");
             autocompleteService.clearCompletion(editor);
-            
+
             // If replacement looks like continued typing, trigger
             String newText = event.getNewFragment().toString();
             if (newText.length() <= 3 && newText.matches("\\w+")) {
@@ -77,85 +77,156 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             }
             return;
         }
-        
+
         // Large changes - just clear
         if (oldLength > 50 || newLength > 50) {
             LOG.debug("Large change detected, clearing completion");
             autocompleteService.clearCompletion(editor);
         }
     }
-    
+
     /**
-     * ✅ SIMPLIFIED: Basic checks that actually matter
+     * ✅ ENHANCED: Only triggers for CODE, explicitly blocks comments/javadocs
      */
-    private boolean shouldTriggerForInsertion(String insertedText, DocumentEvent event) {
+    private boolean shouldTriggerCodeCompletion(String insertedText, DocumentEvent event) {
         // Don't trigger if empty
         if (insertedText.trim().isEmpty()) {
             return false;
         }
-        
-        // Don't trigger if completion already active (let the service handle this)
+
+        // Don't trigger if completion already active
         if (autocompleteService.hasActiveCompletion(editor)) {
             return false;
         }
-        
 
         int offset = event.getOffset() + event.getNewLength();
         if (offset < 3) { // Need some minimum context
             return false;
         }
-        
 
-        if (isLikelyInStringOrComment(event.getDocument(), offset)) {
+        // ❌ BLOCK: Comments and javadocs are explicitly blocked
+        if (isInCommentOrJavadoc(event.getDocument(), offset)) {
+            LOG.debug("Blocking completion - cursor is in comment/javadoc area");
             return false;
         }
-        
 
+        // ❌ BLOCK: If this insertion creates a comment/javadoc start
+        if (isCommentOrJavadocStart(insertedText, event.getDocument(), offset)) {
+            LOG.debug("Blocking completion - insertion creates comment/javadoc start");
+            return false;
+        }
+
+        // ✅ ALLOW: Only pure code completion
         return true;
     }
-    
+
     /**
-     * ✅ SIMPLIFIED: Basic string/comment detection that actually works
+     * ✅ ENHANCED: Detects if cursor is in comment or javadoc area
      */
-    private boolean isLikelyInStringOrComment(Document document, int offset) {
+    private boolean isInCommentOrJavadoc(Document document, int offset) {
         try {
             // Get current line text
             int lineNumber = document.getLineNumber(offset);
             int lineStart = document.getLineStartOffset(lineNumber);
             String lineText = document.getText().substring(lineStart, offset);
-            
-            // Simple heuristic: count quotes on current line
-            int doubleQuotes = 0;
-            int singleQuotes = 0;
-            boolean inEscape = false;
-            
-            for (char c : lineText.toCharArray()) {
-                if (inEscape) {
-                    inEscape = false;
-                    continue;
-                }
-                
-                if (c == '\\') {
-                    inEscape = true;
-                } else if (c == '"') {
-                    doubleQuotes++;
-                } else if (c == '\'') {
-                    singleQuotes++;
+
+            // Check for line comments
+            if (lineText.trim().startsWith("//")) {
+                return true;
+            }
+
+            // Check for javadoc/block comments
+            if (lineText.contains("/*") || lineText.contains("/**")) {
+                // Count opening vs closing
+                int openCount = countOccurrences(lineText, "/*");
+                int closeCount = countOccurrences(lineText, "*/");
+                if (openCount > closeCount) {
+                    return true; // We're inside a block comment
                 }
             }
-            
-            // If odd number of quotes, likely in string
-            boolean inString = (doubleQuotes % 2 == 1) || (singleQuotes % 2 == 1);
-            
-            // Simple comment check
-            // Ignore command
-            boolean inComment = lineText.contains("//")  && false;
-            
-            return inString || inComment;
-            
+
+            // Check for javadoc continuation lines
+            String trimmedLine = lineText.trim();
+            if (trimmedLine.startsWith("*") && !trimmedLine.startsWith("*/")) {
+                return true; // Inside javadoc block
+            }
+
+            return false;
+
         } catch (Exception e) {
             // If detection fails, allow completion (better to over-trigger than under-trigger)
             return false;
         }
+    }
+
+    /**
+     * ✅ NEW: Detects if the insertion creates a comment or javadoc start
+     */
+    private boolean isCommentOrJavadocStart(String insertedText, Document document, int offset) {
+        try {
+            // Get context around the insertion
+            int lineNumber = document.getLineNumber(offset);
+            int lineStart = document.getLineStartOffset(lineNumber);
+            String lineText = document.getText().substring(lineStart, offset);
+
+            // Check if we just completed a comment start pattern
+            String fullLineWithInsertion = lineText;
+
+            // Common patterns that start comments/javadocs
+            if (fullLineWithInsertion.trim().endsWith("//") ||
+                    fullLineWithInsertion.trim().endsWith("/*") ||
+                    fullLineWithInsertion.trim().endsWith("/**")) {
+                return true;
+            }
+
+            return false;
+
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * ✅ NEW: Placeholder for future comment/javadoc support
+     * This is where you'll add your custom triggering logic
+     */
+    private void checkForCommentOrJavadocTrigger(String insertedText, DocumentEvent event) {
+        // TODO: Implement your custom comment/javadoc triggering logic here
+        // This method is called when completion is blocked but might be a comment/javadoc trigger
+
+        try {
+            int offset = event.getOffset() + event.getNewLength();
+            int lineNumber = event.getDocument().getLineNumber(offset);
+            int lineStart = event.getDocument().getLineStartOffset(lineNumber);
+            String lineText = event.getDocument().getText().substring(lineStart, offset);
+
+            // TODO: Add your custom logic for javadoc triggers
+            if (lineText.trim().endsWith("/**")) {
+//                LOG.info("JAVADOC TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
+                // Example: autocompleteService.triggerJavadocCompletion(editor);
+            }
+
+            // TODO: Add your custom logic for comment triggers
+            if (lineText.trim().endsWith("//")) {
+//                LOG.info("COMMENT TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
+                // Example: autocompleteService.triggerCommentCompletion(editor);
+            }
+
+        } catch (Exception e) {
+            LOG.warn("Error in comment/javadoc trigger detection", e);
+        }
+    }
+
+    /**
+     * Helper method to count occurrences of a substring
+     */
+    private int countOccurrences(String text, String pattern) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(pattern, index)) != -1) {
+            count++;
+            index += pattern.length();
+        }
+        return count;
     }
 }

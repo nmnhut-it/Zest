@@ -343,11 +343,19 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
         return cleaned;
     }
 
-    /**
-     * Checks if a line looks like explanatory text rather than code.
-     */
     private boolean isExplanatoryLine(String line) {
         String lower = line.toLowerCase();
+
+        // ❌ BLOCK: Comments and javadocs
+        String trimmed = line.trim();
+        if (trimmed.startsWith("//") ||
+                trimmed.startsWith("/*") ||
+                trimmed.startsWith("/**") ||
+                trimmed.startsWith("*") ||
+                trimmed.startsWith("*/")) {
+            return true;
+        }
+
         return lower.startsWith("this ") ||
                 lower.startsWith("the ") ||
                 lower.startsWith("here ") ||
@@ -357,21 +365,25 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
                 lower.contains("adds the") ||
                 (line.length() > 60 && !looksLikeCode(line));
     }
-
-    /**
-     * Checks if a line looks like actual code.
-     */
     private boolean looksLikeCode(String line) {
         String trimmed = line.trim();
 
+        // ❌ BLOCK: Explicitly exclude comments and javadocs
+        if (trimmed.startsWith("//") ||
+                trimmed.startsWith("/*") ||
+                trimmed.startsWith("/**") ||
+                trimmed.startsWith("*") ||
+                trimmed.startsWith("*/")) {
+            return false;
+        }
+
+        // ✅ ALLOW: Code patterns only
         return trimmed.contains("(") && trimmed.contains(")") ||
                 trimmed.contains("{") || trimmed.contains("}") ||
                 trimmed.contains(";") ||
                 trimmed.matches(".*\\b(public|private|protected|static|final|class|interface|if|else|for|while|return|new|import|package)\\b.*") ||
                 trimmed.matches(".*[a-zA-Z_][a-zA-Z0-9_]*\\s*[=\\(].*") ||
-                trimmed.matches("\\s*[}\\);]\\s*") ||
-                trimmed.matches("\\s*//.*") ||
-                trimmed.matches("\\s*/\\*.*");
+                trimmed.matches("\\s*[}\\);]\\s*");
     }
 
     /**

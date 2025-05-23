@@ -35,6 +35,9 @@ dependencies {
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
+    // Caffeine cache for completions
+    implementation("com.github.ben-manes.caffeine:caffeine:3.1.8")
+
     // MCP SDK dependencies
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")

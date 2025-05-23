@@ -3,14 +3,20 @@ package com.zps.zest.autocomplete.listeners;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.util.messages.MessageBus;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
+import com.zps.zest.autocomplete.ZestCompletionData;
+import com.zps.zest.autocomplete.ZestInlayRenderer;
 import com.zps.zest.autocomplete.events.ZestDocumentEventListener;
 import com.zps.zest.autocomplete.events.ZestCompletionEventPublisher;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 /**
  * ✅ SIMPLIFIED document listener for CODE-ONLY completion.
@@ -46,14 +52,43 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
         if (oldLength > 0 && newLength == 0) {
             LOG.debug("Text deleted, clearing completion");
             autocompleteService.clearCompletion(editor);
-            return;
+               return;
         }
 
-        // Handle insertions - the main case for triggering
+        // Handle insertions     - the main case for triggering
         if (oldLength == 0 && newLength > 0) {
             String insertedText = event.getNewFragment().toString();
+            ZestCompletionData.PendingCompletion activeCompletion = autocompleteService.getActiveCompletion(editor);
+            Document document = editor.getDocument();
 
-            if (shouldTriggerCodeCompletion(insertedText, event)) {
+            // Get current line information
+            int currentLine = document.getLineNumber(event.getOffset());
+            int lineStartOffset = document.getLineStartOffset(currentLine);
+            int lineEndOffset = document.getLineEndOffset(currentLine);
+
+            String currentLineSuffix = document.getText(new TextRange(lineStartOffset, lineEndOffset)).trim();
+
+            if (activeCompletion != null){
+
+                boolean b = activeCompletion.getItem().getInsertText().trim().startsWith(currentLineSuffix);
+                if (b == false){
+                    autocompleteService.clearCompletion(editor);
+
+                }
+                else {
+                    List<Inlay<?>> inlineElementssInRange = editor.getInlayModel().getInlineElementsInRange(lineStartOffset, lineEndOffset);
+                    for (var inlineElementsInRange : inlineElementssInRange){
+                    if (inlineElementsInRange instanceof ZestInlayRenderer.InlineCompletionRenderer){
+                        if (activeCompletion.getInlay().getRenderer() instanceof  ZestInlayRenderer.InlineCompletionRenderer ){
+                            ZestInlayRenderer.InlineCompletionRenderer r = (ZestInlayRenderer.InlineCompletionRenderer) activeCompletion.getInlay().getRenderer();
+                            String newText = activeCompletion.getItem().getInsertText().trim().replace(currentLineSuffix,"");
+                            r.text = newText;
+                            activeCompletion.getInlay().repaint();
+                        }
+                    }}
+                }
+            }
+            else if (shouldTriggerCodeCompletion(insertedText, event)) {
                 LOG.debug("Triggering CODE completion for insertion: '{}'", insertedText);
                 autocompleteService.triggerAutocomplete(editor);
             } else {

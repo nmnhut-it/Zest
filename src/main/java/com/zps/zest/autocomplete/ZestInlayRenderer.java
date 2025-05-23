@@ -8,7 +8,10 @@ import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.ui.JBColor;
+import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
@@ -159,6 +162,45 @@ public class ZestInlayRenderer {
 
         return context;
     }
+    
+    /**
+     * Cleanup existing inlays at the specified offset to prevent overlapping elements.
+     */
+    private static void cleanupExistingInlaysAtOffset(Editor editor, int offset) {
+        if (editor.isDisposed()) {
+            return;
+        }
+        
+        try {
+            // Check for inline elements at this offset
+            for (Inlay<?> inlay : editor.getInlayModel().getInlineElementsInRange(offset, offset)) {
+                if (inlay.getRenderer() instanceof InlineCompletionRenderer ||
+                    inlay.getRenderer() instanceof BlockCompletionRenderer) {
+                    try {
+                        inlay.dispose();
+                        LOG.debug("Cleaned up existing inlay at offset " + offset);
+                    } catch (Exception ex) {
+                        LOG.warn("Failed to clean up existing inlay", ex);
+                    }
+                }
+            }
+            
+            // Check for block elements at this line
+            int line = editor.getDocument().getLineNumber(offset);
+            for (Inlay<?> inlay : editor.getInlayModel().getBlockElementsForVisualLine(line, false)) {
+                if (inlay.getRenderer() instanceof BlockCompletionRenderer) {
+                    try {
+                        inlay.dispose();
+                        LOG.debug("Cleaned up existing block inlay at line " + line);
+                    } catch (Exception ex) {
+                        LOG.warn("Failed to clean up existing block inlay", ex);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Error during cleanup of existing inlays", e);
+        }
+    }
 
     /**
      * Basic safety check - much simpler since responses are pre-cleaned.
@@ -193,7 +235,9 @@ public class ZestInlayRenderer {
                                                    String text,
                                                    int offset) {
         Editor editor = context.getEditor();
-
+        TextRange lineTextRange = DocumentUtil.getLineTextRange(editor.getDocument(), editor.getCaretModel().getLogicalPosition().line);
+        String currentLine = editor.getDocument().getText(lineTextRange);
+        text = text.trim().replace(currentLine.trim(),"");
         // Create inline renderer
         InlineCompletionRenderer renderer = new InlineCompletionRenderer(text, editor, false);
 
@@ -210,10 +254,13 @@ public class ZestInlayRenderer {
     private static void renderMultiLineCompletion(RenderingContext context,
                                                   String text, int offset) {
         Editor editor = context.getEditor();
+
         String[] lines = text.split("\n");
 
         if (lines.length == 0) return;
-
+        TextRange lineTextRange = DocumentUtil.getLineTextRange(editor.getDocument(), editor.getCaretModel().getLogicalPosition().line);
+        String currentLine = editor.getDocument().getText(lineTextRange);
+        lines[0] = lines[0].trim().replace(currentLine.trim(),"");
         // Render first line inline
         if (!lines[0].isEmpty()) {
             InlineCompletionRenderer firstLineRenderer =
@@ -268,7 +315,7 @@ public class ZestInlayRenderer {
      * Inline completion renderer for single lines and first line of multi-line.
      */
     public static class InlineCompletionRenderer implements EditorCustomElementRenderer {
-        private final String text;
+        public String text;
         private final Editor editor;
         private final boolean isFirstLineOfMulti;
         private final Font font;

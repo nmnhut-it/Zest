@@ -29,7 +29,7 @@ public class AcceptLineCompletionAction extends AnAction {
         ZestAutocompleteService service = ZestAutocompleteService.getInstance(project);
         if (service.hasActiveCompletion(editor)) {
             LOG.debug("Accepting line completion");
-            service.acceptCompletion(editor, AcceptType.NEXT_LINE);
+            service.acceptCompletion(editor, AcceptType.LINE);
         }
     }
     

@@ -104,22 +104,148 @@ public class SmartPrefixRemover {
     /**
      * Find the longest overlap between end of current prefix and start of completion.
      * This handles cases like: currentPrefix="if (" and completion="if (result.size() < 2)"
+     * 
+     * Improved with character-by-character comparison and better handling of code constructs.
      */
     private static String findLongestOverlap(String currentPrefix, String completionText) {
+        // Fast path: direct check for exact prefix match
+        if (completionText.startsWith(currentPrefix)) {
+            return currentPrefix;
+        }
+        
         String longestOverlap = "";
         
         // Check all possible overlaps, starting from the longest
         for (int i = Math.min(currentPrefix.length(), completionText.length()); i >= 1; i--) {
+            if (i < longestOverlap.length()) {
+                // Already found a longer overlap
+                break;
+            }
+            
             String prefixSuffix = currentPrefix.substring(currentPrefix.length() - i);
             String completionPrefix = completionText.substring(0, i);
             
             if (prefixSuffix.equals(completionPrefix)) {
                 longestOverlap = completionPrefix;
-                break; // Found the longest, stop here
+                // Continue checking for even longer overlaps
             }
         }
         
+        // Check if we found something better than trivial single character match
+        if (longestOverlap.length() <= 1) {
+            // Character-by-character comparison for special cases
+            longestOverlap = findCharacterByCharacterOverlap(currentPrefix, completionText);
+        }
+        
+        // Code-specific enhancement: handle common programming patterns
+        if (longestOverlap.isEmpty()) {
+            longestOverlap = findCodeSpecificOverlap(currentPrefix, completionText);
+        }
+        
         return longestOverlap;
+    }
+    
+    /**
+     * Find overlap using character-by-character comparison.
+     * Better for handling cases with slight variations in whitespace or punctuation.
+     */
+    private static String findCharacterByCharacterOverlap(String currentPrefix, String completionText) {
+        // Skip leading whitespace for comparison
+        int prefixStart = skipLeadingWhitespace(currentPrefix);
+        int completionStart = skipLeadingWhitespace(completionText);
+        
+        // Get effective text for comparison
+        String effectivePrefix = currentPrefix.substring(prefixStart);
+        String effectiveCompletion = completionText.substring(completionStart);
+        
+        // Compare character by character, ignoring some whitespace differences
+        StringBuilder overlap = new StringBuilder();
+        int minLength = Math.min(effectivePrefix.length(), effectiveCompletion.length());
+        
+        for (int i = 0; i < minLength; i++) {
+            char prefixChar = effectivePrefix.charAt(i);
+            char completionChar = effectiveCompletion.charAt(i);
+            
+            if (prefixChar == completionChar) {
+                overlap.append(prefixChar);
+            } else if (isWhitespaceEquivalent(prefixChar, completionChar)) {
+                // Consider different whitespace as equivalent
+                overlap.append(' '); // Standardize to space
+            } else {
+                break; // Stop at first non-matching, non-whitespace character
+            }
+        }
+        
+        return overlap.toString();
+    }
+    
+    /**
+     * Check if two characters are whitespace equivalent (space, tab, etc.).
+     */
+    private static boolean isWhitespaceEquivalent(char a, char b) {
+        return Character.isWhitespace(a) && Character.isWhitespace(b);
+    }
+    
+    /**
+     * Skip leading whitespace in a string.
+     * 
+     * @return The index of the first non-whitespace character
+     */
+    private static int skipLeadingWhitespace(String s) {
+        int i = 0;
+        while (i < s.length() && Character.isWhitespace(s.charAt(i))) {
+            i++;
+        }
+        return i;
+    }
+    
+    /**
+     * Find overlap specific to code constructs.
+     * Handles common programming patterns like brackets, operators, etc.
+     */
+    private static String findCodeSpecificOverlap(String currentPrefix, String completionText) {
+        // Check for common code constructs at the end of prefix
+        for (String construct : new String[] {"{", "}", "(", ")", "[", "]", ";", ",", ".", "+=", "-=", "*=", "/="}) {
+            if (currentPrefix.endsWith(construct) && completionText.startsWith(construct)) {
+                return construct;
+            }
+        }
+        
+        // Check for common keywords
+        for (String keyword : new String[] {"if", "for", "while", "switch", "return", "break", "continue"}) {
+            // Check if keyword appears at end of prefix and start of completion
+            if (endsWithWord(currentPrefix, keyword) && startsWithWord(completionText, keyword)) {
+                return keyword;
+            }
+        }
+        
+        return "";
+    }
+    
+    /**
+     * Check if a string ends with a complete word.
+     */
+    private static boolean endsWithWord(String s, String word) {
+        if (!s.endsWith(word)) {
+            return false;
+        }
+        
+        // Check if character before word is not a letter/digit
+        int beforeWordIndex = s.length() - word.length() - 1;
+        return beforeWordIndex < 0 || !Character.isLetterOrDigit(s.charAt(beforeWordIndex));
+    }
+    
+    /**
+     * Check if a string starts with a complete word.
+     */
+    private static boolean startsWithWord(String s, String word) {
+        if (!s.startsWith(word)) {
+            return false;
+        }
+        
+        // Check if character after word is not a letter/digit
+        int afterWordIndex = word.length();
+        return afterWordIndex >= s.length() || !Character.isLetterOrDigit(s.charAt(afterWordIndex));
     }
 
     /**

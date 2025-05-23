@@ -8,24 +8,29 @@ import java.util.regex.Pattern;
 /**
  * Defines the granularity of completion acceptance following Tabby ML patterns.
  * Supports full completion, word-by-word, and line-by-line acceptance.
+ * 
+ * The tab acceptance progression follows a clear sequence: WORD → LINE → FULL
  */
 public enum AcceptType {
     /**
-     * Accept the entire completion text.
-     */
-    FULL_COMPLETION,
-    
-    /**
      * Accept the next word from the completion.
+     * This is the first step in the tab progression sequence.
      * A word is defined as a sequence of word characters or non-word characters.
      */
-    NEXT_WORD,
+    WORD,
     
     /**
      * Accept the next line from the completion.
+     * This is the second step in the tab progression sequence.
      * If the first line is empty, accepts the first line plus the newline.
      */
-    NEXT_LINE;
+    LINE,
+    
+    /**
+     * Accept the entire completion text.
+     * This is the final step in the tab progression sequence.
+     */
+    FULL;
 
     // Pattern for word boundary detection (matches word chars or non-word chars)
     private static final Pattern WORD_PATTERN = Pattern.compile("\\w+\\s?|\\W+\\s?");
@@ -43,13 +48,13 @@ public enum AcceptType {
         }
 
         switch (acceptType) {
-            case FULL_COMPLETION:
+            case FULL:
                 return completionText;
                 
-            case NEXT_WORD:
+            case WORD:
                 return extractNextWord(completionText);
                 
-            case NEXT_LINE:
+            case LINE:
                 return extractNextLine(completionText);
                 
             default:
@@ -166,21 +171,21 @@ public enum AcceptType {
      */
     public static AcceptType getSmartAcceptType(@NotNull String completionText, boolean preferWordByWord) {
         if (completionText.isEmpty()) {
-            return FULL_COMPLETION;
+            return FULL;
         }
         
         // If it's a single word, always accept fully
         if (isCompleteWord(completionText) && !completionText.contains("\n")) {
-            return FULL_COMPLETION;
+            return FULL;
         }
         
         // If it's a single line, decide based on preference
         if (!completionText.contains("\n")) {
-            return preferWordByWord ? NEXT_WORD : FULL_COMPLETION;
+            return preferWordByWord ? WORD : FULL;
         }
         
         // Multi-line completion - prefer line-by-line
-        return NEXT_LINE;
+        return LINE;
     }
 
     /**

@@ -133,7 +133,7 @@ public class ZestAutocompleteCaretListener implements CaretListener {
         switch (movementType) {
             case SMALL_MOVEMENT:
                 // Allow small movements within completion context (up to 2 chars)
-                return false;
+                return true;
 
             case MEDIUM_MOVEMENT:
 
@@ -160,9 +160,9 @@ public class ZestAutocompleteCaretListener implements CaretListener {
         // This could be enhanced for specific scenarios like "go to end of identifier"
 
         switch (movementType) {
-            case SMALL_MOVEMENT:
-                // Might trigger if we moved to a good completion position
-                return isGoodCompletionPosition(event.getNewPosition());
+//            case SMALL_MOVEMENT:
+//                // Might trigger if we moved to a good completion position
+//                return isGoodCompletionPosition(event.getNewPosition());
 
             default:
                 return false;

@@ -54,8 +54,8 @@
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
         <!-- Register autocomplete service -->
-        <projectService serviceInterface="com.zps.zest.autocomplete.ZestAutocompleteService"
-                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>
+<!--        <projectService serviceInterface="com.zps.zest.autocomplete.ZestAutocompleteService"-->
+<!--                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>-->
 
         <!-- Startup activity to initialize autocomplete service -->
         <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>
@@ -141,11 +141,11 @@
         </action>
 
         <!-- Autocomplete Actions (TAB key handling) -->
-        <action id="Zest.AcceptCompletion"
-                class="com.zps.zest.autocomplete.actions.AcceptCompletionAction"
-                text="Accept Autocomplete Suggestion"
-                description="Accept the current autocomplete suggestion">
-        </action>
+<!--        <action id="Zest.AcceptCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.AcceptCompletionAction"-->
+<!--                text="Accept Autocomplete Suggestion"-->
+<!--                description="Accept the current autocomplete suggestion">-->
+<!--        </action>-->
 
         <!-- Smart Tab Completion: word -> line -> full -->
         <action id="Zest.AcceptWordCompletion"
@@ -156,11 +156,11 @@
         </action>
 
         <!-- Keep line completion action for explicit use -->
-        <action id="Zest.AcceptLineCompletion"
-                class="com.zps.zest.autocomplete.actions.AcceptLineCompletionAction"
-                text="Accept Next Line"
-                description="Accept the next line from the autocomplete suggestion">
-        </action>
+<!--        <action id="Zest.AcceptLineCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.AcceptLineCompletionAction"-->
+<!--                text="Accept Next Line"-->
+<!--                description="Accept the next line from the autocomplete suggestion">-->
+<!--        </action>-->
 
         <action id="Zest.RejectCompletion"
                 class="com.zps.zest.autocomplete.actions.RejectCompletionAction"

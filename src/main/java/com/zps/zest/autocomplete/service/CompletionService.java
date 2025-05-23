@@ -26,7 +26,7 @@ public interface CompletionService {
      * Accepts the current completion fully.
      */
     default void acceptCompletion(@NotNull Editor editor) {
-        acceptCompletion(editor, AcceptType.FULL_COMPLETION);
+        acceptCompletion(editor, AcceptType.FULL);
     }
     
     /**

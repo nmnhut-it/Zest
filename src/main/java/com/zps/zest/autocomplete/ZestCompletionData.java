@@ -297,6 +297,7 @@ public class ZestCompletionData {
                     inlay = null; // Clear reference even if disposal failed
                 }
             }
+
             return success;
         }
         

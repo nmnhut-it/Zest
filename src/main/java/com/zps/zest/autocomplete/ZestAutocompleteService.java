@@ -1,6 +1,7 @@
 package com.zps.zest.autocomplete;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.components.Service;
@@ -11,9 +12,13 @@ import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
+import com.intellij.openapi.keymap.Keymap;
+import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.util.PsiUtil;
+import com.zps.zest.autocomplete.cache.ZestCompletionCache;
 import com.zps.zest.autocomplete.listeners.ZestAutocompleteCaretListener;
 import com.zps.zest.autocomplete.listeners.ZestAutocompleteDocumentListener;
 import com.zps.zest.autocomplete.service.CompletionRequestHandler;
@@ -22,6 +27,7 @@ import com.zps.zest.autocomplete.utils.SmartPrefixRemover;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
@@ -33,15 +39,15 @@ import java.util.concurrent.CompletableFuture;
 @Service(Service.Level.PROJECT)
 public final class ZestAutocompleteService implements Disposable, CompletionService {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteService.class);
-    private static final int COMPLETION_DELAY_MS = 100;
-    private static final int MAX_CACHE_SIZE = 100;
+    private static final int COMPLETION_DELAY_MS = 50;
+    private static final int MAX_CACHE_SIZE = 500;
 
     private final Project project;
     private final CompletionRequestHandler requestHandler;
+    private final ZestCompletionCache completionCache;
     
     // State management - simplified
     private final Map<Editor, ZestCompletionData.PendingCompletion> activeCompletions = new ConcurrentHashMap<>();
-    private final Map<String, ZestCompletionData.CompletionItem> completionCache = new ConcurrentHashMap<>();
     private final Map<Editor, ZestInlayRenderer.RenderingContext> renderingContexts = new ConcurrentHashMap<>();
     private final Map<Editor, Integer> tabAcceptCounts = new ConcurrentHashMap<>();
     private final Map<Editor, CompletableFuture<Void>> currentRequests = new ConcurrentHashMap<>();
@@ -57,8 +63,21 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
     public ZestAutocompleteService(Project project) {
         this.project = project;
         this.requestHandler = new CompletionRequestHandler(project);
+        this.completionCache = new ZestCompletionCache(MAX_CACHE_SIZE, 30); // 30 minutes expiration
         LOG.info("ZestAutocompleteService initialized for project: " + project.getName());
-
+//        Keymap active = KeymapManager.getInstance().getActiveKeymap();
+//        @NotNull String[] tabs = active.getActionIds(KeyStroke.getKeyStroke("TAB"));
+//        for (String t: tabs){
+//            if (t.equals("Zest.AcceptWordCompletion")){
+//
+//            }
+//            else {
+//                Shortcut[] shortcuts = active.getShortcuts(t);
+//                if (shortcuts.length > 0) {
+//                    active.removeShortcut(t, shortcuts[0]);
+//                }
+//            }
+//        }
         ApplicationManager.getApplication().invokeLater(() -> {
             if (!project.isDisposed()) {
                 initializeService();
@@ -162,14 +181,30 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     /**
      * Processes the completion request using the request handler.
+     * Now with cache check before making a network request.
      */
     private void processCompletionRequest(@NotNull Editor editor) {
+        // Check cache first
+        int currentOffset = editor.getCaretModel().getOffset();
+        ZestCompletionData.CompletionItem cachedItem = completionCache.get(editor, currentOffset);
+        
+        if (cachedItem != null) {
+            LOG.debug("Using cached completion");
+            displayCompletion(editor, cachedItem);
+            return;
+        }
+        
+        // Not in cache, make network request
         CompletableFuture<CompletionRequestHandler.CompletionResult> request = 
             requestHandler.processCompletionRequest(editor);
             
         request.thenAccept(result -> {
             ApplicationManager.getApplication().invokeLater(() -> {
                 if (result.isSuccess() && !editor.isDisposed()) {
+                    // Store in cache for future use
+                    String cacheKey = completionCache.put(editor, editor.getCaretModel().getOffset(), result.getItem());
+                    LOG.debug("Cached completion with key: " + cacheKey);
+                    
                     displayCompletion(editor, result.getItem());
                 } else if (!result.isSuccess()) {
                     LOG.debug("Completion request failed: " + result.getErrorMessage());
@@ -187,6 +222,13 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
     private void displayCompletion(@NotNull Editor editor, @NotNull ZestCompletionData.CompletionItem item) {
         try {
             int currentOffset = editor.getCaretModel().getOffset();
+            if (hasActiveCompletion(editor)){
+                try {
+                    clearCompletion(editor);
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
             ZestInlayRenderer.RenderingContext renderingContext = ZestInlayRenderer.show(editor, currentOffset, item);
             
             if (!renderingContext.getInlays().isEmpty()) {
@@ -195,6 +237,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 );
 
                 activeCompletions.put(editor, completion);
+                completion.setInlay(renderingContext.getInlays().get(0));
                 renderingContexts.put(editor, renderingContext);
                 tabAcceptCounts.put(editor, 0);
 
@@ -237,7 +280,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
             }, PsiUtil.getPsiFile(project, virtualFile));
 
             // Handle partial acceptance continuation
-            if (acceptType != AcceptType.FULL_COMPLETION) {
+            if (acceptType != AcceptType.FULL) {
                 String remainingText = AcceptType.calculateRemainingText(cleaned, textToAccept);
                 if (remainingText != null && !remainingText.trim().isEmpty()) {
                     try {
@@ -276,16 +319,55 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         int tabCount = tabAcceptCounts.getOrDefault(editor, 0) + 1;
         tabAcceptCounts.put(editor, tabCount);
 
+        LOG.debug("Tab completion press #" + tabCount);
+        
+        // Get current completion to determine best progression
+        ZestCompletionData.PendingCompletion completion = getActiveCompletion(editor);
+        if (completion == null) {
+            LOG.debug("No active completion found despite hasActiveCompletion returning true");
+            return;
+        }
+        Document document = editor.getDocument();
+        int lineNumber = editor.getCaretModel().getLogicalPosition().line;
+        int lineStart = document.getLineStartOffset(lineNumber);
+        int lineEnd = document.getLineEndOffset(lineNumber);
+        String currentLinePrefix = document.getText(document.createRangeMarker(lineStart, lineEnd).getTextRange());
+        String remainingText = completion.getDisplayText().replace(currentLinePrefix.trim(),"'");
         AcceptType acceptType;
+        
+        // Determine most appropriate accept type based on remaining text and tab count
         switch (tabCount) {
-            case 1:
-                acceptType = AcceptType.NEXT_WORD;
+            case 1: // First tab press - word
+                acceptType = AcceptType.WORD;
+                LOG.debug("First tab press - accepting next word");
                 break;
-            case 2:
-                acceptType = AcceptType.NEXT_LINE;
+                
+            case 2: // Second tab press - line
+                acceptType = AcceptType.LINE;
+                LOG.debug("Second tab press - accepting next line");
                 break;
-            default:
-                acceptType = AcceptType.FULL_COMPLETION;
+                
+            default: // Third or more tab presses - full
+                acceptType = AcceptType.FULL;
+                LOG.debug("Third+ tab press - accepting full completion");
+        }
+        
+        // Smart fallback: if word is very short but full text isn't, go to next level
+        if (acceptType == AcceptType.WORD) {
+            String wordText = AcceptType.extractAcceptableText(remainingText, AcceptType.WORD);
+            if (wordText.length() <= 2 && remainingText.length() > wordText.length() * 3) {
+                acceptType = AcceptType.LINE;
+                LOG.debug("Word too short, upgraded to line acceptance");
+            }
+        }
+        
+        // Smart fallback: if line is very short but full text isn't, go to next level
+        if (acceptType == AcceptType.LINE) {
+            String lineText = AcceptType.extractAcceptableText(remainingText, AcceptType.LINE);
+            if (lineText.length() <= 3 && remainingText.length() > lineText.length() * 3) {
+                acceptType = AcceptType.FULL;
+                LOG.debug("Line too short, upgraded to full acceptance");
+            }
         }
 
         acceptCompletion(editor, acceptType);
@@ -373,8 +455,6 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void clearCompletion(@NotNull Editor editor) {
-        // Clear rendering context
-        clearRenderingContext(editor);
 
         // Clear pending completion
         ZestCompletionData.PendingCompletion completion = activeCompletions.remove(editor);
@@ -384,14 +464,19 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
         // Reset tab count
         tabAcceptCounts.remove(editor);
+        
+        // Force clean any lingering inlays as a backup measure
+        clearRenderingContext(editor);
     }
 
     private void clearRenderingContext(@NotNull Editor editor) {
         ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.remove(editor);
+
+
         if (renderingContext != null) {
             try {
-                renderingContext.dispose();
-                LOG.debug("Successfully disposed rendering context");
+                int disposedCount = renderingContext.dispose();
+                LOG.debug("Successfully disposed " + disposedCount + " rendering elements");
             } catch (Exception e) {
                 LOG.warn("Error disposing rendering context", e);
                 // Fallback: Try to dispose each inlay individually
@@ -399,6 +484,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                     try {
                         if (inlay != null && inlay.isValid()) {
                             inlay.dispose();
+                            LOG.debug("Individually disposed inlay at offset " + inlay.getOffset());
                         }
                     } catch (Exception ex) {
                         LOG.warn("Error disposing individual inlay", ex);
@@ -406,34 +492,8 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 }
             }
         }
-        
-        // Extra safety: cleanup any lingering inlays in the visible area
-        if (!editor.isDisposed()) {
-            try {
-                int visibleLineStart = editor.getScrollingModel().getVisibleArea().y / editor.getLineHeight();
-                int visibleLineEnd = visibleLineStart + 
-                    (editor.getScrollingModel().getVisibleArea().height / editor.getLineHeight()) + 1;
-                
-                for (int i = Math.max(0, visibleLineStart); i <= Math.min(visibleLineEnd, editor.getDocument().getLineCount() - 1); i++) {
-                    int lineStartOffset = editor.getDocument().getLineStartOffset(i);
-                    int lineEndOffset = editor.getDocument().getLineEndOffset(i);
-                    
-                    for (Inlay<?> inlay : editor.getInlayModel().getInlineElementsInRange(lineStartOffset, lineEndOffset)) {
-                        if (inlay.getRenderer() instanceof ZestInlayRenderer.InlineCompletionRenderer ||
-                            inlay.getRenderer() instanceof ZestInlayRenderer.BlockCompletionRenderer) {
-                            try {
-                                inlay.dispose();
-                                LOG.debug("Cleaned up orphaned inlay at offset " + inlay.getOffset());
-                            } catch (Exception ex) {
-                                LOG.warn("Error disposing orphaned inlay", ex);
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                LOG.warn("Error in extra cleanup step", e);
-            }
-        }
+        ZestAutocompleteFix.cleanupInlays(editor, this);
+
     }
 
     @Override
@@ -464,13 +524,13 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void clearCache() {
-        completionCache.clear();
+        completionCache.invalidateAll();
         LOG.debug("Cleared completion cache");
     }
 
     @Override
     public String getCacheStats() {
-        return String.format("Cache size: %d/%d", completionCache.size(), MAX_CACHE_SIZE);
+        return completionCache.getStats();
     }
 
     // Helper methods
@@ -484,7 +544,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         if (lastTime == null) return false;
 
         long timeSinceLastTyping = System.currentTimeMillis() - lastTime;
-        return timeSinceLastTyping < 10; // Small buffer to detect rapid typing
+        return timeSinceLastTyping < 50; // Small buffer to detect rapid typing
     }
 
     // Legacy methods for backward compatibility
@@ -498,7 +558,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
     }
 
     public void acceptCompletion(@NotNull Editor editor) {
-        acceptCompletion(editor, AcceptType.FULL_COMPLETION);
+        acceptCompletion(editor, AcceptType.FULL);
     }
 
     @Override
@@ -518,7 +578,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         renderingContexts.clear();
         documentListeners.clear();
         caretListeners.clear();
-        completionCache.clear();
+        completionCache.invalidateAll();
         tabAcceptCounts.clear();
 
         LOG.info("ZestAutocompleteService disposed for project: " + project.getName());

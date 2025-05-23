@@ -25,6 +25,7 @@ public class OpenWebUiApiCallStage extends LlmApiCallStage {
     private final boolean streaming;
 
     public OpenWebUiApiCallStage(Builder builder) {
+        builder.build();
         this.model = builder.model;
         this.systemPrompt = builder.systemPrompt;
         this.streaming = builder.streaming;

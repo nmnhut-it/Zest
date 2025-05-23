@@ -1,5 +1,6 @@
 package com.zps.zest.autocomplete;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.util.TextRange;
@@ -13,6 +14,8 @@ public class ZestCompletionData {
      * Represents a completion item with replace range support.
      */
     public static class CompletionItem {
+        private static final Logger LOG = Logger.getInstance(CompletionItem.class);
+        
         private final String insertText;
         private final Range replaceRange;
         private final String eventId;
@@ -38,7 +41,8 @@ public class ZestCompletionData {
         public double getConfidence() { return confidence; }
         
         /**
-         * Gets the text that should be visible (after accounting for replace range).
+         * Gets the text that should be visible (after accounting for replace range AND redundant prefixes).
+         * ✅ ENHANCED: Smart prefix removal even if AI model returns redundant text
          */
         public String getVisibleText(int currentOffset) {
             int prefixLength = currentOffset - replaceRange.start;
@@ -48,7 +52,133 @@ public class ZestCompletionData {
             if (prefixLength <= 0) {
                 return insertText;
             }
-            return insertText.substring(prefixLength);
+            
+            // Basic range-based calculation
+            String basicVisible = insertText.substring(prefixLength);
+            
+            // ✅ ENHANCED: Apply smart redundant prefix removal as final safeguard
+            return basicVisible;
+        }
+        
+        /**
+         * ✅ NEW: Gets smart visible text by analyzing current editor context
+         * This is the main method that should be used for rendering
+         */
+        public String getSmartVisibleText(Editor editor, int currentOffset) {
+            try {
+                // Get current line prefix to compare against
+                int lineNumber = editor.getDocument().getLineNumber(currentOffset);
+                int lineStart = editor.getDocument().getLineStartOffset(lineNumber);
+                String currentLinePrefix = editor.getDocument().getText().substring(lineStart, currentOffset);
+                
+                // Apply smart redundant prefix removal
+                String cleanedText = removeRedundantPrefix(currentLinePrefix.trim(), insertText.trim());
+                
+                if (!cleanedText.equals(insertText)) {
+                    LOG.debug("Smart visible text: '{}' -> '{}' (removed redundant prefix)", 
+                             insertText.substring(0, Math.min(30, insertText.length())),
+                             cleanedText.substring(0, Math.min(30, cleanedText.length())));
+                }
+                
+                return cleanedText;
+                
+            } catch (Exception e) {
+                // Fallback to basic method if smart detection fails
+                return getVisibleText(currentOffset);
+            }
+        }
+        
+        /**
+         * ✅ NEW: Smart redundant prefix removal for rendering and acceptance
+         */
+        private String removeRedundantPrefix(String currentPrefix, String completionText) {
+            if (currentPrefix == null || completionText == null || completionText.isEmpty()) {
+                return completionText;
+            }
+            
+            if (currentPrefix.isEmpty()) {
+                return completionText;
+            }
+            
+            // Handle comments specially - be very conservative
+            if (currentPrefix.startsWith("//") && completionText.startsWith("//")) {
+                return handleCommentRedundancy(currentPrefix, completionText);
+            }
+            
+            // Find longest common suffix of currentPrefix and prefix of completionText
+            int commonLength = findCommonPrefixLength(currentPrefix, completionText);
+            
+            if (commonLength > 0) {
+                String matchedText = completionText.substring(0, commonLength);
+                
+                // Only remove if it's a meaningful match and won't break words
+                if (isValidPrefixToRemove(currentPrefix, matchedText, completionText)) {
+                    return completionText.substring(commonLength);
+                }
+            }
+            
+            return completionText;
+        }
+        
+        /**
+         * Finds the length of common prefix between current text and completion
+         */
+        private int findCommonPrefixLength(String currentPrefix, String completionText) {
+            int commonLength = 0;
+            int maxCheck = Math.min(currentPrefix.length(), completionText.length());
+            
+            // Check for exact character match from end of currentPrefix and start of completion
+            for (int i = 1; i <= maxCheck; i++) {
+                String prefixSuffix = currentPrefix.substring(currentPrefix.length() - i);
+                String completionPrefix = completionText.substring(0, i);
+                
+                if (prefixSuffix.equals(completionPrefix)) {
+                    commonLength = i;
+                } else {
+                    break; // Stop at first mismatch for exact matching
+                }
+            }
+            
+            return commonLength;
+        }
+        
+        /**
+         * Special handling for comment redundancy
+         */
+        private String handleCommentRedundancy(String currentPrefix, String completionText) {
+            // For comments, only remove if there's exact prefix duplication
+            if (currentPrefix.equals(completionText.substring(0, Math.min(currentPrefix.length(), completionText.length())))) {
+                String result = completionText.substring(currentPrefix.length());
+                return result;
+            }
+            
+            return completionText;
+        }
+        
+        /**
+         * Validates if a prefix match is safe to remove
+         */
+        private boolean isValidPrefixToRemove(String currentPrefix, String matchedText, String fullCompletion) {
+            // Don't remove if it would leave empty or very short result
+            String remainder = fullCompletion.substring(matchedText.length());
+            if (remainder.trim().length() < 2) {
+                return false;
+            }
+            
+            // Don't remove if it would break word boundaries
+            if (matchedText.length() < fullCompletion.length()) {
+                char nextChar = fullCompletion.charAt(matchedText.length());
+                if (Character.isLetterOrDigit(nextChar) && Character.isLetterOrDigit(matchedText.charAt(matchedText.length() - 1))) {
+                    return false; // Would break a word
+                }
+            }
+            
+            // Don't remove very short matches that are likely coincidental
+            if (matchedText.trim().length() < 3) {
+                return false;
+            }
+            
+            return true;
         }
         
         /**
@@ -155,10 +285,11 @@ public class ZestCompletionData {
         
         /**
          * Gets the text that should be displayed at the current cursor position.
+         * ✅ ENHANCED: Uses smart redundant prefix removal
          */
         public String getDisplayText() {
             int currentOffset = editor.getCaretModel().getOffset();
-            return item.getVisibleText(currentOffset);
+            return item.getSmartVisibleText(editor, currentOffset);
         }
         
         /**

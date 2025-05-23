@@ -38,7 +38,7 @@ import java.util.concurrent.CompletableFuture;
 @Service(Service.Level.PROJECT)
 public final class ZestAutocompleteService implements Disposable {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteService.class);
-    private static final int COMPLETION_DELAY_MS = 10; // Slightly faster trigger
+    private static final int COMPLETION_DELAY_MS = 200; // User's preferred delay
     private static final int MAX_CACHE_SIZE = 100;
 
     private final Project project;
@@ -169,7 +169,7 @@ public final class ZestAutocompleteService implements Disposable {
         if (lastTime == null) return false;
 
         long timeSinceLastTyping = System.currentTimeMillis() - lastTime;
-        return timeSinceLastTyping < 10; // Small buffer to detect rapid typing
+        return timeSinceLastTyping < 50; // Small buffer to detect rapid typing
     }
     private ContextSnapshot captureCurrentContext(Editor editor) {
         try {
@@ -195,8 +195,6 @@ public final class ZestAutocompleteService implements Disposable {
      * Requests completion using enhanced context gathering and prompting.
      */
     private void requestEnhancedCompletion(Editor editor, ContextSnapshot snapshot) {
-
-
         ApplicationManager.getApplication().runReadAction(() -> {
             if (editor.isDisposed() || !isEnabled) {
                 return;
@@ -223,8 +221,9 @@ public final class ZestAutocompleteService implements Disposable {
                     return;
                 }
 
-                // Build enhanced prompt using captured context
-                String enhancedPrompt = AutocompletePromptBuilder.createContextAwarePrompt(
+                // ✅ FIXED: Use AutocompletePromptBuilder's built-in context detection
+                // Build enhanced prompt using captured context - this handles context detection internally
+                AutocompletePromptBuilder enhancedPrompt = AutocompletePromptBuilder.createContextAwarePrompt(
                         snapshot.fileContext,
                         snapshot.cursorContext.getPrefixContext(),
                         snapshot.cursorContext.getSuffixContext(),
@@ -235,12 +234,11 @@ public final class ZestAutocompleteService implements Disposable {
                 CompletableFuture.runAsync(() -> {
                     try {
                         CodeContext context = ReadAction.compute(() ->
-                                createCodeContext(editor, enhancedPrompt, config));
+                                createCodeContext(editor, enhancedPrompt.build(), config));
 
-                        String systemPrompt = detectCompletionContextAndGetSystemPrompt(
-                                snapshot.cursorContext.getPrefixContext());
-                        AutocompleteApiStage apiStage = new AutocompleteApiStage(project, systemPrompt);
-
+                        // ✅ FIXED: Use default AutocompleteApiStage - no duplicate system prompt
+                        AutocompleteApiStage apiStage = new AutocompleteApiStage(project, enhancedPrompt.systemPrompt);
+                        
                         apiStage.process(context);
 
                         String completion = context.getApiResponse();
@@ -479,6 +477,7 @@ public final class ZestAutocompleteService implements Disposable {
 
     /**
      * Final redundant prefix check at acceptance time to be absolutely sure.
+     * ✅ ENHANCED: Use the same smart logic as rendering
      */
     private String applyFinalRedundantPrefixCheck(Editor editor, String completionText) {
         try {
@@ -490,19 +489,108 @@ public final class ZestAutocompleteService implements Disposable {
             int lineStart = document.getLineStartOffset(lineNumber);
             String currentLinePrefix = document.getText().substring(lineStart, currentOffset);
             
-            // Apply the same redundant prefix removal logic
-            String cleaned = removeRedundantPrefixAtAcceptance(currentLinePrefix, completionText);
+            // ✅ ENHANCED: Use the same smart logic as CompletionItem.getSmartVisibleText()
+            String cleaned = applySmartRedundantPrefixRemoval(currentLinePrefix.trim(), completionText.trim());
             
             if (!cleaned.equals(completionText)) {
-                LOG.debug("Final redundant prefix removal: '{}' -> '{}'", completionText, cleaned);
+                LOG.debug("Smart acceptance prefix removal: '{}' -> '{}'", 
+                         completionText.substring(0, Math.min(30, completionText.length())), 
+                         cleaned.substring(0, Math.min(30, cleaned.length())));
             }
             
             return cleaned;
             
         } catch (Exception e) {
-            LOG.warn("Error in final redundant prefix check", e);
+            LOG.warn("Error in smart redundant prefix check", e);
             return completionText;
         }
+    }
+    
+    /**
+     * ✅ NEW: Smart redundant prefix removal - same logic as in CompletionItem
+     */
+    private String applySmartRedundantPrefixRemoval(String currentPrefix, String completionText) {
+        if (currentPrefix == null || completionText == null || completionText.isEmpty()) {
+            return completionText;
+        }
+        
+        if (currentPrefix.isEmpty()) {
+            return completionText;
+        }
+        
+        // Handle comments specially - be very conservative  
+        if (currentPrefix.startsWith("//") && completionText.startsWith("//")) {
+            return handleCommentRedundancyForAcceptance(currentPrefix, completionText);
+        }
+        
+        // Find longest common suffix of currentPrefix and prefix of completionText
+        int commonLength = findCommonPrefixLengthForAcceptance(currentPrefix, completionText);
+        
+        if (commonLength > 0) {
+            String matchedText = completionText.substring(0, commonLength);
+            
+            // Only remove if it's a meaningful match and won't break words
+            if (isValidPrefixToRemoveForAcceptance(currentPrefix, matchedText, completionText)) {
+                return completionText.substring(commonLength);
+            }
+        }
+        
+        return completionText;
+    }
+    
+    /**
+     * Finds common prefix length for acceptance logic
+     */
+    private int findCommonPrefixLengthForAcceptance(String currentPrefix, String completionText) {
+        int commonLength = 0;
+        int maxCheck = Math.min(currentPrefix.length(), completionText.length());
+        
+        for (int i = 1; i <= maxCheck; i++) {
+            String prefixSuffix = currentPrefix.substring(currentPrefix.length() - i);
+            String completionPrefix = completionText.substring(0, i);
+            
+            if (prefixSuffix.equals(completionPrefix)) {
+                commonLength = i;
+            } else {
+                break;
+            }
+        }
+        
+        return commonLength;
+    }
+    
+    /**
+     * Handle comment redundancy for acceptance
+     */
+    private String handleCommentRedundancyForAcceptance(String currentPrefix, String completionText) {
+        if (currentPrefix.equals(completionText.substring(0, Math.min(currentPrefix.length(), completionText.length())))) {
+            return completionText.substring(currentPrefix.length());
+        }
+        return completionText;
+    }
+    
+    /**
+     * Validates prefix removal for acceptance
+     */
+    private boolean isValidPrefixToRemoveForAcceptance(String currentPrefix, String matchedText, String fullCompletion) {
+        String remainder = fullCompletion.substring(matchedText.length());
+        if (remainder.trim().length() < 2) {
+            return false;
+        }
+        
+        // Don't break word boundaries
+        if (matchedText.length() < fullCompletion.length()) {
+            char nextChar = fullCompletion.charAt(matchedText.length());
+            if (Character.isLetterOrDigit(nextChar) && Character.isLetterOrDigit(matchedText.charAt(matchedText.length() - 1))) {
+                return false;
+            }
+        }
+        
+        if (matchedText.trim().length() < 3) {
+            return false;
+        }
+        
+        return true;
     }
 
     /**
@@ -772,38 +860,6 @@ public final class ZestAutocompleteService implements Disposable {
         return String.valueOf((cursorContext.getPrefixContext() +
                 cursorContext.getSuffixContext() +
                 cursorContext.getOffset()).hashCode());
-    }
-
-    /**
-     * Detects completion context and returns appropriate system prompt.
-     */
-    private String detectCompletionContextAndGetSystemPrompt(String prefix) {
-        if (prefix == null || prefix.isEmpty()) {
-            return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
-        }
-
-        // Get the last line of prefix to determine context
-        String[] lines = prefix.split("\n");
-        if (lines.length == 0) {
-            return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
-        }
-
-        String lastLine = lines[lines.length - 1].trim();
-
-        // Check for JavaDoc/JSDoc comment start
-        if (lastLine.startsWith("/**") || lastLine.equals("/*")) {
-            LOG.debug("Detected JavaDoc completion context");
-            return AutocompletePromptBuilder.JAVADOC_SYSTEM_PROMPT;
-        }
-
-        // Check for line comment
-        if (lastLine.startsWith("//")) {
-            LOG.debug("Detected line comment completion context");
-            return AutocompletePromptBuilder.LINE_COMMENT_SYSTEM_PROMPT;
-        }
-
-        // Default to minimal system prompt for code completion
-        return AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT;
     }
 
     /**

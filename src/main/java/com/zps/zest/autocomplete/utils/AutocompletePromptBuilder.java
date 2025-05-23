@@ -16,7 +16,7 @@ public class AutocompletePromptBuilder {
             "Complete code at <CURSOR>. Return only the new text to insert. Do not repeat existing text.";
 
     public static final String JAVADOC_SYSTEM_PROMPT =
-            "Generate JavaDoc comment at <CURSOR>. Return only the comment block. Do not repeat existing comment text.";
+            "Complete JavaDoc comment at <CURSOR>. Return only the remaining comment block. Do not repeat existing comment text.";
 
     public static final String LINE_COMMENT_SYSTEM_PROMPT =
             "Complete line comment at <CURSOR>. Return only new comment text to add. Do not repeat existing comment text.";
@@ -24,7 +24,7 @@ public class AutocompletePromptBuilder {
     public static final String EXTERNAL_REFERENCE_PROMPT =
             "Complete code at <CURSOR> using common patterns. Return only new text to insert. Do not repeat existing text.";
 
-    private String systemPrompt = "";
+    public String systemPrompt = "";
     private String fileContext = "";
     private String prefixContext = "";
     private String suffixContext = "";
@@ -124,10 +124,13 @@ public class AutocompletePromptBuilder {
 
         switch (context) {
             case JAVADOC:
+                this.systemPrompt = JAVADOC_SYSTEM_PROMPT;
                 return buildJavadocPrompt();
             case LINE_COMMENT:
+                this.systemPrompt= LINE_COMMENT_SYSTEM_PROMPT;
                 return buildLineCommentPrompt();
             case EXTERNAL_REFERENCE:
+                this.systemPrompt = EXTERNAL_REFERENCE_PROMPT;
                 return buildExternalReferencePrompt();
             case MINIMAL:
             default:
@@ -212,7 +215,7 @@ public class AutocompletePromptBuilder {
         StringBuilder prompt = new StringBuilder();
 
         // JavaDoc specific system instruction
-        prompt.append(JAVADOC_SYSTEM_PROMPT).append("\n\n");
+//        prompt.append(JAVADOC_SYSTEM_PROMPT).append("\n\n");
 
         // Extract method signature and class context
         String methodSignature = findMethodSignature();
@@ -250,7 +253,7 @@ public class AutocompletePromptBuilder {
         StringBuilder prompt = new StringBuilder();
 
         // Line comment specific system instruction
-        prompt.append(LINE_COMMENT_SYSTEM_PROMPT).append("\n\n");
+//        prompt.append(LINE_COMMENT_SYSTEM_PROMPT).append("\n\n");
 
         // Add structured context
         prompt.append("Code:\n```").append(language).append("\n");
@@ -281,7 +284,7 @@ public class AutocompletePromptBuilder {
         StringBuilder prompt = new StringBuilder();
 
         // External reference specific system instruction
-        prompt.append(EXTERNAL_REFERENCE_PROMPT).append("\n\n");
+//        prompt.append(EXTERNAL_REFERENCE_PROMPT).append("\n\n");
 
         // Add structured context
         prompt.append("CODE CONTEXT:\n```").append(language).append("\n");
@@ -512,14 +515,13 @@ public class AutocompletePromptBuilder {
     /**
      * Creates a context-aware prompt with best practices.
      */
-    public static String createContextAwarePrompt(String fileContext, String prefix, String suffix, String language) {
+    public static AutocompletePromptBuilder createContextAwarePrompt(String fileContext, String prefix, String suffix, String language) {
         return new AutocompletePromptBuilder()
                 .withFileContext(fileContext)
                 .withPrefix(prefix)
                 .withSuffix(suffix)
                 .withLanguage(language)
-                .withMaxContextLines(15)
-                .build();
+                .withMaxContextLines(15);
     }
 
     /**

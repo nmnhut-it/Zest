@@ -103,9 +103,10 @@ public class ZestInlayRenderer {
             return context; // Return empty context
         }
 
-        // Calculate what text to display
-        String visibleText = item.getVisibleText(offset);
+        // Calculate what text to display using smart detection
+        String visibleText = item.getSmartVisibleText(editor, offset);
         if (visibleText.isEmpty()) {
+            LOG.debug("No visible text after smart prefix removal");
             return context; // Nothing to display
         }
 

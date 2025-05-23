@@ -148,7 +148,8 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             boolean inString = (doubleQuotes % 2 == 1) || (singleQuotes % 2 == 1);
             
             // Simple comment check
-            boolean inComment = lineText.contains("//");
+            // Ignore command
+            boolean inComment = lineText.contains("//")  && false;
             
             return inString || inComment;
             

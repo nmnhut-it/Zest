@@ -136,7 +136,7 @@ public class ZestAutocompleteCaretListener implements CaretListener {
                 return false;
 
             case MEDIUM_MOVEMENT:
-                // ✅ CHANGED: Allow more medium movements since user might still be typing
+
                 return totalMovement > 4; // Was 2, now 4
 
             case LARGE_MOVEMENT:

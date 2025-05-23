@@ -32,7 +32,7 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     public void documentChanged(@NotNull DocumentEvent event) {
         LOG.debug("Document changed: " + event);
         
-        // ✅ SIMPLIFIED: Focus on the core logic that works
+
         handleDocumentChange(event);
     }
     
@@ -54,7 +54,7 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
         if (oldLength == 0 && newLength > 0) {
             String insertedText = event.getNewFragment().toString();
             
-            // ✅ BASIC filtering - only skip obvious non-completion cases
+
             if (shouldTriggerForInsertion(insertedText, event)) {
                 LOG.debug("Triggering autocomplete for insertion: '{}'", insertedText);
                 autocompleteService.triggerAutocomplete(editor);
@@ -99,18 +99,18 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             return false;
         }
         
-        // ✅ BASIC context check - are we in a reasonable position?
+
         int offset = event.getOffset() + event.getNewLength();
         if (offset < 3) { // Need some minimum context
             return false;
         }
         
-        // ✅ BASIC string/comment check - simplified version
+
         if (isLikelyInStringOrComment(event.getDocument(), offset)) {
             return false;
         }
         
-        // ✅ For everything else, trigger and let the server decide
+
         return true;
     }
     

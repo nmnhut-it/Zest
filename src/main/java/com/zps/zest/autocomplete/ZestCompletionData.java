@@ -56,7 +56,7 @@ public class ZestCompletionData {
             // Basic range-based calculation
             String basicVisible = insertText.substring(prefixLength);
             
-            // ✅ ENHANCED: Apply smart redundant prefix removal as final safeguard
+
             return basicVisible;
         }
         
@@ -65,27 +65,7 @@ public class ZestCompletionData {
          * This is the main method that should be used for rendering
          */
         public String getSmartVisibleText(Editor editor, int currentOffset) {
-            try {
-                // Get current line prefix to compare against
-                int lineNumber = editor.getDocument().getLineNumber(currentOffset);
-                int lineStart = editor.getDocument().getLineStartOffset(lineNumber);
-                String currentLinePrefix = editor.getDocument().getText().substring(lineStart, currentOffset);
-                
-                // Apply smart redundant prefix removal
-                String cleanedText = removeRedundantPrefix(currentLinePrefix.trim(), insertText.trim());
-                
-                if (!cleanedText.equals(insertText)) {
-                    LOG.debug("Smart visible text: '{}' -> '{}' (removed redundant prefix)", 
-                             insertText.substring(0, Math.min(30, insertText.length())),
-                             cleanedText.substring(0, Math.min(30, cleanedText.length())));
-                }
-                
-                return cleanedText;
-                
-            } catch (Exception e) {
-                // Fallback to basic method if smart detection fails
-                return getVisibleText(currentOffset);
-            }
+            return this.insertText;
         }
         
         /**

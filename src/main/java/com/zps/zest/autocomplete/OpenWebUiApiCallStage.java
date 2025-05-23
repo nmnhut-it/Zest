@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.CodeContext;
@@ -25,7 +26,7 @@ public class OpenWebUiApiCallStage extends LlmApiCallStage {
     private final boolean streaming;
 
     public OpenWebUiApiCallStage(Builder builder) {
-        builder.build();
+
         this.model = builder.model;
         this.systemPrompt = builder.systemPrompt;
         this.streaming = builder.streaming;

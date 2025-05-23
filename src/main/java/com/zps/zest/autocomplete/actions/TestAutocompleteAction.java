@@ -44,7 +44,7 @@ public class TestAutocompleteAction extends AnAction {
             
             // Manually trigger autocomplete
             LOG.info("Manually triggering autocomplete");
-            service.triggerAutocomplete(editor);
+            service.triggerAutocomplete(editor, true);
             
         } catch (Exception e) {
             LOG.error("Error in TestAutocompleteAction", e);

@@ -150,7 +150,8 @@ public class ZestInlayRenderer {
      * Renders a single-line completion.
      */
     private static void renderSingleLineCompletion(RenderingContext context,
-                                                   String text, int offset) {
+                                                   String text,
+                                                   int offset) {
         Editor editor = context.getEditor();
 
         // Create inline renderer

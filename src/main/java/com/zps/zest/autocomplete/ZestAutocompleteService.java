@@ -38,7 +38,7 @@ import java.util.concurrent.CompletableFuture;
 @Service(Service.Level.PROJECT)
 public final class ZestAutocompleteService implements Disposable {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteService.class);
-    private static final int COMPLETION_DELAY_MS = 200; // User's preferred delay
+    private static final int COMPLETION_DELAY_MS = 100; // User's preferred delay
     private static final int MAX_CACHE_SIZE = 100;
 
     private final Project project;
@@ -122,11 +122,15 @@ public final class ZestAutocompleteService implements Disposable {
         documentListeners.remove(editor);
         caretListeners.remove(editor);
     }
-
+    public void triggerAutocomplete(Editor editor) {
+        triggerAutocomplete(editor, false);
+    }
     /**
      * Triggers autocomplete with enhanced context gathering.
      */
-    public void triggerAutocomplete(Editor editor) {
+    public void triggerAutocomplete(Editor editor, boolean forced) {
+        if (forced){
+        }
         if (!isEnabled || editor.isDisposed()) {
             return;
         }
@@ -136,7 +140,11 @@ public final class ZestAutocompleteService implements Disposable {
         if (snapshot == null) {
             return; // Invalid context, don't trigger
         }
-        lastTypingTimes.put(editor, System.currentTimeMillis());
+        if (forced) {
+            requestEnhancedCompletion(editor, snapshot);
+        }
+
+        recordLastTypingTime(editor);
         CompletableFuture<Void> existingRequest = currentRequests.get(editor);
         if (existingRequest != null && !existingRequest.isDone()) {
             existingRequest.cancel(true);
@@ -151,7 +159,7 @@ public final class ZestAutocompleteService implements Disposable {
             try {
                 Thread.sleep(COMPLETION_DELAY_MS);
 
-                 if (!Thread.currentThread().isInterrupted() && !isUserStillTyping(editor)) {
+                 if (!Thread.currentThread().isInterrupted() && (!isUserStillTyping(editor) || forced)) {
                     requestEnhancedCompletion(editor, snapshot);
                 }
             } catch (InterruptedException e) {
@@ -164,12 +172,17 @@ public final class ZestAutocompleteService implements Disposable {
 
         currentRequests.put(editor, newRequest);
     }
+
+    public @Nullable Long recordLastTypingTime(Editor editor) {
+        return lastTypingTimes.put(editor, System.currentTimeMillis());
+    }
+
     private boolean isUserStillTyping(Editor editor) {
         Long lastTime = lastTypingTimes.get(editor);
         if (lastTime == null) return false;
 
         long timeSinceLastTyping = System.currentTimeMillis() - lastTime;
-        return timeSinceLastTyping < 50; // Small buffer to detect rapid typing
+        return timeSinceLastTyping < 10; // Small buffer to detect rapid typing
     }
     private ContextSnapshot captureCurrentContext(Editor editor) {
         try {
@@ -333,7 +346,7 @@ public final class ZestAutocompleteService implements Disposable {
 
             // ✅ FIX 9: Use captured offset for rendering
             ZestInlayRenderer.RenderingContext renderingContext =
-                    ZestInlayRenderer.show(editor, snapshot.capturedOffset, item);
+                    ZestInlayRenderer.show(editor, snapshot.capturedOffset+1, item);
 
             if (!renderingContext.getInlays().isEmpty()) {
                 ZestCompletionData.PendingCompletion completion =

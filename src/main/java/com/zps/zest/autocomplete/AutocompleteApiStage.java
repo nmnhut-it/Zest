@@ -112,10 +112,10 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
             Document document = editor.getDocument();
             int lineNumber = document.getLineNumber(currentOffset);
             int lineStart = document.getLineStartOffset(lineNumber);
-            String currentLinePrefix = document.getText().substring(lineStart, currentOffset);
+            String currentLinePrefix = document.getText().substring(lineStart, currentOffset).trim();
 
             // Apply the same logic we use in ZestAutocompleteService
-            String optimizedResponse = removeRedundantPrefixFromResponse(currentLinePrefix, response);
+            String optimizedResponse = removeRedundantPrefixFromResponse(currentLinePrefix, response.trim());
             
             LOG.debug("Applied redundant prefix removal to response: '{}' -> '{}'", 
                      response.substring(0, Math.min(30, response.length())),

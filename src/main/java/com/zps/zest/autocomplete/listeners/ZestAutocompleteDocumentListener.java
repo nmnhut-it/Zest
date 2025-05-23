@@ -8,6 +8,8 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.util.TextRange;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
 import com.zps.zest.autocomplete.ZestCompletionData;
+import com.zps.zest.autocomplete.utils.CompletionStateUtils;
+import com.zps.zest.autocomplete.utils.EditorUtils;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -99,40 +101,11 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     }
 
     /**
-     * FIXED: Checks if the insertion is compatible with the current completion.
-     * Uses text analysis instead of direct inlay manipulation.
+     * REFACTORED: Checks if the insertion is compatible using utility classes.
      */
     private boolean isInsertionCompatibleWithCompletion(String insertedText, DocumentEvent event, 
                                                        ZestCompletionData.PendingCompletion activeCompletion) {
-        try {
-            Document document = editor.getDocument();
-            int currentOffset = event.getOffset() + event.getNewLength();
-            
-            // Get current line information
-            int currentLine = document.getLineNumber(currentOffset);
-            int lineStartOffset = document.getLineStartOffset(currentLine);
-            int lineEndOffset = document.getLineEndOffset(currentLine);
-            String currentLineText = document.getText(new TextRange(lineStartOffset, lineEndOffset)).trim();
-
-            // Check if the current line text is still a prefix of the completion
-            String completionText = activeCompletion.getItem().getInsertText().trim();
-            
-            // If current line is a prefix of completion text, it's compatible
-            if (completionText.startsWith(currentLineText)) {
-                return true;
-            }
-            
-            // If completion text is a prefix of current line, it's also compatible (user typed ahead)
-            if (currentLineText.startsWith(completionText)) {
-                return true;
-            }
-            
-            return false;
-            
-        } catch (Exception e) {
-            LOG.warn("Error checking insertion compatibility", e);
-            return false;
-        }
+        return CompletionStateUtils.isInsertionCompatible(insertedText, editor, activeCompletion);
     }
 
     /**
@@ -171,14 +144,12 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     }
 
     /**
-     * ENHANCED: Detects if cursor is in comment or javadoc area
+     * REFACTORED: Enhanced detection using utility classes.
      */
     private boolean isInCommentOrJavadoc(Document document, int offset) {
         try {
-            // Get current line text
-            int lineNumber = document.getLineNumber(offset);
-            int lineStart = document.getLineStartOffset(lineNumber);
-            String lineText = document.getText().substring(lineStart, offset);
+            // Use utility to get line text safely
+            String lineText = EditorUtils.safeGetCurrentLinePrefix(editor);
 
             // Check for line comments
             if (lineText.trim().startsWith("//")) {

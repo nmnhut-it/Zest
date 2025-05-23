@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
+import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
 import com.intellij.openapi.project.Project;
@@ -239,8 +240,19 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
             if (acceptType != AcceptType.FULL_COMPLETION) {
                 String remainingText = AcceptType.calculateRemainingText(cleaned, textToAccept);
                 if (remainingText != null && !remainingText.trim().isEmpty()) {
-                    handlePartialAcceptanceContinuation(editor, completion, item, remainingText);
-                    return; // Don't clear completion yet
+                    try {
+                        handlePartialAcceptanceContinuation(editor, completion, item, remainingText);
+                        // Check if continuation was successful
+                        if (!hasActiveCompletion(editor)) {
+                            LOG.debug("Partial acceptance failed to create continuation, cleaning up");
+                            clearCompletion(editor);
+                            tabAcceptCounts.remove(editor);
+                        }
+                        return; // Don't clear completion if continuation was successful
+                    } catch (Exception e) {
+                        LOG.warn("Error in partial acceptance continuation", e);
+                        // If continuation fails, fall through to cleanup
+                    }
                 }
             }
 
@@ -281,14 +293,35 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     /**
      * Handles continuation after partial acceptance.
+     * This method creates a new completion with the remaining text and displays it.
+     * 
+     * @return true if the continuation was successfully created and displayed, false otherwise
      */
-    private void handlePartialAcceptanceContinuation(@NotNull Editor editor,
+    private boolean handlePartialAcceptanceContinuation(@NotNull Editor editor,
                                                      @NotNull ZestCompletionData.PendingCompletion originalCompletion,
                                                      @NotNull ZestCompletionData.CompletionItem originalItem,
                                                      @NotNull String remainingText) {
+        if (editor.isDisposed()) {
+            LOG.warn("Editor is disposed, cannot create continuation");
+            return false;
+        }
+        
+        // Make sure we don't create a continuation with empty or whitespace-only text
+        if (remainingText == null || remainingText.trim().isEmpty()) {
+            LOG.debug("Remaining text is empty or whitespace, skipping continuation");
+            return false;
+        }
+        
         try {
             int newOffset = editor.getCaretModel().getOffset();
+            if (newOffset < 0 || newOffset >= editor.getDocument().getTextLength()) {
+                LOG.warn("Invalid caret offset: " + newOffset);
+                return false;
+            }
 
+            // First, clean up any existing rendering to avoid overlapping elements
+            clearRenderingContext(editor);
+            
             // Create continuation item
             ZestCompletionData.Range newRange = new ZestCompletionData.Range(newOffset, newOffset);
             ZestCompletionData.CompletionItem continuationItem = new ZestCompletionData.CompletionItem(
@@ -300,21 +333,29 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 continuationItem, editor, originalCompletion.getOriginalContext()
             );
 
-            // Replace current completion with continuation
-            activeCompletions.put(editor, continuationCompletion);
-
-            // Update rendering context
-            clearRenderingContext(editor);
+            // Show the new completion first to verify it works
             ZestInlayRenderer.RenderingContext newRenderingContext =
                 ZestInlayRenderer.show(editor, newOffset, continuationItem);
+                
+            // Only update state if we actually created visible inlays
+            if (newRenderingContext.getInlays().isEmpty()) {
+                LOG.debug("No inlays created for continuation, aborting");
+                newRenderingContext.dispose(); // Clean up any partial resources
+                return false;
+            }
+            
+            // Replace current completion with continuation and save the new rendering context
+            activeCompletions.put(editor, continuationCompletion);
             renderingContexts.put(editor, newRenderingContext);
 
             LOG.debug("Created continuation completion with remaining text: " +
                 remainingText.substring(0, Math.min(30, remainingText.length())));
+            return true;
 
         } catch (Exception e) {
             LOG.warn("Failed to create continuation completion", e);
             clearCompletion(editor);
+            return false;
         }
     }
 
@@ -348,7 +389,50 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
     private void clearRenderingContext(@NotNull Editor editor) {
         ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.remove(editor);
         if (renderingContext != null) {
-            renderingContext.dispose();
+            try {
+                renderingContext.dispose();
+                LOG.debug("Successfully disposed rendering context");
+            } catch (Exception e) {
+                LOG.warn("Error disposing rendering context", e);
+                // Fallback: Try to dispose each inlay individually
+                for (Inlay<?> inlay : renderingContext.getInlays()) {
+                    try {
+                        if (inlay != null && inlay.isValid()) {
+                            inlay.dispose();
+                        }
+                    } catch (Exception ex) {
+                        LOG.warn("Error disposing individual inlay", ex);
+                    }
+                }
+            }
+        }
+        
+        // Extra safety: cleanup any lingering inlays in the visible area
+        if (!editor.isDisposed()) {
+            try {
+                int visibleLineStart = editor.getScrollingModel().getVisibleArea().y / editor.getLineHeight();
+                int visibleLineEnd = visibleLineStart + 
+                    (editor.getScrollingModel().getVisibleArea().height / editor.getLineHeight()) + 1;
+                
+                for (int i = Math.max(0, visibleLineStart); i <= Math.min(visibleLineEnd, editor.getDocument().getLineCount() - 1); i++) {
+                    int lineStartOffset = editor.getDocument().getLineStartOffset(i);
+                    int lineEndOffset = editor.getDocument().getLineEndOffset(i);
+                    
+                    for (Inlay<?> inlay : editor.getInlayModel().getInlineElementsInRange(lineStartOffset, lineEndOffset)) {
+                        if (inlay.getRenderer() instanceof ZestInlayRenderer.InlineCompletionRenderer ||
+                            inlay.getRenderer() instanceof ZestInlayRenderer.BlockCompletionRenderer) {
+                            try {
+                                inlay.dispose();
+                                LOG.debug("Cleaned up orphaned inlay at offset " + inlay.getOffset());
+                            } catch (Exception ex) {
+                                LOG.warn("Error disposing orphaned inlay", ex);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Error in extra cleanup step", e);
+            }
         }
     }
 

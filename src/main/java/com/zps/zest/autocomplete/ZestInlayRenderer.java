@@ -68,22 +68,62 @@ public class ZestInlayRenderer {
 
         /**
          * Cleans up all rendering elements.
+         * 
+         * @return The number of inlays and markups that were disposed
          */
-        public void dispose() {
-            inlays.forEach(inlay -> {
-                if (inlay.isValid()) {
+        public int dispose() {
+            int count = 0;
+            
+            // Dispose inlays with more robust error handling
+            List<Inlay<?>> validInlays = new ArrayList<>(inlays.size());
+            for (Inlay<?> inlay : inlays) {
+                try {
+                    if (inlay != null && inlay.isValid()) {
+                        validInlays.add(inlay);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error checking inlay validity", e);
+                }
+            }
+            
+            // Now dispose the valid inlays
+            for (Inlay<?> inlay : validInlays) {
+                try {
                     inlay.dispose();
+                    count++;
+                } catch (Exception e) {
+                    LOG.warn("Error disposing inlay", e);
                 }
-            });
+            }
 
-            markups.forEach(markup -> {
-                if (markup.isValid()) {
-                    editor.getMarkupModel().removeHighlighter(markup);
+            // Dispose markups with better error handling
+            List<RangeHighlighter> validMarkups = new ArrayList<>(markups.size());
+            for (RangeHighlighter markup : markups) {
+                try {
+                    if (markup != null && markup.isValid()) {
+                        validMarkups.add(markup);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error checking markup validity", e);
                 }
-            });
+            }
+            
+            // Now dispose the valid markups
+            if (editor != null && !editor.isDisposed()) {
+                for (RangeHighlighter markup : validMarkups) {
+                    try {
+                        editor.getMarkupModel().removeHighlighter(markup);
+                        count++;
+                    } catch (Exception e) {
+                        LOG.warn("Error removing highlighter", e);
+                    }
+                }
+            }
 
             inlays.clear();
             markups.clear();
+            
+            return count;
         }
     }
 
@@ -227,7 +267,7 @@ public class ZestInlayRenderer {
     /**
      * Inline completion renderer for single lines and first line of multi-line.
      */
-    private static class InlineCompletionRenderer implements EditorCustomElementRenderer {
+    public static class InlineCompletionRenderer implements EditorCustomElementRenderer {
         private final String text;
         private final Editor editor;
         private final boolean isFirstLineOfMulti;
@@ -302,7 +342,7 @@ public class ZestInlayRenderer {
     /**
      * Block completion renderer for additional lines in multi-line completions.
      */
-    private static class BlockCompletionRenderer implements EditorCustomElementRenderer {
+    public static class BlockCompletionRenderer implements EditorCustomElementRenderer {
         private final String text;
         private final Editor editor;
         private final int lineIndex;

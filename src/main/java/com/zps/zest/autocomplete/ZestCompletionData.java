@@ -281,11 +281,23 @@ public class ZestCompletionData {
         
         /**
          * Disposes of any resources associated with this completion.
+         * Returns true if the disposal was successful.
          */
-        public void dispose() {
-            if (inlay != null && inlay.isValid()) {
-                inlay.dispose();
+        public boolean dispose() {
+            boolean success = true;
+            if (inlay != null) {
+                try {
+                    if (inlay.isValid()) {
+                        inlay.dispose();
+                    }
+                } catch (Exception e) {
+                    Logger.getInstance(PendingCompletion.class).warn("Error disposing inlay", e);
+                    success = false;
+                } finally {
+                    inlay = null; // Clear reference even if disposal failed
+                }
             }
+            return success;
         }
         
         @Override

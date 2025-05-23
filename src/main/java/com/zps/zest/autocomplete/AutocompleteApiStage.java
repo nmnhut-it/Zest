@@ -2,6 +2,7 @@ package com.zps.zest.autocomplete;
 
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
@@ -78,15 +79,192 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
         // Apply aggressive cleaning following Tabby ML approach
         String cleanedResponse = aggressiveCleanResponse(response);
 
+        // Apply redundant prefix removal to the cleaned response
+        // This ensures the completion won't duplicate existing text
+        String finalResponse = ReadAction.compute(()->applyRedundantPrefixRemoval(cleanedResponse, context));
+
         // Validate the response
-        if (isValidCompletion(cleanedResponse)) {
-            context.setApiResponse(cleanedResponse);
-            LOG.debug("Cleaned autocomplete response: " +
-                    cleanedResponse.substring(0, Math.min(50, cleanedResponse.length())));
+        if (isValidCompletion(finalResponse)) {
+            context.setApiResponse(finalResponse);
+            LOG.debug("Final processed autocomplete response: " +
+                    finalResponse.substring(0, Math.min(50, finalResponse.length())));
         } else {
-            LOG.warn("Invalid completion response, clearing");
+            LOG.warn("Invalid completion response after processing, clearing");
             context.setApiResponse("");
         }
+    }
+
+    /**
+     * Applies redundant prefix removal to the API response.
+     * This prevents rendering and acceptance issues by cleaning the response upfront.
+     */
+    private String applyRedundantPrefixRemoval(String response, CodeContext context) {
+        if (response == null || response.isEmpty() || context.getEditor() == null) {
+            return response;
+        }
+
+        try {
+            // Get current editor context
+            Editor editor = context.getEditor();
+            int currentOffset = editor.getCaretModel().getOffset();
+            
+            // Get current line prefix
+            Document document = editor.getDocument();
+            int lineNumber = document.getLineNumber(currentOffset);
+            int lineStart = document.getLineStartOffset(lineNumber);
+            String currentLinePrefix = document.getText().substring(lineStart, currentOffset);
+
+            // Apply the same logic we use in ZestAutocompleteService
+            String optimizedResponse = removeRedundantPrefixFromResponse(currentLinePrefix, response);
+            
+            LOG.debug("Applied redundant prefix removal to response: '{}' -> '{}'", 
+                     response.substring(0, Math.min(30, response.length())),
+                     optimizedResponse.substring(0, Math.min(30, optimizedResponse.length())));
+            
+            return optimizedResponse;
+            
+        } catch (Exception e) {
+            LOG.warn("Error applying redundant prefix removal to response", e);
+            return response; // Return original if processing fails
+        }
+    }
+
+    /**
+     * Removes redundant prefix from API response (improved logic to avoid partial word matches).
+     */
+    private String removeRedundantPrefixFromResponse(String currentLinePrefix, String response) {
+        if (currentLinePrefix == null || response == null || response.isEmpty()) {
+            return response;
+        }
+
+        String currentPrefix = currentLinePrefix.trim();
+        if (currentPrefix.isEmpty()) {
+            return response;
+        }
+
+        LOG.debug("Checking redundant prefix - current: '{}', response: '{}'", currentPrefix, response);
+
+        // Special handling for comments - be very conservative
+        if (currentPrefix.startsWith("//") && response.startsWith("//")) {
+            return handleCommentRedundancy(currentPrefix, response);
+        }
+
+        // Find the longest common suffix of currentPrefix and prefix of response
+        int commonLength = 0;
+        int maxCheck = Math.min(currentPrefix.length(), response.length());
+        
+        // Check for exact character match from the end of currentPrefix and start of response
+        for (int i = 1; i <= maxCheck; i++) {
+            String prefixSuffix = currentPrefix.substring(currentPrefix.length() - i);
+            String responsePrefix = response.substring(0, i);
+            
+            if (prefixSuffix.equals(responsePrefix)) {
+                commonLength = i;
+            } else {
+                break; // Stop at first mismatch for exact matching
+            }
+        }
+
+        // If we found common characters, validate it's a meaningful match
+        if (commonLength > 0) {
+            String matchedText = response.substring(0, commonLength);
+            
+            // Only remove if the match is substantial (not just partial words)
+            if (commonLength >= 5 && isValidPrefixToRemove(currentPrefix, matchedText, response)) {
+                String result = response.substring(commonLength);
+                LOG.debug("Removed redundant prefix from response: '{}', result: '{}'", matchedText, result);
+                return result;
+            }
+        }
+
+        // Check for complete word redundancy (safer approach)
+        return handleWordLevelRedundancy(currentPrefix, response);
+    }
+
+    /**
+     * Special handling for comment redundancy - very conservative approach.
+     */
+    private String handleCommentRedundancy(String currentPrefix, String response) {
+        // For comments, only remove if there's exact word duplication
+        // Example: "// call" + "// call the method" -> " the method"
+        
+        if (currentPrefix.equals(response.substring(0, Math.min(currentPrefix.length(), response.length())))) {
+            String result = response.substring(currentPrefix.length());
+            LOG.debug("Removed exact comment prefix: '{}', result: '{}'", currentPrefix, result);
+            return result;
+        }
+        
+        // Don't do partial comment removal - too risky
+        return response;
+    }
+
+    /**
+     * Handle word-level redundancy safely.
+     */
+    private String handleWordLevelRedundancy(String currentPrefix, String response) {
+        String[] currentWords = currentPrefix.split("\\s+");
+        String[] responseWords = response.split("\\s+");
+        
+        if (currentWords.length > 0 && responseWords.length > 0) {
+            String lastCurrentWord = currentWords[currentWords.length - 1].toLowerCase();
+            String firstResponseWord = responseWords[0].toLowerCase();
+            
+            // Only remove if it's an exact word match and substantial
+            if (lastCurrentWord.equals(firstResponseWord) && lastCurrentWord.length() > 3) {
+                // Find the exact word boundary in the response
+                int wordEndIndex = response.toLowerCase().indexOf(firstResponseWord) + firstResponseWord.length();
+                if (wordEndIndex < response.length()) {
+                    // Check if next character is a word boundary
+                    char nextChar = response.charAt(wordEndIndex);
+                    if (!Character.isLetterOrDigit(nextChar)) {
+                        String result = response.substring(wordEndIndex);
+                        LOG.debug("Removed redundant complete word from response: '{}'", firstResponseWord);
+                        return result;
+                    }
+                }
+            }
+        }
+        
+        return response;
+    }
+
+    /**
+     * Validates if a prefix match is meaningful enough to remove.
+     */
+    private boolean isValidPrefixToRemove(String currentPrefix, String matchedText, String fullResponse) {
+        // Don't remove if it would leave an empty or very short result
+        String remainder = fullResponse.substring(matchedText.length());
+        if (remainder.trim().length() < 3) {
+            return false;
+        }
+        
+        // Don't remove partial words - check if match ends at word boundary  
+        if (matchedText.length() < fullResponse.length()) {
+            char nextChar = fullResponse.charAt(matchedText.length());
+            
+            // If next character is alphanumeric, we might be breaking a word
+            if (Character.isLetterOrDigit(nextChar)) {
+                LOG.debug("Skipping prefix removal - would break word boundary: '{}'", matchedText);
+                return false;
+            }
+        }
+        
+        // Don't remove if it creates malformed comments or statements
+        if (currentPrefix.contains("//") || currentPrefix.contains("/*")) {
+            // Be very conservative with comments
+            if (matchedText.length() < currentPrefix.length()) {
+                LOG.debug("Skipping prefix removal - would create malformed comment");
+                return false;
+            }
+        }
+        
+        // Don't remove very short matches that are likely coincidental
+        if (matchedText.trim().length() < 5) {
+            LOG.debug("Skipping prefix removal - match too short: '{}'", matchedText);
+            return false;
+        }
+        
+        return true;
     }
 
     /**

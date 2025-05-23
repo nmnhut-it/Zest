@@ -18,7 +18,7 @@ import java.io.IOException;
 public class OpenWebUiApiCallStage extends LlmApiCallStage {
 
     public static final Gson GSON = new Gson();
-    private static final int MAX_COMPLETION_TOKENS = 50;
+    private static final int MAX_COMPLETION_TOKENS = 10;
     private static final double AUTOCOMPLETE_TEMPERATURE = -1;
     private final String model;
     private final String systemPrompt;

@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
@@ -37,7 +38,7 @@ import java.util.concurrent.CompletableFuture;
 @Service(Service.Level.PROJECT)
 public final class ZestAutocompleteService implements Disposable {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteService.class);
-    private static final int COMPLETION_DELAY_MS = 250; // Slightly faster trigger
+    private static final int COMPLETION_DELAY_MS = 10; // Slightly faster trigger
     private static final int MAX_CACHE_SIZE = 100;
 
     private final Project project;
@@ -47,8 +48,10 @@ public final class ZestAutocompleteService implements Disposable {
     private final Map<Editor, ZestAutocompleteCaretListener> caretListeners = new ConcurrentHashMap<>();
     private final Map<Editor, ZestInlayRenderer.RenderingContext> renderingContexts = new ConcurrentHashMap<>();
     private final Map<Editor, Integer> tabAcceptCounts = new ConcurrentHashMap<>();
+    private final Map<Editor, CompletableFuture<Void>> currentRequests = new ConcurrentHashMap<>();
+    private final Map<Editor, Long> lastTypingTimes = new ConcurrentHashMap<>();
+    private final Map<Editor, ContextSnapshot> pendingContexts = new ConcurrentHashMap<>();
 
-    private CompletableFuture<Void> currentRequest;
     private boolean isEnabled = true;
     private EditorFactoryListener editorFactoryListener;
 
@@ -129,91 +132,132 @@ public final class ZestAutocompleteService implements Disposable {
         }
 
         // Cancel existing request
-        if (currentRequest != null && !currentRequest.isDone()) {
-            currentRequest.cancel(true);
+        ContextSnapshot snapshot = captureCurrentContext(editor);
+        if (snapshot == null) {
+            return; // Invalid context, don't trigger
+        }
+        lastTypingTimes.put(editor, System.currentTimeMillis());
+        CompletableFuture<Void> existingRequest = currentRequests.get(editor);
+        if (existingRequest != null && !existingRequest.isDone()) {
+            existingRequest.cancel(true);
         }
 
         clearCompletion(editor);
+        // Store the context snapshot for when request actually executes
+        pendingContexts.put(editor, snapshot);
 
         // Schedule with optimized delay
-        currentRequest = CompletableFuture.runAsync(() -> {
+        CompletableFuture<Void> newRequest = CompletableFuture.runAsync(() -> {
             try {
                 Thread.sleep(COMPLETION_DELAY_MS);
-                if (!Thread.currentThread().isInterrupted()) {
-                    requestEnhancedCompletion(editor);
+
+                 if (!Thread.currentThread().isInterrupted() && !isUserStillTyping(editor)) {
+                    requestEnhancedCompletion(editor, snapshot);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+            } finally {
+                currentRequests.remove(editor);
+                pendingContexts.remove(editor);
             }
         });
-    }
 
+        currentRequests.put(editor, newRequest);
+    }
+    private boolean isUserStillTyping(Editor editor) {
+        Long lastTime = lastTypingTimes.get(editor);
+        if (lastTime == null) return false;
+
+        long timeSinceLastTyping = System.currentTimeMillis() - lastTime;
+        return timeSinceLastTyping < 10; // Small buffer to detect rapid typing
+    }
+    private ContextSnapshot captureCurrentContext(Editor editor) {
+        try {
+            return ApplicationManager.getApplication().runReadAction((Computable<ContextSnapshot>) () -> {
+                if (editor.isDisposed()) return null;
+
+                PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+                int currentOffset = editor.getCaretModel().getOffset();
+
+                ContextGatherer.CursorContext cursorContext =
+                        ContextGatherer.gatherEnhancedCursorContext(editor, psiFile);
+                String fileContext = ContextGatherer.gatherFileContext(editor, psiFile);
+
+                return new ContextSnapshot(cursorContext, fileContext, currentOffset,
+                        System.currentTimeMillis(), editor.getDocument().getModificationStamp());
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to capture context", e);
+            return null;
+        }
+    }
     /**
      * Requests completion using enhanced context gathering and prompting.
      */
-    private void requestEnhancedCompletion(Editor editor) {
-        if (editor.isDisposed() || !isEnabled) {
-            return;
-        }
+    private void requestEnhancedCompletion(Editor editor, ContextSnapshot snapshot) {
+
 
         ApplicationManager.getApplication().runReadAction(() -> {
+            if (editor.isDisposed() || !isEnabled) {
+                return;
+            }
+
+            // ✅ FIX 6: Validate context is still valid (user hasn't moved cursor significantly)
+            if (!isContextStillValid(editor, snapshot)) {
+                LOG.debug("Context invalidated, skipping completion");
+                return;
+            }
             try {
                 ConfigurationManager config = ConfigurationManager.getInstance(project);
                 if (!config.isAutocompleteEnabled()) {
                     return;
                 }
 
-                // Enhanced context gathering
-                PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
-                ContextGatherer.CursorContext cursorContext = ContextGatherer.gatherEnhancedCursorContext(editor, psiFile);
-                String fileContext = ContextGatherer.gatherFileContext(editor, psiFile);
-
-                // Generate cache key based on context
-                String cacheKey = generateEnhancedCacheKey(cursorContext, fileContext);
+                // Use captured context instead of re-gathering
+                String cacheKey = generateEnhancedCacheKey(snapshot.cursorContext, snapshot.fileContext);
                 ZestCompletionData.CompletionItem cachedItem = completionCache.get(cacheKey);
 
-                if (cachedItem != null && cachedItem.isValidAt(cursorContext.getOffset())) {
+                if (cachedItem != null && cachedItem.isValidAt(snapshot.capturedOffset)) {
                     ApplicationManager.getApplication().invokeLater(() ->
-                            displayEnhancedCompletion(editor, cachedItem, cursorContext));
+                            displayEnhancedCompletion(editor, cachedItem, snapshot));
                     return;
                 }
 
-                // Build enhanced prompt
+                // Build enhanced prompt using captured context
                 String enhancedPrompt = AutocompletePromptBuilder.createContextAwarePrompt(
-                        fileContext,
-                        cursorContext.getPrefixContext(),
-                        cursorContext.getSuffixContext(),
-                        detectLanguage(editor, psiFile)
+                        snapshot.fileContext,
+                        snapshot.cursorContext.getPrefixContext(),
+                        snapshot.cursorContext.getSuffixContext(),
+                        detectLanguage(editor, null)
                 );
 
-                // Make API request with context-aware system prompt
+                // Make API request
                 CompletableFuture.runAsync(() -> {
                     try {
-                        CodeContext context = ReadAction.compute(()->createCodeContext(editor, enhancedPrompt, config));
-                        
-                        // Detect completion context and create appropriate API stage
-                        String systemPrompt = detectCompletionContextAndGetSystemPrompt(cursorContext.getPrefixContext());
+                        CodeContext context = ReadAction.compute(() ->
+                                createCodeContext(editor, enhancedPrompt, config));
+
+                        String systemPrompt = detectCompletionContextAndGetSystemPrompt(
+                                snapshot.cursorContext.getPrefixContext());
                         AutocompleteApiStage apiStage = new AutocompleteApiStage(project, systemPrompt);
-                        
+
                         apiStage.process(context);
 
                         String completion = context.getApiResponse();
                         if (completion != null && !completion.trim().isEmpty()) {
-                            // Create completion item with proper range
                             ZestCompletionData.CompletionItem item = createCompletionItem(
-                                    completion.trim(), cursorContext);
+                                    completion.trim(), snapshot);
 
-                            // Skip if completion was filtered out
-                            if (item == null) {
-                                return;
-                            }
+                            if (item == null) return;
 
-                            // Cache the result
                             completionCache.put(cacheKey, item);
 
-                            // Display on UI thread
-                            ApplicationManager.getApplication().invokeLater(() ->
-                                    displayEnhancedCompletion(editor, item, cursorContext));
+                            // ✅ FIX 7: Final validation before display
+                            ApplicationManager.getApplication().invokeLater(() -> {
+                                if (isContextStillValid(editor, snapshot)) {
+                                    displayEnhancedCompletion(editor, item, snapshot);
+                                }
+                            });
                         }
                     } catch (PipelineExecutionException e) {
                         LOG.warn("Failed to get enhanced autocomplete suggestion", e);
@@ -225,40 +269,63 @@ public final class ZestAutocompleteService implements Disposable {
             }
         });
     }
+    private boolean isContextStillValid(Editor editor, ContextSnapshot snapshot) {
+        if (editor.isDisposed()) return false;
+
+        // Check if document was modified since capture
+        if (editor.getDocument().getModificationStamp() != snapshot.documentModificationStamp) {
+            return false;
+        }
+
+        // Check if cursor moved significantly since capture
+        int currentOffset = editor.getCaretModel().getOffset();
+        int offsetDiff = Math.abs(currentOffset - snapshot.capturedOffset);
+
+        // Allow small movements (up to 2 characters) for natural typing
+        return offsetDiff <= 2;
+    }
 
     /**
      * Creates a completion item with intelligent replace range calculation.
+     * Note: Redundant prefix removal is now handled at the API response level.
      */
-    private ZestCompletionData.CompletionItem createCompletionItem(String completion,
-                                                                   ContextGatherer.CursorContext context) {
-        // Skip completion if it shares significant content with current line
-        String currentLineSuffix = context.getCurrentLineSuffix().trim();
-        if (!currentLineSuffix.isEmpty() && completion.trim().startsWith(currentLineSuffix)) {
-            LOG.debug("Skipping completion - shares content with current line");
+    private ZestCompletionData.CompletionItem createCompletionItem(String completion, ContextSnapshot snapshot) {
+        if (completion == null || completion.trim().isEmpty()) {
+            LOG.debug("Skipping empty completion");
             return null;
         }
 
-        int startOffset = context.getOffset();
+        String trimmedCompletion = completion.trim();
+
+        // Use captured context, not current context
+        String currentLineSuffix = snapshot.cursorContext.getCurrentLineSuffix().trim();
+        if (!currentLineSuffix.isEmpty() && trimmedCompletion.startsWith(currentLineSuffix)) {
+            LOG.debug("Skipping completion - shares content with current line suffix");
+            return null;
+        }
+
+        LOG.debug("Creating completion item with text: '{}'", trimmedCompletion);
+
+        // ✅ FIX 8: Use captured offset, not current offset
+        int startOffset = snapshot.capturedOffset;
         int endOffset = startOffset;
 
-        // Calculate replace range based on current line suffix
         if (!currentLineSuffix.isEmpty()) {
-            // If there's meaningful content after cursor, we might want to replace it
-            // This is a simplified version - Tabby ML has more sophisticated logic
-            if (completion.startsWith(currentLineSuffix.trim())) {
-                endOffset = startOffset + currentLineSuffix.trim().length();
+            if (trimmedCompletion.startsWith(currentLineSuffix)) {
+                endOffset = startOffset + currentLineSuffix.length();
+                LOG.debug("Will replace suffix: '{}' (length: {})", currentLineSuffix, currentLineSuffix.length());
             }
         }
 
         ZestCompletionData.Range replaceRange = new ZestCompletionData.Range(startOffset, endOffset);
-        return new ZestCompletionData.CompletionItem(completion, replaceRange, null, 1.0);
+        return new ZestCompletionData.CompletionItem(trimmedCompletion, replaceRange, null, 1.0);
     }
-
     /**
      * Displays completion using enhanced renderer.
+     * Much simpler now that responses are pre-cleaned for safety.
      */
     private void displayEnhancedCompletion(Editor editor, ZestCompletionData.CompletionItem item,
-                                           ContextGatherer.CursorContext context) {
+                                           ContextSnapshot snapshot) {
         if (editor.isDisposed()) {
             return;
         }
@@ -266,23 +333,23 @@ public final class ZestAutocompleteService implements Disposable {
         try {
             clearCompletion(editor);
 
-            // Create rendering context
+            // ✅ FIX 9: Use captured offset for rendering
             ZestInlayRenderer.RenderingContext renderingContext =
-                    ZestInlayRenderer.show(editor, context.getOffset(), item);
+                    ZestInlayRenderer.show(editor, snapshot.capturedOffset, item);
 
             if (!renderingContext.getInlays().isEmpty()) {
-                // Create pending completion
                 ZestCompletionData.PendingCompletion completion =
-                        new ZestCompletionData.PendingCompletion(item, editor, context.getPrefixContext());
+                        new ZestCompletionData.PendingCompletion(item, editor,
+                                snapshot.cursorContext.getPrefixContext());
 
                 activeCompletions.put(editor, completion);
                 renderingContexts.put(editor, renderingContext);
-                
-                // Reset tab count when new completion is shown
                 tabAcceptCounts.put(editor, 0);
 
                 LOG.debug("Displayed enhanced autocomplete: " +
                         item.getInsertText().substring(0, Math.min(50, item.getInsertText().length())));
+            } else {
+                LOG.debug("Renderer returned empty context - completion skipped");
             }
 
         } catch (Exception e) {
@@ -290,6 +357,25 @@ public final class ZestAutocompleteService implements Disposable {
         }
     }
 
+    /**
+     * ✅ NEW: Context snapshot to capture state at trigger time
+     */
+    private static class ContextSnapshot {
+        final ContextGatherer.CursorContext cursorContext;
+        final String fileContext;
+        final int capturedOffset;
+        final long captureTime;
+        final long documentModificationStamp;
+
+        ContextSnapshot(ContextGatherer.CursorContext cursorContext, String fileContext,
+                        int capturedOffset, long captureTime, long documentModificationStamp) {
+            this.cursorContext = cursorContext;
+            this.fileContext = fileContext;
+            this.capturedOffset = capturedOffset;
+            this.captureTime = captureTime;
+            this.documentModificationStamp = documentModificationStamp;
+        }
+    }
     /**
      * Accepts completion with proper replace range handling and partial acceptance support.
      */
@@ -339,37 +425,42 @@ public final class ZestAutocompleteService implements Disposable {
             ZestCompletionData.CompletionItem item = completion.getItem();
             String fullCompletionText = item.getInsertText();
             
+            // Apply final redundant prefix removal to be absolutely sure
+            String cleanedCompletionText = applyFinalRedundantPrefixCheck(editor, fullCompletionText);
+            
             // Calculate what text to actually accept based on accept type
-            String textToAccept = AcceptType.extractAcceptableText(fullCompletionText, acceptType);
+            String textToAccept = AcceptType.extractAcceptableText(cleanedCompletionText, acceptType);
             if (textToAccept.isEmpty()) {
                 LOG.debug("No text to accept for type: " + acceptType);
                 return;
             }
 
+            // Handle IntelliJ auto-insertions and get the final adjusted text
+            String finalTextToAccept = handleIntelliJAutoInsertions(editor, textToAccept, item.getReplaceRange());
+
             Document document = editor.getDocument();
-            ZestCompletionData.Range replaceRange = item.getReplaceRange();
 
             VirtualFile virtualFile = editor.getVirtualFile();
             if (virtualFile == null)
                 return;
                 
             WriteCommandAction.runWriteCommandAction(project,"autocomplete","Zest", (Runnable) () -> {
-                // Replace the range with the accepted text
-                document.replaceString(replaceRange.getStart(), replaceRange.getEnd(), textToAccept);
+                // Replace the range with the final accepted text
+                document.replaceString(item.getReplaceRange().getStart(), item.getReplaceRange().getEnd(), finalTextToAccept);
 
                 // Move cursor to end of inserted text
-                editor.getCaretModel().moveToOffset(replaceRange.getStart() + textToAccept.length());
+                editor.getCaretModel().moveToOffset(item.getReplaceRange().getStart() + finalTextToAccept.length());
             }, PsiUtil.getPsiFile(project, virtualFile));
 
             // Publish acceptance event
-            publishCompletionAccepted(editor, item, acceptType, textToAccept);
+            publishCompletionAccepted(editor, item, acceptType, finalTextToAccept);
 
             // Handle partial acceptance continuation
             if (acceptType != AcceptType.FULL_COMPLETION) {
-                String remainingText = AcceptType.calculateRemainingText(fullCompletionText, textToAccept);
+                String remainingText = AcceptType.calculateRemainingText(cleanedCompletionText, finalTextToAccept);
                 if (remainingText != null && !remainingText.trim().isEmpty()) {
                     // Create continuation completion
-                    handlePartialAcceptanceContinuation(editor, completion, item, textToAccept, remainingText);
+                    handlePartialAcceptanceContinuation(editor, completion, item, finalTextToAccept, remainingText);
                     return; // Don't clear completion yet
                 }
             }
@@ -384,6 +475,168 @@ public final class ZestAutocompleteService implements Disposable {
         } catch (Exception e) {
             LOG.warn("Failed to accept enhanced completion", e);
         }
+    }
+
+    /**
+     * Final redundant prefix check at acceptance time to be absolutely sure.
+     */
+    private String applyFinalRedundantPrefixCheck(Editor editor, String completionText) {
+        try {
+            Document document = editor.getDocument();
+            int currentOffset = editor.getCaretModel().getOffset();
+            
+            // Get current line prefix
+            int lineNumber = document.getLineNumber(currentOffset);
+            int lineStart = document.getLineStartOffset(lineNumber);
+            String currentLinePrefix = document.getText().substring(lineStart, currentOffset);
+            
+            // Apply the same redundant prefix removal logic
+            String cleaned = removeRedundantPrefixAtAcceptance(currentLinePrefix, completionText);
+            
+            if (!cleaned.equals(completionText)) {
+                LOG.debug("Final redundant prefix removal: '{}' -> '{}'", completionText, cleaned);
+            }
+            
+            return cleaned;
+            
+        } catch (Exception e) {
+            LOG.warn("Error in final redundant prefix check", e);
+            return completionText;
+        }
+    }
+
+    /**
+     * Handle IntelliJ's automatic bracket/brace insertions that might interfere.
+     * This version is more sophisticated and can adjust the completion accordingly.
+     */
+    private String handleIntelliJAutoInsertions(Editor editor, String textToAccept, ZestCompletionData.Range replaceRange) {
+        try {
+            Document document = editor.getDocument();
+            int currentOffset = editor.getCaretModel().getOffset();
+            
+            // Check what's currently after the cursor
+            int lineNumber = document.getLineNumber(currentOffset);
+            int lineEnd = document.getLineEndOffset(lineNumber);
+            String textAfterCursor = "";
+            
+            if (currentOffset < lineEnd) {
+                textAfterCursor = document.getText().substring(currentOffset, Math.min(lineEnd, currentOffset + 20));
+            }
+            
+            // Check if IntelliJ has already inserted matching brackets/braces
+            String adjustedCompletion = textToAccept;
+            
+            // Handle common auto-insertion scenarios
+            if (textToAccept.contains("(") && !textAfterCursor.isEmpty()) {
+                adjustedCompletion = handleBracketAutoInsertion(textToAccept, textAfterCursor, '(', ')');
+            }
+            
+            if (textToAccept.contains("{") && !textAfterCursor.isEmpty()) {
+                adjustedCompletion = handleBracketAutoInsertion(adjustedCompletion, textAfterCursor, '{', '}');
+            }
+            
+            if (textToAccept.contains("[") && !textAfterCursor.isEmpty()) {
+                adjustedCompletion = handleBracketAutoInsertion(adjustedCompletion, textAfterCursor, '[', ']');
+            }
+            
+            // Handle semicolon duplication
+            if (textToAccept.endsWith(";") && textAfterCursor.startsWith(";")) {
+                adjustedCompletion = textToAccept.substring(0, textToAccept.length() - 1);
+                LOG.debug("Removed duplicate semicolon from completion");
+            }
+            
+            if (!adjustedCompletion.equals(textToAccept)) {
+                LOG.debug("Adjusted completion for IntelliJ auto-insertions: '{}' -> '{}'", textToAccept, adjustedCompletion);
+            }
+            
+            return adjustedCompletion;
+            
+        } catch (Exception e) {
+            LOG.warn("Error handling IntelliJ auto-insertions", e);
+            return textToAccept;
+        }
+    }
+
+    /**
+     * Handle specific bracket auto-insertion scenarios.
+     */
+    private String handleBracketAutoInsertion(String completionText, String textAfterCursor, char openBracket, char closeBracket) {
+        // Count opening and closing brackets in completion
+        long openCount = completionText.chars().filter(ch -> ch == openBracket).count();
+        long closeCount = completionText.chars().filter(ch -> ch == closeBracket).count();
+        
+        // Count closing brackets already in the editor after cursor
+        long existingCloseCount = textAfterCursor.chars().filter(ch -> ch == closeBracket).count();
+        
+        // If we have unmatched opening brackets in completion and matching closing brackets after cursor
+        if (openCount > closeCount && existingCloseCount > 0) {
+            long excessCloseNeeded = openCount - closeCount;
+            long availableClose = Math.min(existingCloseCount, excessCloseNeeded);
+            
+            // Remove that many closing brackets from the end of completion
+            String result = completionText;
+            for (int i = 0; i < availableClose; i++) {
+                int lastClose = result.lastIndexOf(closeBracket);
+                if (lastClose != -1) {
+                    result = result.substring(0, lastClose) + result.substring(lastClose + 1);
+                }
+            }
+            
+            if (!result.equals(completionText)) {
+                LOG.debug("Removed {} closing '{}' brackets due to auto-insertion", availableClose, closeBracket);
+            }
+            
+            return result;
+        }
+        
+        return completionText;
+    }
+
+    /**
+     * Same logic as in AutocompleteApiStage but applied at acceptance time.
+     */
+    private String removeRedundantPrefixAtAcceptance(String currentLinePrefix, String completionText) {
+        if (currentLinePrefix == null || completionText == null || completionText.isEmpty()) {
+            return completionText;
+        }
+
+        String currentPrefix = currentLinePrefix.trim();
+        if (currentPrefix.isEmpty()) {
+            return completionText;
+        }
+
+        // Special handling for comments - be very conservative
+        if (currentPrefix.startsWith("//") && completionText.startsWith("//")) {
+            if (currentPrefix.equals(completionText.substring(0, Math.min(currentPrefix.length(), completionText.length())))) {
+                return completionText.substring(currentPrefix.length());
+            }
+            return completionText;
+        }
+
+        // Check for exact character matches at the beginning
+        int commonLength = 0;
+        int maxCheck = Math.min(currentPrefix.length(), completionText.length());
+        
+        for (int i = 1; i <= maxCheck; i++) {
+            String prefixSuffix = currentPrefix.substring(currentPrefix.length() - i);
+            String completionPrefix = completionText.substring(0, i);
+            
+            if (prefixSuffix.equals(completionPrefix)) {
+                commonLength = i;
+            } else {
+                break;
+            }
+        }
+
+        // Only remove if it's a substantial match (5+ characters) and won't break words
+        if (commonLength >= 5) {
+            String remainder = completionText.substring(commonLength);
+            if (remainder.trim().length() >= 3) {
+                return remainder;
+            }
+        }
+
+        return completionText;
     }
 
     /**
@@ -592,9 +845,16 @@ public final class ZestAutocompleteService implements Disposable {
 
     @Override
     public void dispose() {
-        if (currentRequest != null && !currentRequest.isDone()) {
-            currentRequest.cancel(true);
-        }
+        // ✅ FIX 10: Cancel all pending requests
+        currentRequests.values().forEach(request -> {
+            if (!request.isDone()) {
+                request.cancel(true);
+            }
+        });
+        
+        currentRequests.clear();
+        lastTypingTimes.clear();
+        pendingContexts.clear();
 
         activeCompletions.keySet().forEach(this::clearCompletion);
         activeCompletions.clear();

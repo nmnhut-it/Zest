@@ -1,5 +1,7 @@
 package com.zps.zest.autocomplete;
 
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorCustomElementRenderer;
 import com.intellij.openapi.editor.Inlay;
@@ -18,6 +20,7 @@ import java.util.List;
  * Supports multi-line rendering, replace ranges, and sophisticated display logic.
  */
 public class ZestInlayRenderer {
+    private static final Logger LOG = Logger.getInstance(ZestInlayRenderer.class);
 
     /**
      * Rendering context similar to Tabby ML's approach.
@@ -86,12 +89,19 @@ public class ZestInlayRenderer {
 
     /**
      * Creates and displays a completion following Tabby ML patterns.
+     * Now with pre-cleaned responses, rendering is much safer.
      */
     public static RenderingContext show(Editor editor, int offset,
                                         ZestCompletionData.CompletionItem item) {
 
         String completionId = "zest-" + System.currentTimeMillis();
         RenderingContext context = new RenderingContext(completionId, editor, offset, item);
+
+        // Basic safety check: Don't render if it would obviously break flow
+        if (!isBasicallySafeToRender(editor, offset)) {
+            LOG.debug("Skipping render - basic safety check failed");
+            return context; // Return empty context
+        }
 
         // Calculate what text to display
         String visibleText = item.getVisibleText(offset);
@@ -107,6 +117,32 @@ public class ZestInlayRenderer {
         }
 
         return context;
+    }
+
+    /**
+     * Basic safety check - much simpler since responses are pre-cleaned.
+     * Just ensures we're not in an obviously bad position.
+     */
+    private static boolean isBasicallySafeToRender(Editor editor, int offset) {
+        try {
+            Document document = editor.getDocument();
+            
+            // Basic bounds check
+            if (offset < 0 || offset > document.getTextLength()) {
+                return false;
+            }
+            
+            // Don't render if editor is read-only
+            if (!editor.getDocument().isWritable()) {
+                return false;
+            }
+            
+            return true;
+            
+        } catch (Exception e) {
+            LOG.warn("Error in basic render safety check", e);
+            return false;
+        }
     }
 
     /**

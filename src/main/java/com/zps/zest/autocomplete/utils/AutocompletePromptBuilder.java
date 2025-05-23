@@ -9,76 +9,20 @@ package com.zps.zest.autocomplete.utils;
  * - External reference-based completion
  */
 public class AutocompletePromptBuilder {
-    public static final String ONLY_REMAINING = "\nIMPORTANT: Only return the part of the text to be inserted at cursor position. Do not include any text that already exists before the cursor.\n";
+    public static final String ONLY_REMAINING = "\n\n🚨 CRITICAL: Only return NEW text to insert at cursor. Never repeat existing text.\n";
 
     // System prompts for different completion scenarios
     public static final String MINIMAL_SYSTEM_PROMPT =
-            "You are a precise code completion assistant. Your task is to complete code at the cursor position marked with <CURSOR>.\n\n" +
-                    "RULES:\n" +
-                    "1. Return ONLY the code that should be inserted at the cursor position\n" +
-                    "2. Do not repeat any existing code that appears before the cursor\n" +
-                    "3. Do not include explanations, markdown formatting, backticks, or any other text\n" +
-                    "4. Ensure the completion creates syntactically correct and logically sound code\n" +
-                    "5. Consider the context and follow common programming patterns\n\n" +
-                    "EXAMPLES:\n" +
-                    "Input: `for (int i = 0; i < <CURSOR>`\n" +
-                    "Output: `arr.length; i++)`\n\n" +
-                    "Input: `public void setName(String name) {\n    this.<CURSOR>`\n" +
-                    "Output: `name = name;\n}`\n\n" +
-                    "Input: `List<String> items = new ArrayList<>();\nitems.<CURSOR>`\n" +
-                    "Output: `add(`";
+            "Complete code at <CURSOR>. Return only the new text to insert. Do not repeat existing text.";
 
     public static final String JAVADOC_SYSTEM_PROMPT =
-            "You are a documentation generation assistant. Your task is to generate complete JavaDoc/JSDoc comments for the code that follows the cursor position.\n\n" +
-                    "RULES:\n" +
-                    "1. Generate ONLY the complete comment block that should be inserted at the cursor\n" +
-                    "2. Do not repeat any existing comment text that appears before the cursor\n" +
-                    "3. Start with /** and end with */ (for block comments) or use appropriate comment syntax\n" +
-                    "4. Include relevant @param, @return, @throws, @deprecated tags based on the method signature\n" +
-                    "5. Write clear, concise descriptions that explain the purpose and behavior\n" +
-                    "6. Do not include explanations or any text outside the comment block\n\n" +
-                    "EXAMPLES:\n" +
-                    "Input: `/*<CURSOR>\npublic String getName() { return name; }`\n" +
-                    "Output: `/**\n     * Gets the name of this object.\n     * @return the name as a String\n     */`\n\n" +
-                    "Input: `<CURSOR>\npublic void setAge(int age) throws IllegalArgumentException {\n    if (age < 0) throw new IllegalArgumentException(\"Age cannot be negative\");\n    this.age = age;\n}`\n" +
-                    "Output: `/**\n     * Sets the age of this person.\n     * @param age the age to set, must be non-negative\n     * @throws IllegalArgumentException if age is negative\n     */`";
+            "Generate JavaDoc comment at <CURSOR>. Return only the comment block. Do not repeat existing comment text.";
 
     public static final String LINE_COMMENT_SYSTEM_PROMPT =
-            "You are a code commenting assistant. Your task is to complete line comments that explain the purpose or reasoning behind the code.\n\n" +
-                    "RULES:\n" +
-                    "1. Return ONLY the comment text (without the // prefix)\n" +
-                    "2. Do not repeat any existing comment text that appears before the cursor\n" +
-                    "3. If there's existing comment text, continue the sentence naturally by providing only the remaining words\n" +
-                    "4. Focus on WHY the code exists, not WHAT it does (the code shows what)\n" +
-                    "5. Explain business logic, edge cases, performance considerations, or important context\n" +
-                    "6. Keep comments concise but informative\n" +
-                    "7. Do not include explanations or any text outside the comment\n\n" +
-                    "EXAMPLES:\n" +
-                    "Input: `// <CURSOR>\nif (user.getAge() < 0) throw new IllegalArgumentException(\"Invalid age\");`\n" +
-                    "Output: `Validate age to prevent business logic errors with negative values`\n\n" +
-                    "Input: `// This function needs to <CURSOR>\nfunction optimizeQuery() { ... }`\n" +
-                    "Output: `be called before any database operations to improve performance`\n\n" +
-                    "Input: `// Need to wait here because <CURSOR>\nThread.sleep(100);`\n" +
-                    "Output: `the API has rate limiting that requires delays between requests`\n\n" +
-                    "Input: `// <CURSOR>\nString result = expensive_operation().toLowerCase().trim();`\n" +
-                    "Output: `Cache the result since this operation is called frequently in the main loop`";
+            "Complete line comment at <CURSOR>. Return only new comment text to add. Do not repeat existing comment text.";
 
     public static final String EXTERNAL_REFERENCE_PROMPT =
-            "You are a code completion assistant with knowledge of common programming patterns and best practices. Complete the code at the cursor position using established patterns.\n\n" +
-                    "RULES:\n" +
-                    "1. Return ONLY the code that should be inserted at the cursor position\n" +
-                    "2. Do not repeat any existing code that appears before the cursor\n" +
-                    "3. Follow language conventions and common patterns\n" +
-                    "4. Consider the surrounding context to determine the most appropriate completion\n" +
-                    "5. Ensure the completion follows best practices for the given language\n" +
-                    "6. Do not include explanations, markdown formatting, or any other text\n\n" +
-                    "EXAMPLES:\n" +
-                    "Input: `List<String> names = new ArrayList<>();\nnames.<CURSOR>`\n" +
-                    "Output: `add(`\n\n" +
-                    "Input: `try {\n    processData();\n} <CURSOR>`\n" +
-                    "Output: `catch (Exception e) {\n    logger.error(\"Failed to process data\", e);\n    throw new ProcessingException(\"Data processing failed\", e);\n}`\n\n" +
-                    "Input: `@Override\npublic boolean equals(Object obj) {\n    if (this == obj) return true;\n    if (obj == null || getClass() != obj.getClass()) return false;\n    <CURSOR>`\n" +
-                    "Output: `Person person = (Person) obj;\n    return Objects.equals(name, person.name) && age == person.age;`";
+            "Complete code at <CURSOR> using common patterns. Return only new text to insert. Do not repeat existing text.";
 
     private String systemPrompt = "";
     private String fileContext = "";
@@ -236,25 +180,26 @@ public class AutocompletePromptBuilder {
     private String buildMinimalPrompt() {
         StringBuilder prompt = new StringBuilder();
 
-        // Clear system instruction with examples
+        // Clear system instruction
         prompt.append(MINIMAL_SYSTEM_PROMPT).append("\n\n");
 
         // Add focused context if available
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
-            prompt.append("CONTEXT:\n```").append(language).append("\n");
+            prompt.append("Context:\n```").append(language).append("\n");
             prompt.append(relevantContext);
             prompt.append("\n```\n\n");
         }
 
-        // The completion request with clear formatting
-        prompt.append("COMPLETE THIS CODE:\n```").append(language).append("\n");
+        // The completion request
+        prompt.append("Complete:\n```").append(language).append("\n");
         prompt.append(prefixContext);
         prompt.append("<CURSOR>");
         if (!suffixContext.isEmpty()) {
             prompt.append(suffixContext);
         }
         prompt.append("\n```");
+        
         prompt.append(ONLY_REMAINING);
 
         return prompt.toString();
@@ -308,7 +253,7 @@ public class AutocompletePromptBuilder {
         prompt.append(LINE_COMMENT_SYSTEM_PROMPT).append("\n\n");
 
         // Add structured context
-        prompt.append("CODE TO COMMENT:\n```").append(language).append("\n");
+        prompt.append("Code:\n```").append(language).append("\n");
         String relevantContext = extractRelevantContext();
         if (!relevantContext.isEmpty()) {
             prompt.append(relevantContext).append("\n");
@@ -323,6 +268,7 @@ public class AutocompletePromptBuilder {
             prompt.append("\n").append(truncatedSuffix);
         }
         prompt.append("\n```");
+        
         prompt.append(ONLY_REMAINING);
 
         return prompt.toString();

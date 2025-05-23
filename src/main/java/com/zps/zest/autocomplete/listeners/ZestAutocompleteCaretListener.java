@@ -123,6 +123,7 @@ public class ZestAutocompleteCaretListener implements CaretListener {
 
     /**
      * Determines if completion should be cleared based on movement.
+     * ✅ ADJUSTED: More lenient for your 200ms delay use case
      */
     private boolean shouldClearCompletion(MovementType movementType, int totalMovement) {
         if (!autocompleteService.hasActiveCompletion(editor)) {
@@ -131,12 +132,12 @@ public class ZestAutocompleteCaretListener implements CaretListener {
 
         switch (movementType) {
             case SMALL_MOVEMENT:
-                // Allow small movements within completion context
+                // Allow small movements within completion context (up to 2 chars)
                 return false;
 
             case MEDIUM_MOVEMENT:
-                // Clear for medium movements unless it's very small
-                return totalMovement > 2;
+                // ✅ CHANGED: Allow more medium movements since user might still be typing
+                return totalMovement > 4; // Was 2, now 4
 
             case LARGE_MOVEMENT:
             case LARGE_JUMP:

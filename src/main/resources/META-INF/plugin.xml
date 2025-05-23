@@ -152,7 +152,7 @@
                 class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"
                 text="Smart Tab Completion"  
                 description="Smart tab completion: first tab = word, second = line, third+ = full">
-            <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB" replace-all="true"/>
         </action>
 
         <!-- Keep line completion action for explicit use -->

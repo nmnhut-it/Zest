@@ -271,8 +271,8 @@ public class AutocompletePromptBuilder {
             prompt.append("\n").append(truncatedSuffix);
         }
         prompt.append("\n```");
-        
-        prompt.append(ONLY_REMAINING);
+        prompt.append("CRUCIAL: The comment already contains some text - only add what's missing. \n")
+                .append("Return the continuation text only (no '//' prefix, no repetition):\n");
 
         return prompt.toString();
     }

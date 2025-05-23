@@ -22,6 +22,7 @@ import com.zps.zest.autocomplete.utils.ContextGatherer;
  */
 public class AutocompleteApiStage extends OpenWebUiApiCallStage {
     private static final Logger LOG = Logger.getInstance(AutocompleteApiStage.class);
+    private static final String MINIMAL_SYSTEM_PROMPT = "Complete code at <CURSOR>. Return only the new text to insert. Do not repeat existing text.";
 
     public AutocompleteApiStage(Project project) {
         // Initialize with default minimal system prompt
@@ -31,12 +32,12 @@ public class AutocompleteApiStage extends OpenWebUiApiCallStage {
             .systemPrompt(AutocompletePromptBuilder.MINIMAL_SYSTEM_PROMPT));
     }
 
-    public AutocompleteApiStage(Project project, String customSystemPrompt) {
-        // Allow custom system prompt for different completion contexts
+    public AutocompleteApiStage(Project project, String systemPrompt) {
+        // Initialize with provided system prompt
         super(new Builder()
             .streaming(false)
             .model(ConfigurationManager.getInstance(project).getAutocompleteModel())
-            .systemPrompt(customSystemPrompt));
+            .systemPrompt(systemPrompt != null ? systemPrompt : MINIMAL_SYSTEM_PROMPT));
     }
 
 

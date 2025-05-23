@@ -3,12 +3,17 @@ package com.zps.zest.autocomplete.actions;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.autocomplete.AcceptType;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Action to accept the next line from the current autocomplete suggestion.
@@ -29,7 +34,10 @@ public class AcceptLineCompletionAction extends AnAction {
         ZestAutocompleteService service = ZestAutocompleteService.getInstance(project);
         if (service.hasActiveCompletion(editor)) {
             LOG.debug("Accepting line completion");
-            service.acceptCompletion(editor, AcceptType.LINE);
+            CompletableFuture.runAsync(()->{
+                service.acceptCompletion(editor, AcceptType.LINE);
+            },CompletableFuture.delayedExecutor(3, TimeUnit.MILLISECONDS));
+
         }
     }
     

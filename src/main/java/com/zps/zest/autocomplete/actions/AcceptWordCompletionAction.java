@@ -9,6 +9,9 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Action to handle smart tab completion: cycles through word -> line -> full completion.
  * First tab accepts next word, second tab accepts next line, third+ tabs accept full completion.
@@ -28,7 +31,9 @@ public class AcceptWordCompletionAction extends AnAction {
         ZestAutocompleteService service = ZestAutocompleteService.getInstance(project);
         if (service.hasActiveCompletion(editor)) {
             LOG.debug("Handling smart tab completion");
-            service.handleTabCompletion(editor);
+            CompletableFuture.runAsync(()->{
+                service.handleTabCompletion(editor);
+            }, CompletableFuture.delayedExecutor(10, TimeUnit.MILLISECONDS));
         }
     }
     

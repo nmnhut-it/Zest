@@ -30,8 +30,11 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     @Override
     public void documentChanged(@NotNull DocumentEvent event) {
         LOG.debug("Document changed: " + event);
+        autocompleteService.recordLastTypingTime(editor);
         handleDocumentChange(event);
     }
+
+
 
     /**
      * FIXED: Simplified logic that focuses on trigger/clear decisions only.

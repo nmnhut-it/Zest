@@ -61,6 +61,8 @@ public class ZestAutocompleteCaretListener implements CaretListener {
 
         // Handle the movement based on analysis
         handleCaretMovement(event, analysis);
+
+        autocompleteService.recordLastTypingTime(editor);
     }
 
     /**

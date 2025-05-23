@@ -3,24 +3,17 @@ package com.zps.zest.autocomplete.listeners;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.util.messages.MessageBus;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
 import com.zps.zest.autocomplete.ZestCompletionData;
-import com.zps.zest.autocomplete.ZestInlayRenderer;
-import com.zps.zest.autocomplete.events.ZestDocumentEventListener;
-import com.zps.zest.autocomplete.events.ZestCompletionEventPublisher;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.List;
-
 /**
- * ✅ SIMPLIFIED document listener for CODE-ONLY completion.
- * Explicitly blocks comment and javadoc completion.
+ * FIXED: Simplified document listener for CODE-ONLY completion.
+ * No longer tries to manage inlays directly - that's handled by RenderingContext.
+ * Focuses on detecting when to trigger/clear completions based on document changes.
  */
 public class ZestAutocompleteDocumentListener implements DocumentListener {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteDocumentListener.class);
@@ -37,12 +30,12 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     @Override
     public void documentChanged(@NotNull DocumentEvent event) {
         LOG.debug("Document changed: " + event);
-
         handleDocumentChange(event);
     }
 
     /**
-     * ✅ SIMPLIFIED: Code-only logic with explicit comment/javadoc blocking
+     * FIXED: Simplified logic that focuses on trigger/clear decisions only.
+     * No longer tries to manage inlays directly.
      */
     private void handleDocumentChange(DocumentEvent event) {
         int oldLength = event.getOldLength();
@@ -52,48 +45,30 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
         if (oldLength > 0 && newLength == 0) {
             LOG.debug("Text deleted, clearing completion");
             autocompleteService.clearCompletion(editor);
-               return;
+            return;
         }
 
-        // Handle insertions     - the main case for triggering
+        // Handle insertions - the main case for triggering
         if (oldLength == 0 && newLength > 0) {
             String insertedText = event.getNewFragment().toString();
             ZestCompletionData.PendingCompletion activeCompletion = autocompleteService.getActiveCompletion(editor);
-            Document document = editor.getDocument();
 
-            // Get current line information
-            int currentLine = document.getLineNumber(event.getOffset());
-            int lineStartOffset = document.getLineStartOffset(currentLine);
-            int lineEndOffset = document.getLineEndOffset(currentLine);
-
-            String currentLineSuffix = document.getText(new TextRange(lineStartOffset, lineEndOffset)).trim();
-
-            if (activeCompletion != null){
-
-                boolean b = activeCompletion.getItem().getInsertText().trim().startsWith(currentLineSuffix);
-                if (b == false){
+            if (activeCompletion != null) {
+                // Check if the insertion is still compatible with the current completion
+                if (isInsertionCompatibleWithCompletion(insertedText, event, activeCompletion)) {
+                    LOG.debug("Insertion compatible with current completion, refreshing display");
+                    // Instead of directly manipulating inlays, trigger a refresh
                     autocompleteService.clearCompletion(editor);
-
+                    autocompleteService.triggerCompletion(editor, false);
+                } else {
+                    LOG.debug("Insertion not compatible, clearing completion");
+                    autocompleteService.clearCompletion(editor);
                 }
-                else {
-                    List<Inlay<?>> inlineElementssInRange = editor.getInlayModel().getInlineElementsInRange(lineStartOffset, lineEndOffset);
-                    for (var inlineElementsInRange : inlineElementssInRange){
-                    if (inlineElementsInRange instanceof ZestInlayRenderer.InlineCompletionRenderer){
-                        if (activeCompletion.getInlay().getRenderer() instanceof  ZestInlayRenderer.InlineCompletionRenderer ){
-                            ZestInlayRenderer.InlineCompletionRenderer r = (ZestInlayRenderer.InlineCompletionRenderer) activeCompletion.getInlay().getRenderer();
-                            String newText = activeCompletion.getItem().getInsertText().trim().replace(currentLineSuffix,"");
-                            r.text = newText;
-                            activeCompletion.getInlay().repaint();
-                        }
-                    }}
-                }
-            }
-            else if (shouldTriggerCodeCompletion(insertedText, event)) {
+            } else if (shouldTriggerCodeCompletion(insertedText, event)) {
                 LOG.debug("Triggering CODE completion for insertion: '{}'", insertedText);
-                autocompleteService.triggerAutocomplete(editor);
+                autocompleteService.triggerCompletion(editor, false);
             } else {
                 LOG.debug("Skipping trigger for insertion: '{}'", insertedText);
-                // ✅ NEW: Check if this might be a comment/javadoc trigger for future
                 checkForCommentOrJavadocTrigger(insertedText, event);
             }
             return;
@@ -108,7 +83,7 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             String newText = event.getNewFragment().toString();
             if (newText.length() <= 3 && newText.matches("\\w+")) {
                 LOG.debug("Replacement looks like continuation, triggering");
-                autocompleteService.triggerAutocomplete(editor);
+                autocompleteService.triggerCompletion(editor, false);
             }
             return;
         }
@@ -121,7 +96,44 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     }
 
     /**
-     * ✅ ENHANCED: Only triggers for CODE, explicitly blocks comments/javadocs
+     * FIXED: Checks if the insertion is compatible with the current completion.
+     * Uses text analysis instead of direct inlay manipulation.
+     */
+    private boolean isInsertionCompatibleWithCompletion(String insertedText, DocumentEvent event, 
+                                                       ZestCompletionData.PendingCompletion activeCompletion) {
+        try {
+            Document document = editor.getDocument();
+            int currentOffset = event.getOffset() + event.getNewLength();
+            
+            // Get current line information
+            int currentLine = document.getLineNumber(currentOffset);
+            int lineStartOffset = document.getLineStartOffset(currentLine);
+            int lineEndOffset = document.getLineEndOffset(currentLine);
+            String currentLineText = document.getText(new TextRange(lineStartOffset, lineEndOffset)).trim();
+
+            // Check if the current line text is still a prefix of the completion
+            String completionText = activeCompletion.getItem().getInsertText().trim();
+            
+            // If current line is a prefix of completion text, it's compatible
+            if (completionText.startsWith(currentLineText)) {
+                return true;
+            }
+            
+            // If completion text is a prefix of current line, it's also compatible (user typed ahead)
+            if (currentLineText.startsWith(completionText)) {
+                return true;
+            }
+            
+            return false;
+            
+        } catch (Exception e) {
+            LOG.warn("Error checking insertion compatibility", e);
+            return false;
+        }
+    }
+
+    /**
+     * ENHANCED: Only triggers for CODE, explicitly blocks comments/javadocs
      */
     private boolean shouldTriggerCodeCompletion(String insertedText, DocumentEvent event) {
         // Don't trigger if empty
@@ -139,24 +151,24 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             return false;
         }
 
-        // ❌ BLOCK: Comments and javadocs are explicitly blocked
+        // BLOCK: Comments and javadocs are explicitly blocked
         if (isInCommentOrJavadoc(event.getDocument(), offset)) {
             LOG.debug("Blocking completion - cursor is in comment/javadoc area");
             return false;
         }
 
-        // ❌ BLOCK: If this insertion creates a comment/javadoc start
+        // BLOCK: If this insertion creates a comment/javadoc start
         if (isCommentOrJavadocStart(insertedText, event.getDocument(), offset)) {
             LOG.debug("Blocking completion - insertion creates comment/javadoc start");
             return false;
         }
 
-        // ✅ ALLOW: Only pure code completion
+        // ALLOW: Only pure code completion
         return true;
     }
 
     /**
-     * ✅ ENHANCED: Detects if cursor is in comment or javadoc area
+     * ENHANCED: Detects if cursor is in comment or javadoc area
      */
     private boolean isInCommentOrJavadoc(Document document, int offset) {
         try {
@@ -195,7 +207,7 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     }
 
     /**
-     * ✅ NEW: Detects if the insertion creates a comment or javadoc start
+     * NEW: Detects if the insertion creates a comment or javadoc start
      */
     private boolean isCommentOrJavadocStart(String insertedText, Document document, int offset) {
         try {
@@ -222,7 +234,7 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
     }
 
     /**
-     * ✅ NEW: Placeholder for future comment/javadoc support
+     * NEW: Placeholder for future comment/javadoc support
      * This is where you'll add your custom triggering logic
      */
     private void checkForCommentOrJavadocTrigger(String insertedText, DocumentEvent event) {
@@ -237,13 +249,13 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
 
             // TODO: Add your custom logic for javadoc triggers
             if (lineText.trim().endsWith("/**")) {
-//                LOG.info("JAVADOC TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
+                // LOG.info("JAVADOC TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
                 // Example: autocompleteService.triggerJavadocCompletion(editor);
             }
 
             // TODO: Add your custom logic for comment triggers
             if (lineText.trim().endsWith("//")) {
-//                LOG.info("COMMENT TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
+                // LOG.info("COMMENT TRIGGER DETECTED: '{}' - Add your custom logic here", lineText.trim());
                 // Example: autocompleteService.triggerCommentCompletion(editor);
             }
 

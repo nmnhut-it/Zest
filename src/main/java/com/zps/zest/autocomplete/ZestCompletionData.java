@@ -2,11 +2,11 @@ package com.zps.zest.autocomplete;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.util.TextRange;
 
 /**
  * Enhanced completion data structures following Tabby ML patterns.
+ * Simplified inlay management - inlays are now managed by ZestInlayRenderer.RenderingContext only.
  */
 public class ZestCompletionData {
 
@@ -55,8 +55,6 @@ public class ZestCompletionData {
             
             // Basic range-based calculation
             String basicVisible = insertText.substring(prefixLength);
-            
-
             return basicVisible;
         }
         
@@ -219,17 +217,22 @@ public class ZestCompletionData {
     }
     
     /**
-     * Enhanced pending completion with replace range support.
+     * Enhanced pending completion - SIMPLIFIED inlay management.
+     * Inlays are now managed exclusively by ZestInlayRenderer.RenderingContext.
+     * This class only tracks completion state and data.
      */
     public static class PendingCompletion {
+        private static final Logger LOG = Logger.getInstance(PendingCompletion.class);
+        
         private final CompletionItem item;
         private final Editor editor;
         private final long timestamp;
         private final String originalContext;
         
-        private Inlay<?> inlay;
+        // State tracking
         private boolean isAccepted;
         private boolean isRejected;
+        private boolean isDisposed;
         
         public PendingCompletion(CompletionItem item, Editor editor, String originalContext) {
             this.item = item;
@@ -243,22 +246,34 @@ public class ZestCompletionData {
         public Editor getEditor() { return editor; }
         public long getTimestamp() { return timestamp; }
         public String getOriginalContext() { return originalContext; }
-        public Inlay<?> getInlay() { return inlay; }
-        
-        public void setInlay(Inlay<?> inlay) { this.inlay = inlay; }
         
         // State management
         public boolean isAccepted() { return isAccepted; }
         public boolean isRejected() { return isRejected; }
-        public boolean isActive() { return !isAccepted && !isRejected; }
+        public boolean isActive() { return !isAccepted && !isRejected && !isDisposed; }
+        public boolean isDisposed() { return isDisposed; }
         
-        public void accept() { this.isAccepted = true; }
-        public void reject() { this.isRejected = true; }
+        public void accept() { 
+            if (!isDisposed) {
+                this.isAccepted = true; 
+                LOG.debug("PendingCompletion accepted");
+            }
+        }
+        
+        public void reject() { 
+            if (!isDisposed) {
+                this.isRejected = true; 
+                LOG.debug("PendingCompletion rejected");
+            }
+        }
         
         /**
          * Checks if this completion is still valid at the current cursor position.
          */
         public boolean isValidAtCurrentPosition() {
+            if (isDisposed || editor.isDisposed()) {
+                return false;
+            }
             int currentOffset = editor.getCaretModel().getOffset();
             return item.isValidAt(currentOffset);
         }
@@ -268,6 +283,9 @@ public class ZestCompletionData {
          * ✅ ENHANCED: Uses smart redundant prefix removal
          */
         public String getDisplayText() {
+            if (isDisposed || editor.isDisposed()) {
+                return "";
+            }
             int currentOffset = editor.getCaretModel().getOffset();
             return item.getSmartVisibleText(editor, currentOffset);
         }
@@ -280,35 +298,26 @@ public class ZestCompletionData {
         }
         
         /**
-         * Disposes of any resources associated with this completion.
-         * Returns true if the disposal was successful.
+         * Marks this completion as disposed.
+         * NOTE: Inlay cleanup is now handled by ZestInlayRenderer.RenderingContext!
+         * This method only marks the completion state as disposed.
          */
-        public boolean dispose() {
-            boolean success = true;
-            if (inlay != null) {
-                try {
-                    if (inlay.isValid()) {
-                        inlay.dispose();
-                    }
-                } catch (Exception e) {
-                    Logger.getInstance(PendingCompletion.class).warn("Error disposing inlay", e);
-                    success = false;
-                } finally {
-                    inlay = null; // Clear reference even if disposal failed
-                }
+        public void dispose() {
+            if (!isDisposed) {
+                this.isDisposed = true;
+                LOG.debug("PendingCompletion marked as disposed");
             }
-
-            return success;
         }
         
         @Override
         public String toString() {
-            return String.format("PendingCompletion{range=%s, text='%s', active=%s}", 
+            return String.format("PendingCompletion{range=%s, text='%s', active=%s, disposed=%s}", 
                                item.getReplaceRange(),
                                item.getInsertText().length() > 50 
                                    ? item.getInsertText().substring(0, 50) + "..." 
                                    : item.getInsertText(), 
-                               isActive());
+                               isActive(),
+                               isDisposed);
         }
     }
     

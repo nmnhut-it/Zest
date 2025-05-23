@@ -218,31 +218,36 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     /**
      * Displays the completion using the renderer.
+     * FIXED: Proper separation of concerns - PendingCompletion tracks state, RenderingContext manages inlays.
      */
     private void displayCompletion(@NotNull Editor editor, @NotNull ZestCompletionData.CompletionItem item) {
         try {
             int currentOffset = editor.getCaretModel().getOffset();
+            
+            // Clear any existing completion first
             if (hasActiveCompletion(editor)){
-                try {
-                    clearCompletion(editor);
-                }catch (Exception e){
-                    e.printStackTrace();
-                }
+                clearCompletion(editor);
             }
+            
+            // Create the rendering context (this manages all inlays)
             ZestInlayRenderer.RenderingContext renderingContext = ZestInlayRenderer.show(editor, currentOffset, item);
             
+            // Only proceed if we actually created some inlays
             if (!renderingContext.getInlays().isEmpty()) {
+                // Create completion state tracker (does NOT manage inlays)
                 ZestCompletionData.PendingCompletion completion = new ZestCompletionData.PendingCompletion(
                     item, editor, ""
                 );
 
+                // Store both - they have separate responsibilities
                 activeCompletions.put(editor, completion);
-                completion.setInlay(renderingContext.getInlays().get(0));
                 renderingContexts.put(editor, renderingContext);
                 tabAcceptCounts.put(editor, 0);
 
                 LOG.debug("Displayed completion: " + 
                     item.getInsertText().substring(0, Math.min(50, item.getInsertText().length())));
+            } else {
+                LOG.debug("No inlays created, not storing completion");
             }
         } catch (Exception e) {
             LOG.warn("Failed to display completion", e);
@@ -375,7 +380,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     /**
      * Handles continuation after partial acceptance.
-     * This method creates a new completion with the remaining text and displays it.
+     * FIXED: Proper separation - PendingCompletion for state, RenderingContext for inlays.
      * 
      * @return true if the continuation was successfully created and displayed, false otherwise
      */
@@ -401,7 +406,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 return false;
             }
 
-            // First, clean up any existing rendering to avoid overlapping elements
+            // First, clean up the existing rendering context (this handles all inlay disposal)
             clearRenderingContext(editor);
             
             // Create continuation item
@@ -410,12 +415,7 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 remainingText, newRange, null, originalItem.getConfidence()
             );
 
-            // Create new pending completion
-            ZestCompletionData.PendingCompletion continuationCompletion = new ZestCompletionData.PendingCompletion(
-                continuationItem, editor, originalCompletion.getOriginalContext()
-            );
-
-            // Show the new completion first to verify it works
+            // Create new rendering context
             ZestInlayRenderer.RenderingContext newRenderingContext =
                 ZestInlayRenderer.show(editor, newOffset, continuationItem);
                 
@@ -425,6 +425,11 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 newRenderingContext.dispose(); // Clean up any partial resources
                 return false;
             }
+            
+            // Create new pending completion (state only, no inlay management)
+            ZestCompletionData.PendingCompletion continuationCompletion = new ZestCompletionData.PendingCompletion(
+                continuationItem, editor, originalCompletion.getOriginalContext()
+            );
             
             // Replace current completion with continuation and save the new rendering context
             activeCompletions.put(editor, continuationCompletion);
@@ -455,28 +460,36 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void clearCompletion(@NotNull Editor editor) {
+        if (editor == null || editor.isDisposed()) {
+            return;
+        }
 
-        // Clear pending completion
+        LOG.debug("Clearing completion for editor");
+
+        // Clear pending completion state (this does NOT manage inlays anymore)
         ZestCompletionData.PendingCompletion completion = activeCompletions.remove(editor);
         if (completion != null) {
-            completion.dispose();
+            completion.dispose(); // Only marks as disposed, doesn't handle inlays
         }
 
         // Reset tab count
         tabAcceptCounts.remove(editor);
         
-        // Force clean any lingering inlays as a backup measure
+        // Clear rendering context (this handles ALL inlay cleanup)
         clearRenderingContext(editor);
     }
 
     private void clearRenderingContext(@NotNull Editor editor) {
-        ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.remove(editor);
+        if (editor == null || editor.isDisposed()) {
+            return;
+        }
 
+        ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.remove(editor);
 
         if (renderingContext != null) {
             try {
                 int disposedCount = renderingContext.dispose();
-                LOG.debug("Successfully disposed " + disposedCount + " rendering elements");
+                LOG.debug("Successfully disposed " + disposedCount + " rendering elements from context");
             } catch (Exception e) {
                 LOG.warn("Error disposing rendering context", e);
                 // Fallback: Try to dispose each inlay individually
@@ -492,14 +505,32 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 }
             }
         }
-        ZestAutocompleteFix.cleanupInlays(editor, this);
-
+        
+        // Additional cleanup using ZestAutocompleteFix for any orphaned inlays
+        try {
+            ZestAutocompleteFix.cleanupInlays(editor, this);
+        } catch (Exception e) {
+            LOG.warn("Error in ZestAutocompleteFix cleanup", e);
+        }
     }
 
     @Override
     public boolean hasActiveCompletion(@NotNull Editor editor) {
         ZestCompletionData.PendingCompletion completion = activeCompletions.get(editor);
-        return completion != null && completion.isActive();
+        ZestInlayRenderer.RenderingContext renderingContext = renderingContexts.get(editor);
+        
+        // Both must be present and active for a completion to be considered active
+        boolean hasValidCompletion = completion != null && completion.isActive();
+        boolean hasValidRendering = renderingContext != null && !renderingContext.getInlays().isEmpty();
+        
+        // If they're inconsistent, clean up and return false
+        if (hasValidCompletion != hasValidRendering) {
+            LOG.debug("Inconsistent completion state detected, cleaning up");
+            clearCompletion(editor);
+            return false;
+        }
+        
+        return hasValidCompletion && hasValidRendering;
     }
 
     @Override
@@ -533,6 +564,26 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         return completionCache.getStats();
     }
 
+    /**
+     * Forces cleanup of all inlays in the editor. 
+     * This is a diagnostic method for when inlays get stuck.
+     */
+    public void forceCleanupAllInlays(@NotNull Editor editor) {
+        if (editor == null || editor.isDisposed()) {
+            return;
+        }
+        
+        LOG.info("Force cleaning up all inlays for editor");
+        
+        // Clear our internal state first
+        clearCompletion(editor);
+        
+        // Use the enhanced cleanup
+        int cleaned = ZestAutocompleteFix.cleanupInlays(editor, this);
+        
+        LOG.info("Force cleanup completed - removed " + cleaned + " inlays");
+    }
+
     // Helper methods
 
     public @Nullable Long recordLastTypingTime(@NotNull Editor editor) {
@@ -563,6 +614,8 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void dispose() {
+        LOG.info("Disposing ZestAutocompleteService for project: " + project.getName());
+        
         // Cancel all pending requests
         currentRequests.values().forEach(request -> {
             if (!request.isDone()) {
@@ -570,17 +623,27 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
             }
         });
 
-        // Clear all state
+        // Clear all completions properly (this will handle both state and rendering cleanup)
+        activeCompletions.keySet().forEach(editor -> {
+            try {
+                clearCompletion(editor);
+            } catch (Exception e) {
+                LOG.warn("Error clearing completion during dispose", e);
+            }
+        });
+
+        // Clear all remaining state
         currentRequests.clear();
         lastTypingTimes.clear();
-        activeCompletions.keySet().forEach(this::clearCompletion);
         activeCompletions.clear();
         renderingContexts.clear();
         documentListeners.clear();
         caretListeners.clear();
-        completionCache.invalidateAll();
         tabAcceptCounts.clear();
+        
+        // Clear cache
+        completionCache.invalidateAll();
 
-        LOG.info("ZestAutocompleteService disposed for project: " + project.getName());
+        LOG.info("ZestAutocompleteService disposal complete for project: " + project.getName());
     }
 }

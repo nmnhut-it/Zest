@@ -146,6 +146,9 @@ public class ZestInlayRenderer {
             return context; // Return empty context
         }
 
+        // Cleanup any existing inlays at this location before adding new ones
+        cleanupExistingInlaysAtOffset(editor, offset);
+
         // Calculate what text to display using smart detection
         String visibleText = item.getSmartVisibleText(editor, offset);
         if (visibleText.isEmpty()) {
@@ -165,6 +168,7 @@ public class ZestInlayRenderer {
     
     /**
      * Cleanup existing inlays at the specified offset to prevent overlapping elements.
+     * Enhanced to better handle block inlays.
      */
     private static void cleanupExistingInlaysAtOffset(Editor editor, int offset) {
         if (editor.isDisposed()) {
@@ -177,24 +181,52 @@ public class ZestInlayRenderer {
                 if (inlay.getRenderer() instanceof InlineCompletionRenderer ||
                     inlay.getRenderer() instanceof BlockCompletionRenderer) {
                     try {
-                        inlay.dispose();
-                        LOG.debug("Cleaned up existing inlay at offset " + offset);
+                        if (inlay.isValid()) {
+                            inlay.dispose();
+                            LOG.debug("Cleaned up existing inlay at offset " + offset);
+                        }
                     } catch (Exception ex) {
                         LOG.warn("Failed to clean up existing inlay", ex);
                     }
                 }
             }
             
-            // Check for block elements at this line
+            // Check for block elements at this line and surrounding lines
             int line = editor.getDocument().getLineNumber(offset);
-            for (Inlay<?> inlay : editor.getInlayModel().getBlockElementsForVisualLine(line, false)) {
-                if (inlay.getRenderer() instanceof BlockCompletionRenderer) {
-                    try {
-                        inlay.dispose();
-                        LOG.debug("Cleaned up existing block inlay at line " + line);
-                    } catch (Exception ex) {
-                        LOG.warn("Failed to clean up existing block inlay", ex);
+            int startLine = Math.max(0, line - 1);
+            int endLine = Math.min(editor.getDocument().getLineCount() - 1, line + 1);
+            
+            for (int lineIndex = startLine; lineIndex <= endLine; lineIndex++) {
+                try {
+                    // Check block elements above the line
+                    for (Inlay<?> inlay : editor.getInlayModel().getBlockElementsForVisualLine(lineIndex, true)) {
+                        if (inlay.getRenderer() instanceof BlockCompletionRenderer) {
+                            try {
+                                if (inlay.isValid()) {
+                                    inlay.dispose();
+                                    LOG.debug("Cleaned up existing block inlay (above) at line " + lineIndex);
+                                }
+                            } catch (Exception ex) {
+                                LOG.warn("Failed to clean up existing block inlay (above)", ex);
+                            }
+                        }
                     }
+                    
+                    // Check block elements below the line
+                    for (Inlay<?> inlay : editor.getInlayModel().getBlockElementsForVisualLine(lineIndex, false)) {
+                        if (inlay.getRenderer() instanceof BlockCompletionRenderer) {
+                            try {
+                                if (inlay.isValid()) {
+                                    inlay.dispose();
+                                    LOG.debug("Cleaned up existing block inlay (below) at line " + lineIndex);
+                                }
+                            } catch (Exception ex) {
+                                LOG.warn("Failed to clean up existing block inlay (below)", ex);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error cleaning up block inlays at line " + lineIndex, e);
                 }
             }
         } catch (Exception e) {

@@ -12,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.ui.JBColor;
 import com.intellij.util.DocumentUtil;
+import com.zps.zest.autocomplete.utils.InlayLifecycleManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
@@ -132,7 +133,7 @@ public class ZestInlayRenderer {
 
     /**
      * Creates and displays a completion following Tabby ML patterns.
-     * Now with pre-cleaned responses, rendering is much safer.
+     * Now with enhanced inlay lifecycle management.
      */
     public static RenderingContext show(Editor editor, int offset,
                                         ZestCompletionData.CompletionItem item) {
@@ -146,7 +147,7 @@ public class ZestInlayRenderer {
             return context; // Return empty context
         }
 
-        // Cleanup any existing inlays at this location before adding new ones
+        // Enhanced cleanup: use lifecycle manager for proper tracking
         cleanupExistingInlaysAtOffset(editor, offset);
 
         // Calculate what text to display using smart detection
@@ -168,13 +169,40 @@ public class ZestInlayRenderer {
     
     /**
      * Cleanup existing inlays at the specified offset to prevent overlapping elements.
-     * Enhanced to better handle block inlays.
+     * Enhanced with lifecycle manager integration for better tracking.
      */
     private static void cleanupExistingInlaysAtOffset(Editor editor, int offset) {
         if (editor.isDisposed()) {
             return;
         }
         
+        try {
+            // First, try targeted cleanup using lifecycle manager
+            int zestCleaned = InlayLifecycleManager.disposeZestInlays(editor);
+            if (zestCleaned > 0) {
+                LOG.debug("Lifecycle manager cleaned up {} Zest inlays", zestCleaned);
+            }
+            
+            // Validate remaining inlays and clean up any invalid ones
+            int invalidCleaned = InlayLifecycleManager.validateAndCleanupInlays(editor);
+            if (invalidCleaned > 0) {
+                LOG.debug("Cleaned up {} invalid inlays", invalidCleaned);
+            }
+            
+            // Fallback: manual cleanup for any remaining problematic inlays at this specific offset
+            cleanupInlaysAtOffsetFallback(editor, offset);
+            
+        } catch (Exception e) {
+            LOG.warn("Error during enhanced inlay cleanup", e);
+            // Emergency fallback to original cleanup method
+            cleanupInlaysAtOffsetFallback(editor, offset);
+        }
+    }
+    
+    /**
+     * Fallback cleanup method for manual inlay removal at specific offset.
+     */
+    private static void cleanupInlaysAtOffsetFallback(Editor editor, int offset) {
         try {
             // Check for inline elements at this offset
             for (Inlay<?> inlay : editor.getInlayModel().getInlineElementsInRange(offset, offset)) {
@@ -183,10 +211,10 @@ public class ZestInlayRenderer {
                     try {
                         if (inlay.isValid()) {
                             inlay.dispose();
-                            LOG.debug("Cleaned up existing inlay at offset " + offset);
+                            LOG.debug("Fallback cleaned up existing inlay at offset " + offset);
                         }
                     } catch (Exception ex) {
-                        LOG.warn("Failed to clean up existing inlay", ex);
+                        LOG.warn("Failed to clean up existing inlay in fallback", ex);
                     }
                 }
             }
@@ -204,10 +232,10 @@ public class ZestInlayRenderer {
                             try {
                                 if (inlay.isValid()) {
                                     inlay.dispose();
-                                    LOG.debug("Cleaned up existing block inlay (above) at line " + lineIndex);
+                                    LOG.debug("Fallback cleaned up existing block inlay (above) at line " + lineIndex);
                                 }
                             } catch (Exception ex) {
-                                LOG.warn("Failed to clean up existing block inlay (above)", ex);
+                                LOG.warn("Failed to clean up existing block inlay (above) in fallback", ex);
                             }
                         }
                     }
@@ -218,19 +246,19 @@ public class ZestInlayRenderer {
                             try {
                                 if (inlay.isValid()) {
                                     inlay.dispose();
-                                    LOG.debug("Cleaned up existing block inlay (below) at line " + lineIndex);
+                                    LOG.debug("Fallback cleaned up existing block inlay (below) at line " + lineIndex);
                                 }
                             } catch (Exception ex) {
-                                LOG.warn("Failed to clean up existing block inlay (below)", ex);
+                                LOG.warn("Failed to clean up existing block inlay (below) in fallback", ex);
                             }
                         }
                     }
                 } catch (Exception e) {
-                    LOG.warn("Error cleaning up block inlays at line " + lineIndex, e);
+                    LOG.warn("Error cleaning up block inlays at line " + lineIndex + " in fallback", e);
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Error during cleanup of existing inlays", e);
+            LOG.warn("Error during fallback cleanup of existing inlays", e);
         }
     }
 
@@ -261,7 +289,7 @@ public class ZestInlayRenderer {
     }
 
     /**
-     * Renders a single-line completion.
+     * Renders a single-line completion with enhanced lifecycle management.
      */
     private static void renderSingleLineCompletion(RenderingContext context,
                                                    String text,
@@ -270,18 +298,30 @@ public class ZestInlayRenderer {
         TextRange lineTextRange = DocumentUtil.getLineTextRange(editor.getDocument(), editor.getCaretModel().getLogicalPosition().line);
         String currentLine = editor.getDocument().getText(lineTextRange);
         text = text.trim().replace(currentLine.trim(),"");
+        
+        // Skip if text is empty after processing
+        if (text.isEmpty()) {
+            LOG.debug("No text to display after line processing");
+            return;
+        }
+        
         // Create inline renderer
         InlineCompletionRenderer renderer = new InlineCompletionRenderer(text, editor, false);
 
-        // Add inline element
+        // Add inline element with enhanced tracking
         Inlay<?> inlay = editor.getInlayModel().addInlineElement(offset, true, renderer);
         if (inlay != null) {
             context.addInlay(inlay);
+            // Track inlay for proper lifecycle management
+            InlayLifecycleManager.trackInlay(editor, inlay);
+            LOG.debug("Created and tracked single-line completion inlay");
+        } else {
+            LOG.warn("Failed to create inline inlay for single-line completion");
         }
     }
 
     /**
-     * Renders a multi-line completion following Tabby ML approach.
+     * Renders a multi-line completion following Tabby ML approach with enhanced lifecycle management.
      */
     private static void renderMultiLineCompletion(RenderingContext context,
                                                   String text, int offset) {
@@ -293,6 +333,7 @@ public class ZestInlayRenderer {
         TextRange lineTextRange = DocumentUtil.getLineTextRange(editor.getDocument(), editor.getCaretModel().getLogicalPosition().line);
         String currentLine = editor.getDocument().getText(lineTextRange);
         lines[0] = lines[0].trim().replace(currentLine.trim(),"");
+        
         // Render first line inline
         if (!lines[0].isEmpty()) {
             InlineCompletionRenderer firstLineRenderer =
@@ -300,6 +341,11 @@ public class ZestInlayRenderer {
             Inlay<?> firstInlay = editor.getInlayModel().addInlineElement(offset, true, firstLineRenderer);
             if (firstInlay != null) {
                 context.addInlay(firstInlay);
+                // Track inlay for proper lifecycle management
+                InlayLifecycleManager.trackInlay(editor, firstInlay);
+                LOG.debug("Created and tracked first-line inlay for multi-line completion");
+            } else {
+                LOG.warn("Failed to create first-line inlay for multi-line completion");
             }
         }
 
@@ -311,6 +357,11 @@ public class ZestInlayRenderer {
                     offset, true, false, -i, blockRenderer);
             if (blockInlay != null) {
                 context.addInlay(blockInlay);
+                // Track inlay for proper lifecycle management
+                InlayLifecycleManager.trackInlay(editor, blockInlay);
+                LOG.debug("Created and tracked block inlay #{} for multi-line completion", i);
+            } else {
+                LOG.warn("Failed to create block inlay for multi-line completion");
             }
         }
 
@@ -321,6 +372,7 @@ public class ZestInlayRenderer {
             RangeHighlighter markup = createReplaceRangeMarkup(editor, replaceRange);
             if (markup != null) {
                 context.addMarkup(markup);
+                LOG.debug("Created replace range markup for multi-line completion");
             }
         }
     }

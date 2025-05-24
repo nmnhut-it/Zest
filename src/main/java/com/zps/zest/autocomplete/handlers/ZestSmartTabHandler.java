@@ -1,6 +1,7 @@
 package com.zps.zest.autocomplete.handlers;
 
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
@@ -60,30 +61,99 @@ public class ZestSmartTabHandler extends EditorActionHandler {
     }
     
     /**
-     * Install this handler to replace the default TAB handler
+     * Install this handler to replace the default TAB handler with enhanced conflict detection
      */
     public static void install() {
         EditorActionManager actionManager = EditorActionManager.getInstance();
-        EditorActionHandler originalHandler = actionManager.getActionHandler("EditorTab");
+        EditorActionHandler currentHandler = actionManager.getActionHandler("EditorTab");
         
-        if (!(originalHandler instanceof ZestSmartTabHandler)) {
-            ZestSmartTabHandler smartHandler = new ZestSmartTabHandler(originalHandler);
+        // Check if another plugin has already wrapped our handler
+        if (currentHandler instanceof ZestSmartTabHandler) {
+            LOG.warn("ZestSmartTabHandler already installed, skipping duplicate installation");
+            return;
+        }
+        
+        // Store reference to original handler class for conflict detection
+        String originalHandlerClass = currentHandler.getClass().getSimpleName();
+        LOG.info("Installing ZestSmartTabHandler, wrapping: " + originalHandlerClass);
+        
+        try {
+            ZestSmartTabHandler smartHandler = new ZestSmartTabHandler(currentHandler);
             actionManager.setActionHandler("EditorTab", smartHandler);
-            LOG.info("ZestSmartTabHandler installed successfully");
+            LOG.info("ZestSmartTabHandler installed successfully over " + originalHandlerClass);
+            
+            // Schedule a delayed check to detect if another plugin replaced us
+            ApplicationManager.getApplication().invokeLater(() -> {
+                EditorActionHandler newHandler = actionManager.getActionHandler("EditorTab");
+                if (!(newHandler instanceof ZestSmartTabHandler)) {
+                    LOG.warn("CONFLICT DETECTED: TAB handler was replaced by another plugin: " + 
+                             newHandler.getClass().getSimpleName() + 
+                             ". Zest autocomplete may not work properly.");
+                    
+                    // Attempt to re-install if it's safe to do so
+                    if (shouldAttemptReinstall(newHandler)) {
+                        LOG.info("Attempting to re-install ZestSmartTabHandler");
+                        ZestSmartTabHandler newSmartHandler = new ZestSmartTabHandler(newHandler);
+                        actionManager.setActionHandler("EditorTab", newSmartHandler);
+                        LOG.info("ZestSmartTabHandler re-installed successfully");
+                    }
+                }
+            });
+            
+        } catch (Exception e) {
+            LOG.error("Failed to install ZestSmartTabHandler", e);
         }
     }
     
     /**
-     * Uninstall this handler and restore the original
+     * Determines if it's safe to attempt re-installation of our handler
+     */
+    private static boolean shouldAttemptReinstall(EditorActionHandler conflictingHandler) {
+        // Don't re-install if the conflicting handler looks like it might be from another autocomplete plugin
+        String handlerName = conflictingHandler.getClass().getSimpleName().toLowerCase();
+        
+        // List of known conflicting handler patterns
+        String[] conflictingPatterns = {
+            "copilot", "tabnine", "codegpt", "aiassistant", "completion", "autocomplete"
+        };
+        
+        for (String pattern : conflictingPatterns) {
+            if (handlerName.contains(pattern)) {
+                LOG.info("Detected potential autocomplete plugin conflict: " + handlerName + 
+                        ", not attempting re-install to avoid conflicts");
+                return false;
+            }
+        }
+        
+        return true; // Safe to re-install
+    }
+    
+    /**
+     * Uninstall this handler and restore the original with enhanced safety checks
      */
     public static void uninstall() {
-        EditorActionManager actionManager = EditorActionManager.getInstance();
-        EditorActionHandler currentHandler = actionManager.getActionHandler("EditorTab");
-        
-        if (currentHandler instanceof ZestSmartTabHandler) {
-            ZestSmartTabHandler smartHandler = (ZestSmartTabHandler) currentHandler;
-            actionManager.setActionHandler("EditorTab", smartHandler.originalHandler);
-            LOG.info("ZestSmartTabHandler uninstalled successfully");
+        try {
+            EditorActionManager actionManager = EditorActionManager.getInstance();
+            EditorActionHandler currentHandler = actionManager.getActionHandler("EditorTab");
+            
+            if (currentHandler instanceof ZestSmartTabHandler) {
+                ZestSmartTabHandler smartHandler = (ZestSmartTabHandler) currentHandler;
+                EditorActionHandler originalHandler = smartHandler.originalHandler;
+                
+                // Validate that the original handler is still valid
+                if (originalHandler != null) {
+                    actionManager.setActionHandler("EditorTab", originalHandler);
+                    LOG.info("ZestSmartTabHandler uninstalled successfully, restored: " + 
+                            originalHandler.getClass().getSimpleName());
+                } else {
+                    LOG.warn("Original handler was null, cannot restore properly");
+                }
+            } else {
+                LOG.info("ZestSmartTabHandler not currently installed, current handler: " + 
+                        currentHandler.getClass().getSimpleName());
+            }
+        } catch (Exception e) {
+            LOG.error("Error during ZestSmartTabHandler uninstallation", e);
         }
     }
 }

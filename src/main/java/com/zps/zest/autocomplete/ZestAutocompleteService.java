@@ -301,31 +301,80 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void handleTabCompletion(@NotNull Editor editor) {
-        // Ensure this runs on EDT since we need to access editor state
-        ThreadingUtils.runOnEDT(() -> {
-            if (!hasActiveCompletion(editor)) {
-                return;
-            }
+        // Ensure we're on EDT first - this is critical for UI operations
+        if (!ApplicationManager.getApplication().isDispatchThread()) {
+            ApplicationManager.getApplication().invokeLater(() -> handleTabCompletion(editor));
+            return;
+        }
+        
+        // Early validation to avoid unnecessary work
+        if (!EditorUtils.isEditorValid(editor)) {
+            LOG.debug("Editor invalid, skipping tab completion");
+            return;
+        }
+        
+        // Check if we actually have an active completion before proceeding
+        if (!hasActiveCompletion(editor)) {
+            LOG.debug("No active completion found for tab handling");
+            return;
+        }
 
+        try {
+            // Atomic increment of tab count to prevent race conditions
             int tabCount = stateManager.getTabAcceptCount(editor) + 1;
             stateManager.setTabAcceptCount(editor, tabCount);
 
-            LOG.debug("Tab completion press #" + tabCount);
+            LOG.debug("Tab completion press #{} for editor", tabCount);
             
-            // Get current completion to determine best progression
-            ZestCompletionData.PendingCompletion completion = getActiveCompletion(editor);
-            if (!CompletionStateUtils.isCompletionValid(completion)) {
-                LOG.debug("No valid completion found despite hasActiveCompletion returning true");
-                return;
+            // Use read action for safe editor state access
+            CompletionData completionData = ReadAction.compute(() -> {
+                ZestCompletionData.PendingCompletion completion = getActiveCompletion(editor);
+                if (!CompletionStateUtils.isCompletionValid(completion)) {
+                    LOG.debug("Completion no longer valid during tab handling");
+                    return null;
+                }
+                
+                // Safely get display text for accept type calculation
+                String displayText = "";
+                try {
+                    displayText = completion.getDisplayText();
+                } catch (Exception e) {
+                    LOG.warn("Error getting display text", e);
+                }
+                
+                return new CompletionData(completion, displayText);
+            });
+            
+            // Process the completion if we have valid data
+            if (completionData != null && !completionData.displayText.isEmpty()) {
+                AcceptType acceptType = CompletionStateUtils.determineOptimalAcceptType(
+                    completionData.displayText, tabCount);
+                
+                LOG.debug("Tab press #{} - accepting with type: {}", tabCount, acceptType);
+                acceptCompletion(editor, acceptType);
+            } else {
+                LOG.debug("No valid completion data available for tab handling");
+                clearCompletion(editor); // Clean up invalid state
             }
-
-            // Use utility to determine optimal accept type - safely get display text
-            String displayText = ThreadingUtils.safeReadAction(() -> completion.getDisplayText(), "");
-            AcceptType acceptType = CompletionStateUtils.determineOptimalAcceptType(displayText, tabCount);
             
-            LOG.debug("Tab press #{} - accepting with type: {}", tabCount, acceptType);
-            acceptCompletion(editor, acceptType);
-        });
+        } catch (Exception e) {
+            LOG.warn("Error during tab completion handling", e);
+            // Clean up potentially corrupted state
+            clearCompletion(editor);
+        }
+    }
+    
+    /**
+     * Helper class to safely pass completion data between read action and EDT
+     */
+    private static class CompletionData {
+        final ZestCompletionData.PendingCompletion completion;
+        final String displayText;
+        
+        CompletionData(ZestCompletionData.PendingCompletion completion, String displayText) {
+            this.completion = completion;
+            this.displayText = displayText != null ? displayText : "";
+        }
     }
 
     /**

@@ -18,7 +18,7 @@ public class CompletionStateUtils {
 
     /**
      * Validates that a completion is still applicable at the current cursor position.
-     * Eliminates repeated validation logic.
+     * FIXED: Thread-safe with proper read action.
      */
     public static boolean isCompletionValid(@NotNull ZestCompletionData.PendingCompletion completion) {
         if (completion.isDisposed()) {
@@ -31,8 +31,10 @@ public class CompletionStateUtils {
         }
         
         try {
-            int currentOffset = ThreadingUtils.safeReadAction(() -> EditorUtils.safeGetCaretOffset(editor));
-            return completion.getItem().isValidAt(currentOffset);
+            return ThreadingUtils.safeReadAction(() -> {
+                int currentOffset = EditorUtils.safeGetCaretOffset(editor);
+                return completion.getItem().isValidAt(currentOffset);
+            }, false);
         } catch (Exception e) {
             LOG.warn("Error validating completion", e);
             return false;
@@ -84,7 +86,7 @@ public class CompletionStateUtils {
 
     /**
      * Checks if the given text insertion would be compatible with the current completion.
-     * Eliminates repeated compatibility checking logic.
+     * FIXED: Thread-safe with proper read action.
      */
     public static boolean isInsertionCompatible(@NotNull String insertedText,
                                               @NotNull Editor editor,
@@ -109,7 +111,7 @@ public class CompletionStateUtils {
                 LOG.warn("Error checking insertion compatibility", e);
                 return false;
             }
-        });
+        }, false);
     }
 
     /**

@@ -300,28 +300,31 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
     @Override
     public void handleTabCompletion(@NotNull Editor editor) {
-        if (!hasActiveCompletion(editor)) {
-            return;
-        }
+        // Ensure this runs on EDT since we need to access editor state
+        ThreadingUtils.runOnEDT(() -> {
+            if (!hasActiveCompletion(editor)) {
+                return;
+            }
 
-        int tabCount = stateManager.getTabAcceptCount(editor) + 1;
-        stateManager.setTabAcceptCount(editor, tabCount);
+            int tabCount = stateManager.getTabAcceptCount(editor) + 1;
+            stateManager.setTabAcceptCount(editor, tabCount);
 
-        LOG.debug("Tab completion press #" + tabCount);
-        
-        // Get current completion to determine best progression
-        ZestCompletionData.PendingCompletion completion = getActiveCompletion(editor);
-        if (!CompletionStateUtils.isCompletionValid(completion)) {
-            LOG.debug("No valid completion found despite hasActiveCompletion returning true");
-            return;
-        }
+            LOG.debug("Tab completion press #" + tabCount);
+            
+            // Get current completion to determine best progression
+            ZestCompletionData.PendingCompletion completion = getActiveCompletion(editor);
+            if (!CompletionStateUtils.isCompletionValid(completion)) {
+                LOG.debug("No valid completion found despite hasActiveCompletion returning true");
+                return;
+            }
 
-        // Use utility to determine optimal accept type
-        String displayText = completion.getDisplayText();
-        AcceptType acceptType = CompletionStateUtils.determineOptimalAcceptType(displayText, tabCount);
-        
-        LOG.debug("Tab press #{} - accepting with type: {}", tabCount, acceptType);
-        acceptCompletion(editor, acceptType);
+            // Use utility to determine optimal accept type - safely get display text
+            String displayText = ThreadingUtils.safeReadAction(() -> completion.getDisplayText(), "");
+            AcceptType acceptType = CompletionStateUtils.determineOptimalAcceptType(displayText, tabCount);
+            
+            LOG.debug("Tab press #{} - accepting with type: {}", tabCount, acceptType);
+            acceptCompletion(editor, acceptType);
+        });
     }
 
     /**

@@ -3,18 +3,17 @@ package com.zps.zest.autocomplete.actions;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.autocomplete.ZestAutocompleteService;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-
 /**
  * Action to handle smart tab completion: cycles through word -> line -> full completion.
  * First tab accepts next word, second tab accepts next line, third+ tabs accept full completion.
+ * FIXED: Proper EDT handling for thread safety.
  */
 public class AcceptWordCompletionAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(AcceptWordCompletionAction.class);
@@ -31,9 +30,10 @@ public class AcceptWordCompletionAction extends AnAction {
         ZestAutocompleteService service = ZestAutocompleteService.getInstance(project);
         if (service.hasActiveCompletion(editor)) {
             LOG.debug("Handling smart tab completion");
-            CompletableFuture.runAsync(()->{
-                service.handleTabCompletion(editor);
-            }, CompletableFuture.delayedExecutor(10, TimeUnit.MILLISECONDS));
+            
+            // FIXED: Actions are already on EDT, call directly
+            // The service method will handle any additional EDT requirements
+            service.handleTabCompletion(editor);
         }
     }
     

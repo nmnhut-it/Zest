@@ -269,25 +269,40 @@ public class ZestCompletionData {
         
         /**
          * Checks if this completion is still valid at the current cursor position.
+         * FIXED: Thread-safe with proper read action.
          */
         public boolean isValidAtCurrentPosition() {
             if (isDisposed || editor.isDisposed()) {
                 return false;
             }
-            int currentOffset = editor.getCaretModel().getOffset();
-            return item.isValidAt(currentOffset);
+            try {
+                return com.intellij.openapi.application.ReadAction.compute(() -> {
+                    int currentOffset = editor.getCaretModel().getOffset();
+                    return item.isValidAt(currentOffset);
+                });
+            } catch (Exception e) {
+                LOG.warn("Error checking completion validity", e);
+                return false;
+            }
         }
         
         /**
          * Gets the text that should be displayed at the current cursor position.
-         * ✅ ENHANCED: Uses smart redundant prefix removal
+         * FIXED: Thread-safe with proper read action.
          */
         public String getDisplayText() {
             if (isDisposed || editor.isDisposed()) {
                 return "";
             }
-            int currentOffset = editor.getCaretModel().getOffset();
-            return item.getSmartVisibleText(editor, currentOffset);
+            try {
+                return com.intellij.openapi.application.ReadAction.compute(() -> {
+                    int currentOffset = editor.getCaretModel().getOffset();
+                    return item.getSmartVisibleText(editor, currentOffset);
+                });
+            } catch (Exception e) {
+                LOG.warn("Error getting display text", e);
+                return "";
+            }
         }
         
         /**

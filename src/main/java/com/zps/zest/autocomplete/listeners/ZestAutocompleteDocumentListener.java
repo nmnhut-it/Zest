@@ -39,8 +39,8 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
 
 
     /**
-     * FIXED: Simplified logic that focuses on trigger/clear decisions only.
-     * No longer tries to manage inlays directly.
+     * ENHANCED: Simplified logic with intelligent inlay invalidation.
+     * Detects when user types something different from the completion suggestion.
      */
     private void handleDocumentChange(DocumentEvent event) {
         int oldLength = event.getOldLength();
@@ -59,8 +59,16 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             ZestCompletionData.PendingCompletion activeCompletion = autocompleteService.getActiveCompletion(editor);
 
             if (activeCompletion != null) {
-                // Check if the insertion is still compatible with the current completion
-                if (isInsertionCompatibleWithCompletion(insertedText, event, activeCompletion)) {
+                // CRITICAL: Check if user typed something different from completion
+                if (isUserTypingDifferentFromCompletion(insertedText, event, activeCompletion)) {
+                    LOG.debug("User typed '{}' which differs from completion, clearing inlay", insertedText);
+                    autocompleteService.clearCompletion(editor);
+                    
+                    // Optionally trigger new completion if it makes sense
+                    if (shouldTriggerAfterMismatch(insertedText, event)) {
+                        autocompleteService.triggerCompletion(editor, false);
+                    }
+                } else if (isInsertionCompatibleWithCompletion(insertedText, event, activeCompletion)) {
                     LOG.debug("Insertion compatible with current completion, refreshing display");
                     // Instead of directly manipulating inlays, trigger a refresh
                     autocompleteService.clearCompletion(editor);
@@ -98,6 +106,97 @@ public class ZestAutocompleteDocumentListener implements DocumentListener {
             LOG.debug("Large change detected, clearing completion");
             autocompleteService.clearCompletion(editor);
         }
+    }
+
+    /**
+     * CRITICAL: Detects when user types something different from what the completion suggests.
+     * This prevents the issue where inlays show incorrect suggestions after user input.
+     */
+    private boolean isUserTypingDifferentFromCompletion(String insertedText, DocumentEvent event, 
+                                                       ZestCompletionData.PendingCompletion activeCompletion) {
+        try {
+            String completionText = activeCompletion.getItem().getInsertText();
+            if (completionText == null || completionText.isEmpty()) {
+                return true; // Invalid completion, clear it
+            }
+            
+            // Get the current cursor position and surrounding context
+            int insertionOffset = event.getOffset();
+            Document document = event.getDocument();
+            
+            // Calculate what the text should look like at the cursor position
+            int lineNumber = document.getLineNumber(insertionOffset);
+            int lineStart = document.getLineStartOffset(lineNumber);
+            int currentOffset = insertionOffset + event.getNewLength();
+            
+            // Get the text before cursor (including the new insertion)
+            String beforeCursor = document.getText(TextRange.from(lineStart, currentOffset - lineStart));
+            
+            // Check if the completion text still makes sense at this position
+            String expectedNextChars = getExpectedNextCharacters(completionText, beforeCursor);
+            
+            if (expectedNextChars.isEmpty()) {
+                // Completion is already fully typed or doesn't match context
+                return true;
+            }
+            
+            // Check if the inserted character matches what the completion expects next
+            char insertedChar = insertedText.charAt(0);
+            char expectedChar = expectedNextChars.charAt(0);
+            
+            boolean matches = (insertedChar == expectedChar);
+            
+            if (!matches) {
+                LOG.debug("User typed '{}' but completion expected '{}' - clearing inlay", 
+                         insertedChar, expectedChar);
+                return true;
+            }
+            
+            return false; // User typed what was expected
+            
+        } catch (Exception e) {
+            LOG.warn("Error checking user input against completion", e);
+            return true; // When in doubt, clear the completion
+        }
+    }
+    
+    /**
+     * Helper method to determine what characters the completion expects next.
+     */
+    private String getExpectedNextCharacters(String completionText, String beforeCursor) {
+        if (completionText.isEmpty() || beforeCursor.isEmpty()) {
+            return completionText;
+        }
+        
+        // Try to find where the completion should continue from
+        String beforeCursorTrimmed = beforeCursor.trim();
+        
+        // Simple prefix matching - find the longest common prefix
+        int matchLength = 0;
+        int maxCheck = Math.min(completionText.length(), beforeCursorTrimmed.length());
+        
+        for (int i = 0; i < maxCheck; i++) {
+            if (Character.toLowerCase(completionText.charAt(i)) == 
+                Character.toLowerCase(beforeCursorTrimmed.charAt(beforeCursorTrimmed.length() - maxCheck + i))) {
+                matchLength = i + 1;
+            } else {
+                break;
+            }
+        }
+        
+        if (matchLength < completionText.length()) {
+            return completionText.substring(matchLength);
+        }
+        
+        return ""; // Completion is already fully typed
+    }
+    
+    /**
+     * Determines if we should trigger a new completion after a mismatch.
+     */
+    private boolean shouldTriggerAfterMismatch(String insertedText, DocumentEvent event) {
+        // Only trigger if the inserted text is alphanumeric (likely continuing to type)
+        return insertedText.matches("[a-zA-Z0-9_]") && insertedText.length() == 1;
     }
 
     /**

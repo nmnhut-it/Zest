@@ -57,8 +57,15 @@
 <!--        <projectService serviceInterface="com.zps.zest.autocomplete.ZestAutocompleteService"-->
 <!--                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>-->
 
+        <!-- Zest Autocomplete v2 Service -->
+        <projectService serviceInterface="com.zps.zest.autocompletion2.core.AutocompleteService"
+                        serviceImplementation="com.zps.zest.autocompletion2.core.AutocompleteService"/>
+
         <!-- Startup activity to initialize autocomplete service -->
-        <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>
+<!--        <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>-->
+
+        <!-- Zest Autocomplete v2 Startup -->
+        <postStartupActivity implementation="com.zps.zest.autocompletion2.AutocompleteStartup"/>
 
     </extensions>
     <actions>
@@ -148,12 +155,12 @@
 <!--        </action>-->
 
         <!-- Smart Tab Completion: word -> line -> full (handled by EditorActionHandler) -->
-        <action id="Zest.AcceptWordCompletion"
-                class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"
-                text="Smart Tab Completion"  
-                description="Smart tab completion: first tab = word, second = line, third+ = full">
-            <!-- No keyboard shortcut - handled by ZestSmartTabHandler -->
-        </action>
+<!--        <action id="Zest.AcceptWordCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"-->
+<!--                text="Smart Tab Completion"  -->
+<!--                description="Smart tab completion: first tab = word, second = line, third+ = full">-->
+<!--            &lt;!&ndash; No keyboard shortcut - handled by ZestSmartTabHandler &ndash;&gt;-->
+<!--        </action>-->
 
         <!-- Keep line completion action for explicit use -->
 <!--        <action id="Zest.AcceptLineCompletion"-->
@@ -162,35 +169,120 @@
 <!--                description="Accept the next line from the autocomplete suggestion">-->
 <!--        </action>-->
 
-        <action id="Zest.RejectCompletion"
-                class="com.zps.zest.autocomplete.actions.RejectCompletionAction"
-                text="Reject Autocomplete Suggestion"
-                description="Reject the current autocomplete suggestion">
-            <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
-        </action>
+<!--        <action id="Zest.RejectCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.RejectCompletionAction"-->
+<!--                text="Reject Autocomplete Suggestion"-->
+<!--                description="Reject the current autocomplete suggestion">-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>-->
+<!--        </action>-->
 
         <!-- Test action for debugging autocomplete -->
-        <action id="Zest.TestAutocomplete"
-                class="com.zps.zest.autocomplete.actions.TestAutocompleteAction"
-                text="Test Autocomplete Service"
-                description="Test the autocomplete service (debug only)">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
+<!--        <action id="Zest.TestAutocomplete"-->
+<!--                class="com.zps.zest.autocomplete.actions.TestAutocompleteAction"-->
+<!--                text="Test Autocomplete Service"-->
+<!--                description="Test the autocomplete service (debug only)">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
 
-        <!-- Smart completion test action -->
-        <action id="Zest.TestSmartCompletion"
-                class="com.zps.zest.autocomplete.actions.TestSmartCompletionAction"
-                text="Test Smart Tab Completion"
-                description="Trigger autocomplete to test smart tab completion behavior">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
+<!--        &lt;!&ndash; Smart completion test action &ndash;&gt;-->
+<!--        <action id="Zest.TestSmartCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.TestSmartCompletionAction"-->
+<!--                text="Test Smart Tab Completion"-->
+<!--                description="Trigger autocomplete to test smart tab completion behavior">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
 
         <!-- Test TAB handler installation -->
-        <action id="Zest.TestTabHandler"
-                class="com.zps.zest.autocomplete.actions.TestTabHandlerAction"
-                text="Test TAB Handler Installation"
-                description="Test if the ZestSmartTabHandler is properly installed">
+<!--        <action id="Zest.TestTabHandler"-->
+<!--                class="com.zps.zest.autocomplete.actions.TestTabHandlerAction"-->
+<!--                text="Test TAB Handler Installation"-->
+<!--                description="Test if the ZestSmartTabHandler is properly installed">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+        <!-- Diagnose Tab completion issues -->
+<!--        <action id="Zest.DiagnoseTabIssue"-->
+<!--                class="com.zps.zest.autocomplete.actions.DiagnoseTabIssueAction"-->
+<!--                text="🔧 Diagnose Tab Completion Issue"-->
+<!--                description="Diagnose and fix Tab completion cancellation issues">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+<!--        &lt;!&ndash; Test trigger completion &ndash;&gt;-->
+<!--        <action id="Zest.TestTriggerCompletion"-->
+<!--                class="com.zps.zest.autocomplete.actions.TestTabCompletionAction"-->
+<!--                text="🧪 Trigger Test Completion"-->
+<!--                description="Force trigger completion to test Tab key behavior">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+        <!-- Force reinstall Tab handler -->
+<!--        <action id="Zest.ForceReinstallTabHandler"-->
+<!--                class="com.zps.zest.autocomplete.actions.ForceReinstallTabHandlerAction"-->
+<!--                text="🔄 Force Reinstall Tab Handler"-->
+<!--                description="Force reinstall ZestSmartTabHandler to fix conflicts">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+<!--        &lt;!&ndash; Demo Tab issue simulation &ndash;&gt;-->
+<!--        <action id="Zest.SimulateTabIssueDemo"-->
+<!--                class="com.zps.zest.autocomplete.actions.SimulateTabIssueDemoAction"-->
+<!--                text="🎭 Demo Tab Issue Simulation"-->
+<!--                description="Simulate and demonstrate the Tab completion issue">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+        <!-- Test progressive Tab acceptance -->
+<!--        <action id="Zest.TestProgressiveTab"-->
+<!--                class="com.zps.zest.autocomplete.actions.TestProgressiveTabAction"-->
+<!--                text="🔄 Test Progressive Tab Acceptance"-->
+<!--                description="Test word → line → full Tab progression">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
+
+        <!-- AUTOCOMPLETE v2 ACTIONS -->
+        <group id="ZestAutocompleteV2Group" text="Autocomplete v2 (New)" description="Zest Autocomplete v2 - Clean Implementation" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
+        </group>
+
+        <!-- v2 Diagnostic -->
+        <action id="Zest.V2.Diagnostic"
+                class="com.zps.zest.autocompletion2.debug.TestActions$DiagnosticAction"
+                text="🔍 Autocomplete v2 Diagnostic"
+                description="Show diagnostic information for Zest Autocomplete v2">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="first"/>
+        </action>
+
+        <!-- v2 Create Test Completion -->
+        <action id="Zest.V2.CreateTest"
+                class="com.zps.zest.autocompletion2.debug.TestActions$CreateTestCompletionAction"
+                text="🧪 Create Test Completion"
+                description="Create a test completion to verify Tab functionality">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.Diagnostic"/>
+        </action>
+
+        <!-- v2 Progressive Demo -->
+        <action id="Zest.V2.ProgressiveDemo"
+                class="com.zps.zest.autocompletion2.debug.TestActions$ProgressiveDemoAction"
+                text="🔄 Progressive Tab Demo"
+                description="Demonstrate progressive Tab acceptance (word → line → full)">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.CreateTest"/>
+        </action>
+
+        <!-- v2 Install Tab Handler -->
+        <action id="Zest.V2.InstallTabHandler"
+                class="com.zps.zest.autocompletion2.debug.TestActions$InstallTabHandlerAction"
+                text="⚙️ Install Tab Handler"
+                description="Install or reinstall the Tab handler for Zest Autocomplete v2">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.ProgressiveDemo"/>
+        </action>
+
+        <!-- v2 Debug Logger -->
+        <action id="Zest.V2.DebugLog"
+                class="com.zps.zest.autocompletion2.debug.TestActions$DebugLogAction"
+                text="📝 Log Debug Info"
+                description="Log detailed debug information to console">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.InstallTabHandler"/>
         </action>
     </actions>
 </idea-plugin>

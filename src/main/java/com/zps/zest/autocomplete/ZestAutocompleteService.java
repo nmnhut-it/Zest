@@ -36,7 +36,7 @@ import java.util.concurrent.CompletableFuture;
  * REFACTORED: Thread-safe autocomplete service with centralized state management.
  * Properly handles IntelliJ threading model and eliminates spaghetti code.
  */
-@Service(Service.Level.PROJECT)
+//@Service(Service.Level.PROJECT)
 public final class ZestAutocompleteService implements Disposable, CompletionService {
     private static final Logger LOG = Logger.getInstance(ZestAutocompleteService.class);
     private static final int COMPLETION_DELAY_MS = 50;
@@ -398,6 +398,9 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         try {
             ThreadingUtils.assertEDT("handlePartialAcceptanceContinuation");
             
+            LOG.debug("Creating continuation with remaining text: {}", 
+                remainingText.substring(0, Math.min(50, remainingText.length())));
+            
             int newOffset = ThreadingUtils.safeReadAction(() -> EditorUtils.safeGetCaretOffset(editor));
             if (!EditorUtils.isValidOffset(editor, newOffset)) {
                 LOG.warn("Invalid caret offset: " + newOffset);
@@ -426,12 +429,12 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
                 continuationItem, editor, originalCompletion.getOriginalContext()
             );
             
-            // Update using centralized state manager
+            // Update using centralized state manager (this will reset tab count to 0)
             boolean success = stateManager.updateCompletionForContinuation(editor, continuationCompletion, newRenderingContext);
 
             if (success) {
-                LOG.debug("Created continuation completion with remaining text: " +
-                    remainingText.substring(0, Math.min(30, remainingText.length())));
+                LOG.debug("✅ Continuation created successfully - tab count reset to 0");
+                LOG.debug("Next Tab press will be treated as first Tab (WORD acceptance)");
             }
             
             return success;
@@ -534,6 +537,14 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
     public String getStateManagerDiagnostic() {
         return stateManager.getDiagnosticInfo();
     }
+    
+    /**
+     * Get state manager for debugging purposes.
+     * Package-private access.
+     */
+    public ZestCompletionStateManager getStateManager() {
+        return stateManager;
+    }
 
     // Helper methods
 
@@ -547,6 +558,41 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
 
         long timeSinceLastTyping = System.currentTimeMillis() - lastTime;
         return timeSinceLastTyping < 50; // Small buffer to detect rapid typing
+    }
+    
+    /**
+     * Checks if IntelliJ's built-in completion is currently active.
+     * Used by TAB handler and other components for priority decisions.
+     */
+    private boolean isIntelliJCompletionActive(@NotNull Editor editor) {
+        try {
+            if (editor.getProject() == null) {
+                return false;
+            }
+            
+            // Check for active lookup (completion popup)
+            com.intellij.codeInsight.lookup.LookupManager lookupManager = 
+                com.intellij.codeInsight.lookup.LookupManager.getInstance(editor.getProject());
+            
+            if (lookupManager != null) {
+                com.intellij.codeInsight.lookup.Lookup activeLookup = lookupManager.getActiveLookup();
+                if (activeLookup != null && activeLookup.isCompletion()) {
+                    return true;
+                }
+            }
+            
+            // Check editor user data for completion state
+//            Object completionMarker = editor.getUserData(com.intellij.codeInsight.completion.CompletionService.COMPLETION_STATE_KEY);
+//            if (completionMarker != null) {
+//                return true;
+//            }
+            
+            return false;
+            
+        } catch (Exception e) {
+            LOG.warn("Error checking IntelliJ completion state", e);
+            return false; // Default to allowing our completion
+        }
     }
 
     // Legacy methods for backward compatibility

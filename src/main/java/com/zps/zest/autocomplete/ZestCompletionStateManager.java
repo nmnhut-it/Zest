@@ -317,7 +317,10 @@ public class ZestCompletionStateManager {
         state.setPendingCompletion(newCompletion);
         state.setRenderingContext(newRenderingContext);
         
-        LOG.debug("Updated completion state for continuation");
+        // CRITICAL FIX: Reset tab count for continuation
+        state.setTabAcceptCount(0);
+        
+        LOG.debug("Updated completion state for continuation (tab count reset to 0)");
         return true;
     }
     

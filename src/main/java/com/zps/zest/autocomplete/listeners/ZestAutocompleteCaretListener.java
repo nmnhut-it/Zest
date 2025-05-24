@@ -278,7 +278,7 @@ public class ZestAutocompleteCaretListener implements CaretListener {
 
         if (analysis.shouldTrigger) {
             LOG.debug("Triggering completion due to caret movement to good position");
-            autocompleteService.triggerAutocomplete(editor);
+            autocompleteService.triggerCompletion(editor, false);
         }
     }
 

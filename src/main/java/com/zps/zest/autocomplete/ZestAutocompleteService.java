@@ -24,6 +24,7 @@ import com.zps.zest.autocomplete.utils.SmartPrefixRemover;
 import com.zps.zest.autocomplete.utils.ThreadingUtils;
 import com.zps.zest.autocomplete.utils.EditorUtils;
 import com.zps.zest.autocomplete.utils.CompletionStateUtils;
+import com.zps.zest.autocomplete.handlers.ZestSmartTabHandler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -535,6 +536,14 @@ public final class ZestAutocompleteService implements Disposable, CompletionServ
         
         // Clear cache
         completionCache.invalidateAll();
+        
+        // Uninstall the smart TAB handler when the last project is disposed
+        // Note: This is a global handler, so we only uninstall when appropriate
+        try {
+            ZestSmartTabHandler.uninstall();
+        } catch (Exception e) {
+            LOG.warn("Error uninstalling ZestSmartTabHandler", e);
+        }
 
         LOG.info("ZestAutocompleteService disposal complete for project: " + project.getName());
     }

@@ -147,12 +147,12 @@
 <!--                description="Accept the current autocomplete suggestion">-->
 <!--        </action>-->
 
-        <!-- Smart Tab Completion: word -> line -> full -->
+        <!-- Smart Tab Completion: word -> line -> full (handled by EditorActionHandler) -->
         <action id="Zest.AcceptWordCompletion"
                 class="com.zps.zest.autocomplete.actions.AcceptWordCompletionAction"
                 text="Smart Tab Completion"  
                 description="Smart tab completion: first tab = word, second = line, third+ = full">
-            <keyboard-shortcut keymap="$default" first-keystroke="TAB" replace-all="true"/>
+            <!-- No keyboard shortcut - handled by ZestSmartTabHandler -->
         </action>
 
         <!-- Keep line completion action for explicit use -->
@@ -182,6 +182,14 @@
                 class="com.zps.zest.autocomplete.actions.TestSmartCompletionAction"
                 text="Test Smart Tab Completion"
                 description="Trigger autocomplete to test smart tab completion behavior">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+        </action>
+
+        <!-- Test TAB handler installation -->
+        <action id="Zest.TestTabHandler"
+                class="com.zps.zest.autocomplete.actions.TestTabHandlerAction"
+                text="Test TAB Handler Installation"
+                description="Test if the ZestSmartTabHandler is properly installed">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
     </actions>

@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
@@ -190,7 +191,8 @@ public class JCEFBrowserManager {
             // Load the modal HTML and inject it into the code extractor
             String modalHtml = loadResourceAsString("/html/fileSelectionModal.html");
             // Extract just the modal HTML content (between <body> tags)
-            String modalContent = extractModalHtmlContent(modalHtml);
+            String s = extractModalHtmlContent(modalHtml);
+            String modalContent = StringEscapeUtils.escapeJavaScript(s);
             // Replace placeholder in codeExtractor with actual modal HTML
             codeExtractorScript = codeExtractorScript.replace("[[MODAL_HTML_CONTENT]]", modalContent);
             
@@ -207,7 +209,67 @@ public class JCEFBrowserManager {
      */
     private String extractModalHtmlContent(String fullHtml) {
         try {
-            // Find the modal div and extract it with its styles
+            // First try to find just the modal div specifically
+            int modalStart = fullHtml.indexOf("<div id=\"git-file-selection-modal\"");
+            if (modalStart != -1) {
+                // Find the end of this div by counting opening and closing div tags
+                int divCount = 0;
+                int currentPos = modalStart;
+                boolean foundStart = false;
+                
+                while (currentPos < fullHtml.length()) {
+                    int nextOpenDiv = fullHtml.indexOf("<div", currentPos);
+                    int nextCloseDiv = fullHtml.indexOf("</div>", currentPos);
+                    
+                    // If no more divs found, break
+                    if (nextOpenDiv == -1 && nextCloseDiv == -1) {
+                        break;
+                    }
+                    
+                    // Determine which comes first
+                    if (nextOpenDiv != -1 && (nextCloseDiv == -1 || nextOpenDiv < nextCloseDiv)) {
+                        // Opening div found
+                        divCount++;
+                        foundStart = true;
+                        currentPos = nextOpenDiv + 4; // Move past "<div"
+                    } else if (nextCloseDiv != -1) {
+                        // Closing div found
+                        if (foundStart) {
+                            divCount--;
+                            if (divCount == 0) {
+                                // Found the matching closing tag
+                                int modalEnd = nextCloseDiv + 6; // Include "</div>"
+                                String extractedModal = fullHtml.substring(modalStart, modalEnd);
+                                
+                                // Also extract styles to ensure modal displays correctly
+                                String styles = "";
+                                int styleStart = fullHtml.indexOf("<style>");
+                                int styleEnd = fullHtml.indexOf("</style>");
+                                if (styleStart != -1 && styleEnd != -1) {
+                                    styles = fullHtml.substring(styleStart, styleEnd + 8);
+                                }
+                                
+                                // Also extract the script
+                                String script = "";
+                                int scriptStart = fullHtml.lastIndexOf("<script>");
+                                int scriptEnd = fullHtml.lastIndexOf("</script>");
+                                if (scriptStart != -1 && scriptEnd != -1) {
+                                    script = fullHtml.substring(scriptStart, scriptEnd + 9);
+                                }
+                                
+                                String result = styles + extractedModal + script;
+                                LOG.info("Successfully extracted modal HTML with styles and scripts, length: " + result.length());
+                                return result;
+                            }
+                        }
+                        currentPos = nextCloseDiv + 6; // Move past "</div>"
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            // Fallback: Extract content between body tags if modal extraction fails
             int bodyStart = fullHtml.indexOf("<body>");
             int bodyEnd = fullHtml.indexOf("</body>");
             
@@ -230,10 +292,14 @@ public class JCEFBrowserManager {
                     script = fullHtml.substring(scriptStart, scriptEnd + 9);
                 }
                 
-                return styles + bodyContent + script;
+                String result = styles + bodyContent + script;
+                LOG.info("Extracted body content as fallback, length: " + result.length());
+                return result;
             }
             
-            return fullHtml; // Fallback to full HTML if parsing fails
+            LOG.warn("Could not extract modal HTML content - no modal div or body tags found");
+            return fullHtml; // Return full HTML as last resort
+            
         } catch (Exception e) {
             LOG.error("Error extracting modal HTML content", e);
             return fullHtml; // Fallback to full HTML

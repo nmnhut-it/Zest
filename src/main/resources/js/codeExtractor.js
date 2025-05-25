@@ -363,14 +363,51 @@ window.showFileSelectionModal = function(changedFiles) {
         }
         
         // Inject the beautiful modal HTML (replaced by Java during setup)
-        const modalHtmlContent = `[[MODAL_HTML_CONTENT]]`;
+        const modalHtmlContent = '[[MODAL_HTML_CONTENT]]';
+        
+        // Debug logging
+        console.log('Modal HTML content length:', modalHtmlContent.length);
+        console.log('Modal HTML preview:', modalHtmlContent.substring(0, 200) + '...');
+        
+        if (!modalHtmlContent || modalHtmlContent === '[[MODAL_HTML_CONTENT]]') {
+            console.error('Modal HTML content not properly injected by Java');
+            showFallbackFileSelectionModal(changedFiles);
+            return;
+        }
         
         // Create a temporary container to hold the HTML
         const tempContainer = document.createElement('div');
         tempContainer.innerHTML = modalHtmlContent;
         
-        // Append the modal to the body
-        document.body.appendChild(tempContainer);
+        // Debug: Check what was parsed
+        console.log('Temp container children count:', tempContainer.children.length);
+        console.log('Temp container first child:', tempContainer.firstChild);
+        
+        // Extract all children from the temp container and append them directly to body
+        // This ensures the modal element is directly in the body, not nested in a wrapper div
+        const childrenToMove = Array.from(tempContainer.children);
+        childrenToMove.forEach(child => {
+            console.log('Moving child to body:', child.tagName, child.id);
+            document.body.appendChild(child);
+        });
+        
+        // If no children were found, try alternative approach
+        if (childrenToMove.length === 0) {
+            console.log('No children found, trying innerHTML approach');
+            // Try direct innerHTML injection as fallback
+            const modalElement = document.createElement('div');
+            modalElement.innerHTML = modalHtmlContent;
+            // Look for the modal element in the parsed content
+            const modal = modalElement.querySelector('#git-file-selection-modal');
+            if (modal) {
+                document.body.appendChild(modal);
+                console.log('Modal found and appended via alternative method');
+            } else {
+                console.error('No modal element found even with alternative parsing');
+                showFallbackFileSelectionModal(changedFiles);
+                return;
+            }
+        }
         
         // Parse and populate the file list
         parseAndPopulateFiles(changedFiles);
@@ -382,10 +419,17 @@ window.showFileSelectionModal = function(changedFiles) {
             console.log('Modern file selection modal displayed successfully');
         } else {
             console.error('Modal element not found after injection');
+            // Debug: Log what elements were actually added
+            console.log('Available elements with git-file-selection-modal:', 
+                document.querySelectorAll('#git-file-selection-modal'));
+            console.log('All elements in body:', document.body.children);
+            // Fallback to old modal
+            showFallbackFileSelectionModal(changedFiles);
         }
         
     } catch (e) {
         console.error('Error showing file selection modal:', e);
+        console.error('Stack trace:', e.stack);
         // Fallback to old modal if injection fails
         showFallbackFileSelectionModal(changedFiles);
     }

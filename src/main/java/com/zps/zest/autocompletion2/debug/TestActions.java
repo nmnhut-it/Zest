@@ -4,6 +4,9 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.Project;
+import com.zps.zest.autocompletion2.core.AutocompleteService;
+import com.zps.zest.autocompletion2.settings.AutocompleteSettings;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -57,6 +60,43 @@ public class TestActions {
         @Override
         public void update(@NotNull AnActionEvent e) {
             e.getPresentation().setEnabledAndVisible(e.getData(CommonDataKeys.EDITOR) != null);
+        }
+    }
+    
+    /**
+     * Action to trigger real LLM completion.
+     */
+    public static class TriggerLLMCompletionAction extends AnAction {
+        public TriggerLLMCompletionAction() {
+            super("🤖 Trigger LLM Completion", 
+                  "Trigger real LLM completion from API", 
+                  null);
+        }
+        
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent e) {
+            Editor editor = e.getData(CommonDataKeys.EDITOR);
+            Project project = e.getProject();
+            
+            if (editor != null && project != null) {
+                AutocompleteService service = AutocompleteService.getInstance(project);
+                service.triggerLLMCompletion(editor);
+                
+                com.intellij.openapi.ui.Messages.showInfoMessage(
+                    project,
+                    "🤖 LLM completion triggered!\n\n" +
+                    "The system is calling your LLM API.\n" +
+                    "Completion will appear shortly if successful.\n\n" +
+                    "Try pressing Tab when completion appears!",
+                    "LLM Completion Triggered"
+                );
+            }
+        }
+        
+        @Override
+        public void update(@NotNull AnActionEvent e) {
+            e.getPresentation().setEnabledAndVisible(
+                e.getData(CommonDataKeys.EDITOR) != null && e.getProject() != null);
         }
     }
     
@@ -140,6 +180,58 @@ public class TestActions {
         @Override
         public void update(@NotNull AnActionEvent e) {
             e.getPresentation().setEnabledAndVisible(e.getData(CommonDataKeys.EDITOR) != null);
+        }
+    }
+    
+    /**
+     * Action to toggle auto-completion on/off.
+     */
+    public static class ToggleAutoCompletionAction extends AnAction {
+        public ToggleAutoCompletionAction() {
+            super("🔄 Toggle Auto-Completion", 
+                  "Enable/disable automatic LLM completion triggering", 
+                  null);
+        }
+        
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent e) {
+            Project project = e.getProject();
+            if (project != null) {
+                AutocompleteSettings settings = AutocompleteSettings.getInstance(project);
+                boolean currentlyEnabled = settings.isAutoTriggerEnabled();
+                settings.setAutoTriggerEnabled(!currentlyEnabled);
+                
+                String status = currentlyEnabled ? "DISABLED" : "ENABLED";
+                String message = "Auto-completion " + status + "!\n\n";
+                
+                if (!currentlyEnabled) {
+                    message += "✅ Automatic LLM completions are now enabled\n" +
+                              "• Triggers on: dot (.), assignments (=), method calls ((\n" +
+                              "• Delay: " + settings.getTriggerDelayMs() + "ms after typing\n" +
+                              "• Works in all editors automatically";
+                } else {
+                    message += "❌ Automatic LLM completions are now disabled\n" +
+                              "• Manual triggering still works\n" +
+                              "• Use '🤖 Trigger LLM Completion' action for manual completions";
+                }
+                
+                com.intellij.openapi.ui.Messages.showInfoMessage(
+                    project, message, "Auto-Completion " + status
+                );
+            }
+        }
+        
+        @Override
+        public void update(@NotNull AnActionEvent e) {
+            e.getPresentation().setEnabledAndVisible(e.getProject() != null);
+            
+            // Update text based on current state
+            Project project = e.getProject();
+            if (project != null) {
+                AutocompleteSettings settings = AutocompleteSettings.getInstance(project);
+                boolean enabled = settings.isAutoTriggerEnabled();
+                e.getPresentation().setText(enabled ? "❌ Disable Auto-Completion" : "✅ Enable Auto-Completion");
+            }
         }
     }
 }

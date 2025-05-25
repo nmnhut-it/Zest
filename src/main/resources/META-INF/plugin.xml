@@ -58,8 +58,12 @@
 <!--                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>-->
 
         <!-- Zest Autocomplete v2 Service -->
-<!--        <projectService serviceInterface="com.zps.zest.autocompletion2.core.AutocompleteService"-->
-<!--                        serviceImplementation="com.zps.zest.autocompletion2.core.AutocompleteService"/>-->
+        <projectService serviceInterface="com.zps.zest.autocompletion2.core.AutocompleteService"
+                        serviceImplementation="com.zps.zest.autocompletion2.core.AutocompleteService"/>
+
+        <!-- Zest Autocomplete v2 Settings -->
+        <projectService serviceInterface="com.zps.zest.autocompletion2.settings.AutocompleteSettings"
+                        serviceImplementation="com.zps.zest.autocompletion2.settings.AutocompleteSettings"/>
 
         <!-- Startup activity to initialize autocomplete service -->
         <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>
@@ -261,12 +265,20 @@
             <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.Diagnostic"/>
         </action>
 
+        <!-- v2 Trigger LLM Completion -->
+        <action id="Zest.V2.TriggerLLM"
+                class="com.zps.zest.autocompletion2.debug.TestActions$TriggerLLMCompletionAction"
+                text="🤖 Trigger LLM Completion"
+                description="Trigger real LLM completion from API">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.CreateTest"/>
+        </action>
+
         <!-- v2 Progressive Demo -->
         <action id="Zest.V2.ProgressiveDemo"
                 class="com.zps.zest.autocompletion2.debug.TestActions$ProgressiveDemoAction"
                 text="🔄 Progressive Tab Demo"
                 description="Demonstrate progressive Tab acceptance (word → line → full)">
-            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.CreateTest"/>
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.TriggerLLM"/>
         </action>
 
         <!-- v2 Install Tab Handler -->
@@ -283,6 +295,14 @@
                 text="📝 Log Debug Info"
                 description="Log detailed debug information to console">
             <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.InstallTabHandler"/>
+        </action>
+
+        <!-- v2 Toggle Auto-Completion -->
+        <action id="Zest.V2.ToggleAutoCompletion"
+                class="com.zps.zest.autocompletion2.debug.TestActions$ToggleAutoCompletionAction"
+                text="🔄 Toggle Auto-Completion"
+                description="Enable/disable automatic LLM completion triggering">
+            <add-to-group group-id="ZestAutocompleteV2Group" anchor="after" relative-to-action="Zest.V2.DebugLog"/>
         </action>
     </actions>
 </idea-plugin>

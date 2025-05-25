@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.zps.zest.autocompletion2.acceptance.AcceptanceType;
+import com.zps.zest.autocompletion2.integration.LLMCompletionProvider;
 import com.zps.zest.autocompletion2.rendering.InlayRenderer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,8 +29,12 @@ public final class AutocompleteService implements com.intellij.openapi.Disposabl
     private final Map<Editor, CompletionState> activeCompletions = new ConcurrentHashMap<>();
     private volatile boolean enabled = true;
     
+    // LLM Integration
+    private final LLMCompletionProvider llmProvider;
+    
     public AutocompleteService(@NotNull Project project) {
         this.project = project;
+        this.llmProvider = new LLMCompletionProvider(project);
         LOG.info("AutocompleteService v2 initialized for project: " + project.getName());
     }
     
@@ -82,6 +87,45 @@ public final class AutocompleteService implements com.intellij.openapi.Disposabl
             LOG.warn("Error showing completion", e);
             return false;
         }
+    }
+    
+    /**
+     * Triggers LLM completion for the given editor.
+     * This is the main method for real autocomplete functionality.
+     */
+    public void triggerLLMCompletion(@NotNull Editor editor) {
+        if (!enabled || editor.isDisposed()) {
+            return;
+        }
+        
+        if (!llmProvider.isReady()) {
+            LOG.warn("LLM provider not ready");
+            return;
+        }
+        
+        // Clear any existing completion
+        clearCompletion(editor);
+        
+        LOG.debug("Triggering LLM completion for editor");
+        
+        // Get completion asynchronously
+        llmProvider.getCompletionAsync(editor)
+            .thenAccept(completionText -> {
+                if (completionText != null && !completionText.trim().isEmpty()) {
+                    // Show completion on EDT
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        if (!editor.isDisposed()) {
+                            showCompletion(editor, completionText);
+                        }
+                    });
+                } else {
+                    LOG.debug("No completion received from LLM");
+                }
+            })
+            .exceptionally(throwable -> {
+                LOG.warn("LLM completion failed", throwable);
+                return null;
+            });
     }
     
     /**

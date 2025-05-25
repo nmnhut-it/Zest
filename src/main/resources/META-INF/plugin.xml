@@ -58,11 +58,11 @@
 <!--                        serviceImplementation="com.zps.zest.autocomplete.ZestAutocompleteService"/>-->
 
         <!-- Zest Autocomplete v2 Service -->
-        <projectService serviceInterface="com.zps.zest.autocompletion2.core.AutocompleteService"
-                        serviceImplementation="com.zps.zest.autocompletion2.core.AutocompleteService"/>
+<!--        <projectService serviceInterface="com.zps.zest.autocompletion2.core.AutocompleteService"-->
+<!--                        serviceImplementation="com.zps.zest.autocompletion2.core.AutocompleteService"/>-->
 
         <!-- Startup activity to initialize autocomplete service -->
-<!--        <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>-->
+        <postStartupActivity implementation="com.zps.zest.autocomplete.ZestAutocompleteProjectComponent"/>
 
         <!-- Zest Autocomplete v2 Startup -->
         <postStartupActivity implementation="com.zps.zest.autocompletion2.AutocompleteStartup"/>

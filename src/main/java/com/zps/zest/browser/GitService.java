@@ -23,8 +23,8 @@ public class GitService {
     private final Project project;
     private final Gson gson = new Gson();
     
-    // Context management
-    private final ConcurrentHashMap<String, GitCommitContext> activeContexts = new ConcurrentHashMap<>();
+    // Static map to store contexts across all instances
+    private static final ConcurrentHashMap<String, GitCommitContext> GLOBAL_CONTEXTS = new ConcurrentHashMap<>();
     
     public GitService(@NotNull Project project) {
         this.project = project;
@@ -50,10 +50,11 @@ public class GitService {
             
             LOG.info("Parsed " + selectedFiles.size() + " selected files");
             
-            // Find active context for this project
-            GitCommitContext context = getActiveContext(project.getName());
+            // Find active context for this project using static method
+            GitCommitContext context = getActiveContextStatic(project.getName());
             if (context == null) {
                 LOG.error("No active git commit context found for project: " + project.getName());
+                LOG.info("Available contexts: " + GLOBAL_CONTEXTS.keySet());
                 return createErrorResponse("No active commit context found");
             }
             
@@ -61,10 +62,10 @@ public class GitService {
             context.setSelectedFiles(selectedFiles);
             
             // Continue the git commit pipeline directly
-            continueGitCommitPipeline(context);
+            GitCommitMessageGeneratorAction.continueWithSelectedFiles(context);
             
             // Clean up context
-            removeActiveContext(project.getName());
+            removeActiveContextStatic(project.getName());
             
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
@@ -76,47 +77,61 @@ public class GitService {
             return createErrorResponse("Failed to process selected files: " + e.getMessage());
         }
     }
-
-    /**
-     * Continues the git commit pipeline with selected files
-     */
-    private void continueGitCommitPipeline(GitCommitContext context) {
-        // Trigger the pipeline continuation in the GitCommitMessageGeneratorAction
-        // We'll use a static method for this
-        GitCommitMessageGeneratorAction.continueWithSelectedFiles(context);
-    }
     
     /**
-     * Registers a git commit context for the project.
+     * Registers a git commit context for the project using static storage.
      */
-    public void registerContext(@NotNull GitCommitContext context) {
-        String projectKey = project.getName();
-        activeContexts.put(projectKey, context);
+    public static void registerContextStatic(@NotNull GitCommitContext context) {
+        String projectKey = context.getProject().getName();
+        GLOBAL_CONTEXTS.put(projectKey, context);
         LOG.info("Registered git commit context for project: " + projectKey);
+        LOG.info("Total active contexts: " + GLOBAL_CONTEXTS.size());
     }
     
     /**
-     * Gets the active context for a project.
+     * Gets the active context for a project using static storage.
      */
-    public GitCommitContext getActiveContext(String projectName) {
-        return activeContexts.get(projectName);
+    public static GitCommitContext getActiveContextStatic(String projectName) {
+        return GLOBAL_CONTEXTS.get(projectName);
     }
     
     /**
-     * Removes the active context for a project.
+     * Removes the active context for a project using static storage.
      */
-    public void removeActiveContext(String projectName) {
-        GitCommitContext removed = activeContexts.remove(projectName);
+    public static void removeActiveContextStatic(String projectName) {
+        GitCommitContext removed = GLOBAL_CONTEXTS.remove(projectName);
         if (removed != null) {
             LOG.info("Removed git commit context for project: " + projectName);
         }
+        LOG.info("Remaining active contexts: " + GLOBAL_CONTEXTS.size());
     }
     
     /**
-     * Gets all active contexts (for debugging/monitoring).
+     * Registers a git commit context for the project (instance method for backward compatibility).
      */
-    public int getActiveContextCount() {
-        return activeContexts.size();
+    public void registerContext(@NotNull GitCommitContext context) {
+        registerContextStatic(context);
+    }
+    
+    /**
+     * Gets the active context for a project (instance method for backward compatibility).
+     */
+    public GitCommitContext getActiveContext(String projectName) {
+        return getActiveContextStatic(projectName);
+    }
+    
+    /**
+     * Removes the active context for a project (instance method for backward compatibility).
+     */
+    public void removeActiveContext(String projectName) {
+        removeActiveContextStatic(projectName);
+    }
+    
+    /**
+     * Gets all active contexts count (for debugging/monitoring).
+     */
+    public static int getActiveContextCount() {
+        return GLOBAL_CONTEXTS.size();
     }
     
     /**
@@ -134,7 +149,8 @@ public class GitService {
      */
     public void dispose() {
         LOG.info("Disposing GitService for project: " + project.getName());
-        activeContexts.clear();
+        // Don't clear all contexts, just log
+        LOG.info("Active contexts remaining: " + GLOBAL_CONTEXTS.size());
     }
 }
 

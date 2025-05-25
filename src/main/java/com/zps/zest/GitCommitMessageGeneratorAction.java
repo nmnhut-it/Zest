@@ -85,9 +85,9 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             return;
         }
 
-        // Register context with GitService for callback handling
-        GitService gitService = new GitService(context.getProject());
-        gitService.registerContext(context);
+        // Register context with GitService using static method
+        GitService.registerContextStatic(context);
+        LOG.info("Context registered for project: " + context.getProject().getName());
 
         // Show modal via JavaScript - proper string escaping
         try {

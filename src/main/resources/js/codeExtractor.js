@@ -353,17 +353,64 @@ function extractFromRegularBlocks(textToReplace) {
 // Git File Selection Modal Functions
 // Function to show file selection modal with changed files
 window.showFileSelectionModal = function(changedFiles) {
-    console.log('Showing file selection modal with files:', changedFiles);
+    console.log('Showing modern file selection modal with files:', changedFiles);
     
     try {
-        // Detect current theme from document
+        // Remove any existing modal
+        const existingModal = document.getElementById('git-file-selection-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Inject the beautiful modal HTML (replaced by Java during setup)
+        const modalHtmlContent = `[[MODAL_HTML_CONTENT]]`;
+        
+        // Create a temporary container to hold the HTML
+        const tempContainer = document.createElement('div');
+        tempContainer.innerHTML = modalHtmlContent;
+        
+        // Append the modal to the body
+        document.body.appendChild(tempContainer);
+        
+        // Parse and populate the file list
+        parseAndPopulateFiles(changedFiles);
+        
+        // Show the modal
+        const modal = document.getElementById('git-file-selection-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            console.log('Modern file selection modal displayed successfully');
+        } else {
+            console.error('Modal element not found after injection');
+        }
+        
+    } catch (e) {
+        console.error('Error showing file selection modal:', e);
+        // Fallback to old modal if injection fails
+        showFallbackFileSelectionModal(changedFiles);
+    }
+};
+
+// Function to parse files and populate the beautiful modal
+function parseAndPopulateFiles(changedFiles) {
+    console.log('Parsing files for modern modal:', changedFiles);
+    // The modal's JavaScript (from the injected HTML) will handle this
+    // We just trigger the existing function if it exists
+    if (typeof window.gitModalInstance !== 'undefined') {
+        window.gitModalInstance.showFileSelectionModal(changedFiles);
+    }
+}
+
+// Fallback function using the old modal (in case injection fails)
+function showFallbackFileSelectionModal(changedFiles) {
+    console.log('Using fallback modal for files:', changedFiles);
+    
+    try {
+        // Keep the old modal implementation as fallback
         const isDark = document.documentElement.classList.contains('dark') || 
                       document.body.classList.contains('dark') ||
                       window.matchMedia('(prefers-color-scheme: dark)').matches;
         
-        console.log('Detected theme:', isDark ? 'dark' : 'light');
-        
-        // Dynamic theme classes
         const themeClasses = {
             modal: isDark ? 'bg-gray-900 text-white' : 'bg-white text-gray-900',
             header: isDark ? 'border-gray-700' : 'border-gray-200',
@@ -374,17 +421,13 @@ window.showFileSelectionModal = function(changedFiles) {
             cancelBtn: isDark ? 'bg-gray-700 hover:bg-gray-600 text-white border-gray-600' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
         };
 
-        // Embed the HTML template directly with dynamic theming
         const modalHtml = `
             <div id="git-file-selection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                 <div class="${themeClasses.modal} rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
-                    <!-- Modal Header -->
                     <div class="px-6 py-4 border-b ${themeClasses.header}">
                         <h3 class="text-lg font-semibold">Select Files to Commit</h3>
                         <p class="text-sm ${themeClasses.subtitle} mt-1">Choose which files to include in your commit</p>
                     </div>
-                    
-                    <!-- File List -->
                     <div class="px-6 py-4 max-h-96 overflow-y-auto">
                         <div class="mb-4 p-3 border ${themeClasses.container} rounded">
                             <label class="flex items-center text-sm font-medium cursor-pointer ${themeClasses.label}">
@@ -393,49 +436,36 @@ window.showFileSelectionModal = function(changedFiles) {
                             </label>
                         </div>
                         <div id="file-list-container" class="border ${themeClasses.container} rounded p-2">
-                            <!-- Files will be populated here by JavaScript -->
                         </div>
                     </div>
-                    
-                    <!-- Modal Footer -->
                     <div class="px-6 py-4 border-t ${themeClasses.header} flex justify-end gap-3">
-                        <button id="cancel-file-selection" 
-                                class="${themeClasses.cancelBtn} transition rounded-md px-4 py-2 text-sm border">
+                        <button id="cancel-file-selection" class="${themeClasses.cancelBtn} transition rounded-md px-4 py-2 text-sm border">
                             Cancel
                         </button>
-                        <button id="proceed-with-commit" 
-                                class="bg-blue-600 hover:bg-blue-700 text-white transition rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
-                                disabled>
-                            Generate & Commit
+                        <button id="proceed-with-commit" class="bg-blue-600 hover:bg-blue-700 text-white transition rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                            🚀 Generate & Send to Chat
                         </button>
                     </div>
                 </div>
             </div>
         `;
 
-        // Inject modal HTML into the page
         const modalContainer = document.createElement('div');
         modalContainer.innerHTML = modalHtml;
         document.body.appendChild(modalContainer.firstElementChild);
         
-        // Populate the file list
         populateFileList(changedFiles, isDark);
         
-        // Show the modal
         const modal = document.getElementById('git-file-selection-modal');
         if (modal) {
             modal.style.display = 'flex';
-            
-            // Set up event listeners
             setupModalEventListeners();
         }
         
-        console.log('File selection modal displayed successfully');
-        
     } catch (e) {
-        console.error('Error showing file selection modal:', e);
+        console.error('Error showing fallback modal:', e);
     }
-};
+}
 
 // Function to populate the file list in the modal
 function populateFileList(changedFiles, isDark = false) {

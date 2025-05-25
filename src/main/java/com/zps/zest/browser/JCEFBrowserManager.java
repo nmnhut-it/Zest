@@ -184,13 +184,59 @@ public class JCEFBrowserManager {
             String responseParserScript = loadResourceAsString("/js/responseParser.js");
             cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
             
-            // Load and inject the code extractor script
+            // Load and inject the code extractor script with modal HTML
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
+            
+            // Load the modal HTML and inject it into the code extractor
+            String modalHtml = loadResourceAsString("/html/fileSelectionModal.html");
+            // Extract just the modal HTML content (between <body> tags)
+            String modalContent = extractModalHtmlContent(modalHtml);
+            // Replace placeholder in codeExtractor with actual modal HTML
+            codeExtractorScript = codeExtractorScript.replace("[[MODAL_HTML_CONTENT]]", modalContent);
+            
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
             
-            LOG.info("JavaScript bridge initialized successfully with chunked messaging support");
+            LOG.info("JavaScript bridge initialized successfully with chunked messaging support and modal HTML injection");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
+        }
+    }
+
+    /**
+     * Extracts the modal HTML content from the complete HTML file
+     */
+    private String extractModalHtmlContent(String fullHtml) {
+        try {
+            // Find the modal div and extract it with its styles
+            int bodyStart = fullHtml.indexOf("<body>");
+            int bodyEnd = fullHtml.indexOf("</body>");
+            
+            if (bodyStart != -1 && bodyEnd != -1) {
+                String bodyContent = fullHtml.substring(bodyStart + 6, bodyEnd);
+                
+                // Also extract the styles
+                int styleStart = fullHtml.indexOf("<style>");
+                int styleEnd = fullHtml.indexOf("</style>");
+                String styles = "";
+                if (styleStart != -1 && styleEnd != -1) {
+                    styles = fullHtml.substring(styleStart, styleEnd + 8);
+                }
+                
+                // Also extract the script
+                int scriptStart = fullHtml.lastIndexOf("<script>");
+                int scriptEnd = fullHtml.lastIndexOf("</script>");
+                String script = "";
+                if (scriptStart != -1 && scriptEnd != -1) {
+                    script = fullHtml.substring(scriptStart, scriptEnd + 9);
+                }
+                
+                return styles + bodyContent + script;
+            }
+            
+            return fullHtml; // Fallback to full HTML if parsing fails
+        } catch (Exception e) {
+            LOG.error("Error extracting modal HTML content", e);
+            return fullHtml; // Fallback to full HTML
         }
     }
 

@@ -953,42 +953,34 @@
             return;
         }
         
-        // Create the message structure expected by your JavaScriptBridgeActions
-        const message = {
-            action: "filesSelectedForCommit",
-            data: {
+        // Update button to show generating state
+        this.textContent = '🔄 Generating...';
+        this.disabled = true;
+        
+        // Send selected files to Java via intellijBridge (matching codeExtractor pattern)
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            console.log('Git modal: Calling IDE bridge with selected files...');
+            window.intellijBridge.callIDE('filesSelectedForCommit', {
                 selectedFiles: selectedFiles.map(file => ({
                     path: file.path,
                     status: file.status
                 }))
-            }
-        };
-        
-        console.log('Git modal: Sending message to Java bridge:', message);
-        
-        try {
-            // Send the message through the JavaScript bridge
-            // This will trigger JavaScriptBridgeActions -> GitService.handleFilesSelected()
-            if (window.javaScriptBridge && typeof window.javaScriptBridge.sendMessage === 'function') {
-                const result = window.javaScriptBridge.sendMessage(JSON.stringify(message));
-                console.log('Git modal: Java bridge response:', result);
-            } else if (window.postMessage) {
-                // Alternative method for some JCEF setups
-                window.postMessage(JSON.stringify(message), '*');
-                console.log('Git modal: Message posted via postMessage');
-            } else {
-                console.log('Git modal: No JavaScript bridge found, storing data as fallback');
-                window.selectedFilesData = message.data;
-            }
-            
-            // Keep modal open so user can see AI generation in chat
-            // The Java code will handle the commit pipeline and eventually close the modal
-            console.log('Git modal: Files sent to Java, modal remains open for AI generation process');
-            
-        } catch (error) {
-            console.error('Git modal: Error calling Java bridge:', error);
-            // Store as fallback
-            window.selectedFilesData = message.data;
+            }).then(function(response) {
+                console.log('Git modal: Selected files sent to IDE successfully:', response);
+                // Keep modal open for commit message display
+            }).catch(function(error) {
+                console.error('Git modal: Failed to send selected files to IDE:', error);
+                // Re-enable button on error
+                document.getElementById('proceed-with-commit').textContent = '🚀 Generate & Send to Chat';
+                document.getElementById('proceed-with-commit').disabled = false;
+                alert('Failed to send files to IDE: ' + error.message);
+            });
+        } else {
+            console.error('Git modal: IntelliJ Bridge not found');
+            // Re-enable button
+            this.textContent = '🚀 Generate & Send to Chat';
+            this.disabled = false;
+            alert('IntelliJ Bridge not available. Please check the connection.');
         }
     });
 
@@ -1046,6 +1038,18 @@
             
         // Hide the commit button since there's an error
         document.querySelector('.commit-actions').style.display = 'none';
+        
+        // Re-enable the generate button
+        const proceedBtn = document.getElementById('proceed-with-commit');
+        proceedBtn.textContent = '🚀 Generate & Send to Chat';
+        proceedBtn.disabled = false;
+    };
+
+    // Create a global instance for external access
+    window.gitModalInstance = {
+        showGeneratedCommitMessage: window.showGeneratedCommitMessage,
+        showCommitError: window.showCommitError,
+        showFileSelectionModal: window.showFileSelectionModal
     };
 
     // Edit functionality
@@ -1082,32 +1086,27 @@
         this.disabled = true;
         this.textContent = '🔄 Committing...';
         
-        // Send commit action to Java
-        const message = {
-            action: "commitFromModal",
-            data: {
+        // Send commit action to Java via intellijBridge (matching codeExtractor pattern)
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            console.log('Git modal: Calling IDE bridge for final commit...');
+            window.intellijBridge.callIDE('commitFromModal', {
                 commitMessage: commitMessage
-            }
-        };
-        
-        console.log('Git modal: Sending commit action to Java:', message);
-        
-        try {
-            if (window.javaScriptBridge && typeof window.javaScriptBridge.sendMessage === 'function') {
-                const result = window.javaScriptBridge.sendMessage(JSON.stringify(message));
-                console.log('Git modal: Java commit response:', result);
-            } else if (window.postMessage) {
-                window.postMessage(JSON.stringify(message), '*');
-            } else {
-                console.log('Git modal: No bridge found, storing commit action as fallback');
-                window.pendingCommitAction = message.data;
-            }
-        } catch (error) {
-            console.error('Git modal: Error sending commit action:', error);
-            // Re-enable button on error
+            }).then(function(response) {
+                console.log('Git modal: Commit successful:', response);
+                // Modal will be closed by Java code
+            }).catch(function(error) {
+                console.error('Git modal: Commit failed:', error);
+                // Re-enable button on error
+                document.getElementById('final-commit-button').disabled = false;
+                document.getElementById('final-commit-button').textContent = '✅ Commit Changes';
+                alert('Failed to commit: ' + error.message);
+            });
+        } else {
+            console.error('Git modal: IntelliJ Bridge not found for commit');
+            // Re-enable button
             this.disabled = false;
             this.textContent = '✅ Commit Changes';
-            alert('Failed to commit: ' + error.message);
+            alert('IntelliJ Bridge not available. Please check the connection.');
         }
     });
 

@@ -341,9 +341,13 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
         // Stage each selected file
         for (GitCommitContext.SelectedFile file : selectedFiles) {
-            String command = "git add \"" + file.getPath() + "\"";
+            // Clean the file path - remove project name prefix if present
+            String cleanPath = cleanFilePath(file.getPath(), project.getName());
+            String command = "git add \"" + cleanPath + "\"";
+            
+            LOG.info("Staging file with command: " + command);
             executeGitCommand(projectPath, command);
-            LOG.info("Staged file: " + file.getPath());
+            LOG.info("Staged file: " + cleanPath);
         }
 
         // Commit with the extracted message
@@ -351,6 +355,44 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         String result = executeGitCommand(projectPath, commitCommand);
         
         LOG.info("Commit executed successfully: " + result);
+    }
+
+    /**
+     * Cleans file path by removing project name prefix if present
+     */
+    private String cleanFilePath(String filePath, String projectName) {
+        if (filePath == null || filePath.isEmpty()) return "";
+        
+        LOG.info("Cleaning file path: '" + filePath + "' for project: '" + projectName + "'");
+        
+        // Remove project name prefix if present
+        if (projectName != null && !projectName.isEmpty()) {
+            String prefix = projectName + "/";
+            if (filePath.startsWith(prefix)) {
+                String cleaned = filePath.substring(prefix.length());
+                LOG.info("Removed project prefix: '" + filePath + "' -> '" + cleaned + "'");
+                return cleaned;
+            }
+        }
+        
+        // Also try to handle cases where the path might have been duplicated
+        // e.g., "5-lite/5-lite/src/..." -> "src/..."
+        String[] parts = filePath.split("/");
+        if (parts.length > 1 && parts[0].equals(parts[1])) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed duplicate prefix: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+        
+        // If path starts with project name, remove it
+        if (projectName != null && parts.length > 0 && parts[0].equals(projectName)) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed project name from path: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+        
+        LOG.info("Path unchanged: '" + filePath + "'");
+        return filePath;
     }
 
     /**
@@ -492,12 +534,16 @@ class GitChangesCollectionStage implements PipelineStage {
                 throw new PipelineExecutionException("Project path not found");
             }
 
+            LOG.info("Project base path: " + projectPath);
+
             // Get the current branch name
             String branchName = executeGitCommand(projectPath, "git rev-parse --abbrev-ref HEAD");
             gitContext.setBranchName(branchName.trim());
 
             // Get list of changed files
             String changedFiles = executeGitCommand(projectPath, "git diff --name-status");
+            LOG.info("Raw git diff --name-status output:");
+            LOG.info(changedFiles);
             gitContext.setChangedFiles(changedFiles);
 
             // Get the git diff
@@ -641,18 +687,39 @@ class CommitPromptGenerationStage implements PipelineStage {
         StringBuilder filtered = new StringBuilder();
         String[] fileLines = changedFiles.split("\n");
         
+        LOG.info("Filtering changed files. Original lines: " + fileLines.length);
+        for (GitCommitContext.SelectedFile selectedFile : selectedFiles) {
+            LOG.info("Selected file path: '" + selectedFile.getPath() + "'");
+        }
+        
         for (String line : fileLines) {
             if (line.trim().isEmpty()) continue;
             
             // Check if this line represents a selected file
             for (GitCommitContext.SelectedFile selectedFile : selectedFiles) {
-                if (line.contains(selectedFile.getPath())) {
+                String originalPath = selectedFile.getPath();
+                
+                // Try both original path and various cleaned versions
+                if (line.contains(originalPath)) {
+                    LOG.info("Matched line with original path: " + line);
                     filtered.append(line).append("\n");
                     break;
+                }
+                
+                // Try removing project name prefix
+                String[] pathParts = originalPath.split("/");
+                if (pathParts.length > 1) {
+                    String withoutFirstPart = String.join("/", java.util.Arrays.copyOfRange(pathParts, 1, pathParts.length));
+                    if (line.contains(withoutFirstPart)) {
+                        LOG.info("Matched line with cleaned path: " + line + " (cleaned: " + withoutFirstPart + ")");
+                        filtered.append(line).append("\n");
+                        break;
+                    }
                 }
             }
         }
         
+        LOG.info("Filtered result: " + filtered.toString());
         return filtered.toString();
     }
 
@@ -669,14 +736,55 @@ class CommitPromptGenerationStage implements PipelineStage {
             // Generate diff for only selected files
             StringBuilder diffCommand = new StringBuilder("git diff");
             for (GitCommitContext.SelectedFile file : selectedFiles) {
-                diffCommand.append(" \"").append(file.getPath()).append("\"");
+                // Clean the file path - remove project name prefix if present
+                String cleanPath = cleanFilePath(file.getPath(), project.getName());
+                diffCommand.append(" \"").append(cleanPath).append("\"");
             }
             
+            LOG.info("Executing git diff command: " + diffCommand.toString());
             return executeGitCommand(projectPath, diffCommand.toString());
         } catch (Exception e) {
             LOG.warn("Failed to filter git diff, using original", e);
             return gitContext.getGitDiff();
         }
+    }
+
+    /**
+     * Cleans file path by removing project name prefix if present
+     */
+    private String cleanFilePath(String filePath, String projectName) {
+        if (filePath == null || filePath.isEmpty()) return "";
+        
+        LOG.info("Cleaning file path: '" + filePath + "' for project: '" + projectName + "'");
+        
+        // Remove project name prefix if present
+        if (projectName != null && !projectName.isEmpty()) {
+            String prefix = projectName + "/";
+            if (filePath.startsWith(prefix)) {
+                String cleaned = filePath.substring(prefix.length());
+                LOG.info("Removed project prefix: '" + filePath + "' -> '" + cleaned + "'");
+                return cleaned;
+            }
+        }
+        
+        // Also try to handle cases where the path might have been duplicated
+        // e.g., "5-lite/5-lite/src/..." -> "src/..."
+        String[] parts = filePath.split("/");
+        if (parts.length > 1 && parts[0].equals(parts[1])) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed duplicate prefix: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+        
+        // If path starts with project name, remove it
+        if (projectName != null && parts.length > 0 && parts[0].equals(projectName)) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed project name from path: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+        
+        LOG.info("Path unchanged: '" + filePath + "'");
+        return filePath;
     }
 
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {

@@ -445,8 +445,12 @@ function populateFileList(changedFiles, isDark = false) {
     // Clear existing content
     container.innerHTML = '';
     
+    console.log('Raw changed files received:', changedFiles);
+    
     // Parse changed files (format: "M\tfile1.txt\nA\tfile2.txt")
     const fileLines = changedFiles.trim().split('\n').filter(line => line.trim());
+    
+    console.log('Parsed file lines:', fileLines);
     
     if (fileLines.length === 0) {
         container.innerHTML = '<p class="text-center text-gray-500 py-4">No changed files found</p>';
@@ -455,10 +459,17 @@ function populateFileList(changedFiles, isDark = false) {
     
     fileLines.forEach((line, index) => {
         const parts = line.split('\t');
-        if (parts.length < 2) return;
+        console.log('Processing line:', line, 'Parts:', parts);
+        
+        if (parts.length < 2) {
+            console.warn('Skipping invalid line:', line);
+            return;
+        }
         
         const status = parts[0].trim();
         const filePath = parts[1].trim();
+        
+        console.log('File:', {status, filePath});
         
         // Create file item with proper theming
         const fileItem = document.createElement('div');
@@ -473,7 +484,7 @@ function populateFileList(changedFiles, isDark = false) {
             <div class="flex items-center p-3 m-1 border rounded ${itemBg}">
                 <input type="checkbox" class="file-checkbox mr-3" data-file-path="${filePath}" data-status="${status}" id="file-${index}">
                 <span class="file-status font-mono font-bold mr-3 px-2 py-1 rounded text-xs" style="background-color: ${statusColor.bg}; color: ${statusColor.text};">${statusLabel}</span>
-                <label for="file-${index}" class="file-path font-mono text-sm cursor-pointer flex-1 ${textColor}">${filePath}</label>
+                <label for="file-${index}" class="file-path font-mono text-sm cursor-pointer flex-1 ${textColor}" title="${filePath}">${filePath}</label>
             </div>
         `;
         

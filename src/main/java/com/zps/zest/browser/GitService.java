@@ -41,10 +41,14 @@ public class GitService {
             JsonArray selectedFilesArray = data.getAsJsonArray("selectedFiles");
             List<GitCommitContext.SelectedFile> selectedFiles = new ArrayList<>();
             
+            LOG.info("Parsing " + selectedFilesArray.size() + " selected files from JavaScript:");
+            
             for (int i = 0; i < selectedFilesArray.size(); i++) {
                 JsonObject fileObj = selectedFilesArray.get(i).getAsJsonObject();
                 String path = fileObj.get("path").getAsString();
                 String status = fileObj.get("status").getAsString();
+                
+                LOG.info("  File " + i + ": path='" + path + "', status='" + status + "'");
                 selectedFiles.add(new GitCommitContext.SelectedFile(path, status));
             }
             
@@ -57,6 +61,9 @@ public class GitService {
                 LOG.info("Available contexts: " + GLOBAL_CONTEXTS.keySet());
                 return createErrorResponse("No active commit context found");
             }
+            
+            // Log what paths git originally gave us
+            LOG.info("Original git diff --name-status from context: " + context.getChangedFiles());
             
             // Update context with selected files
             context.setSelectedFiles(selectedFiles);

@@ -126,7 +126,6 @@ public class JCEFBrowserManager {
                 script, browser.getCefBrowser().getURL(), 0);
     }
 
-// Correct implementation of setupJavaScriptBridge in JCEFBrowserManager.java
 
     private void setupJavaScriptBridge(CefBrowser cefBrowser, CefFrame frame) {
         try {

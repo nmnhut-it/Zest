@@ -4,11 +4,14 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.browser.ChatResponseService;
@@ -20,6 +23,9 @@ import com.zps.zest.browser.GitService;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -185,68 +191,20 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                     CommitMessage commitMessage = extractCommitMessage(response);
                     context.setGeneratedCommitMessage(commitMessage);
 
-                    // STEP 5: Show the generated message in the modal (keep modal open)
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        showGeneratedMessageInModal(project, commitMessage);
-                    });
-
-                    indicator.setText("Commit message generated and displayed in modal!");
+                    indicator.setText("Opening Git commit dialog with AI-generated message!");
                     indicator.setFraction(1.0);
 
                 } catch (Exception e) {
                     LOG.error("Error in commit pipeline", e);
-                    // Show error in modal
+                    // Show error dialog instead of modal
                     ApplicationManager.getApplication().invokeLater(() -> {
-                        showErrorInModal(project, "Failed to generate commit message: " + e.getMessage());
+                        Messages.showErrorDialog(project, 
+                            "Failed to generate commit message: " + e.getMessage(), 
+                            "AI Commit Generation Error");
                     });
                 }
             }
         });
-    }
-
-    /**
-     * Shows the generated commit message in the modal for user review.
-     */
-    private void showGeneratedMessageInModal(Project project, CommitMessage commitMessage) {
-        String escapedSubject = escapeJavaScript(commitMessage.getSubject());
-        String escapedDescription = escapeJavaScript(commitMessage.getDescription());
-        
-        String script = String.format(
-            "if (window.showGeneratedCommitMessage) { " +
-            "window.showGeneratedCommitMessage('%s', '%s'); " +
-            "}",
-            escapedSubject,
-            escapedDescription
-        );
-        
-        WebBrowserService.getInstance(project).executeJavaScript(script);
-        LOG.info("Showed generated commit message in modal");
-    }
-
-    /**
-     * Shows an error message in the modal.
-     */
-    private void showErrorInModal(Project project, String errorMessage) {
-        String escapedError = escapeJavaScript(errorMessage);
-        
-        String script = String.format(
-            "if (window.showCommitError) { " +
-            "window.showCommitError('%s'); " +
-            "}",
-            escapedError
-        );
-        
-        WebBrowserService.getInstance(project).executeJavaScript(script);
-        LOG.info("Showed error in modal: " + errorMessage);
-    }
-
-    private static String escapeJavaScript(String input) {
-        if (input == null) return "";
-        return input.replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r");
     }
 
     /**
@@ -338,6 +296,15 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         if (!subject.isEmpty()) {
             LOG.info("Using commit-short as subject: '" + subject + "'");
             LOG.info("Using commit-long body as description (length: " + description.length() + ")");
+            
+            // Add AI attribution to the description
+            String aiAttribution = "\n\nCo-authored-by: AI Assistant <ai@zest-ide.com>";
+            if (!description.isEmpty()) {
+                description = description + aiAttribution;
+            } else {
+                description = aiAttribution.trim(); // Remove leading newlines if description was empty
+            }
+            
             return new CommitMessage(subject, description);
         }
 
@@ -348,7 +315,14 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             if (longEndIdx != -1) {
                 String longMessage = response.substring(longStartIdx, longEndIdx).trim();
                 LOG.info("No commit-short found, parsing commit-long normally");
-                return parseCommitMessage(longMessage);
+                CommitMessage parsedMessage = parseCommitMessage(longMessage);
+                
+                // Add AI attribution
+                String aiAttribution = "\n\nCo-authored-by: AI Assistant <ai@zest-ide.com>";
+                String enhancedDescription = parsedMessage.getDescription().isEmpty() ? 
+                    aiAttribution.trim() : parsedMessage.getDescription() + aiAttribution;
+                
+                return new CommitMessage(parsedMessage.getSubject(), enhancedDescription);
             }
         }
 
@@ -391,11 +365,17 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 LOG.info("Description preview: " + fallbackDescriptionStr.substring(0, Math.min(100, fallbackDescriptionStr.length())) + 
                         (fallbackDescriptionStr.length() > 100 ? "..." : ""));
             }
-            return new CommitMessage(fallbackSubject, fallbackDescriptionStr);
+            
+            // Add AI attribution
+            String aiAttribution = "\n\nCo-authored-by: AI Assistant <ai@zest-ide.com>";
+            String enhancedDescription = fallbackDescriptionStr.isEmpty() ? 
+                aiAttribution.trim() : fallbackDescriptionStr + aiAttribution;
+            
+            return new CommitMessage(fallbackSubject, enhancedDescription);
         }
 
         LOG.warn("No commit message found, using default");
-        return new CommitMessage("Update selected files", "");
+        return new CommitMessage("Update selected files", "Co-authored-by: AI Assistant <ai@zest-ide.com>");
     }
 
     /**
@@ -680,14 +660,14 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         LOG.info("Sending commit message prompt to chat box using new chat and model: " + modelName);
 
         // Start a new chat with the desired model and prompt
-
         ChatboxUtilities.clickNewChatButton(project);
-// Use browserService.executeJavaScript() before creating the new chat
+        
+        // Use browserService.executeJavaScript() before creating the new chat
         String script = "window.__selected_model_name__ = '" + modelName + "';";
         WebBrowserService.getInstance(project).executeJavaScript(script);
+        
         ChatboxUtilities.sendTextAndSubmit(project, prompt, false, null, false, ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE);
-// Then call newChat as usual
-//        ChatboxUtilities.newChat(project, modelName, prompt);
+
         // Activate browser tool window on EDT
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -700,61 +680,12 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Handles final commit action from the modal after user reviews the generated message.
+     * DEPRECATED: Old modal-based commit - no longer used with Git standard workflow
+     * Kept for reference but not used in current workflow
      */
+    @Deprecated
     public static void commitFromModal(GitCommitContext context) {
-        if (context == null) {
-            LOG.error("Cannot commit: GitCommitContext is null");
-            return;
-        }
-        
-        Object storedMessage = context.getGeneratedCommitMessage();
-        if (!(storedMessage instanceof CommitMessage)) {
-            LOG.error("Cannot commit: No valid generated commit message found");
-            return;
-        }
-        
-        CommitMessage commitMessage = (CommitMessage) storedMessage;
-        Project project = context.getProject();
-        
-        // Execute commit in background
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Committing Changes", false) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                try {
-                    indicator.setText("Staging and committing files...");
-                    indicator.setFraction(0.5);
-                    
-                    GitCommitMessageGeneratorAction action = new GitCommitMessageGeneratorAction();
-                    action.stageAndCommit(context, commitMessage);
-                    
-                    indicator.setText("Commit completed successfully!");
-                    indicator.setFraction(1.0);
-                    
-                    // Close modal and show success
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        WebBrowserService.getInstance(project).executeJavaScript(
-                            "document.getElementById('git-file-selection-modal').style.display = 'none';"
-                        );
-                        
-                        Messages.showInfoMessage(project, 
-                            "Files committed successfully!", 
-                            "Commit Successful");
-                    });
-                        
-                } catch (Exception e) {
-                    LOG.error("Error committing from modal", e);
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        // Show error in modal
-                        String script = String.format(
-                            "if (window.showCommitError) { window.showCommitError('%s'); }",
-                            escapeJavaScript(e.getMessage())
-                        );
-                        WebBrowserService.getInstance(project).executeJavaScript(script);
-                    });
-                }
-            }
-        });
+        LOG.warn("commitFromModal() called but is deprecated. Using Git standard workflow instead.");
     }
     private void showError(Project project, PipelineExecutionException e) {
         e.printStackTrace();

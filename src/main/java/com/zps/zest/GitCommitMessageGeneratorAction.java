@@ -11,12 +11,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.zps.zest.browser.ChatResponseService;
 import com.zps.zest.browser.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
-import com.zps.zest.browser.ChatResponseService;
+import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.GitService;
- import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -88,19 +89,101 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         GitService gitService = new GitService(context.getProject());
         gitService.registerContext(context);
 
-        // Show modal via JavaScript
-        WebBrowserService.getInstance(context.getProject())
-            .executeJavaScript("if (window.showFileSelectionModal) window.showFileSelectionModal('" + 
-                escapeJavaScript(changedFiles) + "');");
+        // Show modal via JavaScript - proper string escaping
+        try {
+            String escapedFiles = changedFiles.replace("\\", "\\\\")
+                                             .replace("\"", "\\\"")
+                                             .replace("\n", "\\n")
+                                             .replace("\r", "\\r")
+                                             .replace("\t", "\\t");
+            
+            String script = "if (window.showFileSelectionModal) { window.showFileSelectionModal(\"" + escapedFiles + "\"); }";
+            
+            LOG.info("Showing file selection modal for files: " + changedFiles.substring(0, Math.min(100, changedFiles.length())));
+            WebBrowserService.getInstance(context.getProject()).executeJavaScript(script);
+            
+        } catch (Exception e) {
+            LOG.error("Error showing file selection modal", e);
+            Messages.showErrorDialog(context.getProject(), "Failed to show file selection: " + e.getMessage(), "Error");
+        }
     }
 
     /**
-     * Continues with selected files (called by GitService)
+     * Continues with selected files (called by GitService) 
+     * Following the pattern from ChatboxLlmApiCallStage
      */
     public static void continueWithSelectedFiles(GitCommitContext context) {
-        // Create a temporary instance to access the pipeline method
         GitCommitMessageGeneratorAction action = new GitCommitMessageGeneratorAction();
-        action.executeGitCommitPipeline(context);
+        action.executeCommitWithResponse(context);
+    }
+
+    /**
+     * Executes commit pipeline with proper response handling
+     * Following the pattern from ChatboxLlmApiCallStage
+     */
+    private void executeCommitWithResponse(GitCommitContext context) {
+        Project project = context.getProject();
+        if (project == null) return;
+
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Processing Commit", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    indicator.setText("Generating commit message prompt...");
+                    indicator.setFraction(0.1);
+
+                    // Generate prompt for selected files
+                    CommitPromptGenerationStage promptStage = new CommitPromptGenerationStage();
+                    promptStage.process(context);
+
+                    String prompt = context.getPrompt();
+                    if (prompt == null || prompt.isEmpty()) {
+                        throw new PipelineExecutionException("Failed to generate commit message prompt");
+                    }
+
+                    indicator.setText("Setting up response listener...");
+                    indicator.setFraction(0.3);
+
+                    // STEP 1: Set up response listener FIRST (like ChatboxLlmApiCallStage)
+                    WebBrowserService browserService = WebBrowserService.getInstance(project);
+                    JavaScriptBridge jsBridge = browserService.getBrowserPanel().getBrowserManager().getJavaScriptBridge();
+                    java.util.concurrent.CompletableFuture<String> responseFuture = jsBridge.waitForChatResponse(300); // 5 minutes
+
+                    indicator.setText("Sending prompt to chat...");
+                    indicator.setFraction(0.5);
+
+                    // STEP 2: Send prompt (like ChatboxLlmApiCallStage)
+                    boolean sent = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
+                    if (!sent) {
+                        throw new PipelineExecutionException("Failed to send prompt to chat box");
+                    }
+
+                    indicator.setText("Waiting for LLM response...");
+                    indicator.setFraction(0.7);
+
+                    // STEP 3: Wait for response (like ChatboxLlmApiCallStage)
+                    String response = responseFuture.get(); // This blocks until response or timeout
+
+                    if (response == null || response.trim().isEmpty()) {
+                        throw new PipelineExecutionException("No response received from chat");
+                    }
+
+                    indicator.setText("Processing response and committing...");
+                    indicator.setFraction(0.9);
+
+                    // Extract commit message and commit
+                    String commitMessage = extractCommitMessage(response);
+                    stageAndCommit(context, commitMessage);
+
+                    indicator.setText("Commit completed successfully!");
+                    indicator.setFraction(1.0);
+
+                } catch (Exception e) {
+                    LOG.error("Error in commit pipeline", e);
+                    showError(project, new PipelineExecutionException("Commit failed: " + e.getMessage(), e));
+                }
+            }
+        });
     }
 
     private String escapeJavaScript(String input) {
@@ -128,6 +211,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 try {
                     // Create and execute the git commit pipeline
                     GitCommitPipeline pipeline = new GitCommitPipeline()
+                            .addStage(new GitChangesCollectionStage())
                             .addStage(new CommitPromptGenerationStage());
 
                     // Execute each stage with progress updates
@@ -200,7 +284,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             
             // Stage selected files and commit
             stageAndCommit(context, commitMessage);
-            
+
             indicator.setText("Commit completed successfully!");
             indicator.setFraction(1.0);
             

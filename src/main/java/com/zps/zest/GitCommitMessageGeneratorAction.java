@@ -128,14 +128,14 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Executes commit pipeline with proper response handling
-     * Following the pattern from ChatboxLlmApiCallStage
+     * Executes commit pipeline with proper response handling.
+     * Modal stays open, shows generated message, user commits from modal.
      */
     private void executeCommitWithResponse(GitCommitContext context) {
         Project project = context.getProject();
         if (project == null) return;
 
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Processing Commit", true) {
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Generating Commit Message", true) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 try {
@@ -154,7 +154,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                     indicator.setText("Setting up response listener...");
                     indicator.setFraction(0.3);
 
-                    // STEP 1: Set up response listener FIRST (like ChatboxLlmApiCallStage)
+                    // STEP 1: Set up response listener FIRST
                     WebBrowserService browserService = WebBrowserService.getInstance(project);
                     JavaScriptBridge jsBridge = browserService.getBrowserPanel().getBrowserManager().getJavaScriptBridge();
                     java.util.concurrent.CompletableFuture<String> responseFuture = jsBridge.waitForChatResponse(300); // 5 minutes
@@ -162,41 +162,85 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                     indicator.setText("Sending prompt to chat...");
                     indicator.setFraction(0.5);
 
-                    // STEP 2: Send prompt (like ChatboxLlmApiCallStage)
+                    // STEP 2: Send prompt to chat
                     boolean sent = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
                     if (!sent) {
                         throw new PipelineExecutionException("Failed to send prompt to chat box");
                     }
 
-                    indicator.setText("Waiting for LLM response...");
+                    indicator.setText("Waiting for AI response...");
                     indicator.setFraction(0.7);
 
-                    // STEP 3: Wait for response (like ChatboxLlmApiCallStage)
+                    // STEP 3: Wait for response
                     String response = responseFuture.get(); // This blocks until response or timeout
 
                     if (response == null || response.trim().isEmpty()) {
                         throw new PipelineExecutionException("No response received from chat");
                     }
 
-                    indicator.setText("Processing response and committing...");
+                    indicator.setText("Processing AI response...");
                     indicator.setFraction(0.9);
 
-                    // Extract commit message and commit
+                    // STEP 4: Extract commit message from AI response
                     CommitMessage commitMessage = extractCommitMessage(response);
-                    stageAndCommit(context, commitMessage);
+                    context.setGeneratedCommitMessage(commitMessage);
 
-                    indicator.setText("Commit completed successfully!");
+                    // STEP 5: Show the generated message in the modal (keep modal open)
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        showGeneratedMessageInModal(project, commitMessage);
+                    });
+
+                    indicator.setText("Commit message generated and displayed in modal!");
                     indicator.setFraction(1.0);
 
                 } catch (Exception e) {
                     LOG.error("Error in commit pipeline", e);
-                    showError(project, new PipelineExecutionException("Commit failed: " + e.getMessage(), e));
+                    // Show error in modal
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        showErrorInModal(project, "Failed to generate commit message: " + e.getMessage());
+                    });
                 }
             }
         });
     }
 
-    private String escapeJavaScript(String input) {
+    /**
+     * Shows the generated commit message in the modal for user review.
+     */
+    private void showGeneratedMessageInModal(Project project, CommitMessage commitMessage) {
+        String escapedSubject = escapeJavaScript(commitMessage.getSubject());
+        String escapedDescription = escapeJavaScript(commitMessage.getDescription());
+        
+        String script = String.format(
+            "if (window.showGeneratedCommitMessage) { " +
+            "window.showGeneratedCommitMessage('%s', '%s'); " +
+            "}",
+            escapedSubject,
+            escapedDescription
+        );
+        
+        WebBrowserService.getInstance(project).executeJavaScript(script);
+        LOG.info("Showed generated commit message in modal");
+    }
+
+    /**
+     * Shows an error message in the modal.
+     */
+    private void showErrorInModal(Project project, String errorMessage) {
+        String escapedError = escapeJavaScript(errorMessage);
+        
+        String script = String.format(
+            "if (window.showCommitError) { " +
+            "window.showCommitError('%s'); " +
+            "}",
+            escapedError
+        );
+        
+        WebBrowserService.getInstance(project).executeJavaScript(script);
+        LOG.info("Showed error in modal: " + errorMessage);
+    }
+
+    private static String escapeJavaScript(String input) {
         if (input == null) return "";
         return input.replace("\\", "\\\\")
                 .replace("'", "\\'")
@@ -206,104 +250,23 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Executes the git commit message generator pipeline.
+     * DEPRECATED: Old pipeline method - use executeCommitWithResponse() instead
+     * Kept for reference but not used in current workflow
      */
+    @Deprecated
     private void executeGitCommitPipeline(GitCommitContext context) {
-        Project project = context.getProject();
-        if (project == null) return;
-
-        // Use a background task with progress indicators
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Generating Commit Message", true) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                indicator.setIndeterminate(false);
-
-                try {
-                    // Create and execute the git commit pipeline
-                    GitCommitPipeline pipeline = new GitCommitPipeline()
-                            .addStage(new GitChangesCollectionStage())
-                            .addStage(new CommitPromptGenerationStage());
-
-                    // Execute each stage with progress updates
-                    int totalStages = pipeline.getStageCount();
-                    for (int i = 0; i < totalStages; i++) {
-                        PipelineStage stage = pipeline.getStage(i);
-                        String stageName = stage.getClass().getSimpleName()
-                                .replace("Stage", "")
-                                .replaceAll("([A-Z])", " $1").trim();
-
-                        indicator.setText("Stage " + (i + 1) + "/" + totalStages + ": " + stageName);
-                        indicator.setFraction((double) i / totalStages);
-
-                        // Process the current stage
-                        stage.process(context);
-
-                        // Update progress
-                        indicator.setFraction((double) (i + 1) / totalStages);
-                    }
-
-                    // Get the analysis result from the context
-                    String prompt = context.getPrompt();
-                    if (prompt == null || prompt.isEmpty()) {
-                        throw new PipelineExecutionException("Failed to generate commit message prompt");
-                    }
-
-                    indicator.setText("Sending prompt to chat...");
-                    indicator.setFraction(0.8);
-
-                    // Send the analysis to the chat box using newChat with the chosen model
-                    boolean success = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
-                    if (!success) {
-                        throw new PipelineExecutionException("Failed to send commit prompt to chat box");
-                    }
-
-                    indicator.setText("Waiting for LLM response...");
-                    indicator.setFraction(0.9);
-
-                    // Wait for chat response and commit
-                    waitForResponseAndCommit(context, indicator);
-
-                } catch (PipelineExecutionException e) {
-                    showError(project, e);
-                } catch (Exception e) {
-                    showError(project, new PipelineExecutionException("Unexpected error", e));
-                }
-            }
-        });
+        // This method is no longer used - the new workflow uses executeCommitWithResponse()
+        LOG.warn("executeGitCommitPipeline() called but is deprecated. Use executeCommitWithResponse() instead.");
     }
 
     /**
-     * Waits for chat response and executes git commit
+     * DEPRECATED: Old response handling - integrated into executeCommitWithResponse()
+     * Kept for reference but not used in current workflow  
      */
+    @Deprecated
     private void waitForResponseAndCommit(GitCommitContext context, ProgressIndicator indicator) {
-        Project project = context.getProject();
-        ChatResponseService responseService = new ChatResponseService(project);
-
-        try {
-            // Wait for chat response (30 second timeout)
-            String response = responseService.waitForChatResponse(30).get();
-
-            if (response == null || response.trim().isEmpty()) {
-                throw new PipelineExecutionException("No response received from chat");
-            }
-
-            indicator.setText("Processing response and committing...");
-
-            // Extract commit message from response
-            CommitMessage commitMessage = extractCommitMessage(response);
-
-            // Stage selected files and commit
-            stageAndCommit(context, commitMessage);
-
-            indicator.setText("Commit completed successfully!");
-            indicator.setFraction(1.0);
-
-        } catch (Exception e) {
-            LOG.error("Error waiting for response or committing", e);
-            throw new RuntimeException("Failed to complete commit: " + e.getMessage(), e);
-        } finally {
-            responseService.dispose();
-        }
+        // This method is no longer used - response handling is now in executeCommitWithResponse()
+        LOG.warn("waitForResponseAndCommit() called but is deprecated. Response handling is now in executeCommitWithResponse().");
     }
 
     /**
@@ -737,14 +700,77 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Shows an error message on the UI thread.
+     * Handles final commit action from the modal after user reviews the generated message.
      */
+    public static void commitFromModal(GitCommitContext context) {
+        if (context == null) {
+            LOG.error("Cannot commit: GitCommitContext is null");
+            return;
+        }
+        
+        Object storedMessage = context.getGeneratedCommitMessage();
+        if (!(storedMessage instanceof CommitMessage)) {
+            LOG.error("Cannot commit: No valid generated commit message found");
+            return;
+        }
+        
+        CommitMessage commitMessage = (CommitMessage) storedMessage;
+        Project project = context.getProject();
+        
+        // Execute commit in background
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Committing Changes", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    indicator.setText("Staging and committing files...");
+                    indicator.setFraction(0.5);
+                    
+                    GitCommitMessageGeneratorAction action = new GitCommitMessageGeneratorAction();
+                    action.stageAndCommit(context, commitMessage);
+                    
+                    indicator.setText("Commit completed successfully!");
+                    indicator.setFraction(1.0);
+                    
+                    // Close modal and show success
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        WebBrowserService.getInstance(project).executeJavaScript(
+                            "document.getElementById('git-file-selection-modal').style.display = 'none';"
+                        );
+                        
+                        Messages.showInfoMessage(project, 
+                            "Files committed successfully!", 
+                            "Commit Successful");
+                    });
+                        
+                } catch (Exception e) {
+                    LOG.error("Error committing from modal", e);
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        // Show error in modal
+                        String script = String.format(
+                            "if (window.showCommitError) { window.showCommitError('%s'); }",
+                            escapeJavaScript(e.getMessage())
+                        );
+                        WebBrowserService.getInstance(project).executeJavaScript(script);
+                    });
+                }
+            }
+        });
+    }
     private void showError(Project project, PipelineExecutionException e) {
         e.printStackTrace();
         LOG.error("Error in GitCommitMessageGeneratorAction: " + e.getMessage(), e);
 
         ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
+        });
+    }
+
+    /**
+     * Shows a success notification on the UI thread.
+     */
+    private void showSuccess(Project project, String message, String title) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            Messages.showInfoMessage(project, message, title);
         });
     }
 }

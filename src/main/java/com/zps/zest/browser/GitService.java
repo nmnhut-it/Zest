@@ -142,8 +142,35 @@ public class GitService {
     }
     
     /**
-     * Creates an error response in JSON format.
+     * Handles commit action from modal after user reviews generated message.
      */
+    public String handleCommitFromModal(JsonObject data) {
+        LOG.info("Processing commit from modal");
+        
+        try {
+            // Find active context for this project
+            GitCommitContext context = getActiveContextStatic(project.getName());
+            if (context == null) {
+                LOG.error("No active git commit context found for commit from modal");
+                return createErrorResponse("No active commit context found");
+            }
+            
+            // Execute the commit
+            GitCommitMessageGeneratorAction.commitFromModal(context);
+            
+            // Clean up context after successful commit
+            removeActiveContextStatic(project.getName());
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("message", "Commit initiated successfully");
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error handling commit from modal", e);
+            return createErrorResponse("Failed to commit: " + e.getMessage());
+        }
+    }
     private String createErrorResponse(String errorMessage) {
         JsonObject response = new JsonObject();
         response.addProperty("success", false);

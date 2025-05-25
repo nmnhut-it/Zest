@@ -15,6 +15,7 @@ public class GitCommitContext extends CodeContext {
     private List<SelectedFile> selectedFiles;
     private Project project;
     private com.intellij.openapi.actionSystem.AnActionEvent event;
+    private Object generatedCommitMessage; // Store the generated commit message
 
     // Getters and setters
     public String getGitDiff() { return gitDiff; }
@@ -37,6 +38,9 @@ public class GitCommitContext extends CodeContext {
 
     public com.intellij.openapi.actionSystem.AnActionEvent getEvent() { return event; }
     public void setEvent(com.intellij.openapi.actionSystem.AnActionEvent event) { this.event = event; }
+
+    public Object getGeneratedCommitMessage() { return generatedCommitMessage; }
+    public void setGeneratedCommitMessage(Object generatedCommitMessage) { this.generatedCommitMessage = generatedCommitMessage; }
 
     /**
      * Inner class for selected files with status

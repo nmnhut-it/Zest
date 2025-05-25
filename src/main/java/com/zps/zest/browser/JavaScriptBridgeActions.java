@@ -105,6 +105,9 @@ public class JavaScriptBridgeActions {
                 case "filesSelectedForCommit":
                     return gitService.handleFilesSelected(data);
                 
+                case "commitFromModal":
+                    return gitService.handleCommitFromModal(data);
+                
                 // Content update handling
                 case "contentUpdated":
                     return handleContentUpdated(data);

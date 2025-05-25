@@ -1,77 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git Commit Modal</title>
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            line-height: 1.5;
+            color: #374151;
+        }
+
+        /* Modal backdrop */
+        #git-file-selection-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 16px;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Modal container */
+        .modal-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 100%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(20px) scale(0.96);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Header */
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+
+        .modal-subtitle {
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        /* Content area */
+        .modal-content {
+            display: flex;
+            flex-direction: column;
+            height: calc(90vh - 160px);
+            min-height: 400px;
+        }
+
+        /* File list section */
+        .file-section {
+            flex-shrink: 0;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .file-section-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .select-all-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-count {
+            font-size: 12px;
+            color: #6b7280;
+            background: #e5e7eb;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 8px 24px 16px;
+        }
+
+        /* File items */
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 8px;
+            border-radius: 8px;
+            margin: 2px 0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .file-item:hover {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(147, 51, 234, 0.05));
+            transform: translateX(4px);
+        }
+
+        .file-item.selected {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+            border-left: 3px solid #3b82f6;
+        }
+
+        .file-checkbox {
+            width: 16px;
+            height: 16px;
+            margin-right: 12px;
+            border-radius: 4px;
+            border: 2px solid #d1d5db;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .file-checkbox:checked {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-color: #3b82f6;
+        }
+
+        .file-status {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            font-weight: 600;
+            font-size: 10px;
+            margin-right: 12px;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-status.modified { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .file-status.added { background: linear-gradient(135deg, #10b981, #059669); }
+        .file-status.deleted { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .file-status.renamed { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+
+        .file-path {
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            flex: 1;
+        }
+
+        /* Diff section - only visible on wider screens */
+        .diff-section {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            background: white;
+        }
+
+        .diff-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+        }
+
+        .diff-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 4px;
+        }
+
+        .diff-file-name {
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 13px;
+            color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .diff-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            background: #f9fafb;
+            white-space: pre-wrap;
+        }
+
+        .diff-line {
+            padding: 2px 8px;
+            margin: 1px 0;
+            border-left: 3px solid transparent;
+            display: block;
+        }
+
+        .diff-line-added {
+            background: rgba(16, 185, 129, 0.1);
+            border-left-color: #10b981;
+            color: #065f46;
+        }
+
+        .diff-line-removed {
+            background: rgba(239, 68, 68, 0.1);
+            border-left-color: #ef4444;
+            color: #7f1d1d;
+        }
+
+        .diff-line-context {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .diff-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #9ca3af;
+            text-align: center;
+        }
+
+        .diff-placeholder-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Footer */
+        .modal-footer {
+            padding: 20px 24px;
+            border-top: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-info {
+            font-size: 14px;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .footer-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-secondary {
+            background: #f8fafc;
+            color: #475569;
+            border: 2px solid #e2e8f0;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px 0 rgba(59, 130, 246, 0.4);
+        }
+
+        /* Scrollbar styling */
+        .file-list::-webkit-scrollbar,
+        .diff-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .file-list::-webkit-scrollbar-track,
+        .diff-content::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .file-list::-webkit-scrollbar-thumb,
+        .diff-content::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-radius: 10px;
+        }
+
+        /* Commit message section */
+        .commit-message-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .commit-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .commit-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0c4a6e;
+        }
+
+        .btn-edit {
+            background: none;
+            border: 1px solid #cbd5e1;
+            color: #475569;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-edit:hover {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+        }
+
+        .commit-message-display {
+            flex: 1;
+            padding: 20px 24px;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #fafafa;
+            white-space: pre-wrap;
+            overflow-y: auto;
+        }
+
+        .commit-message-edit {
+            flex: 1;
+            padding: 16px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .commit-textarea {
+            flex: 1;
+            min-height: 120px;
+            padding: 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+
+        .commit-textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .edit-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .commit-actions {
+            padding: 16px 24px;
+            border-top: 1px solid #e5e7eb;
+            background: #f8fafc;
+            display: flex;
+            justify-content: center;
+        }
+
+        .commit-actions .btn {
+            min-width: 150px;
+        }
+        @media (min-width: 768px) {
+            .modal-container {
+                max-width: 1200px;
+            }
+
+            .modal-content {
+                flex-direction: row;
+                height: calc(90vh - 180px);
+            }
+
+            .file-section {
+                width: 400px;
+                flex-shrink: 0;
+                border-right: 1px solid #e5e7eb;
+                border-bottom: none;
+            }
+
+            .file-list {
+                max-height: none;
+                height: calc(100% - 60px);
+            }
+
+            .diff-section {
+                display: flex;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #git-file-selection-modal {
+                padding: 8px;
+            }
+
+            .modal-header {
+                padding: 20px;
+            }
+
+            .modal-title {
+                font-size: 18px;
+            }
+
+            .file-section-header,
+            .modal-footer {
+                padding: 16px 20px;
+            }
+
+            .file-list {
+                padding: 8px 20px 16px;
+            }
+
+            .file-item {
+                padding: 14px 8px;
+            }
+
+            .btn {
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+
+            .footer-buttons {
+                flex-direction: column;
+                width: 100%;
+                gap: 8px;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            body {
+                color: #d1d5db;
+            }
+
+            .modal-container {
+                background: #1f2937;
+                color: #d1d5db;
+            }
+
+            .modal-header,
+            .modal-footer {
+                background: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+                border-color: #4b5563;
+            }
+
+            .modal-title {
+                color: #f9fafb;
+            }
+
+            .modal-subtitle {
+                color: #9ca3af;
+            }
+
+            .file-section {
+                background: #374151;
+                border-color: #4b5563;
+            }
+
+            .file-section-header {
+                border-color: #4b5563;
+            }
+
+            .file-count {
+                background: #4b5563;
+                color: #d1d5db;
+            }
+
+            .file-path {
+                color: #d1d5db;
+            }
+
+            .diff-section {
+                background: #1f2937;
+            }
+
+            .diff-header {
+                background: #374151;
+                border-color: #4b5563;
+            }
+
+            .diff-title {
+                color: #f9fafb;
+            }
+
+            .diff-content {
+                background: #374151;
+            }
+
+            .diff-line-context {
+                background: #4b5563;
+                color: #9ca3af;
+            }
+
+            .btn-secondary {
+                background: #374151;
+                color: #d1d5db;
+                border-color: #4b5563;
+            }
+
+            .btn-secondary:hover:not(:disabled) {
+                background: #4b5563;
+                border-color: #6b7280;
+            }
+        }
+    </style>
+</head>
+<body>
+
 <!-- Git File Selection Modal -->
-<div id="git-file-selection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="display: none;">
-    <div class="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
-        <!-- Modal Header -->
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Select Files to Commit</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Choose which files to include in your commit</p>
+<div id="git-file-selection-modal">
+    <div class="modal-container">
+        <!-- Header -->
+        <div class="modal-header">
+            <h3 class="modal-title">Commit Changes</h3>
+            <p class="modal-subtitle">Select files and let AI generate your commit message</p>
         </div>
         
-        <!-- File List -->
-        <div class="px-6 py-4 max-h-96 overflow-y-auto">
-            <div id="file-list-container">
-                <!-- Files will be populated here by JavaScript -->
+        <!-- Content -->
+        <div class="modal-content">
+            <!-- File Selection Section -->
+            <div class="file-section">
+                <div class="file-section-header">
+                    <div class="select-all-container">
+                        <input type="checkbox" id="select-all-files" class="file-checkbox">
+                        <label for="select-all-files">Select All</label>
+                    </div>
+                    <div class="file-count" id="selected-count">0 selected</div>
+                </div>
+                
+                <div class="file-list" id="file-list-container">
+                    <!-- Files will be populated here by JavaScript -->
+                </div>
+            </div>
+            
+            <!-- Diff Preview Section (desktop only) -->
+            <div class="diff-section">
+                <div class="diff-header">
+                    <div class="diff-title">File Preview</div>
+                    <div class="diff-file-name" id="current-diff-file">Select a file to view changes</div>
+                </div>
+                <div class="diff-content" id="diff-content">
+                    <div class="diff-placeholder">
+                        <div class="diff-placeholder-icon">📄</div>
+                        <div>
+                            <div style="font-weight: 600; margin-bottom: 8px;">File Changes</div>
+                            <div>Click on a file to see its git diff</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Commit Message Section (shows after AI generates message) -->
+            <div class="commit-message-section" id="commit-message-section" style="display: none;">
+                <div class="commit-header">
+                    <div class="commit-title">🤖 AI Generated Commit Message</div>
+                    <button id="edit-commit-message" class="btn-edit">✏️ Edit</button>
+                </div>
+                <div class="commit-message-display" id="commit-message-display">
+                    <!-- Generated message will be shown here -->
+                </div>
+                <div class="commit-message-edit" id="commit-message-edit" style="display: none;">
+                    <textarea id="commit-message-textarea" class="commit-textarea" placeholder="Edit commit message..."></textarea>
+                    <div class="edit-buttons">
+                        <button id="cancel-edit" class="btn btn-secondary">Cancel</button>
+                        <button id="save-edit" class="btn btn-primary">Save</button>
+                    </div>
+                </div>
+                <div class="commit-actions">
+                    <button id="final-commit-button" class="btn btn-primary">
+                        ✅ Commit Changes
+                    </button>
+                </div>
             </div>
         </div>
         
-        <!-- Modal Footer -->
-        <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
-            <div class="flex items-center">
-                <input type="checkbox" id="select-all-files" class="mr-2">
-                <label for="select-all-files" class="text-sm text-gray-700 dark:text-gray-300">Select All</label>
+        <!-- Footer -->
+        <div class="modal-footer">
+            <div class="footer-info">
+                <span id="file-count-display">No files selected</span>
             </div>
-            <div class="flex gap-3">
-                <button id="cancel-file-selection" 
-                        class="bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-4 py-2 text-sm border border-gray-200 dark:border-gray-700">
+            <div class="footer-buttons">
+                <button id="cancel-file-selection" class="btn btn-secondary">
                     Cancel
                 </button>
-                <button id="proceed-with-commit" 
-                        class="bg-blue-600 hover:bg-blue-700 text-white transition rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
-                        disabled>
-                    Generate & Commit
+                <button id="proceed-with-commit" class="btn btn-primary" disabled>
+                    🚀 Generate & Send to Chat
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<style>
-/* Custom styles for the modal */
-#git-file-selection-modal .file-item {
-    display: flex;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid rgba(0,0,0,0.1);
-}
+<script>
+// READY-TO-USE Modal that integrates with your existing Java code
+(function() {
+    let allFiles = [];
+    let gitDiffData = "";
 
-#git-file-selection-modal .file-item:last-child {
-    border-bottom: none;
-}
+    // Main function called by your Java code: showFileSelectionModal(escapedFiles)
+    window.showFileSelectionModal = function(escapedFiles) {
+        console.log('Git modal: Received file data from Java');
+        
+        try {
+            // Unescape the files data from Java
+            const filesData = escapedFiles
+                .replace(/\\n/g, '\n')
+                .replace(/\\r/g, '\r')
+                .replace(/\\t/g, '\t')
+                .replace(/\\\\/g, '\\')
+                .replace(/\\"/g, '"');
+            
+            console.log('Git modal: Parsed files data:', filesData);
+            
+            // Parse git status format
+            parseGitFiles(filesData);
+            
+            // Show modal
+            const modal = document.getElementById('git-file-selection-modal');
+            modal.style.display = 'flex';
+            
+            // Update UI
+            renderFileList();
+            updateFileCounts();
+            
+            console.log('Git modal: Modal displayed with', allFiles.length, 'files');
+            
+        } catch (error) {
+            console.error('Git modal: Error processing file data:', error);
+        }
+    };
 
-#git-file-selection-modal .file-checkbox {
-    margin-right: 12px;
-}
+    // Parse git diff --name-status output
+    function parseGitFiles(data) {
+        allFiles = [];
+        const lines = data.split('\n');
+        
+        lines.forEach(line => {
+            line = line.trim();
+            if (line && line.length > 2) {
+                // Git format: "M\tfilename" or "A\tfilename" 
+                const tabIndex = line.indexOf('\t');
+                if (tabIndex > 0) {
+                    const status = line.substring(0, tabIndex);
+                    const filepath = line.substring(tabIndex + 1);
+                    
+                    allFiles.push({
+                        path: filepath,
+                        status: status,
+                        selected: false
+                    });
+                } else {
+                    // Fallback for other formats
+                    const parts = line.split(/\s+/);
+                    if (parts.length >= 2) {
+                        allFiles.push({
+                            path: parts.slice(1).join(' '),
+                            status: parts[0],
+                            selected: false
+                        });
+                    }
+                }
+            }
+        });
+        
+        console.log('Git modal: Parsed', allFiles.length, 'files:', allFiles);
+    }
 
-#git-file-selection-modal .file-status {
-    display: inline-block;
-    width: 20px;
-    text-align: center;
-    font-weight: bold;
-    margin-right: 8px;
-}
+    function renderFileList() {
+        const container = document.getElementById('file-list-container');
+        container.innerHTML = '';
+        
+        if (allFiles.length === 0) {
+            container.innerHTML = '<div style="text-align: center; padding: 20px; color: #6b7280;">No files to display</div>';
+            return;
+        }
+        
+        allFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.dataset.index = index;
+            
+            const statusClass = getStatusClass(file.status);
+            const statusDisplay = getStatusDisplay(file.status);
+            
+            fileItem.innerHTML = `
+                <input type="checkbox" class="file-checkbox" data-index="${index}">
+                <span class="file-status ${statusClass}">${statusDisplay}</span>
+                <span class="file-path" title="${file.path}">${file.path}</span>
+            `;
+            
+            container.appendChild(fileItem);
+        });
+        
+        addFileListeners();
+    }
 
-#git-file-selection-modal .file-status.modified { color: #e67e22; }
-#git-file-selection-modal .file-status.added { color: #27ae60; }
-#git-file-selection-modal .file-status.deleted { color: #e74c3c; }
-#git-file-selection-modal .file-status.renamed { color: #3498db; }
+    function getStatusClass(status) {
+        const firstChar = status.charAt(0).toLowerCase();
+        switch(firstChar) {
+            case 'm': return 'modified';
+            case 'a': return 'added';
+            case 'd': return 'deleted';
+            case 'r': return 'renamed';
+            case 'c': return 'modified'; // copied
+            case 'u': return 'modified'; // unmerged
+            default: return 'modified';
+        }
+    }
 
-#git-file-selection-modal .file-path {
-    font-family: monospace;
-    font-size: 13px;
-    color: #333;
-}
+    function getStatusDisplay(status) {
+        const firstChar = status.charAt(0).toUpperCase();
+        switch(firstChar) {
+            case 'M': return 'M';
+            case 'A': return 'A';
+            case 'D': return 'D';
+            case 'R': return 'R';
+            case 'C': return 'C';
+            case 'U': return 'U';
+            default: return firstChar;
+        }
+    }
 
-#git-file-selection-modal .dark .file-path {
-    color: #ccc;
-}
-</style>
+    function addFileListeners() {
+        // File item clicks
+        document.querySelectorAll('.file-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.type !== 'checkbox') {
+                    const checkbox = this.querySelector('.file-checkbox');
+                    checkbox.checked = !checkbox.checked;
+                    toggleFileSelection(checkbox);
+                }
+                
+                // Show file info in diff panel
+                showFileInfo(parseInt(this.dataset.index));
+            });
+        });
+        
+        // Checkbox changes
+        document.querySelectorAll('.file-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                toggleFileSelection(this);
+            });
+        });
+        
+        // Select all functionality
+        const selectAllCheckbox = document.getElementById('select-all-files');
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.file-checkbox[data-index]');
+            checkboxes.forEach(cb => {
+                cb.checked = this.checked;
+                const index = parseInt(cb.dataset.index);
+                allFiles[index].selected = this.checked;
+                
+                const fileItem = cb.closest('.file-item');
+                if (this.checked) {
+                    fileItem.classList.add('selected');
+                } else {
+                    fileItem.classList.remove('selected');
+                }
+            });
+            updateFileCounts();
+        });
+    }
+
+    function toggleFileSelection(checkbox) {
+        const index = parseInt(checkbox.dataset.index);
+        const fileItem = checkbox.closest('.file-item');
+        
+        allFiles[index].selected = checkbox.checked;
+        
+        if (checkbox.checked) {
+            fileItem.classList.add('selected');
+        } else {
+            fileItem.classList.remove('selected');
+        }
+        
+        updateFileCounts();
+    }
+
+    function updateFileCounts() {
+        const selectedCount = allFiles.filter(f => f.selected).length;
+        const totalCount = allFiles.length;
+        
+        // Update counters
+        document.getElementById('selected-count').textContent = `${selectedCount} selected`;
+        
+        if (selectedCount === 0) {
+            document.getElementById('file-count-display').textContent = 'No files selected';
+        } else {
+            document.getElementById('file-count-display').textContent = `${selectedCount} of ${totalCount} files selected`;
+        }
+        
+        // Enable/disable proceed button
+        const proceedBtn = document.getElementById('proceed-with-commit');
+        proceedBtn.disabled = selectedCount === 0;
+        
+        // Update select all checkbox state
+        const selectAllCheckbox = document.getElementById('select-all-files');
+        if (selectedCount === 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        } else if (selectedCount === totalCount) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    function showFileInfo(fileIndex) {
+        const file = allFiles[fileIndex];
+        if (!file) return;
+        
+        document.getElementById('current-diff-file').textContent = file.path;
+        
+        // Show placeholder diff - in real implementation, you'd get actual diff from Java
+        const diffContent = document.getElementById('diff-content');
+        const statusText = getStatusClass(file.status);
+        
+        let sampleDiff = '';
+        switch (statusText) {
+            case 'added':
+                sampleDiff = `<span class="diff-line diff-line-context">New file: ${file.path}</span>
+<span class="diff-line diff-line-added">+// New file content</span>
+<span class="diff-line diff-line-added">+// All lines are additions</span>`;
+                break;
+            case 'deleted':
+                sampleDiff = `<span class="diff-line diff-line-context">Deleted file: ${file.path}</span>
+<span class="diff-line diff-line-removed">-// This file will be deleted</span>
+<span class="diff-line diff-line-removed">-// All lines are removals</span>`;
+                break;
+            case 'modified':
+            default:
+                sampleDiff = `<span class="diff-line diff-line-context">@@ -1,3 +1,4 @@ ${file.path}</span>
+<span class="diff-line diff-line-context"> public class Example {</span>
+<span class="diff-line diff-line-removed">-    // Old implementation</span>
+<span class="diff-line diff-line-added">+    // New improved implementation</span>
+<span class="diff-line diff-line-added">+    // Additional changes</span>
+<span class="diff-line diff-line-context"> }</span>`;
+                break;
+        }
+        
+        diffContent.innerHTML = sampleDiff;
+    }
+
+    // Button event handlers
+    document.getElementById('cancel-file-selection').addEventListener('click', function() {
+        console.log('Git modal: Cancel button clicked');
+        document.getElementById('git-file-selection-modal').style.display = 'none';
+    });
+
+    document.getElementById('proceed-with-commit').addEventListener('click', function() {
+        const selectedFiles = allFiles.filter(f => f.selected);
+        console.log('Git modal: Proceeding with', selectedFiles.length, 'selected files:', selectedFiles);
+        
+        if (selectedFiles.length === 0) {
+            console.log('Git modal: No files selected, button should be disabled');
+            return;
+        }
+        
+        // Create the message structure expected by your JavaScriptBridgeActions
+        const message = {
+            action: "filesSelectedForCommit",
+            data: {
+                selectedFiles: selectedFiles.map(file => ({
+                    path: file.path,
+                    status: file.status
+                }))
+            }
+        };
+        
+        console.log('Git modal: Sending message to Java bridge:', message);
+        
+        try {
+            // Send the message through the JavaScript bridge
+            // This will trigger JavaScriptBridgeActions -> GitService.handleFilesSelected()
+            if (window.javaScriptBridge && typeof window.javaScriptBridge.sendMessage === 'function') {
+                const result = window.javaScriptBridge.sendMessage(JSON.stringify(message));
+                console.log('Git modal: Java bridge response:', result);
+            } else if (window.postMessage) {
+                // Alternative method for some JCEF setups
+                window.postMessage(JSON.stringify(message), '*');
+                console.log('Git modal: Message posted via postMessage');
+            } else {
+                console.log('Git modal: No JavaScript bridge found, storing data as fallback');
+                window.selectedFilesData = message.data;
+            }
+            
+            // Keep modal open so user can see AI generation in chat
+            // The Java code will handle the commit pipeline and eventually close the modal
+            console.log('Git modal: Files sent to Java, modal remains open for AI generation process');
+            
+        } catch (error) {
+            console.error('Git modal: Error calling Java bridge:', error);
+            // Store as fallback
+            window.selectedFilesData = message.data;
+        }
+    });
+
+    console.log('Git modal: JavaScript initialized and ready');
+})();
+
+    // Functions called by Java to show generated commit message
+    window.showGeneratedCommitMessage = function(subject, description) {
+        console.log('Git modal: Received generated commit message from Java');
+        console.log('Subject:', subject);
+        console.log('Description:', description);
+        
+        // Format the message for display
+        let fullMessage = subject;
+        if (description && description.trim()) {
+            fullMessage += '\n\n' + description;
+        }
+        
+        // Show the message in the modal
+        document.getElementById('commit-message-display').textContent = fullMessage;
+        document.getElementById('commit-message-textarea').value = fullMessage;
+        
+        // Hide diff section and show commit message section
+        const diffSection = document.querySelector('.diff-section');
+        const commitSection = document.getElementById('commit-message-section');
+        
+        if (diffSection) diffSection.style.display = 'none';
+        commitSection.style.display = 'flex';
+        
+        // Update button text to show commit is ready
+        const proceedBtn = document.getElementById('proceed-with-commit');
+        proceedBtn.textContent = '🔄 Generating... Done!';
+        proceedBtn.disabled = true; // Disable since we now use the commit button
+        
+        console.log('Git modal: Commit message displayed, ready for user review');
+    };
+
+    // Function called by Java to show errors
+    window.showCommitError = function(errorMessage) {
+        console.log('Git modal: Received error from Java:', errorMessage);
+        
+        // Show error in commit message area
+        const commitSection = document.getElementById('commit-message-section');
+        const diffSection = document.querySelector('.diff-section');
+        
+        if (diffSection) diffSection.style.display = 'none';
+        commitSection.style.display = 'flex';
+        
+        document.getElementById('commit-message-display').innerHTML = 
+            `<div style="color: #dc2626; padding: 20px; text-align: center;">
+                <div style="font-size: 24px; margin-bottom: 12px;">❌</div>
+                <div style="font-weight: 600; margin-bottom: 8px;">Error</div>
+                <div>${errorMessage}</div>
+            </div>`;
+            
+        // Hide the commit button since there's an error
+        document.querySelector('.commit-actions').style.display = 'none';
+    };
+
+    // Edit functionality
+    document.getElementById('edit-commit-message').addEventListener('click', function() {
+        document.getElementById('commit-message-display').style.display = 'none';
+        document.getElementById('commit-message-edit').style.display = 'flex';
+    });
+
+    document.getElementById('cancel-edit').addEventListener('click', function() {
+        document.getElementById('commit-message-display').style.display = 'block';
+        document.getElementById('commit-message-edit').style.display = 'none';
+    });
+
+    document.getElementById('save-edit').addEventListener('click', function() {
+        const newMessage = document.getElementById('commit-message-textarea').value;
+        document.getElementById('commit-message-display').textContent = newMessage;
+        document.getElementById('commit-message-display').style.display = 'block';
+        document.getElementById('commit-message-edit').style.display = 'none';
+    });
+
+    // Final commit button
+    document.getElementById('final-commit-button').addEventListener('click', function() {
+        console.log('Git modal: User clicked final commit button');
+        
+        // Get the (possibly edited) commit message
+        const commitMessage = document.getElementById('commit-message-textarea').value.trim();
+        
+        if (!commitMessage) {
+            alert('Commit message cannot be empty');
+            return;
+        }
+        
+        // Disable button and show progress
+        this.disabled = true;
+        this.textContent = '🔄 Committing...';
+        
+        // Send commit action to Java
+        const message = {
+            action: "commitFromModal",
+            data: {
+                commitMessage: commitMessage
+            }
+        };
+        
+        console.log('Git modal: Sending commit action to Java:', message);
+        
+        try {
+            if (window.javaScriptBridge && typeof window.javaScriptBridge.sendMessage === 'function') {
+                const result = window.javaScriptBridge.sendMessage(JSON.stringify(message));
+                console.log('Git modal: Java commit response:', result);
+            } else if (window.postMessage) {
+                window.postMessage(JSON.stringify(message), '*');
+            } else {
+                console.log('Git modal: No bridge found, storing commit action as fallback');
+                window.pendingCommitAction = message.data;
+            }
+        } catch (error) {
+            console.error('Git modal: Error sending commit action:', error);
+            // Re-enable button on error
+            this.disabled = false;
+            this.textContent = '✅ Commit Changes';
+            alert('Failed to commit: ' + error.message);
+        }
+    });
+
+    console.log('Git modal: JavaScript initialized and ready');
+})();
+})();
+</script>
+
+</body>
+</html>

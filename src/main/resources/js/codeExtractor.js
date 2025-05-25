@@ -350,7 +350,285 @@ function extractFromRegularBlocks(textToReplace) {
     }
 }
 
+// Git File Selection Modal Functions
+// Function to show file selection modal with changed files
+window.showFileSelectionModal = function(changedFiles) {
+    console.log('Showing file selection modal with files:', changedFiles);
+    
+    try {
+        // Load the existing HTML file
+        fetch('/html/fileSelectionModal.html')
+            .then(response => response.text())
+            .then(modalHtml => {
+                // Inject modal HTML into the page
+                const modalContainer = document.createElement('div');
+                modalContainer.innerHTML = modalHtml;
+                document.body.appendChild(modalContainer.firstElementChild);
+                
+                // Populate the file list
+                populateFileList(changedFiles);
+                
+                // Show the modal
+                const modal = document.getElementById('git-file-selection-modal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    
+                    // Set up event listeners
+                    setupModalEventListeners();
+                }
+                
+                console.log('File selection modal displayed successfully');
+            })
+            .catch(error => {
+                console.error('Error loading modal HTML:', error);
+                // Fallback: show modal without external HTML
+                showModalFallback(changedFiles);
+            });
+        
+    } catch (e) {
+        console.error('Error showing file selection modal:', e);
+    }
+};
+
+// Fallback function if HTML file can't be loaded
+function showModalFallback(changedFiles) {
+    const modalHtml = `
+        <div id="git-file-selection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Select Files to Commit</h3>
+                </div>
+                <div class="px-6 py-4 max-h-96 overflow-y-auto">
+                    <div id="file-list-container"></div>
+                </div>
+                <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <div class="flex items-center">
+                        <input type="checkbox" id="select-all-files" class="mr-2">
+                        <label for="select-all-files">Select All</label>
+                    </div>
+                    <div class="flex gap-3">
+                        <button id="cancel-file-selection" class="bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-4 py-2 text-sm">Cancel</button>
+                        <button id="proceed-with-commit" class="bg-blue-600 hover:bg-blue-700 text-white transition rounded-md px-4 py-2 text-sm" disabled>Generate & Commit</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHtml;
+    document.body.appendChild(modalContainer.firstElementChild);
+    
+    populateFileList(changedFiles);
+    setupModalEventListeners();
+}
+        
+        // Populate the file list
+        populateFileList(changedFiles);
+        
+        // Show the modal
+        const modal = document.getElementById('git-file-selection-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            
+            // Set up event listeners
+            setupModalEventListeners();
+        }
+        
+        console.log('File selection modal displayed successfully');
+    } catch (e) {
+        console.error('Error showing file selection modal:', e);
+    }
+};
+
+// Function to populate the file list in the modal
+function populateFileList(changedFiles) {
+    const container = document.getElementById('file-list-container');
+    if (!container) return;
+    
+    // Clear existing content
+    container.innerHTML = '';
+    
+    // Parse changed files (format: "M\tfile1.txt\nA\tfile2.txt")
+    const fileLines = changedFiles.trim().split('\n').filter(line => line.trim());
+    
+    fileLines.forEach((line, index) => {
+        const parts = line.split('\t');
+        if (parts.length < 2) return;
+        
+        const status = parts[0].trim();
+        const filePath = parts[1].trim();
+        
+        // Create file item
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        
+        const statusLabel = getStatusLabel(status);
+        const statusClass = getStatusClass(status);
+        
+        fileItem.innerHTML = `
+            <div style="display: flex; align-items: center; padding: 8px; margin: 4px 0; border: 1px solid #e5e7eb; border-radius: 4px; background-color: #f9fafb;" class="dark:border-gray-700 dark:bg-gray-800">
+                <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="margin-right: 8px;">
+                <span class="file-status ${statusClass}" style="font-family: monospace; font-weight: bold; margin-right: 12px; min-width: 16px;">${statusLabel}</span>
+                <label for="file-${index}" class="file-path cursor-pointer flex-1 dark:text-white" style="font-family: monospace; font-size: 14px; cursor: pointer;">${filePath}</label>
+            </div>
+        `;
+        
+        container.appendChild(fileItem);
+    });
+    
+    // Update proceed button state
+    updateProceedButtonState();
+}
+
+// Helper function to get status label
+function getStatusLabel(status) {
+    switch (status) {
+        case 'M': return 'M';
+        case 'A': return 'A';
+        case 'D': return 'D';
+        case 'R': return 'R';
+        default: return status;
+    }
+}
+
+// Helper function to get status CSS class
+function getStatusClass(status) {
+    const baseStyle = 'display: inline-block; padding: 2px 4px; border-radius: 3px; font-size: 12px;';
+    switch (status) {
+        case 'M': return 'modified" style="' + baseStyle + ' background-color: #fef3c7; color: #92400e;';
+        case 'A': return 'added" style="' + baseStyle + ' background-color: #dcfce7; color: #166534;';
+        case 'D': return 'deleted" style="' + baseStyle + ' background-color: #fee2e2; color: #991b1b;';
+        case 'R': return 'renamed" style="' + baseStyle + ' background-color: #e0e7ff; color: #3730a3;';
+        default: return '" style="' + baseStyle + ' background-color: #f3f4f6; color: #374151;';
+    }
+}
+
+// Function to set up modal event listeners
+function setupModalEventListeners() {
+    // Cancel button
+    const cancelBtn = document.getElementById('cancel-file-selection');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', hideFileSelectionModal);
+    }
+    
+    // Proceed button
+    const proceedBtn = document.getElementById('proceed-with-commit');
+    if (proceedBtn) {
+        proceedBtn.addEventListener('click', handleProceedWithCommit);
+    }
+    
+    // Select all checkbox
+    const selectAllBtn = document.getElementById('select-all-files');
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('change', handleSelectAllChange);
+    }
+    
+    // Individual file checkboxes
+    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+    fileCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateProceedButtonState);
+    });
+    
+    // Modal backdrop click to close
+    const modal = document.getElementById('git-file-selection-modal');
+    if (modal) {
+        modal.addEventListener('click', function(event) {
+            if (event.target === modal) {
+                hideFileSelectionModal();
+            }
+        });
+    }
+}
+
+// Function to handle select all checkbox
+function handleSelectAllChange(event) {
+    const isChecked = event.target.checked;
+    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+    
+    fileCheckboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+    });
+    
+    updateProceedButtonState();
+}
+
+// Function to update proceed button state
+function updateProceedButtonState() {
+    const proceedBtn = document.getElementById('proceed-with-commit');
+    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+    const selectedFiles = Array.from(fileCheckboxes).filter(cb => cb.checked);
+    
+    if (proceedBtn) {
+        proceedBtn.disabled = selectedFiles.length === 0;
+    }
+    
+    // Update select all checkbox state
+    const selectAllBtn = document.getElementById('select-all-files');
+    if (selectAllBtn) {
+        if (selectedFiles.length === 0) {
+            selectAllBtn.indeterminate = false;
+            selectAllBtn.checked = false;
+        } else if (selectedFiles.length === fileCheckboxes.length) {
+            selectAllBtn.indeterminate = false;
+            selectAllBtn.checked = true;
+        } else {
+            selectAllBtn.indeterminate = true;
+        }
+    }
+}
+
+// Function to handle proceed with commit
+function handleProceedWithCommit() {
+    console.log('Proceeding with commit...');
+    
+    try {
+        // Get selected files
+        const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+        const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
+            path: cb.dataset.filePath,
+            status: cb.dataset.status
+        }));
+        
+        if (selectedFiles.length === 0) {
+            console.error('No files selected');
+            return;
+        }
+        
+        console.log('Selected files for commit:', selectedFiles);
+        
+        // Hide modal
+        hideFileSelectionModal();
+        
+        // Send selected files to Java via bridge
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            window.intellijBridge.callIDE('filesSelectedForCommit', {
+                selectedFiles: selectedFiles
+            }).then(function() {
+                console.log('Selected files sent to IDE successfully');
+            }).catch(function(error) {
+                console.error('Failed to send selected files to IDE:', error);
+            });
+        } else {
+            console.error('IntelliJ Bridge not found');
+        }
+        
+    } catch (e) {
+        console.error('Error handling proceed with commit:', e);
+    }
+}
+
+// Function to hide file selection modal
+function hideFileSelectionModal() {
+    console.log('Hiding file selection modal');
+    
+    const modal = document.getElementById('git-file-selection-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
 // Ensure automatic copy flag is set
 window.shouldAutomaticallyCopy = true;
 
-console.log('Compatible code extractor function initialized with collapsed code block support and To IDE button injection');
+console.log('Compatible code extractor function initialized with collapsed code block support, To IDE button injection, and Git file selection modal');

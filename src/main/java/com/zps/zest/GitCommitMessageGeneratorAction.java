@@ -11,9 +11,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.zps.zest.browser.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
-import org.jetbrains.annotations.NotNull;
+import com.zps.zest.browser.ChatResponseService;
+import com.zps.zest.browser.GitService;
+ import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -33,13 +36,80 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+        Project project = e.getProject();
+        if (project == null) return;
+
         // Create the context to maintain state
         GitCommitContext context = new GitCommitContext();
         context.setEvent(e);
-        context.setProject(e.getProject());
+        context.setProject(project);
 
-        // Execute the pipeline
-        executeGitCommitPipeline(context);
+        // Start with collecting git changes and showing file selection
+        collectChangesAndShowFileSelection(context);
+    }
+
+    /**
+     * Collects git changes and shows file selection modal
+     */
+    private void collectChangesAndShowFileSelection(GitCommitContext context) {
+        Project project = context.getProject();
+        
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Collecting Git Changes", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    // Collect git changes using existing stage
+                    GitChangesCollectionStage changesStage = new GitChangesCollectionStage();
+                    changesStage.process(context);
+                    
+                    // Show file selection modal on EDT
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        showFileSelectionModal(context);
+                    });
+                    
+                } catch (Exception e) {
+                    showError(project, new PipelineExecutionException("Failed to collect git changes", e));
+                }
+            }
+        });
+    }
+
+    /**
+     * Shows file selection modal
+     */
+    private void showFileSelectionModal(GitCommitContext context) {
+        String changedFiles = context.getChangedFiles();
+        if (changedFiles == null || changedFiles.trim().isEmpty()) {
+            Messages.showInfoMessage(context.getProject(), "No changed files found", "Git Commit");
+            return;
+        }
+
+        // Register context with GitService for callback handling
+        GitService gitService = new GitService(context.getProject());
+        gitService.registerContext(context);
+
+        // Show modal via JavaScript
+        WebBrowserService.getInstance(context.getProject())
+            .executeJavaScript("if (window.showFileSelectionModal) window.showFileSelectionModal('" + 
+                escapeJavaScript(changedFiles) + "');");
+    }
+
+    /**
+     * Continues with selected files (called by GitService)
+     */
+    public static void continueWithSelectedFiles(GitCommitContext context) {
+        // Create a temporary instance to access the pipeline method
+        GitCommitMessageGeneratorAction action = new GitCommitMessageGeneratorAction();
+        action.executeGitCommitPipeline(context);
+    }
+
+    private String escapeJavaScript(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\")
+                   .replace("'", "\\'")
+                   .replace("\"", "\\\"")
+                   .replace("\n", "\\n")
+                   .replace("\r", "\\r");
     }
 
     /**
@@ -58,7 +128,6 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 try {
                     // Create and execute the git commit pipeline
                     GitCommitPipeline pipeline = new GitCommitPipeline()
-                            .addStage(new GitChangesCollectionStage())
                             .addStage(new CommitPromptGenerationStage());
 
                     // Execute each stage with progress updates
@@ -85,14 +154,20 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                         throw new PipelineExecutionException("Failed to generate commit message prompt");
                     }
 
+                    indicator.setText("Sending prompt to chat...");
+                    indicator.setFraction(0.8);
+
                     // Send the analysis to the chat box using newChat with the chosen model
                     boolean success = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
                     if (!success) {
                         throw new PipelineExecutionException("Failed to send commit prompt to chat box");
                     }
 
-                    indicator.setText("Commit message prompt sent to chat box successfully!");
-                    indicator.setFraction(1.0);
+                    indicator.setText("Waiting for LLM response...");
+                    indicator.setFraction(0.9);
+
+                    // Wait for chat response and commit
+                    waitForResponseAndCommit(context, indicator);
 
                 } catch (PipelineExecutionException e) {
                     showError(project, e);
@@ -101,6 +176,135 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 }
             }
         });
+    }
+
+    /**
+     * Waits for chat response and executes git commit
+     */
+    private void waitForResponseAndCommit(GitCommitContext context, ProgressIndicator indicator) {
+        Project project = context.getProject();
+        ChatResponseService responseService = new ChatResponseService(project);
+        
+        try {
+            // Wait for chat response (30 second timeout)
+            String response = responseService.waitForChatResponse(30).get();
+            
+            if (response == null || response.trim().isEmpty()) {
+                throw new PipelineExecutionException("No response received from chat");
+            }
+
+            indicator.setText("Processing response and committing...");
+            
+            // Extract commit message from response
+            String commitMessage = extractCommitMessage(response);
+            
+            // Stage selected files and commit
+            stageAndCommit(context, commitMessage);
+            
+            indicator.setText("Commit completed successfully!");
+            indicator.setFraction(1.0);
+            
+        } catch (Exception e) {
+            LOG.error("Error waiting for response or committing", e);
+            throw new RuntimeException("Failed to complete commit: " + e.getMessage(), e);
+        } finally {
+            responseService.dispose();
+        }
+    }
+
+    /**
+     * Extracts commit message from LLM response
+     */
+    private String extractCommitMessage(String response) {
+        // Look for commit-short block first
+        String shortPattern = "```commit-short";
+        int startIdx = response.indexOf(shortPattern);
+        if (startIdx != -1) {
+            startIdx += shortPattern.length();
+            int endIdx = response.indexOf("```", startIdx);
+            if (endIdx != -1) {
+                return response.substring(startIdx, endIdx).trim();
+            }
+        }
+        
+        // Fallback: extract first line if no code block found
+        String[] lines = response.split("\n");
+        for (String line : lines) {
+            line = line.trim();
+            if (!line.isEmpty() && !line.startsWith("#") && !line.startsWith("```")) {
+                return line.length() > 72 ? line.substring(0, 72) : line;
+            }
+        }
+        
+        return "Update selected files";
+    }
+
+    /**
+     * Stages selected files and commits with message
+     */
+    private void stageAndCommit(GitCommitContext context, String commitMessage) throws IOException, InterruptedException, PipelineExecutionException {
+        Project project = context.getProject();
+        String projectPath = project.getBasePath();
+        
+        if (projectPath == null) {
+            throw new PipelineExecutionException("Project path not found");
+        }
+
+        List<GitCommitContext.SelectedFile> selectedFiles = context.getSelectedFiles();
+        if (selectedFiles == null || selectedFiles.isEmpty()) {
+            throw new PipelineExecutionException("No files selected for commit");
+        }
+
+        // Stage each selected file
+        for (GitCommitContext.SelectedFile file : selectedFiles) {
+            String command = "git add \"" + file.getPath() + "\"";
+            executeGitCommand(projectPath, command);
+            LOG.info("Staged file: " + file.getPath());
+        }
+
+        // Commit with the extracted message
+        String commitCommand = "git commit -m \"" + commitMessage.replace("\"", "\\\"") + "\"";
+        String result = executeGitCommand(projectPath, commitCommand);
+        
+        LOG.info("Commit executed successfully: " + result);
+    }
+
+    /**
+     * Executes a git command (reused from existing stage)
+     */
+    private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
+        ProcessBuilder processBuilder = new ProcessBuilder();
+        processBuilder.directory(new java.io.File(workingDir));
+
+        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
+            processBuilder.command("cmd.exe", "/c", command);
+        } else {
+            processBuilder.command("sh", "-c", command);
+        }
+
+        Process process = processBuilder.start();
+        StringBuilder output = new StringBuilder();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+        }
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            StringBuilder error = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    error.append(line).append("\n");
+                }
+            }
+            throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
+        }
+
+        return output.toString();
     }
 
     /**
@@ -140,39 +344,6 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
         });
-    }
-}
-
-/**
- * Context class for git commit message generation.
- */
-class GitCommitContext extends CodeContext {
-    private String gitDiff;
-    private String changedFiles;
-    private String branchName;
-
-    public String getGitDiff() {
-        return gitDiff;
-    }
-
-    public void setGitDiff(String gitDiff) {
-        this.gitDiff = gitDiff;
-    }
-
-    public String getChangedFiles() {
-        return changedFiles;
-    }
-
-    public void setChangedFiles(String changedFiles) {
-        this.changedFiles = changedFiles;
-    }
-
-    public String getBranchName() {
-        return branchName;
-    }
-
-    public void setBranchName(String branchName) {
-        this.branchName = branchName;
     }
 }
 
@@ -322,6 +493,13 @@ class CommitPromptGenerationStage implements PipelineStage {
         String branchName = gitContext.getBranchName();
         String changedFiles = gitContext.getChangedFiles();
         String gitDiff = gitContext.getGitDiff();
+        List<GitCommitContext.SelectedFile> selectedFiles = gitContext.getSelectedFiles();
+
+        // If files are selected, filter to only those files
+        if (selectedFiles != null && !selectedFiles.isEmpty()) {
+            changedFiles = filterChangedFiles(changedFiles, selectedFiles);
+            gitDiff = filterGitDiff(gitContext, selectedFiles);
+        }
 
         if (changedFiles == null || changedFiles.isEmpty()) {
             throw new PipelineExecutionException("No changed files detected");
@@ -368,5 +546,87 @@ class CommitPromptGenerationStage implements PipelineStage {
         gitContext.setPrompt(prompt.toString());
 
         LOG.info("Commit message prompt created successfully");
+    }
+
+    /**
+     * Filters changed files to only include selected files
+     */
+    private String filterChangedFiles(String changedFiles, List<GitCommitContext.SelectedFile> selectedFiles) {
+        if (changedFiles == null || selectedFiles == null) return changedFiles;
+        
+        StringBuilder filtered = new StringBuilder();
+        String[] fileLines = changedFiles.split("\n");
+        
+        for (String line : fileLines) {
+            if (line.trim().isEmpty()) continue;
+            
+            // Check if this line represents a selected file
+            for (GitCommitContext.SelectedFile selectedFile : selectedFiles) {
+                if (line.contains(selectedFile.getPath())) {
+                    filtered.append(line).append("\n");
+                    break;
+                }
+            }
+        }
+        
+        return filtered.toString();
+    }
+
+    /**
+     * Filters git diff to only include selected files
+     */
+    private String filterGitDiff(GitCommitContext gitContext, List<GitCommitContext.SelectedFile> selectedFiles) {
+        Project project = gitContext.getProject();
+        String projectPath = project.getBasePath();
+        
+        if (projectPath == null) return gitContext.getGitDiff();
+        
+        try {
+            // Generate diff for only selected files
+            StringBuilder diffCommand = new StringBuilder("git diff");
+            for (GitCommitContext.SelectedFile file : selectedFiles) {
+                diffCommand.append(" \"").append(file.getPath()).append("\"");
+            }
+            
+            return executeGitCommand(projectPath, diffCommand.toString());
+        } catch (Exception e) {
+            LOG.warn("Failed to filter git diff, using original", e);
+            return gitContext.getGitDiff();
+        }
+    }
+
+    private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
+        ProcessBuilder processBuilder = new ProcessBuilder();
+        processBuilder.directory(new java.io.File(workingDir));
+
+        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
+            processBuilder.command("cmd.exe", "/c", command);
+        } else {
+            processBuilder.command("sh", "-c", command);
+        }
+
+        Process process = processBuilder.start();
+        StringBuilder output = new StringBuilder();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+        }
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            StringBuilder error = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    error.append(line).append("\n");
+                }
+            }
+            throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
+        }
+
+        return output.toString();
     }
 }

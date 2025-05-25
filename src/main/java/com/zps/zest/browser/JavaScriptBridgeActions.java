@@ -23,6 +23,7 @@ public class JavaScriptBridgeActions {
     private final DialogService dialogService;
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
+    private final GitService gitService;
     
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -31,6 +32,7 @@ public class JavaScriptBridgeActions {
         this.dialogService = new DialogService(project);
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
+        this.gitService = new GitService(project);
     }
     
     /**
@@ -98,6 +100,10 @@ public class JavaScriptBridgeActions {
                 // Chat response handling
                 case "notifyChatResponse":
                     return chatResponseService.notifyChatResponse(data);
+                
+                // Git commit operations
+                case "filesSelectedForCommit":
+                    return gitService.handleFilesSelected(data);
                 
                 // Content update handling
                 case "contentUpdated":
@@ -169,5 +175,6 @@ public class JavaScriptBridgeActions {
         if (dialogService != null) dialogService.dispose();
         if (fileService != null) fileService.dispose();
         if (chatResponseService != null) chatResponseService.dispose();
+        if (gitService != null) gitService.dispose();
     }
 }

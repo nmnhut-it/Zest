@@ -499,11 +499,17 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             LOG.info("  Command: " + commitCommand.toString().substring(0, Math.min(150, commitCommand.length())) + "...");
 
             String result = executeGitCommand(projectPath, commitCommand.toString());
+            LOG.info("Commit executed successfully: " + result);
+            
+            // Show commit success message in tool window
+            showToolWindowMessage(project, "Commit " + selectedFiles.size() + " files");
 
             if (shouldPush){
                 executeGitCommand(projectPath, "git push");
+                LOG.info("Push executed successfully");
+                // Show push success message in tool window
+                showToolWindowMessage(project, "Push " + selectedFiles.size() + " files");
             }
-            LOG.info("Commit executed successfully: " + result);
         } else {
             // Use single -m for subject-only commits
             String commitCommand = String.format("git commit -m \"%s\"", escapeForShell(subject));
@@ -511,6 +517,16 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
             String result = executeGitCommand(projectPath, commitCommand);
             LOG.info("Commit executed successfully: " + result);
+            
+            // Show commit success message in tool window
+            showToolWindowMessage(project, "Commit " + selectedFiles.size() + " files");
+
+            if (shouldPush){
+                executeGitCommand(projectPath, "git push");
+                LOG.info("Push executed successfully");
+                // Show push success message in tool window
+                showToolWindowMessage(project, "Push " + selectedFiles.size() + " files");
+            }
         }
 
         LOG.info("Commit completed successfully for " + selectedFiles.size() + " file(s)");
@@ -627,6 +643,23 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         });
 
         return true;
+    }
+
+    /**
+     * Shows a simple status message in the tool window
+     */
+    private void showToolWindowMessage(Project project, String message) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                // Send message to the browser tool window via JavaScript
+                String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }", 
+                    message.replace("'", "\\'"));
+                WebBrowserService.getInstance(project).executeJavaScript(script);
+                LOG.info("Sent status message to tool window: " + message);
+            } catch (Exception e) {
+                LOG.warn("Failed to show tool window message: " + message, e);
+            }
+        });
     }
 
     /**

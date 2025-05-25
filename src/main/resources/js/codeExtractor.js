@@ -239,6 +239,7 @@ window.showFileSelectionModal = function(changedFiles) {
         console.log('Detected theme:', isDark ? 'dark' : 'light');
 
         // Create beautiful modal with pure CSS
+        // Create beautiful modal with pure CSS
         const modalHtml = `
             <div id="git-file-selection-modal" style="
                 position: fixed;
@@ -256,11 +257,11 @@ window.showFileSelectionModal = function(changedFiles) {
             ">
                 <div style="
                     background: ${isDark ? 'linear-gradient(135deg, #1f2937 0%, #111827 100%)' : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'};
-                    border-radius: 20px;
+                    border-radius: 14px;
                     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
-                    max-width: 600px;
-                    width: 90%;
-                    max-height: 85vh;
+                    width: auto;
+                    max-width: 450px;
+                    min-width: 360px;
                     overflow: hidden;
                     color: ${isDark ? '#f3f4f6' : '#1f2937'};
                     animation: slideUp 0.3s ease-out;
@@ -272,86 +273,82 @@ window.showFileSelectionModal = function(changedFiles) {
                         top: 0;
                         left: 0;
                         right: 0;
-                        height: 120px;
+                        height: 60px;
                         background: linear-gradient(135deg, ${isDark ? '#3b82f6' : '#6366f1'} 0%, ${isDark ? '#1d4ed8' : '#8b5cf6'} 100%);
                         opacity: 0.1;
-                        border-radius: 20px 20px 0 0;
+                        border-radius: 14px 14px 0 0;
                     "></div>
 
                     <!-- Modal Header -->
                     <div style="
-                        padding: 32px 32px 24px 32px;
+                        padding: 16px 16px 12px 16px;
                         border-bottom: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
                         position: relative;
+                        display: flex;
+                        align-items: center;
                     ">
                         <div style="
+                            width: 32px;
+                            height: 32px;
+                            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                            border-radius: 8px;
                             display: flex;
                             align-items: center;
-                            margin-bottom: 8px;
+                            justify-content: center;
+                            margin-right: 10px;
+                            box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
                         ">
-                            <div style="
-                                width: 48px;
-                                height: 48px;
-                                background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-                                border-radius: 12px;
-                                display: flex;
-                                align-items: center;
-                                justify-content: center;
-                                margin-right: 16px;
-                                box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
-                            ">
-                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
-                                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 style="
-                                    font-size: 24px;
-                                    font-weight: 700;
-                                    margin: 0;
-                                    background: linear-gradient(135deg, ${isDark ? '#f3f4f6' : '#1f2937'} 0%, ${isDark ? '#9ca3af' : '#6b7280'} 100%);
-                                    -webkit-background-clip: text;
-                                    -webkit-text-fill-color: transparent;
-                                    background-clip: text;
-                                ">Select Files to Commit</h3>
-                                <p style="
-                                    margin: 4px 0 0 0;
-                                    font-size: 14px;
-                                    color: ${isDark ? '#9ca3af' : '#6b7280'};
-                                    font-weight: 500;
-                                ">Choose which files to include in your commit</p>
-                            </div>
+                            <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+                                <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 style="
+                                font-size: 16px;
+                                font-weight: 700;
+                                margin: 0;
+                                background: linear-gradient(135deg, ${isDark ? '#f3f4f6' : '#1f2937'} 0%, ${isDark ? '#9ca3af' : '#6b7280'} 100%);
+                                -webkit-background-clip: text;
+                                -webkit-text-fill-color: transparent;
+                                background-clip: text;
+                            ">Select Files to Commit</h3>
+                            <p style="
+                                margin: 2px 0 0 0;
+                                font-size: 11px;
+                                color: ${isDark ? '#9ca3af' : '#6b7280'};
+                                font-weight: 500;
+                            ">Choose which files to include in your commit</p>
                         </div>
                     </div>
 
                     <!-- File List -->
                     <div style="
-                        padding: 24px 32px;
-                        max-height: 400px;
+                        padding: 12px 16px;
+                        max-height: 220px;
                         overflow-y: auto;
                         scrollbar-width: thin;
                         scrollbar-color: ${isDark ? '#4b5563 transparent' : '#d1d5db transparent'};
                     ">
                         <div style="
-                            margin-bottom: 20px;
-                            padding: 16px;
+                            margin-bottom: 12px;
+                            padding: 8px;
                             background: ${isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(99, 102, 241, 0.05)'};
                             border: 1px solid ${isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(99, 102, 241, 0.1)'};
-                            border-radius: 12px;
+                            border-radius: 6px;
                             backdrop-filter: blur(10px);
                         ">
                             <label style="
                                 display: flex;
                                 align-items: center;
-                                font-size: 14px;
+                                font-size: 11px;
                                 font-weight: 600;
                                 cursor: pointer;
                                 color: ${isDark ? '#e5e7eb' : '#374151'};
                             ">
                                 <input type="checkbox" id="select-all-files" style="
-                                    margin-right: 12px;
-                                    width: 18px;
-                                    height: 18px;
+                                    margin-right: 6px;
+                                    width: 14px;
+                                    height: 14px;
                                     accent-color: #3b82f6;
                                     cursor: pointer;
                                 ">
@@ -365,10 +362,12 @@ window.showFileSelectionModal = function(changedFiles) {
                         </div>
                         <div id="file-list-container" style="
                             border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
-                            border-radius: 16px;
-                            padding: 8px;
+                            border-radius: 6px;
+                            padding: 5px;
                             background: ${isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.5)'};
                             backdrop-filter: blur(10px);
+                            max-height: 150px;
+                            overflow-y: auto;
                         ">
                             <!-- Files will be populated here -->
                         </div>
@@ -376,11 +375,11 @@ window.showFileSelectionModal = function(changedFiles) {
 
                     <!-- Modal Footer -->
                     <div style="
-                        padding: 24px 32px 32px 32px;
+                        padding: 12px 16px 16px 16px;
                         border-top: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
                         display: flex;
                         justify-content: flex-end;
-                        gap: 12px;
+                        gap: 6px;
                         background: ${isDark ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.3)'};
                         backdrop-filter: blur(10px);
                     ">
@@ -388,9 +387,9 @@ window.showFileSelectionModal = function(changedFiles) {
                             background: ${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(243, 244, 246, 0.8)'};
                             color: ${isDark ? '#e5e7eb' : '#374151'};
                             border: 1px solid ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
-                            padding: 12px 24px;
-                            border-radius: 12px;
-                            font-size: 14px;
+                            padding: 6px 10px;
+                            border-radius: 6px;
+                            font-size: 11px;
                             font-weight: 600;
                             cursor: pointer;
                             transition: all 0.2s ease;
@@ -408,23 +407,23 @@ window.showFileSelectionModal = function(changedFiles) {
                             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                             color: white;
                             border: none;
-                            padding: 12px 24px;
-                            border-radius: 12px;
-                            font-size: 14px;
+                            padding: 6px 10px;
+                            border-radius: 6px;
+                            font-size: 11px;
                             font-weight: 600;
                             cursor: pointer;
                             transition: all 0.2s ease;
-                            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+                            box-shadow: 0 3px 8px rgba(16, 185, 129, 0.3);
                             opacity: 0.5;
                         " onmouseover="
                             if (!this.disabled) {
-                                this.style.transform = 'translateY(-2px)';
-                                this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.4)';
+                                this.style.transform = 'translateY(-1px)';
+                                this.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.4)';
                             }
                         " onmouseout="
                             if (!this.disabled) {
                                 this.style.transform = 'translateY(0)';
-                                this.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+                                this.style.boxShadow = '0 3px 8px rgba(16, 185, 129, 0.3)';
                             }
                         ">
                             📝 Write Msg & Commit
@@ -433,23 +432,23 @@ window.showFileSelectionModal = function(changedFiles) {
                             background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
                             color: white;
                             border: none;
-                            padding: 12px 24px;
-                            border-radius: 12px;
-                            font-size: 14px;
+                            padding: 6px 10px;
+                            border-radius: 6px;
+                            font-size: 11px;
                             font-weight: 600;
                             cursor: pointer;
                             transition: all 0.2s ease;
-                            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+                            box-shadow: 0 3px 8px rgba(59, 130, 246, 0.3);
                             opacity: 0.5;
                         " onmouseover="
                             if (!this.disabled) {
-                                this.style.transform = 'translateY(-2px)';
-                                this.style.boxShadow = '0 8px 20px rgba(59, 130, 246, 0.4)';
+                                this.style.transform = 'translateY(-1px)';
+                                this.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
                             }
                         " onmouseout="
                             if (!this.disabled) {
                                 this.style.transform = 'translateY(0)';
-                                this.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                                this.style.boxShadow = '0 3px 8px rgba(59, 130, 246, 0.3)';
                             }
                         ">
                             🚀 Write Msg, Commit & Push
@@ -476,7 +475,7 @@ window.showFileSelectionModal = function(changedFiles) {
                 }
 
                 #file-list-container::-webkit-scrollbar {
-                    width: 6px;
+                    width: 3px;
                 }
 
                 #file-list-container::-webkit-scrollbar-track {
@@ -485,7 +484,7 @@ window.showFileSelectionModal = function(changedFiles) {
 
                 #file-list-container::-webkit-scrollbar-thumb {
                     background: ${isDark ? '#4b5563' : '#d1d5db'};
-                    border-radius: 3px;
+                    border-radius: 1.5px;
                 }
 
                 #file-list-container::-webkit-scrollbar-thumb:hover {
@@ -986,7 +985,65 @@ function handleProceedWithCommit() {
     handleCommitAction(false);
 }
 
+window.showStatusMessage = function(message) {
+  // Remove any existing status message
+  const existingStatus = document.getElementById('git-status-message');
+  if (existingStatus) {
+      existingStatus.remove();
+  }
+
+  // Create status message element
+  const statusElement = document.createElement('div');
+  statusElement.id = 'git-status-message';
+  statusElement.textContent = message;
+
+  // Style the status message
+  statusElement.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #4CAF50;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      opacity: 0;
+      transform: translateX(100%);
+      transition: all 0.3s ease;
+      max-width: 300px;
+      word-wrap: break-word;
+  `;
+
+  // Add to DOM
+  document.body.appendChild(statusElement);
+
+  // Animate in
+  setTimeout(() => {
+      statusElement.style.opacity = '1';
+      statusElement.style.transform = 'translateX(0)';
+  }, 10);
+
+  // Auto-remove after 3 seconds with fade out
+  setTimeout(() => {
+      statusElement.style.opacity = '0';
+      statusElement.style.transform = 'translateX(100%)';
+
+      // Remove from DOM after animation
+      setTimeout(() => {
+          if (statusElement.parentNode) {
+              statusElement.parentNode.removeChild(statusElement);
+          }
+      }, 300);
+  }, 3000);
+
+  console.log('Git Status:', message);
+};
+
 // Ensure automatic copy flag is set
-window.shouldAutomaticallyCopy = true;
+window.shouldAutomaticallyCopy = false;
 
 console.log('Compatible code extractor function initialized with collapsed code block support, To IDE button injection, and Git file selection modal with dual commit options');

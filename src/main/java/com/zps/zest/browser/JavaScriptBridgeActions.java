@@ -103,7 +103,9 @@ public class JavaScriptBridgeActions {
                 
                 // Git commit operations
                 case "filesSelectedForCommit":
-                    return gitService.handleFilesSelected(data);
+                case "filesSelectedForCommitAndPush":
+                    boolean shouldPush = data.getAsJsonPrimitive("shouldPush").getAsBoolean();
+                    return gitService.handleFilesSelected(data, shouldPush);
                 
                 // Content update handling
                 case "contentUpdated":

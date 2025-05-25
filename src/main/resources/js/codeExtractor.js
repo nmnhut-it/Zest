@@ -226,6 +226,438 @@ function findAndClickExpandButtons() {
         console.error('Error expanding code blocks:', e);
     }
 }
+// Function to show file selection modal with changed files
+window.showFileSelectionModal = function(changedFiles) {
+    console.log('Showing file selection modal with files:', changedFiles);
+
+    try {
+        // Detect current theme from document
+        const isDark = document.documentElement.classList.contains('dark') ||
+                      document.body.classList.contains('dark') ||
+                      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        console.log('Detected theme:', isDark ? 'dark' : 'light');
+
+        // Create beautiful modal with pure CSS
+        const modalHtml = `
+            <div id="git-file-selection-modal" style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.7);
+                backdrop-filter: blur(8px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+                animation: fadeIn 0.3s ease-out;
+            ">
+                <div style="
+                    background: ${isDark ? 'linear-gradient(135deg, #1f2937 0%, #111827 100%)' : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'};
+                    border-radius: 20px;
+                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
+                    max-width: 600px;
+                    width: 90%;
+                    max-height: 85vh;
+                    overflow: hidden;
+                    color: ${isDark ? '#f3f4f6' : '#1f2937'};
+                    animation: slideUp 0.3s ease-out;
+                    position: relative;
+                ">
+                    <!-- Decorative Header Background -->
+                    <div style="
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        height: 120px;
+                        background: linear-gradient(135deg, ${isDark ? '#3b82f6' : '#6366f1'} 0%, ${isDark ? '#1d4ed8' : '#8b5cf6'} 100%);
+                        opacity: 0.1;
+                        border-radius: 20px 20px 0 0;
+                    "></div>
+
+                    <!-- Modal Header -->
+                    <div style="
+                        padding: 32px 32px 24px 32px;
+                        border-bottom: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
+                        position: relative;
+                    ">
+                        <div style="
+                            display: flex;
+                            align-items: center;
+                            margin-bottom: 8px;
+                        ">
+                            <div style="
+                                width: 48px;
+                                height: 48px;
+                                background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                                border-radius: 12px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                margin-right: 16px;
+                                box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);
+                            ">
+                                <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
+                                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 style="
+                                    font-size: 24px;
+                                    font-weight: 700;
+                                    margin: 0;
+                                    background: linear-gradient(135deg, ${isDark ? '#f3f4f6' : '#1f2937'} 0%, ${isDark ? '#9ca3af' : '#6b7280'} 100%);
+                                    -webkit-background-clip: text;
+                                    -webkit-text-fill-color: transparent;
+                                    background-clip: text;
+                                ">Select Files to Commit</h3>
+                                <p style="
+                                    margin: 4px 0 0 0;
+                                    font-size: 14px;
+                                    color: ${isDark ? '#9ca3af' : '#6b7280'};
+                                    font-weight: 500;
+                                ">Choose which files to include in your commit</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- File List -->
+                    <div style="
+                        padding: 24px 32px;
+                        max-height: 400px;
+                        overflow-y: auto;
+                        scrollbar-width: thin;
+                        scrollbar-color: ${isDark ? '#4b5563 transparent' : '#d1d5db transparent'};
+                    ">
+                        <div style="
+                            margin-bottom: 20px;
+                            padding: 16px;
+                            background: ${isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(99, 102, 241, 0.05)'};
+                            border: 1px solid ${isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(99, 102, 241, 0.1)'};
+                            border-radius: 12px;
+                            backdrop-filter: blur(10px);
+                        ">
+                            <label style="
+                                display: flex;
+                                align-items: center;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                color: ${isDark ? '#e5e7eb' : '#374151'};
+                            ">
+                                <input type="checkbox" id="select-all-files" style="
+                                    margin-right: 12px;
+                                    width: 18px;
+                                    height: 18px;
+                                    accent-color: #3b82f6;
+                                    cursor: pointer;
+                                ">
+                                <span style="
+                                    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                                    -webkit-background-clip: text;
+                                    -webkit-text-fill-color: transparent;
+                                    background-clip: text;
+                                ">Select All Files</span>
+                            </label>
+                        </div>
+                        <div id="file-list-container" style="
+                            border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
+                            border-radius: 16px;
+                            padding: 8px;
+                            background: ${isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.5)'};
+                            backdrop-filter: blur(10px);
+                        ">
+                            <!-- Files will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div style="
+                        padding: 24px 32px 32px 32px;
+                        border-top: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
+                        display: flex;
+                        justify-content: flex-end;
+                        gap: 12px;
+                        background: ${isDark ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.3)'};
+                        backdrop-filter: blur(10px);
+                    ">
+                        <button id="cancel-file-selection" style="
+                            background: ${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(243, 244, 246, 0.8)'};
+                            color: ${isDark ? '#e5e7eb' : '#374151'};
+                            border: 1px solid ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
+                            padding: 12px 24px;
+                            border-radius: 12px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            backdrop-filter: blur(10px);
+                        " onmouseover="
+                            this.style.background = '${isDark ? 'rgba(107, 114, 128, 0.9)' : 'rgba(229, 231, 235, 0.9)'}';
+                            this.style.transform = 'translateY(-1px)';
+                        " onmouseout="
+                            this.style.background = '${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(243, 244, 246, 0.8)'}';
+                            this.style.transform = 'translateY(0)';
+                        ">
+                            Cancel
+                        </button>
+                        <button id="commit-only-btn" disabled style="
+                            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 12px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+                            opacity: 0.5;
+                        " onmouseover="
+                            if (!this.disabled) {
+                                this.style.transform = 'translateY(-2px)';
+                                this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.4)';
+                            }
+                        " onmouseout="
+                            if (!this.disabled) {
+                                this.style.transform = 'translateY(0)';
+                                this.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+                            }
+                        ">
+                            📝 Write Msg & Commit
+                        </button>
+                        <button id="commit-and-push-btn" disabled style="
+                            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 12px;
+                            font-size: 14px;
+                            font-weight: 600;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+                            opacity: 0.5;
+                        " onmouseover="
+                            if (!this.disabled) {
+                                this.style.transform = 'translateY(-2px)';
+                                this.style.boxShadow = '0 8px 20px rgba(59, 130, 246, 0.4)';
+                            }
+                        " onmouseout="
+                            if (!this.disabled) {
+                                this.style.transform = 'translateY(0)';
+                                this.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                            }
+                        ">
+                            🚀 Write Msg, Commit & Push
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <style>
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+
+                @keyframes slideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(20px) scale(0.95);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+
+                #file-list-container::-webkit-scrollbar {
+                    width: 6px;
+                }
+
+                #file-list-container::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+
+                #file-list-container::-webkit-scrollbar-thumb {
+                    background: ${isDark ? '#4b5563' : '#d1d5db'};
+                    border-radius: 3px;
+                }
+
+                #file-list-container::-webkit-scrollbar-thumb:hover {
+                    background: ${isDark ? '#6b7280' : '#9ca3af'};
+                }
+            </style>
+        `;
+
+        // Inject modal HTML into the page
+        const modalContainer = document.createElement('div');
+        modalContainer.innerHTML = modalHtml;
+        document.body.appendChild(modalContainer.firstElementChild);
+
+        // Populate the file list
+        populateFileList(changedFiles, isDark);
+
+        // Show the modal
+        const modal = document.getElementById('git-file-selection-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+
+            // Set up event listeners
+            setupModalEventListeners();
+        }
+
+        console.log('File selection modal displayed successfully');
+
+    } catch (e) {
+        console.error('Error showing file selection modal:', e);
+    }
+};
+
+// Function to populate the file list in the modal
+function populateFileList(changedFiles, isDark = false) {
+    const container = document.getElementById('file-list-container');
+    if (!container) return;
+
+    // Clear existing content
+    container.innerHTML = '';
+
+    console.log('Raw changed files received:', changedFiles);
+
+    // Parse changed files (format: "M\tfile1.txt\nA\tfile2.txt")
+    const fileLines = changedFiles.trim().split('\n').filter(line => line.trim());
+
+    console.log('Parsed file lines:', fileLines);
+
+    if (fileLines.length === 0) {
+        container.innerHTML = `<p style="
+            text-align: center;
+            color: ${isDark ? '#9ca3af' : '#6b7280'};
+            padding: 32px;
+            font-style: italic;
+        ">No changed files found</p>`;
+        return;
+    }
+
+    fileLines.forEach((line, index) => {
+        const parts = line.split('\t');
+        console.log('Processing line:', line, 'Parts:', parts);
+
+        if (parts.length < 2) {
+            console.warn('Skipping invalid line:', line);
+            return;
+        }
+
+        const status = parts[0].trim();
+        const filePath = parts[1].trim();
+
+        console.log('File:', {status, filePath});
+
+        // Create file item with beautiful styling
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+
+        const statusLabel = getStatusLabel(status);
+        const statusColor = getStatusColor(status);
+
+        fileItem.innerHTML = `
+            <div style="
+                display: flex;
+                align-items: center;
+                padding: 16px;
+                margin: 8px;
+                background: ${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'};
+                border: 1px solid ${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'};
+                border-radius: 12px;
+                transition: all 0.2s ease;
+                backdrop-filter: blur(10px);
+                cursor: pointer;
+            " onmouseover="
+                this.style.background = '${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(255, 255, 255, 0.95)'}';
+                this.style.transform = 'translateX(4px)';
+                this.style.borderColor = '${isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(99, 102, 241, 0.3)'}';
+            " onmouseout="
+                this.style.background = '${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'}';
+                this.style.transform = 'translateX(0)';
+                this.style.borderColor = '${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'}';
+            ">
+                <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="
+                    margin-right: 16px;
+                    width: 18px;
+                    height: 18px;
+                    accent-color: #3b82f6;
+                    cursor: pointer;
+                ">
+                <span style="
+                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                    font-weight: 700;
+                    margin-right: 16px;
+                    padding: 6px 12px;
+                    border-radius: 8px;
+                    font-size: 12px;
+                    background: ${statusColor.bg};
+                    color: ${statusColor.text};
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    min-width: 24px;
+                    text-align: center;
+                ">${statusLabel}</span>
+                <label for="file-${index}" style="
+                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                    font-size: 13px;
+                    cursor: pointer;
+                    flex: 1;
+                    color: ${isDark ? '#e5e7eb' : '#374151'};
+                    font-weight: 500;
+                " title="${filePath}">${filePath}</label>
+            </div>
+        `;
+
+        container.appendChild(fileItem);
+    });
+
+    // Update proceed button state
+    updateProceedButtonState();
+}
+
+// Function to update proceed button state
+function updateProceedButtonState() {
+    const commitOnlyBtn = document.getElementById('commit-only-btn');
+    const commitAndPushBtn = document.getElementById('commit-and-push-btn');
+    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+    const selectedFiles = Array.from(fileCheckboxes).filter(cb => cb.checked);
+
+    const hasSelection = selectedFiles.length > 0;
+
+    if (commitOnlyBtn) {
+        commitOnlyBtn.disabled = !hasSelection;
+        commitOnlyBtn.style.opacity = hasSelection ? '1' : '0.5';
+        commitOnlyBtn.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+    }
+
+    if (commitAndPushBtn) {
+        commitAndPushBtn.disabled = !hasSelection;
+        commitAndPushBtn.style.opacity = hasSelection ? '1' : '0.5';
+        commitAndPushBtn.style.cursor = hasSelection ? 'pointer' : 'not-allowed';
+    }
+
+    // Update select all checkbox state
+    const selectAllBtn = document.getElementById('select-all-files');
+    if (selectAllBtn) {
+        if (selectedFiles.length === 0) {
+            selectAllBtn.indeterminate = false;
+            selectAllBtn.checked = false;
+        } else if (selectedFiles.length === fileCheckboxes.length) {
+            selectAllBtn.indeterminate = false;
+            selectAllBtn.checked = true;
+        } else {
+            selectAllBtn.indeterminate = true;
+        }
+    }
+}
 
 // Extract from CodeMirror editors
 function extractFromCodeMirror(textToReplace) {
@@ -350,150 +782,7 @@ function extractFromRegularBlocks(textToReplace) {
     }
 }
 
-// Git File Selection Modal Functions
-// Function to show file selection modal with changed files
-window.showFileSelectionModal = function(changedFiles) {
-    console.log('Showing file selection modal with files:', changedFiles);
-    
-    try {
-        // Detect current theme from document
-        const isDark = document.documentElement.classList.contains('dark') || 
-                      document.body.classList.contains('dark') ||
-                      window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
-        console.log('Detected theme:', isDark ? 'dark' : 'light');
-        
-        // Dynamic theme classes
-        const themeClasses = {
-            modal: isDark ? 'bg-gray-900 text-white' : 'bg-white text-gray-900',
-            header: isDark ? 'border-gray-700' : 'border-gray-200',
-            subtitle: isDark ? 'text-gray-300' : 'text-gray-600',
-            container: isDark ? 'border-gray-700' : 'border-gray-200',
-            fileItem: isDark ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-gray-50',
-            label: isDark ? 'text-gray-200' : 'text-gray-700',
-            cancelBtn: isDark ? 'bg-gray-700 hover:bg-gray-600 text-white border-gray-600' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
-        };
 
-        // Embed the HTML template directly with dynamic theming
-        const modalHtml = `
-            <div id="git-file-selection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div class="${themeClasses.modal} rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
-                    <!-- Modal Header -->
-                    <div class="px-6 py-4 border-b ${themeClasses.header}">
-                        <h3 class="text-lg font-semibold">Select Files to Commit</h3>
-                        <p class="text-sm ${themeClasses.subtitle} mt-1">Choose which files to include in your commit</p>
-                    </div>
-                    
-                    <!-- File List -->
-                    <div class="px-6 py-4 max-h-96 overflow-y-auto">
-                        <div class="mb-4 p-3 border ${themeClasses.container} rounded">
-                            <label class="flex items-center text-sm font-medium cursor-pointer ${themeClasses.label}">
-                                <input type="checkbox" id="select-all-files" class="mr-2">
-                                Select All Files
-                            </label>
-                        </div>
-                        <div id="file-list-container" class="border ${themeClasses.container} rounded p-2">
-                            <!-- Files will be populated here by JavaScript -->
-                        </div>
-                    </div>
-                    
-                    <!-- Modal Footer -->
-                    <div class="px-6 py-4 border-t ${themeClasses.header} flex justify-end gap-3">
-                        <button id="cancel-file-selection" 
-                                class="${themeClasses.cancelBtn} transition rounded-md px-4 py-2 text-sm border">
-                            Cancel
-                        </button>
-                        <button id="proceed-with-commit" 
-                                class="bg-blue-600 hover:bg-blue-700 text-white transition rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed" 
-                                disabled>
-                            Generate & Commit
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Inject modal HTML into the page
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalHtml;
-        document.body.appendChild(modalContainer.firstElementChild);
-        
-        // Populate the file list
-        populateFileList(changedFiles, isDark);
-        
-        // Show the modal
-        const modal = document.getElementById('git-file-selection-modal');
-        if (modal) {
-            modal.style.display = 'flex';
-            
-            // Set up event listeners
-            setupModalEventListeners();
-        }
-        
-        console.log('File selection modal displayed successfully');
-        
-    } catch (e) {
-        console.error('Error showing file selection modal:', e);
-    }
-};
-
-// Function to populate the file list in the modal
-function populateFileList(changedFiles, isDark = false) {
-    const container = document.getElementById('file-list-container');
-    if (!container) return;
-    
-    // Clear existing content
-    container.innerHTML = '';
-    
-    console.log('Raw changed files received:', changedFiles);
-    
-    // Parse changed files (format: "M\tfile1.txt\nA\tfile2.txt")
-    const fileLines = changedFiles.trim().split('\n').filter(line => line.trim());
-    
-    console.log('Parsed file lines:', fileLines);
-    
-    if (fileLines.length === 0) {
-        container.innerHTML = '<p class="text-center text-gray-500 py-4">No changed files found</p>';
-        return;
-    }
-    
-    fileLines.forEach((line, index) => {
-        const parts = line.split('\t');
-        console.log('Processing line:', line, 'Parts:', parts);
-        
-        if (parts.length < 2) {
-            console.warn('Skipping invalid line:', line);
-            return;
-        }
-        
-        const status = parts[0].trim();
-        const filePath = parts[1].trim();
-        
-        console.log('File:', {status, filePath});
-        
-        // Create file item with proper theming
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item';
-        
-        const statusLabel = getStatusLabel(status);
-        const statusColor = getStatusColor(status);
-        const itemBg = isDark ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-300';
-        const textColor = isDark ? 'text-gray-200' : 'text-gray-800';
-        
-        fileItem.innerHTML = `
-            <div class="flex items-center p-3 m-1 border rounded ${itemBg}">
-                <input type="checkbox" class="file-checkbox mr-3" data-file-path="${filePath}" data-status="${status}" id="file-${index}">
-                <span class="file-status font-mono font-bold mr-3 px-2 py-1 rounded text-xs" style="background-color: ${statusColor.bg}; color: ${statusColor.text};">${statusLabel}</span>
-                <label for="file-${index}" class="file-path font-mono text-sm cursor-pointer flex-1 ${textColor}" title="${filePath}">${filePath}</label>
-            </div>
-        `;
-        
-        container.appendChild(fileItem);
-    });
-    
-    // Update proceed button state
-    updateProceedButtonState();
-}
 
 // Helper function to get status color
 function getStatusColor(status) {
@@ -526,7 +815,7 @@ function getStatusClass(status) {
 // Function to set up modal event listeners
 function setupModalEventListeners() {
     console.log('Setting up modal event listeners');
-    
+
     // Cancel button
     const cancelBtn = document.getElementById('cancel-file-selection');
     if (cancelBtn) {
@@ -539,20 +828,33 @@ function setupModalEventListeners() {
     } else {
         console.error('Cancel button not found!');
     }
-    
-    // Proceed button
-    const proceedBtn = document.getElementById('proceed-with-commit');
-    if (proceedBtn) {
-        proceedBtn.addEventListener('click', function(e) {
+
+    // Commit only button
+    const commitOnlyBtn = document.getElementById('commit-only-btn');
+    if (commitOnlyBtn) {
+        commitOnlyBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            console.log('Proceed button clicked');
-            handleProceedWithCommit();
+            console.log('Commit only button clicked');
+            handleCommitAction(false); // false = don't push
         });
-        console.log('Proceed button listener added');
+        console.log('Commit only button listener added');
     } else {
-        console.error('Proceed button not found!');
+        console.error('Commit only button not found!');
     }
-    
+
+    // Commit and push button
+    const commitAndPushBtn = document.getElementById('commit-and-push-btn');
+    if (commitAndPushBtn) {
+        commitAndPushBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Commit and push button clicked');
+            handleCommitAction(true); // true = also push
+        });
+        console.log('Commit and push button listener added');
+    } else {
+        console.error('Commit and push button not found!');
+    }
+
     // Select all checkbox
     const selectAllBtn = document.getElementById('select-all-files');
     if (selectAllBtn) {
@@ -564,7 +866,7 @@ function setupModalEventListeners() {
     } else {
         console.error('Select all checkbox not found!');
     }
-    
+
     // Individual file checkboxes - use event delegation since they're added dynamically
     const container = document.getElementById('file-list-container');
     if (container) {
@@ -578,7 +880,7 @@ function setupModalEventListeners() {
     } else {
         console.error('File list container not found!');
     }
-    
+
     // Modal backdrop click to close
     const modal = document.getElementById('git-file-selection-modal');
     if (modal) {
@@ -592,7 +894,7 @@ function setupModalEventListeners() {
     } else {
         console.error('Modal not found!');
     }
-    
+
     // ESC key to close modal
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && document.getElementById('git-file-selection-modal')) {
@@ -600,7 +902,7 @@ function setupModalEventListeners() {
             hideFileSelectionModal();
         }
     });
-    
+
     console.log('All modal event listeners set up successfully');
 }
 
@@ -608,43 +910,19 @@ function setupModalEventListeners() {
 function handleSelectAllChange(event) {
     const isChecked = event.target.checked;
     const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-    
+
     fileCheckboxes.forEach(checkbox => {
         checkbox.checked = isChecked;
     });
-    
+
     updateProceedButtonState();
 }
 
-// Function to update proceed button state
-function updateProceedButtonState() {
-    const proceedBtn = document.getElementById('proceed-with-commit');
-    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-    const selectedFiles = Array.from(fileCheckboxes).filter(cb => cb.checked);
-    
-    if (proceedBtn) {
-        proceedBtn.disabled = selectedFiles.length === 0;
-    }
-    
-    // Update select all checkbox state
-    const selectAllBtn = document.getElementById('select-all-files');
-    if (selectAllBtn) {
-        if (selectedFiles.length === 0) {
-            selectAllBtn.indeterminate = false;
-            selectAllBtn.checked = false;
-        } else if (selectedFiles.length === fileCheckboxes.length) {
-            selectAllBtn.indeterminate = false;
-            selectAllBtn.checked = true;
-        } else {
-            selectAllBtn.indeterminate = true;
-        }
-    }
-}
 
-// Function to handle proceed with commit
-function handleProceedWithCommit() {
-    console.log('Proceeding with commit...');
-    
+// Function to handle commit actions (with or without push)
+function handleCommitAction(shouldPush) {
+    console.log(`Proceeding with commit${shouldPush ? ' and push' : ''}...`);
+
     try {
         // Get selected files
         const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
@@ -652,26 +930,31 @@ function handleProceedWithCommit() {
             path: cb.dataset.filePath,
             status: cb.dataset.status
         }));
-        
+
         console.log('Found', selectedCheckboxes.length, 'selected checkboxes');
         console.log('Selected files for commit:', selectedFiles);
-        
+
         if (selectedFiles.length === 0) {
             console.error('No files selected');
             alert('Please select at least one file to commit.');
             return;
         }
-        
+
         // Hide modal first
         hideFileSelectionModal();
-        
+
         // Send selected files to Java via bridge
         if (window.intellijBridge && window.intellijBridge.callIDE) {
-            console.log('Calling IDE bridge with selected files...');
-            window.intellijBridge.callIDE('filesSelectedForCommit', {
-                selectedFiles: selectedFiles
+            console.log('Calling IDE bridge with selected files and push flag...');
+
+            // Use different action names based on whether we should push
+            const actionName = shouldPush ? 'filesSelectedForCommitAndPush' : 'filesSelectedForCommit';
+
+            window.intellijBridge.callIDE(actionName, {
+                selectedFiles: selectedFiles,
+                shouldPush: shouldPush
             }).then(function(response) {
-                console.log('Selected files sent to IDE successfully:', response);
+                console.log(`Selected files sent to IDE successfully for ${shouldPush ? 'commit and push' : 'commit only'}:`, response);
             }).catch(function(error) {
                 console.error('Failed to send selected files to IDE:', error);
                 alert('Failed to send files to IDE: ' + error.message);
@@ -680,9 +963,9 @@ function handleProceedWithCommit() {
             console.error('IntelliJ Bridge not found');
             alert('IntelliJ Bridge not available. Please check the connection.');
         }
-        
+
     } catch (e) {
-        console.error('Error handling proceed with commit:', e);
+        console.error('Error handling commit action:', e);
         alert('Error processing commit: ' + e.message);
     }
 }
@@ -690,14 +973,20 @@ function handleProceedWithCommit() {
 // Function to hide file selection modal
 function hideFileSelectionModal() {
     console.log('Hiding file selection modal');
-    
+
     const modal = document.getElementById('git-file-selection-modal');
     if (modal) {
         modal.remove();
     }
 }
 
+// Backward compatibility function (kept for existing code that might call it)
+function handleProceedWithCommit() {
+    console.log('Legacy handleProceedWithCommit called, defaulting to commit only');
+    handleCommitAction(false);
+}
+
 // Ensure automatic copy flag is set
 window.shouldAutomaticallyCopy = true;
 
-console.log('Compatible code extractor function initialized with collapsed code block support, To IDE button injection, and Git file selection modal');
+console.log('Compatible code extractor function initialized with collapsed code block support, To IDE button injection, and Git file selection modal with dual commit options');

@@ -11,7 +11,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.zps.zest.browser.ChatResponseService;
 import com.zps.zest.browser.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
@@ -122,16 +121,16 @@ public class GitCommitMessageGeneratorAction extends AnAction {
      * Continues with selected files (called by GitService)
      * Following the pattern from ChatboxLlmApiCallStage
      */
-    public static void continueWithSelectedFiles(GitCommitContext context) {
+    public static void continueWithSelectedFiles(GitCommitContext context, boolean shouldPush) {
         GitCommitMessageGeneratorAction action = new GitCommitMessageGeneratorAction();
-        action.executeCommitWithResponse(context);
+        action.executeCommitWithResponse(context, shouldPush);
     }
 
     /**
      * Executes commit pipeline with proper response handling
      * Following the pattern from ChatboxLlmApiCallStage
      */
-    private void executeCommitWithResponse(GitCommitContext context) {
+    private void executeCommitWithResponse(GitCommitContext context, boolean shouldPush) {
         Project project = context.getProject();
         if (project == null) return;
 
@@ -183,7 +182,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
                     // Extract commit message and commit
                     CommitMessage commitMessage = extractCommitMessage(response);
-                    stageAndCommit(context, commitMessage);
+                    stageAndCommit(context, commitMessage, shouldPush);
 
                     indicator.setText("Commit completed successfully!");
                     indicator.setFraction(1.0);
@@ -194,116 +193,6 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 }
             }
         });
-    }
-
-    private String escapeJavaScript(String input) {
-        if (input == null) return "";
-        return input.replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r");
-    }
-
-    /**
-     * Executes the git commit message generator pipeline.
-     */
-    private void executeGitCommitPipeline(GitCommitContext context) {
-        Project project = context.getProject();
-        if (project == null) return;
-
-        // Use a background task with progress indicators
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Generating Commit Message", true) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                indicator.setIndeterminate(false);
-
-                try {
-                    // Create and execute the git commit pipeline
-                    GitCommitPipeline pipeline = new GitCommitPipeline()
-                            .addStage(new GitChangesCollectionStage())
-                            .addStage(new CommitPromptGenerationStage());
-
-                    // Execute each stage with progress updates
-                    int totalStages = pipeline.getStageCount();
-                    for (int i = 0; i < totalStages; i++) {
-                        PipelineStage stage = pipeline.getStage(i);
-                        String stageName = stage.getClass().getSimpleName()
-                                .replace("Stage", "")
-                                .replaceAll("([A-Z])", " $1").trim();
-
-                        indicator.setText("Stage " + (i + 1) + "/" + totalStages + ": " + stageName);
-                        indicator.setFraction((double) i / totalStages);
-
-                        // Process the current stage
-                        stage.process(context);
-
-                        // Update progress
-                        indicator.setFraction((double) (i + 1) / totalStages);
-                    }
-
-                    // Get the analysis result from the context
-                    String prompt = context.getPrompt();
-                    if (prompt == null || prompt.isEmpty()) {
-                        throw new PipelineExecutionException("Failed to generate commit message prompt");
-                    }
-
-                    indicator.setText("Sending prompt to chat...");
-                    indicator.setFraction(0.8);
-
-                    // Send the analysis to the chat box using newChat with the chosen model
-                    boolean success = sendPromptToChatBox(project, prompt, DEFAULT_MODEL_NAME);
-                    if (!success) {
-                        throw new PipelineExecutionException("Failed to send commit prompt to chat box");
-                    }
-
-                    indicator.setText("Waiting for LLM response...");
-                    indicator.setFraction(0.9);
-
-                    // Wait for chat response and commit
-                    waitForResponseAndCommit(context, indicator);
-
-                } catch (PipelineExecutionException e) {
-                    showError(project, e);
-                } catch (Exception e) {
-                    showError(project, new PipelineExecutionException("Unexpected error", e));
-                }
-            }
-        });
-    }
-
-    /**
-     * Waits for chat response and executes git commit
-     */
-    private void waitForResponseAndCommit(GitCommitContext context, ProgressIndicator indicator) {
-        Project project = context.getProject();
-        ChatResponseService responseService = new ChatResponseService(project);
-
-        try {
-            // Wait for chat response (30 second timeout)
-            String response = responseService.waitForChatResponse(30).get();
-
-            if (response == null || response.trim().isEmpty()) {
-                throw new PipelineExecutionException("No response received from chat");
-            }
-
-            indicator.setText("Processing response and committing...");
-
-            // Extract commit message from response
-            CommitMessage commitMessage = extractCommitMessage(response);
-
-            // Stage selected files and commit
-            stageAndCommit(context, commitMessage);
-
-            indicator.setText("Commit completed successfully!");
-            indicator.setFraction(1.0);
-
-        } catch (Exception e) {
-            LOG.error("Error waiting for response or committing", e);
-            throw new RuntimeException("Failed to complete commit: " + e.getMessage(), e);
-        } finally {
-            responseService.dispose();
-        }
     }
 
     /**
@@ -556,7 +445,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
      * - First -m flag contains the subject (first line)
      * - Second -m flag contains the description (remaining lines)
      */
-    private void stageAndCommit(GitCommitContext context, CommitMessage commitMessage) throws IOException, InterruptedException, PipelineExecutionException {
+    private void stageAndCommit(GitCommitContext context, CommitMessage commitMessage, boolean shouldPush) throws IOException, InterruptedException, PipelineExecutionException {
         Project project = context.getProject();
         String projectPath = project.getBasePath();
 
@@ -610,6 +499,10 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             LOG.info("  Command: " + commitCommand.toString().substring(0, Math.min(150, commitCommand.length())) + "...");
 
             String result = executeGitCommand(projectPath, commitCommand.toString());
+
+            if (shouldPush){
+                executeGitCommand(projectPath, "git push");
+            }
             LOG.info("Commit executed successfully: " + result);
         } else {
             // Use single -m for subject-only commits

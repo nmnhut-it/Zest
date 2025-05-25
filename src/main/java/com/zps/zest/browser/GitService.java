@@ -33,7 +33,7 @@ public class GitService {
     /**
      * Handles files selected for commit from JavaScript bridge.
      */
-    public String handleFilesSelected(JsonObject data) {
+    public String handleFilesSelected(JsonObject data, boolean shouldPush) {
         LOG.info("Processing files selected for commit: " + data.toString());
         
         try {
@@ -69,7 +69,7 @@ public class GitService {
             context.setSelectedFiles(selectedFiles);
             
             // Continue the git commit pipeline directly
-            GitCommitMessageGeneratorAction.continueWithSelectedFiles(context);
+            GitCommitMessageGeneratorAction.continueWithSelectedFiles(context, shouldPush);
             
             // Clean up context
             removeActiveContextStatic(project.getName());

@@ -157,32 +157,11 @@ public class GitService {
             String cleanedPath = cleanFilePath(filePath, project.getName());
             LOG.info("Cleaned file path for diff: '" + filePath + "' -> '" + cleanedPath + "'");
             
-            // Get the diff content for this file
-            String diffContent = "";
-            
-            // For new files, show the entire content as a diff
-            if (status.equals("A") || status.equals("ADDITION")) {
-                if (isNewFile(projectPath, cleanedPath)) {
-                    diffContent = getNewFileContent(projectPath, cleanedPath);
-                } else {
-                    diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
-                }
-            } else {
-                // For other statuses, try to get the diff
-                diffContent = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
-                if (diffContent.trim().isEmpty()) {
-                    diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
-                }
-            }
-            
-            // Show the diff in our custom viewer
-            final String finalDiffContent = diffContent;
-            final String finalCleanedPath = cleanedPath;
+            // Show the diff in our custom viewer (asynchronously loads the diff content)
             ApplicationManager.getApplication().invokeLater(() -> {
                 com.zps.zest.diff.GitHubStyleDiffViewer.showDiff(
                     project, 
-                    finalCleanedPath, 
-                    finalDiffContent,
+                    cleanedPath, 
                     status
                 );
             });

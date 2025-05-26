@@ -76,7 +76,9 @@ public class GitService {
                 public void run(@NotNull ProgressIndicator indicator) {
                     try {
                         // Show status message
-                        showToolWindowMessage(project, "Committing changes...");
+                        showStatusMessage(project, "Committing changes...");
+                        // Notify UI about commit in progress
+                        notifyUI(project, "GitUI.showCommitInProgress()");
                         
                         // Stage each selected file
                         for (GitCommitContext.SelectedFile file : selectedFiles) {
@@ -99,11 +101,16 @@ public class GitService {
                         String result = executeGitCommand(projectPath, commitCommand.toString());
                         LOG.info("Commit executed successfully: " + result);
                         
-                        // Show success message
-                        showToolWindowMessage(project, "Commit completed successfully!");
+                        // Show success message and notify UI
+                        showStatusMessage(project, "Commit completed successfully!");
+                        notifyUI(project, "GitUI.showCommitSuccess()");
                     } catch (Exception e) {
                         LOG.error("Error during commit operation", e);
-                        showToolWindowMessage(project, "Commit failed: " + e.getMessage());
+                        
+                        // Show error message and notify UI
+                        String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                        showStatusMessage(project, "Commit failed: " + errorMsg);
+                        notifyUI(project, "GitUI.showCommitError('" + escapeJsString(errorMsg) + "')");
                     }
                 }
             }.queue();
@@ -133,13 +140,23 @@ public class GitService {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
                 try {
-                    showToolWindowMessage(project, "Pushing changes to remote...");
+                    // Show status message and notify UI
+                    showStatusMessage(project, "Pushing changes to remote...");
+                    notifyUI(project, "GitUI.showPushInProgress()");
+                    
                     String result = executeGitCommand(projectPath, "git push");
                     LOG.info("Push executed successfully: " + result);
-                    showToolWindowMessage(project, "Push completed successfully!");
+                    
+                    // Show success message and notify UI
+                    showStatusMessage(project, "Push completed successfully!");
+                    notifyUI(project, "GitUI.showPushSuccess()");
                 } catch (Exception e) {
-                    LOG.error("Error during push operation", e);
-                    showToolWindowMessage(project, "Push failed: " + e.getMessage());
+//                    LOG.error("Error during push operation", e);
+                    
+                    // Show error message and notify UI
+                    String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                    showStatusMessage(project, "Push failed: " + errorMsg);
+                    notifyUI(project, "GitUI.showPushError('" + escapeJsString(errorMsg) + "')");
                 }
             }
         }.queue();
@@ -153,16 +170,30 @@ public class GitService {
     /**
      * Shows a simple status message in the tool window
      */
-    private void showToolWindowMessage(Project project, String message) {
+    private void showStatusMessage(Project project, String message) {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
                 // Send message to the browser tool window via JavaScript
                 String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }",
-                        message.replace("'", "\\'"));
+                        escapeJsString(message));
                 WebBrowserService.getInstance(project).executeJavaScript(script);
                 LOG.info("Sent status message to tool window: " + message);
             } catch (Exception e) {
                 LOG.warn("Failed to show tool window message: " + message, e);
+            }
+        });
+    }
+    
+    /**
+     * Notifies the UI about git operations
+     */
+    private void notifyUI(Project project, String jsFunction) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                WebBrowserService.getInstance(project).executeJavaScript(jsFunction);
+                LOG.info("Sent UI notification: " + jsFunction);
+            } catch (Exception e) {
+                LOG.warn("Failed to notify UI: " + jsFunction, e);
             }
         });
     }
@@ -174,6 +205,14 @@ public class GitService {
         if (input == null) return "";
         // Escape double quotes and backslashes for shell command
         return input.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+    
+    /**
+     * Escapes strings for JavaScript string literals
+     */
+    private String escapeJsString(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\").replace("'", "\\'").replace("\r", "\\r").replace("\n", "\\n");
     }
     
     /**

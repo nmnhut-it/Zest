@@ -643,7 +643,7 @@ const GitUI = {
         this.showOperationStatus(
             'loading',
             'Pushing Changes',
-            'Please wait while your changes are being pushed to the remote repository...',
+            'Please wait while your changes are being pushed to the remote repository...\n(Click to close)',
             false
         );
     },

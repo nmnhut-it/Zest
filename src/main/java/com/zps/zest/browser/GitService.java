@@ -36,6 +36,80 @@ public class GitService {
     }
     
     /**
+     * Handles commit with message from JavaScript bridge.
+     * This is the simplified flow where the user provides the commit message directly.
+     */
+    public String handleCommitWithMessage(JsonObject data) {
+        LOG.info("Processing commit with message: " + data.toString());
+        
+        try {
+            // Parse commit message
+            String commitMessage = data.get("message").getAsString();
+            boolean shouldPush = data.has("shouldPush") && data.get("shouldPush").getAsBoolean();
+            
+            // Parse selected files from JSON
+            JsonArray selectedFilesArray = data.getAsJsonArray("selectedFiles");
+            List<GitCommitContext.SelectedFile> selectedFiles = new ArrayList<>();
+            
+            LOG.info("Parsing " + selectedFilesArray.size() + " selected files");
+            
+            for (int i = 0; i < selectedFilesArray.size(); i++) {
+                JsonObject fileObj = selectedFilesArray.get(i).getAsJsonObject();
+                String path = fileObj.get("path").getAsString();
+                String status = fileObj.get("status").getAsString();
+                
+                selectedFiles.add(new GitCommitContext.SelectedFile(path, status));
+            }
+            
+            // Stage and commit files
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Stage each selected file
+            for (GitCommitContext.SelectedFile file : selectedFiles) {
+                String cleanPath = cleanFilePath(file.getPath(), project.getName());
+                String command = "git add \"" + cleanPath + "\"";
+                
+                LOG.info("Staging file: " + cleanPath);
+                executeGitCommand(projectPath, command);
+            }
+            
+            // Commit with the provided message
+            String commitCommand = String.format("git commit -m \"%s\"", escapeForShell(commitMessage));
+            LOG.info("Committing with message: " + commitMessage);
+            
+            String result = executeGitCommand(projectPath, commitCommand);
+            LOG.info("Commit executed successfully: " + result);
+            
+            // Push if requested
+            if (shouldPush) {
+                executeGitCommand(projectPath, "git push");
+                LOG.info("Push executed successfully");
+            }
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("message", "Committed " + selectedFiles.size() + " files successfully");
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error handling commit with message", e);
+            return createErrorResponse("Failed to commit: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Escapes strings for shell commands
+     */
+    private String escapeForShell(String input) {
+        if (input == null) return "";
+        // Escape double quotes and backslashes for shell command
+        return input.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+    
+    /**
      * Handles files selected for commit from JavaScript bridge.
      */
     public String handleFilesSelected(JsonObject data, boolean shouldPush) {

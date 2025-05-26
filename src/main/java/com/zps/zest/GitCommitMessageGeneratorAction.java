@@ -13,31 +13,18 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.browser.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
-import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.JavaScriptBridge;
-import com.zps.zest.browser.GitService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.utils.GitCommandExecutor;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Action that generates a commit message based on the current git changes
- * and sends it to the chat box for further refinement.
- * <p>
- * Commit Message Structure:
- * - SHORT MESSAGE: Extracted from ```commit-short``` block (first line only)
- * - LONG MESSAGE: Extracted from ```commit-long``` block (skip first line, use rest as description)
- * <p>
- * Implementation Details:
- * - extractCommitMessage() uses commit-short for subject, commit-long body for description
- * - First line of commit-long is ignored (assumed to be same as commit-short)
- * - stageAndCommit() uses 'git commit -m "subject" -m "description"' format
- * - Follows standard Git commit message conventions
+ * Action that shows a git commit dialog for selecting files and entering commit messages.
+ * The actual commit message generation is handled via LLM integration.
  */
 public class GitCommitMessageGeneratorAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(GitCommitMessageGeneratorAction.class);
@@ -86,7 +73,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Shows file selection modal
+     * Shows file selection modal with simplified flow
      */
     private void showFileSelectionModal(GitCommitContext context) {
         String changedFiles = context.getChangedFiles();
@@ -94,10 +81,6 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             Messages.showInfoMessage(context.getProject(), "No changed files found", "Git Commit");
             return;
         }
-
-        // Register context with GitService using static method
-        GitService.registerContextStatic(context);
-        LOG.info("Context registered for project: " + context.getProject().getName());
 
         // Show modal via JavaScript - proper string escaping
         try {
@@ -283,18 +266,18 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         String[] lines = response.split("\n");
         String fallbackSubject = "";
         StringBuilder fallbackDescription = new StringBuilder();
-        
+
         boolean foundSubject = false;
         boolean foundDescription = false;
-        
+
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
-            
+
             // Skip empty lines, markdown headers, and code block markers
             if (line.isEmpty() || line.startsWith("#") || line.startsWith("```") || line.startsWith("##")) {
                 continue;
             }
-            
+
             if (!foundSubject) {
                 // First meaningful line becomes the subject
                 fallbackSubject = line.length() > 72 ? line.substring(0, 72) : line;
@@ -309,13 +292,13 @@ public class GitCommitMessageGeneratorAction extends AnAction {
                 foundDescription = true;
             }
         }
-        
+
         String fallbackDescriptionStr = fallbackDescription.toString().trim();
         if (foundSubject) {
             LOG.info("Using fallback parsing - Subject: '" + fallbackSubject + "'");
             LOG.info("Description length: " + fallbackDescriptionStr.length() + " characters");
             if (!fallbackDescriptionStr.isEmpty()) {
-                LOG.info("Description preview: " + fallbackDescriptionStr.substring(0, Math.min(100, fallbackDescriptionStr.length())) + 
+                LOG.info("Description preview: " + fallbackDescriptionStr.substring(0, Math.min(100, fallbackDescriptionStr.length())) +
                         (fallbackDescriptionStr.length() > 100 ? "..." : ""));
             }
             return new CommitMessage(fallbackSubject, fallbackDescriptionStr);
@@ -485,15 +468,15 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             // Split description into lines and use separate -m flag for each line
             // This preserves proper line breaks without over-escaping
             String[] descriptionLines = description.split("\n");
-            
+
             StringBuilder commitCommand = new StringBuilder();
             commitCommand.append("git commit -m \"").append(escapeForShell(subject)).append("\"");
-            
+
             // Add each description line as a separate -m flag
             for (String line : descriptionLines) {
                 commitCommand.append(" -m \"").append(escapeForShell(line)).append("\"");
             }
-            
+
             LOG.info("Committing with subject and multi-line description:");
             LOG.info("  Subject: " + subject);
             LOG.info("  Description lines: " + descriptionLines.length);
@@ -501,7 +484,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
             String result = executeGitCommand(projectPath, commitCommand.toString());
             LOG.info("Commit executed successfully: " + result);
-            
+
             // Show commit success message in tool window
             showToolWindowMessage(project, "Commit " + selectedFiles.size() + " files");
 
@@ -518,7 +501,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
 
             String result = executeGitCommand(projectPath, commitCommand);
             LOG.info("Commit executed successfully: " + result);
-            
+
             // Show commit success message in tool window
             showToolWindowMessage(project, "Commit " + selectedFiles.size() + " files");
 
@@ -596,14 +579,12 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         LOG.info("Sending commit message prompt to chat box using new chat and model: " + modelName);
 
         // Start a new chat with the desired model and prompt
-
         ChatboxUtilities.clickNewChatButton(project);
-// Use browserService.executeJavaScript() before creating the new chat
+        // Use browserService.executeJavaScript() before creating the new chat
         String script = "window.__selected_model_name__ = '" + modelName + "';";
         WebBrowserService.getInstance(project).executeJavaScript(script);
         ChatboxUtilities.sendTextAndSubmit(project, prompt, false, null, false, ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE);
-// Then call newChat as usual
-//        ChatboxUtilities.newChat(project, modelName, prompt);
+
         // Activate browser tool window on EDT
         ApplicationManager.getApplication().invokeLater(() -> {
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
@@ -622,8 +603,8 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
                 // Send message to the browser tool window via JavaScript
-                String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }", 
-                    message.replace("'", "\\'"));
+                String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }",
+                        message.replace("'", "\\'"));
                 WebBrowserService.getInstance(project).executeJavaScript(script);
                 LOG.info("Sent status message to tool window: " + message);
             } catch (Exception e) {
@@ -714,14 +695,14 @@ class GitChangesCollectionStage implements PipelineStage {
 
             // Try multiple methods to get changed files
             String changedFiles = getChangedFilesRobust(projectPath);
-            
+
             LOG.info("=== CHANGED FILES DEBUG ===");
             LOG.info("Raw output length: " + (changedFiles != null ? changedFiles.length() : "null"));
             LOG.info("Is empty: " + (changedFiles == null || changedFiles.trim().isEmpty()));
-            
+
             if (changedFiles != null && !changedFiles.trim().isEmpty()) {
                 LOG.info("Raw content preview: [" + changedFiles.substring(0, Math.min(200, changedFiles.length())) + "]");
-                
+
                 // Log each line separately
                 String[] lines = changedFiles.split("\n");
                 LOG.info("Split into " + lines.length + " lines:");
@@ -732,7 +713,7 @@ class GitChangesCollectionStage implements PipelineStage {
                 LOG.warn("No changed files found!");
             }
             LOG.info("===========================");
-            
+
             gitContext.setChangedFiles(changedFiles);
 
             // Get the git diff
@@ -757,7 +738,7 @@ class GitChangesCollectionStage implements PipelineStage {
     // Add this new robust method to get changed files INCLUDING untracked files
     private String getChangedFilesRobust(String projectPath) throws IOException, InterruptedException {
         LOG.info("Trying multiple git commands to get changed files (including untracked)...");
-        
+
         // Strategy 1: git status --porcelain --untracked-files=all (BEST for new files)
         try {
             String porcelainResult = executeGitCommand(projectPath, "git status --porcelain --untracked-files=all");
@@ -769,18 +750,18 @@ class GitChangesCollectionStage implements PipelineStage {
         } catch (Exception e) {
             LOG.warn("git status --porcelain --untracked-files=all failed: " + e.getMessage());
         }
-        
-        // Strategy 2: Combine tracked changes + untracked files  
+
+        // Strategy 2: Combine tracked changes + untracked files
         try {
             StringBuilder combined = new StringBuilder();
-            
+
             // Get tracked changes
             String trackedChanges = executeGitCommand(projectPath, "git diff --name-status");
             if (trackedChanges != null && !trackedChanges.trim().isEmpty()) {
                 combined.append(trackedChanges);
                 LOG.info("Found tracked changes: " + trackedChanges.length() + " chars");
             }
-            
+
             // Get staged changes
             String stagedChanges = executeGitCommand(projectPath, "git diff --cached --name-status");
             if (stagedChanges != null && !stagedChanges.trim().isEmpty()) {
@@ -788,7 +769,7 @@ class GitChangesCollectionStage implements PipelineStage {
                 combined.append(stagedChanges);
                 LOG.info("Found staged changes: " + stagedChanges.length() + " chars");
             }
-            
+
             // Get untracked files using ls-files
             String untrackedFiles = executeGitCommand(projectPath, "git ls-files --others --exclude-standard");
             if (untrackedFiles != null && !untrackedFiles.trim().isEmpty()) {
@@ -800,17 +781,17 @@ class GitChangesCollectionStage implements PipelineStage {
                 }
                 LOG.info("Found untracked files: " + files.length);
             }
-            
+
             String result = combined.toString();
             if (!result.trim().isEmpty()) {
                 LOG.info("Using combined approach (length: " + result.length() + ")");
                 return result;
             }
-            
+
         } catch (Exception e) {
             LOG.warn("Combined approach failed: " + e.getMessage());
         }
-        
+
         // Strategy 3: git status --short --untracked-files=all (fallback)
         try {
             String shortResult = executeGitCommand(projectPath, "git status --short --untracked-files=all");
@@ -822,7 +803,7 @@ class GitChangesCollectionStage implements PipelineStage {
         } catch (Exception e) {
             LOG.warn("git status --short --untracked-files=all failed: " + e.getMessage());
         }
-        
+
         // Strategy 4: Basic git status --porcelain (without untracked flag)
         try {
             String porcelainResult = executeGitCommand(projectPath, "git status --porcelain");
@@ -834,9 +815,9 @@ class GitChangesCollectionStage implements PipelineStage {
         } catch (Exception e) {
             LOG.warn("git status --porcelain failed: " + e.getMessage());
         }
-        
+
         LOG.warn("All git commands failed or returned empty results");
-        
+
         // Debug: Let's also try to show what git sees
         try {
             String debugStatus = executeGitCommand(projectPath, "git status");
@@ -847,7 +828,7 @@ class GitChangesCollectionStage implements PipelineStage {
         } catch (Exception e) {
             LOG.warn("Could not get full git status for debugging: " + e.getMessage());
         }
-        
+
         return "";
     }
 
@@ -855,10 +836,10 @@ class GitChangesCollectionStage implements PipelineStage {
     private String convertPorcelainToNameStatus(String porcelainOutput) {
         StringBuilder result = new StringBuilder();
         String[] lines = porcelainOutput.split("\n");
-        
+
         for (String line : lines) {
             if (line.trim().isEmpty()) continue;
-            
+
             // Porcelain format: XY filename
             // X = staged status, Y = unstaged status
             // ?? = untracked file
@@ -866,10 +847,10 @@ class GitChangesCollectionStage implements PipelineStage {
             if (line.length() >= 3) {
                 String statusChars = line.substring(0, 2);
                 String filenamePart = line.substring(3); // Skip XY and space
-                
+
                 char status;
                 String filename;
-                
+
                 // Handle untracked files (marked as ??)
                 if (statusChars.equals("??")) {
                     status = 'A'; // Treat untracked as "Added" for UI purposes
@@ -879,7 +860,7 @@ class GitChangesCollectionStage implements PipelineStage {
                     // Handle tracked files
                     char staged = statusChars.charAt(0);
                     char unstaged = statusChars.charAt(1);
-                    
+
                     // Determine the primary status (prefer unstaged, then staged)
                     if (unstaged != ' ' && unstaged != '?') {
                         status = unstaged;
@@ -888,7 +869,7 @@ class GitChangesCollectionStage implements PipelineStage {
                     } else {
                         continue; // Skip if no meaningful status
                     }
-                    
+
                     // Special handling for renamed files
                     if (status == 'R' || status == 'C') {
                         // Renamed/copied files may have format "old_name -> new_name"
@@ -908,7 +889,7 @@ class GitChangesCollectionStage implements PipelineStage {
                         filename = filenamePart;
                     }
                 }
-                
+
                 // Convert to name-status format
                 if (status != ' ') {
                     result.append(status).append("\t").append(filename).append("\n");
@@ -916,7 +897,7 @@ class GitChangesCollectionStage implements PipelineStage {
                 }
             }
         }
-        
+
         String converted = result.toString();
         LOG.info("Converted porcelain to name-status (" + lines.length + " lines -> " + converted.split("\n").length + " entries)");
         LOG.info("Converted result preview: [" + converted.substring(0, Math.min(200, converted.length())) + "]");
@@ -1114,6 +1095,9 @@ class CommitPromptGenerationStage implements PipelineStage {
         return filePath;
     }
 
+    /**
+     * Executes a git command using the shared utility
+     */
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
         return GitCommandExecutor.execute(workingDir, command);
     }

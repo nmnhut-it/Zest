@@ -1,7 +1,7 @@
 /**
  * Git Integration Module
- * 
- * Handles all git-related operations including file parsing, 
+ *
+ * Handles all git-related operations including file parsing,
  * status detection, and communication with the IDE bridge.
  */
 
@@ -14,34 +14,34 @@ const GitUtils = {
     parseChangedFiles: function(changedFiles) {
         console.log("=== GIT FILE PARSING ===");
         console.log("Raw input:", JSON.stringify(changedFiles));
-        
+
         if (!changedFiles || typeof changedFiles !== 'string') {
             console.error("Invalid input for parsing");
             return [];
         }
-        
+
         // Normalize line endings
         const normalized = changedFiles.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         console.log("Normalized:", JSON.stringify(normalized));
-        
+
         // Split into lines and filter empty ones
         const lines = normalized.split('\n').filter(line => line.trim().length > 0);
         console.log("Non-empty lines:", lines.length);
-        
+
         const parsedFiles = [];
-        
+
         lines.forEach((line, index) => {
             console.log(`Processing line ${index}: "${line}"`);
-            
+
             const trimmedLine = line.trim();
             if (!trimmedLine) {
                 console.log(`  Skipping empty line`);
                 return;
             }
-            
+
             let status = '';
             let filePath = '';
-            
+
             // Strategy 1: Tab-separated (git diff --name-status format)
             if (trimmedLine.includes('\t')) {
                 const tabParts = trimmedLine.split('\t');
@@ -51,12 +51,12 @@ const GitUtils = {
                     console.log(`  Tab-parsed: "${status}" | "${filePath}"`);
                 }
             }
-            
+
             // Strategy 2: Git status porcelain format (XY filename)
             if (!status && !filePath && trimmedLine.length >= 3) {
                 const statusChars = trimmedLine.substring(0, 2);
                 const filenamePart = trimmedLine.substring(3);
-                
+
                 // Handle untracked files (?? filename)
                 if (statusChars === '??') {
                     status = 'A'; // Treat untracked as "Added"
@@ -70,10 +70,10 @@ const GitUtils = {
                     } else if (statusChars[0] !== ' ' && /[MADRC]/.test(statusChars[0])) {
                         primaryStatus = statusChars[0]; // Staged status
                     }
-                    
+
                     if (primaryStatus && filenamePart.trim()) {
                         status = primaryStatus;
-                        
+
                         // Special handling for renamed files (R old_name -> new_name)
                         if (primaryStatus === 'R' || primaryStatus === 'C') {
                             if (filenamePart.includes(' -> ')) {
@@ -96,7 +96,7 @@ const GitUtils = {
                     }
                 }
             }
-            
+
             // Strategy 3: Space-separated (git status --short format)
             if (!status && !filePath) {
                 // Look for pattern: STATUS FILENAME or STATUS<space>FILENAME
@@ -115,7 +115,7 @@ const GitUtils = {
                     }
                 }
             }
-            
+
             // Validate and add
             if (status && filePath && /^[MADRC]$/.test(status)) {
                 parsedFiles.push({ status, filePath, originalLine: line });
@@ -125,10 +125,10 @@ const GitUtils = {
                 console.warn(`    Extracted: status="${status}", filePath="${filePath}"`);
             }
         });
-        
+
         console.log(`Successfully parsed ${parsedFiles.length} files from ${lines.length} lines`);
         console.log("=========================");
-        
+
         return parsedFiles;
     },
 
@@ -193,7 +193,7 @@ const GitModal = {
 
             // Create modal using GitUI
             const modalHtml = GitUI.createModal(isDark);
-            
+
             // Inject modal HTML into the page
             const modalContainer = document.createElement('div');
             modalContainer.innerHTML = modalHtml;
@@ -225,7 +225,7 @@ const GitModal = {
         console.log("Input changedFiles:", JSON.stringify(changedFiles));
         console.log("Input type:", typeof changedFiles);
         console.log("Input length:", changedFiles ? changedFiles.length : "null");
-        
+
         const container = document.getElementById('file-list-container');
         if (!container) {
             console.error("Container not found!");
@@ -243,7 +243,7 @@ const GitModal = {
 
         // Robust parsing of changed files
         const parsedFiles = GitUtils.parseChangedFiles(changedFiles);
-        
+
         console.log("Parsed files:", parsedFiles);
 
         if (parsedFiles.length === 0) {
@@ -256,7 +256,7 @@ const GitModal = {
         parsedFiles.forEach((fileInfo, index) => {
             const { status, filePath } = fileInfo;
             console.log(`Creating UI for file ${index}: ${status} ${filePath}`);
-            
+
             const fileItem = GitUI.createFileItem(status, filePath, index, isDark);
             container.appendChild(fileItem);
         });
@@ -276,7 +276,7 @@ const GitModal = {
 
         const hasSelection = selectedFiles.length > 0;
 
-        // Update commit button (removed commit & push button)
+        // Update commit button
         if (commitOnlyBtn) {
             commitOnlyBtn.disabled = !hasSelection;
             commitOnlyBtn.style.opacity = hasSelection ? '1' : '0.5';
@@ -320,13 +320,23 @@ const GitModal = {
             });
         }
 
-        // Commit only button (removed commit & push button)
+        // Write message button - now generates commit message
+        const writeMsgBtn = document.getElementById('write-msg-btn');
+        if (writeMsgBtn) {
+            writeMsgBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Write message button clicked');
+                GitModal.generateCommitMessage();
+            });
+        }
+
+        // Commit only button
         const commitOnlyBtn = document.getElementById('commit-only-btn');
         if (commitOnlyBtn) {
             commitOnlyBtn.addEventListener('click', function(e) {
                 e.preventDefault();
-                console.log('Commit only button clicked');
-                GitModal.handleCommitAction(false); // false = don't push
+                console.log('Commit button clicked');
+                GitModal.handleWriteMessage(); // Commit with the message from textarea
             });
         }
 
@@ -385,52 +395,244 @@ const GitModal = {
     },
 
     /**
-     * Handle commit actions (only commit, removed push option)
+     * Generate commit message using OpenWebUI API
      */
-    handleCommitAction: function(shouldPush = false) {
-        console.log(`Proceeding with commit...`);
+    generateCommitMessage: async function() {
+        console.log('Generating commit message...');
+
+        // Get selected files
+        const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+        const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
+            path: cb.dataset.filePath,
+            status: cb.dataset.status
+        }));
+
+        if (selectedFiles.length === 0) {
+            alert('Please select at least one file to generate a commit message.');
+            return;
+        }
+
+        // Show loading state
+        const messageInput = document.getElementById('commit-message-input');
+        const writeMsgBtn = document.getElementById('write-msg-btn');
+        const originalBtnText = writeMsgBtn.textContent;
+
+        messageInput.disabled = true;
+        messageInput.placeholder = 'Generating commit message...';
+        writeMsgBtn.disabled = true;
+        writeMsgBtn.textContent = '⏳ Generating...';
 
         try {
-            // Get selected files
-            const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
-            const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
-                path: cb.dataset.filePath,
-                status: cb.dataset.status
-            }));
+            // Get diffs for selected files
+            const diffs = await this.getFileDiffs(selectedFiles);
 
-            console.log('Found', selectedCheckboxes.length, 'selected checkboxes');
-            console.log('Selected files for commit:', selectedFiles);
+            // Build prompt
+            const prompt = this.buildCommitPrompt(selectedFiles, diffs);
 
-            if (selectedFiles.length === 0) {
-                console.error('No files selected');
-                alert('Please select at least one file to commit.');
-                return;
-            }
+            // Call OpenWebUI API
+            let commitMessage = await this.callOpenWebUIAPI(prompt);
+           commitMessage = commitMessage.replace(/(```[\s\S]*?```)/g, '');
+            // Update UI with generated message
+            messageInput.value = commitMessage;
+            messageInput.disabled = false;
+            messageInput.placeholder = 'Enter commit message...';
 
-            // Hide modal first
-            this.hideModal();
+            // Auto-resize textarea
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
 
-            // Send selected files to Java via bridge (always commit only)
-            if (window.intellijBridge && window.intellijBridge.callIDE) {
-                console.log('Calling IDE bridge with selected files for commit only...');
+        } catch (error) {
+            console.error('Error generating commit message:', error);
+            alert('Failed to generate commit message: ' + error.message);
+            messageInput.disabled = false;
+            messageInput.placeholder = 'Enter commit message...';
+        } finally {
+            writeMsgBtn.disabled = false;
+            writeMsgBtn.textContent = originalBtnText;
+        }
+    },
 
-                window.intellijBridge.callIDE('filesSelectedForCommit', {
-                    selectedFiles: selectedFiles,
-                    shouldPush: false // Always false since we removed push option
-                }).then(function(response) {
-                    console.log('Selected files sent to IDE successfully for commit:', response);
-                }).catch(function(error) {
-                    console.error('Failed to send selected files to IDE:', error);
-                    alert('Failed to send files to IDE: ' + error.message);
+    /**
+     * Get diffs for selected files
+     */
+    getFileDiffs: async function(selectedFiles) {
+        const diffs = {};
+
+        for (const file of selectedFiles) {
+            try {
+                const response = await window.intellijBridge.callIDE('getFileDiff', {
+                    filePath: file.path,
+                    status: file.status
                 });
-            } else {
-                console.error('IntelliJ Bridge not found');
-                alert('IntelliJ Bridge not available. Please check the connection.');
-            }
 
-        } catch (e) {
-            console.error('Error handling commit action:', e);
-            alert('Error processing commit: ' + e.message);
+                if (response && response.diff) {
+                    diffs[file.path] = response.diff;
+                }
+            } catch (error) {
+                console.error('Error getting diff for', file.path, error);
+                diffs[file.path] = 'Error getting diff';
+            }
+        }
+
+        return diffs;
+    },
+
+    /**
+     * Build commit prompt
+     */
+    buildCommitPrompt: function(selectedFiles, diffs) {
+        let prompt = "Generate a concise git commit message for the following changes:\n\n";
+
+        // Add file list
+        prompt += "Changed files:\n";
+        selectedFiles.forEach(file => {
+            const statusMap = {
+                'M': 'Modified',
+                'A': 'Added',
+                'D': 'Deleted',
+                'R': 'Renamed',
+                'C': 'Copied'
+            };
+            prompt += `- ${file.path} (${statusMap[file.status] || file.status})\n`;
+        });
+
+        // Add diffs
+        prompt += "\nFile changes:\n";
+        Object.entries(diffs).forEach(([path, diff]) => {
+            prompt += `\n--- ${path} ---\n`;
+            // Limit diff size to avoid too large prompts
+            const lines = diff.split('\n').slice(0, 50);
+            prompt += lines.join('\n');
+            if (diff.split('\n').length > 50) {
+                prompt += '\n... (diff truncated)';
+            }
+        });
+
+        prompt += "\n\nProvide only the commit message, no explanation. Follow conventional commit format if applicable.";
+
+        return prompt;
+    },
+
+    /**
+     * Call OpenWebUI API
+     */
+    callOpenWebUIAPI: async function(prompt) {
+        // Get current page URL to determine API endpoint
+        const currentUrl = window.location.origin;
+        const apiUrl = `${currentUrl}/api/chat/completions`;
+
+        console.log('Calling OpenWebUI API at:', apiUrl);
+
+        // Get auth token from cookie
+        const authToken = this.getAuthTokenFromCookie();
+        if (!authToken) {
+            throw new Error('No authentication token found. Please ensure you are logged in.');
+        }
+
+        const payload = {
+            model: "Qwen2.5-Coder-7B", // Default model, could be made configurable
+            messages: [
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ],
+            stream: false,
+            temperature: 0.7,
+            max_tokens: 200
+        };
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+            return data.choices[0].message.content.trim();
+        } else {
+            throw new Error('Invalid API response format');
+        }
+    },
+
+    /**
+     * Get auth token from cookie
+     */
+    getAuthTokenFromCookie: function() {
+        // OpenWebUI typically stores the token in a cookie named 'token' or similar
+        const cookies = document.cookie.split(';');
+        for (const cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'token' || name === 'auth-token' || name === 'authorization') {
+                return decodeURIComponent(value);
+            }
+        }
+
+        // Also check localStorage as some implementations use it
+        const localToken = localStorage.getItem('token') || localStorage.getItem('auth-token');
+        if (localToken) {
+            return localToken;
+        }
+
+        return null;
+    },
+
+    /**
+     * Handle writing commit message
+     */
+    handleWriteMessage: function() {
+        console.log('Handling write message...');
+
+        const messageInput = document.getElementById('commit-message-input');
+        const message = messageInput ? messageInput.value.trim() : '';
+
+        if (!message) {
+            alert('Please enter a commit message first.');
+            if (messageInput) messageInput.focus();
+            return;
+        }
+
+        // Get selected files
+        const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+        const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
+            path: cb.dataset.filePath,
+            status: cb.dataset.status
+        }));
+
+        if (selectedFiles.length === 0) {
+            alert('Please select at least one file to commit.');
+            return;
+        }
+
+        console.log('Writing message and committing:', { message, files: selectedFiles });
+
+        // Hide modal first
+        this.hideModal();
+
+        // Send commit message and selected files to IDE
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            window.intellijBridge.callIDE('commitWithMessage', {
+                message: message,
+                selectedFiles: selectedFiles,
+                shouldPush: false
+            }).then(function(response) {
+                console.log('Commit with message sent to IDE successfully:', response);
+            }).catch(function(error) {
+                console.error('Failed to send commit with message to IDE:', error);
+                alert('Failed to commit: ' + error.message);
+            });
+        } else {
+            console.error('IntelliJ Bridge not found');
+            alert('IntelliJ Bridge not available. Please check the connection.');
         }
     },
 

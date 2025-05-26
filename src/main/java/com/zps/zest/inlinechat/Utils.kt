@@ -1,5 +1,6 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -68,7 +69,7 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
     
     try {
         // Use the ZestContextProvider to create a code context with appropriate information
-        val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+        val editor = ReadAction.compute<Editor,Throwable> {  com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor};
         if (editor == null) {
             ZestNotifications.showError(
                 project,
@@ -84,6 +85,7 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
         
         // Use the existing LLM API call stage to process the command
         val llmStage = LlmApiCallStage()
+        codeContext.useTestWrightModel(false);
         llmStage.process(codeContext)
         
         // Store the response in the service for later use

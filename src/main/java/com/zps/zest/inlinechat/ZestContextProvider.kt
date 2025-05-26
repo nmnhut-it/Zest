@@ -1,7 +1,11 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
@@ -18,26 +22,32 @@ class ZestContextProvider {
          * Create a CodeContext with information gathered from the current selection
          */
         fun createCodeContext(project: Project, editor: Editor, command: String): CodeContext {
-            val codeContext = CodeContext(project)
-            val selectedText = if (editor.selectionModel.hasSelection()) {
-                editor.selectionModel.selectedText ?: ""
-            } else {
-                // If no selection, try to get the current method or class text
-                val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile)
-                val offset = editor.caretModel.offset
-                val element = psiFile?.findElementAt(offset)
+            // Use ReadAction to ensure thread safety when accessing PSI and editor models
+            return ReadAction.compute<CodeContext, Throwable> {
+                val codeContext = CodeContext()
+                codeContext.setProject(project)
+                codeContext.setEditor(editor)
                 
-                gatherContextFromElement(element, editor)
+                val selectedText = if (editor.selectionModel.hasSelection()) {
+                    editor.selectionModel.selectedText ?: ""
+                } else {
+                    // If no selection, try to get the current method or class text
+                    val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile)
+                    val offset = editor.caretModel.offset
+                    val element = psiFile?.findElementAt(offset)
+                    
+                    gatherContextFromElement(element, editor)
+                }
+                
+                // Set the prompt with the selected text and command
+                val prompt = buildPrompt(selectedText, command)
+                codeContext.setPrompt(prompt)
+                
+                // Set config
+                codeContext.setConfig(ConfigurationManager.getInstance(project))
+                
+                codeContext
             }
-            
-            // Set the prompt with the selected text and command
-            val prompt = buildPrompt(selectedText, command)
-            codeContext.setPrompt(prompt)
-            
-            // Set config
-            codeContext.setConfig(ConfigurationManager())
-            
-            return codeContext
         }
         
         /**
@@ -62,14 +72,12 @@ class ZestContextProvider {
             val document = editor.document
             val offset = editor.caretModel.offset
             val lineNum = document.getLineNumber(offset)
-            val lineStart = document.getLineStartOffset(lineNum)
-            val lineEnd = document.getLineEndOffset(lineNum)
             
             // Include a few lines before and after for context
             val contextStart = document.getLineStartOffset(Math.max(0, lineNum - 3))
             val contextEnd = document.getLineEndOffset(Math.min(document.lineCount - 1, lineNum + 3))
             
-            return document.getText(com.intellij.openapi.util.TextRange(contextStart, contextEnd))
+            return document.getText(TextRange(contextStart, contextEnd))
         }
         
         /**
@@ -96,27 +104,29 @@ class ZestContextProvider {
          * Get detailed context for more comprehensive analysis
          */
         fun getDetailedContext(project: Project, editor: Editor): String {
-            val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile) ?: return ""
-            
-            if (editor.selectionModel.hasSelection()) {
-                val start = editor.selectionModel.selectionStart
-                val end = editor.selectionModel.selectionEnd
+            return ReadAction.compute<String, Throwable> {
+                val psiFile = PsiManager.getInstance(project).findFile(editor.virtualFile) ?: return@compute ""
                 
-                // Use existing ClassAnalyzer to get detailed context
-                return ClassAnalyzer.collectSelectionContext(psiFile, start, end)
-            } else {
-                val offset = editor.caretModel.offset
-                val element = psiFile.findElementAt(offset)
-                
-                // Try to find containing class
-                val containingClass = PsiTreeUtil.getParentOfType(element, com.intellij.psi.PsiClass::class.java)
-                if (containingClass != null) {
+                if (editor.selectionModel.hasSelection()) {
+                    val start = editor.selectionModel.selectionStart
+                    val end = editor.selectionModel.selectionEnd
+                    
                     // Use existing ClassAnalyzer to get detailed context
-                    return ClassAnalyzer.collectClassContext(containingClass)
+                    ClassAnalyzer.collectSelectionContext(psiFile, start, end)
+                } else {
+                    val offset = editor.caretModel.offset
+                    val element = psiFile.findElementAt(offset)
+                    
+                    // Try to find containing class
+                    val containingClass = PsiTreeUtil.getParentOfType(element, com.intellij.psi.PsiClass::class.java)
+                    if (containingClass != null) {
+                        // Use existing ClassAnalyzer to get detailed context
+                        ClassAnalyzer.collectClassContext(containingClass)
+                    } else {
+                        ""
+                    }
                 }
             }
-            
-            return ""
         }
     }
 }

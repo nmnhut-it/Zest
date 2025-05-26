@@ -1,6 +1,7 @@
 package com.zps.zest.inlinechat
 
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.SelectionEvent
@@ -101,11 +102,24 @@ class SelectionGutterIconManager : ProjectActivity {
         invokeLater {
             removeHighlighter(editor)
 
-            if (!editor.selectionModel.hasSelection()) return@invokeLater
+            // Wrap in a read action to avoid access violations
+            val hasSelection = ReadAction.compute<Boolean, RuntimeException> { 
+                editor.selectionModel.hasSelection() 
+            }
+            
+            if (!hasSelection) return@invokeLater
 
-            val selectionStart = editor.selectionModel.selectionStart
-            val lineNumber = editor.document.getLineNumber(selectionStart)
-            val lineStart = editor.document.getLineStartOffset(lineNumber)
+            val selectionStart = ReadAction.compute<Int, RuntimeException> { 
+                editor.selectionModel.selectionStart 
+            }
+            
+            val lineNumber = ReadAction.compute<Int, RuntimeException> { 
+                editor.document.getLineNumber(selectionStart) 
+            }
+            
+            val lineStart = ReadAction.compute<Int, RuntimeException> { 
+                editor.document.getLineStartOffset(lineNumber) 
+            }
 
             val markupModel = editor.markupModel
             val highlighter = markupModel.addRangeHighlighter(

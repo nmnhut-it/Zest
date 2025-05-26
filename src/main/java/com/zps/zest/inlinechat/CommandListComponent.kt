@@ -116,7 +116,7 @@ class CommandListComponent(
     }
 
     fun setData(newData: List<CommandListItem>) {
-        ApplicationManager.getApplication().invokeLater {
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
             val selectedValue = list.selectedValue
             model.replaceAll(newData)
             if (selectedValue != null) {

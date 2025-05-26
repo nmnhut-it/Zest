@@ -4,6 +4,7 @@ import com.intellij.codeInsight.intention.impl.BaseIntentionAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.LafManagerListener
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
@@ -100,7 +101,10 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
         val editor = editor ?: return
         
         scope.launch {
-            val location = inlineChatService.location ?: return@launch
+            // We need to get the location in a read action since we're in a background thread
+            val location = com.intellij.openapi.application.ReadAction.compute<org.eclipse.lsp4j.Location, Throwable> {
+                inlineChatService.location
+            } ?: return@launch
             
             val param = ChatEditParams(
                 location = location,
@@ -403,7 +407,7 @@ class InlineInputComponent(
                 // you would handle this asynchronously
                 deferred.invokeOnCompletion {
                     if (deferred.isCompleted && !deferred.isCancelled) {
-                        ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                             refreshCommandList()
                         }
                     }
@@ -449,4 +453,4 @@ class InlineInputComponent(
 }
 
 data class InlineEditCommand(val command: String, val context: List<ChatEditFileContext>?)
-data class ChatEditFileContext(val referrer: String, val uri: String, val range: Range)
+data class ChatEditFileContext(val referrer: String, val uri: String, val range: org.eclipse.lsp4j.Range)

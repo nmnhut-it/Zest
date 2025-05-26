@@ -519,107 +519,49 @@ window.showFileSelectionModal = function(changedFiles) {
 
 // Function to populate the file list in the modal
 function populateFileList(changedFiles, isDark = false) {
+    console.log("=== POPULATE FILE LIST DEBUG ===");
+    console.log("Input changedFiles:", JSON.stringify(changedFiles));
+    console.log("Input type:", typeof changedFiles);
+    console.log("Input length:", changedFiles ? changedFiles.length : "null");
+    
     const container = document.getElementById('file-list-container');
-    if (!container) return;
+    if (!container) {
+        console.error("Container not found!");
+        return;
+    }
 
     // Clear existing content
     container.innerHTML = '';
 
-    console.log('Raw changed files received:', changedFiles);
-
-    // Parse changed files (format: "M\tfile1.txt\nA\tfile2.txt")
-    const fileLines = changedFiles.trim().split('\n').filter(line => line.trim());
-
-    console.log('Parsed file lines:', fileLines);
-
-    if (fileLines.length === 0) {
-        container.innerHTML = `<p style="
-            text-align: center;
-            color: ${isDark ? '#9ca3af' : '#6b7280'};
-            padding: 32px;
-            font-style: italic;
-        ">No changed files found</p>`;
+    if (!changedFiles || typeof changedFiles !== 'string') {
+        console.error("Invalid changedFiles input:", changedFiles);
+        showNoFilesMessage(container, isDark);
         return;
     }
 
-    fileLines.forEach((line, index) => {
-        const parts = line.split('\t');
-        console.log('Processing line:', line, 'Parts:', parts);
+    // Robust parsing of changed files
+    const parsedFiles = parseChangedFilesRobust(changedFiles);
+    
+    console.log("Parsed files:", parsedFiles);
 
-        if (parts.length < 2) {
-            console.warn('Skipping invalid line:', line);
-            return;
-        }
+    if (parsedFiles.length === 0) {
+        console.warn("No files parsed successfully");
+        showNoFilesMessage(container, isDark);
+        return;
+    }
 
-        const status = parts[0].trim();
-        const filePath = parts[1].trim();
-
-        console.log('File:', {status, filePath});
-
-        // Create file item with beautiful styling
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item';
-
-        const statusLabel = getStatusLabel(status);
-        const statusColor = getStatusColor(status);
-
-        fileItem.innerHTML = `
-            <div style="
-                display: flex;
-                align-items: center;
-                padding: 16px;
-                margin: 8px;
-                background: ${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'};
-                border: 1px solid ${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'};
-                border-radius: 12px;
-                transition: all 0.2s ease;
-                backdrop-filter: blur(10px);
-                cursor: pointer;
-            " onmouseover="
-                this.style.background = '${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(255, 255, 255, 0.95)'}';
-                this.style.transform = 'translateX(4px)';
-                this.style.borderColor = '${isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(99, 102, 241, 0.3)'}';
-            " onmouseout="
-                this.style.background = '${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'}';
-                this.style.transform = 'translateX(0)';
-                this.style.borderColor = '${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'}';
-            ">
-                <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="
-                    margin-right: 16px;
-                    width: 18px;
-                    height: 18px;
-                    accent-color: #3b82f6;
-                    cursor: pointer;
-                ">
-                <span style="
-                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                    font-weight: 700;
-                    margin-right: 16px;
-                    padding: 6px 12px;
-                    border-radius: 8px;
-                    font-size: 12px;
-                    background: ${statusColor.bg};
-                    color: ${statusColor.text};
-                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                    min-width: 24px;
-                    text-align: center;
-                ">${statusLabel}</span>
-                <label for="file-${index}" style="
-                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                    font-size: 13px;
-                    cursor: pointer;
-                    flex: 1;
-                    color: ${isDark ? '#e5e7eb' : '#374151'};
-                    font-weight: 500;
-                " title="${filePath}">${filePath}</label>
-            </div>
-        `;
-
+    // Create file items
+    parsedFiles.forEach((fileInfo, index) => {
+        const { status, filePath } = fileInfo;
+        console.log(`Creating UI for file ${index}: ${status} ${filePath}`);
+        
+        const fileItem = createFileItem(status, filePath, index, isDark);
         container.appendChild(fileItem);
     });
 
     // Update proceed button state
     updateProceedButtonState();
+    console.log("=================================");
 }
 
 // Function to update proceed button state
@@ -786,21 +728,23 @@ function extractFromRegularBlocks(textToReplace) {
 // Helper function to get status color
 function getStatusColor(status) {
     switch (status) {
-        case 'M': return { bg: '#fef3c7', text: '#92400e' }; // Yellow
-        case 'A': return { bg: '#dcfce7', text: '#166534' }; // Green
-        case 'D': return { bg: '#fee2e2', text: '#991b1b' }; // Red
-        case 'R': return { bg: '#e0e7ff', text: '#3730a3' }; // Blue
-        default: return { bg: '#f3f4f6', text: '#374151' }; // Gray
+        case 'M': return { bg: '#fef3c7', text: '#92400e' }; // Yellow - Modified
+        case 'A': return { bg: '#dcfce7', text: '#166534' }; // Green - Added/New
+        case 'D': return { bg: '#fee2e2', text: '#991b1b' }; // Red - Deleted
+        case 'R': return { bg: '#e0e7ff', text: '#3730a3' }; // Blue - Renamed
+        case 'C': return { bg: '#f3e8ff', text: '#7c3aed' }; // Purple - Copied
+        default: return { bg: '#f3f4f6', text: '#374151' }; // Gray - Other
     }
 }
 
 // Helper function to get status label
 function getStatusLabel(status) {
     switch (status) {
-        case 'M': return 'M';
-        case 'A': return 'A';
-        case 'D': return 'D';
-        case 'R': return 'R';
+        case 'M': return 'M'; // Modified
+        case 'A': return 'A'; // Added
+        case 'D': return 'D'; // Deleted
+        case 'R': return 'R'; // Renamed
+        case 'C': return 'C'; // Copied
         default: return status;
     }
 }
@@ -1045,5 +989,211 @@ window.showStatusMessage = function(message) {
 
 // Ensure automatic copy flag is set
 window.shouldAutomaticallyCopy = false;
+
+// Enhanced robust file parsing
+function parseChangedFilesRobust(changedFiles) {
+    console.log("=== ROBUST FILE PARSING ===");
+    console.log("Raw input:", JSON.stringify(changedFiles));
+    
+    if (!changedFiles || typeof changedFiles !== 'string') {
+        console.error("Invalid input for parsing");
+        return [];
+    }
+    
+    // Normalize line endings
+    const normalized = changedFiles.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    console.log("Normalized:", JSON.stringify(normalized));
+    
+    // Split into lines and filter empty ones
+    const lines = normalized.split('\n').filter(line => line.trim().length > 0);
+    console.log("Non-empty lines:", lines.length);
+    
+    const parsedFiles = [];
+    
+    lines.forEach((line, index) => {
+        console.log(`Processing line ${index}: "${line}"`);
+        
+        const trimmedLine = line.trim();
+        if (!trimmedLine) {
+            console.log(`  Skipping empty line`);
+            return;
+        }
+        
+        let status = '';
+        let filePath = '';
+        
+        // Strategy 1: Tab-separated (git diff --name-status format)
+        if (trimmedLine.includes('\t')) {
+            const tabParts = trimmedLine.split('\t');
+            if (tabParts.length >= 2) {
+                status = tabParts[0].trim();
+                filePath = tabParts.slice(1).join('\t').trim(); // Handle filenames with tabs
+                console.log(`  Tab-parsed: "${status}" | "${filePath}"`);
+            }
+        }
+        
+        // Strategy 2: Git status porcelain format (XY filename)
+        if (!status && !filePath && trimmedLine.length >= 3) {
+            const statusChars = trimmedLine.substring(0, 2);
+            const filenamePart = trimmedLine.substring(3);
+            
+            // Handle untracked files (?? filename)
+            if (statusChars === '??') {
+                status = 'A'; // Treat untracked as "Added"
+                filePath = filenamePart.trim();
+                console.log(`  Untracked-parsed: "${status}" | "${filePath}"`);
+            } else {
+                // Convert XY format to single status
+                let primaryStatus = '';
+                if (statusChars[1] !== ' ' && /[MADRC]/.test(statusChars[1])) {
+                    primaryStatus = statusChars[1]; // Unstaged status
+                } else if (statusChars[0] !== ' ' && /[MADRC]/.test(statusChars[0])) {
+                    primaryStatus = statusChars[0]; // Staged status
+                }
+                
+                if (primaryStatus && filenamePart.trim()) {
+                    status = primaryStatus;
+                    
+                    // Special handling for renamed files (R old_name -> new_name)
+                    if (primaryStatus === 'R' || primaryStatus === 'C') {
+                        if (filenamePart.includes(' -> ')) {
+                            const renameParts = filenamePart.split(' -> ');
+                            if (renameParts.length === 2) {
+                                filePath = renameParts[1].trim(); // Use new name
+                                console.log(`  Renamed-parsed: "${status}" | "${renameParts[0].trim()}" -> "${filePath}"`);
+                            } else {
+                                filePath = filenamePart.trim();
+                                console.log(`  Rename-fallback-parsed: "${status}" | "${filePath}"`);
+                            }
+                        } else {
+                            filePath = filenamePart.trim();
+                            console.log(`  Rename-simple-parsed: "${status}" | "${filePath}"`);
+                        }
+                    } else {
+                        filePath = filenamePart.trim();
+                        console.log(`  Porcelain-parsed: "${status}" | "${filePath}"`);
+                    }
+                }
+            }
+        }
+        
+        // Strategy 3: Space-separated (git status --short format)
+        if (!status && !filePath) {
+            // Look for pattern: STATUS FILENAME or STATUS<space>FILENAME
+            const match = trimmedLine.match(/^([MADRC?])\s+(.+)$/);
+            if (match) {
+                status = match[1] === '?' ? 'A' : match[1]; // Convert ? to A for untracked
+                filePath = match[2];
+                console.log(`  Regex-parsed: "${status}" | "${filePath}"`);
+            } else {
+                // Try simple space split
+                const spaceParts = trimmedLine.split(/\s+/);
+                if (spaceParts.length >= 2 && /^[MADRC?]$/.test(spaceParts[0])) {
+                    status = spaceParts[0] === '?' ? 'A' : spaceParts[0]; // Convert ? to A
+                    filePath = spaceParts.slice(1).join(' ');
+                    console.log(`  Space-parsed: "${status}" | "${filePath}"`);
+                }
+            }
+        }
+        
+        // Validate and add
+        if (status && filePath && /^[MADRC]$/.test(status)) {
+            parsedFiles.push({ status, filePath, originalLine: line });
+            console.log(`  ✓ Successfully parsed: ${status} ${filePath}`);
+        } else {
+            console.warn(`  ✗ Failed to parse line: "${line}"`);
+            console.warn(`    Extracted: status="${status}", filePath="${filePath}"`);
+        }
+    });
+    
+    console.log(`Successfully parsed ${parsedFiles.length} files from ${lines.length} lines`);
+    console.log("===========================");
+    
+    return parsedFiles;
+}
+
+// Helper function to show "no files" message
+function showNoFilesMessage(container, isDark) {
+    container.innerHTML = `
+        <div style="
+            text-align: center;
+            color: ${isDark ? '#9ca3af' : '#6b7280'};
+            padding: 32px 16px;
+            font-style: italic;
+            background: ${isDark ? 'rgba(55, 65, 81, 0.3)' : 'rgba(255, 255, 255, 0.5)'};
+            border-radius: 8px;
+            border: 2px dashed ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
+        ">
+            <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
+            <div>No changed files found</div>
+            <div style="font-size: 12px; margin-top: 4px; opacity: 0.7;">
+                Make sure you have uncommitted changes in your repository
+            </div>
+        </div>
+    `;
+}
+
+// Helper function to create a file item
+function createFileItem(status, filePath, index, isDark) {
+    const fileItem = document.createElement('div');
+    fileItem.className = 'file-item';
+
+    const statusLabel = getStatusLabel(status);
+    const statusColor = getStatusColor(status);
+
+    fileItem.innerHTML = `
+        <div style="
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            margin: 6px 0;
+            background: ${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'};
+            border: 1px solid ${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'};
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+        " onmouseover="
+            this.style.background = '${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(255, 255, 255, 0.95)'}';
+            this.style.transform = 'translateX(2px)';
+            this.style.borderColor = '${isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(99, 102, 241, 0.3)'}';
+        " onmouseout="
+            this.style.background = '${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'}';
+            this.style.transform = 'translateX(0)';
+            this.style.borderColor = '${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'}';
+        ">
+            <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="
+                margin-right: 12px;
+                width: 16px;
+                height: 16px;
+                accent-color: #3b82f6;
+                cursor: pointer;
+            ">
+            <span style="
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-weight: 600;
+                margin-right: 12px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                background: ${statusColor.bg};
+                color: ${statusColor.text};
+                min-width: 20px;
+                text-align: center;
+            ">${statusLabel}</span>
+            <label for="file-${index}" style="
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                font-size: 12px;
+                cursor: pointer;
+                flex: 1;
+                color: ${isDark ? '#e5e7eb' : '#374151'};
+                font-weight: 400;
+                word-break: break-all;
+            " title="${filePath}">${filePath}</label>
+        </div>
+    `;
+
+    return fileItem;
+}
 
 console.log('Compatible code extractor function initialized with collapsed code block support, To IDE button injection, and Git file selection modal with dual commit options');

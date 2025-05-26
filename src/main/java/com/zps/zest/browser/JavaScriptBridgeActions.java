@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -96,7 +97,11 @@ public class JavaScriptBridgeActions {
                 // Project info (synchronous)
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
-                
+                case "auth":
+                    String authToken = data.getAsJsonPrimitive("token").getAsString();
+                    ConfigurationManager.getInstance(project).setAuthToken(authToken);
+                    LOG.info("Auth token saved successfully");
+                    return "";
                 // Chat response handling
                 case "notifyChatResponse":
                     return chatResponseService.notifyChatResponse(data);

@@ -285,6 +285,59 @@ window.shouldAutomaticallyCopy = false;
 setInterval(() => {
   window.intellijBridge.cleanupExpiredSessions();
 }, 30000); // Clean up every 30 seconds
+// Add this to your bridge JavaScript file
 
+// Extract and send auth cookie
+(function() {
+  function getCookieValue(name) {
+    const value = `${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+  }
+/**
+     * Get auth token from cookie
+     */
+   function _getAuthTokenFromCookie () {
+        // OpenWebUI typically stores the token in a cookie named 'token' or similar
+        const cookies = document.cookie.split(';');
+        for (const cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'token' || name === 'auth-token' || name === 'authorization') {
+                return decodeURIComponent(value);
+            }
+        }
+
+        // Also check localStorage as some implementations use it
+        const localToken = localStorage.getItem('token') || localStorage.getItem('auth-token');
+        if (localToken) {
+            return localToken;
+        }
+
+        return null;
+    }
+  function checkAndSendAuthCookie() {
+    const authCookie = _getAuthTokenFromCookie();
+    if (authCookie && window.intellijBridge) {
+      window.intellijBridge.callIDE('auth', {token: authCookie});
+      console.log("send auth to intelij")
+      return true;
+    }
+    return false;
+  }
+
+  // Try immediately and on DOM load
+  if (!checkAndSendAuthCookie()) {
+    document.addEventListener('DOMContentLoaded', checkAndSendAuthCookie);
+
+    // Try a few more times with timeout
+    let attempts = 0;
+    const interval = setInterval(() => {
+      if (checkAndSendAuthCookie() || ++attempts > 10) {
+        clearInterval(interval);
+      }
+    }, 3000);
+  }
+})();
 console.log('IntelliJ Bridge initialized with chunked messaging support');
 console.log('Chunking configuration:', window.intellijBridge.config);

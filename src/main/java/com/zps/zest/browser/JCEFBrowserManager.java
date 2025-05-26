@@ -57,6 +57,7 @@ public class JCEFBrowserManager {
             @Override
             public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                 setupJavaScriptBridge(cefBrowser, frame);
+
                 new AutoCodeExtractorWithBridge().onLoadEnd(cefBrowser, frame, httpStatusCode);
             }
 
@@ -199,50 +200,6 @@ public class JCEFBrowserManager {
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
         }
-    }
-
-    /**
-     * Tests the JavaScript bridge by showing a dialog.
-     */
-    public void testBridge() {
-        executeJavaScript(
-                "if (window.intellijBridge) {\n" +
-                        "  intellijBridge.callIDE('showDialog', {\n" +
-                        "    title: 'Bridge Test',\n" +
-                        "    message: 'Bridge is working correctly!',\n" +
-                        "    type: 'info'\n" +
-                        "  }).then(function(result) {\n" +
-                        "    console.log('Dialog shown successfully');\n" +
-                        "  }).catch(function(error) {\n" +
-                        "    console.error('Bridge test failed:', error);\n" +
-                        "  });\n" +
-                        "} else {\n" +
-                        "  console.error('Bridge not initialized');\n" +
-                        "}");
-    }
-
-    /**
-     * Tests chunked messaging by sending a large message.
-     */
-    public void testChunkedMessaging() {
-        executeJavaScript(
-                "if (window.intellijBridge) {\n" +
-                        "  // Create a large message (over 1.4KB) to test chunking\n" +
-                        "  const largeText = 'This is a test of chunked messaging. '.repeat(100);\n" +
-                        "  console.log('Testing chunked messaging with message size:', largeText.length);\n" +
-                        "  \n" +
-                        "  intellijBridge.callIDE('showDialog', {\n" +
-                        "    title: 'Chunked Message Test',\n" +
-                        "    message: largeText,\n" +
-                        "    type: 'info'\n" +
-                        "  }).then(function(result) {\n" +
-                        "    console.log('Chunked message sent successfully');\n" +
-                        "  }).catch(function(error) {\n" +
-                        "    console.error('Chunked message test failed:', error);\n" +
-                        "  });\n" +
-                        "} else {\n" +
-                        "  console.error('Bridge not initialized');\n" +
-                        "}");
     }
 
     /**

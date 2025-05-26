@@ -16,6 +16,7 @@ import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.GitService;
+import com.zps.zest.browser.utils.GitCommandExecutor;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
@@ -580,41 +581,10 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Executes a git command (reused from existing stage)
+     * Executes a git command using the shared utility
      */
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.directory(new java.io.File(workingDir));
-
-        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
-            processBuilder.command("cmd.exe", "/c", command);
-        } else {
-            processBuilder.command("sh", "-c", command);
-        }
-
-        Process process = processBuilder.start();
-        StringBuilder output = new StringBuilder();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append("\n");
-            }
-        }
-
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            StringBuilder error = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    error.append(line).append("\n");
-                }
-            }
-            throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
-        }
-
-        return output.toString();
+        return GitCommandExecutor.execute(workingDir, command);
     }
 
     /**
@@ -778,48 +748,10 @@ class GitChangesCollectionStage implements PipelineStage {
     }
 
     /**
-     * Executes a git command and returns the output.
+     * Executes a git command using the shared utility.
      */
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
-        LOG.info("Executing git command: " + command);
-
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.directory(new java.io.File(workingDir));
-
-        // Set up the command based on OS
-        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
-            processBuilder.command("cmd.exe", "/c", command);
-        } else {
-            processBuilder.command("sh", "-c", command);
-        }
-
-        Process process = processBuilder.start();
-        StringBuilder output = new StringBuilder();
-
-        // Read the output
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append("\n");
-            }
-        }
-
-        // Wait for the process to complete
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            // Read error stream if the command failed
-            StringBuilder error = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    error.append(line).append("\n");
-                }
-            }
-
-            throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
-        }
-
-        return output.toString();
+        return GitCommandExecutor.execute(workingDir, command);
     }
 
     // Add this new robust method to get changed files INCLUDING untracked files
@@ -1183,37 +1115,6 @@ class CommitPromptGenerationStage implements PipelineStage {
     }
 
     private String executeGitCommand(String workingDir, String command) throws IOException, InterruptedException {
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.directory(new java.io.File(workingDir));
-
-        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
-            processBuilder.command("cmd.exe", "/c", command);
-        } else {
-            processBuilder.command("sh", "-c", command);
-        }
-
-        Process process = processBuilder.start();
-        StringBuilder output = new StringBuilder();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append("\n");
-            }
-        }
-
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            StringBuilder error = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    error.append(line).append("\n");
-                }
-            }
-            throw new IOException("Command exited with code " + exitCode + ": " + error.toString());
-        }
-
-        return output.toString();
+        return GitCommandExecutor.execute(workingDir, command);
     }
 }

@@ -7,8 +7,13 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.CodeContext;
+import com.zps.zest.browser.utils.GitCommandExecutor;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -139,6 +144,172 @@ public class GitService {
      */
     public static int getActiveContextCount() {
         return GLOBAL_CONTEXTS.size();
+    }
+    
+    /**
+     * Gets the diff for a specific file.
+     */
+    public String getFileDiff(JsonObject data) {
+        LOG.info("Getting file diff: " + data.toString());
+        
+        try {
+            String filePath = data.get("filePath").getAsString();
+            String status = data.get("status").getAsString();
+            
+            LOG.info("Requesting diff for file: " + filePath + " (status: " + status + ")");
+            
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+
+            // Clean the file path - remove project name prefix if present  
+            String cleanedPath = cleanFilePath(filePath, project.getName());
+            LOG.info("Cleaned file path: '" + filePath + "' -> '" + cleanedPath + "'");
+            
+            String diff = "";
+            
+            // Handle different file statuses
+            switch (status) {
+                case "A": // Added/New file
+                    if (isNewFile(projectPath, cleanedPath)) {
+                        // For truly new files, show the entire content as added
+                        diff = getNewFileContent(projectPath, cleanedPath);
+                    } else {
+                        // For staged files, get cached diff
+                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    }
+                    break;
+                    
+                case "M": // Modified
+                    // Get unstaged changes first, then staged if no unstaged
+                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                    if (diff.trim().isEmpty()) {
+                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    }
+                    break;
+                    
+                case "D": // Deleted
+                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                    if (diff.trim().isEmpty()) {
+                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    }
+                    break;
+                    
+                case "R": // Renamed
+                    diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    break;
+                    
+                default:
+                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                    break;
+            }
+            
+            LOG.info("Generated diff for " + cleanedPath + " (length: " + diff.length() + ")");
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("diff", diff);
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error getting file diff", e);
+            return createErrorResponse("Failed to get file diff: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Cleans file path by removing project name prefix if present
+     */
+    private String cleanFilePath(String filePath, String projectName) {
+        if (filePath == null || filePath.isEmpty()) return "";
+
+        LOG.info("Cleaning file path: '" + filePath + "' for project: '" + projectName + "'");
+
+        // Remove project name prefix if present
+        if (projectName != null && !projectName.isEmpty()) {
+            String prefix = projectName + "/";
+            if (filePath.startsWith(prefix)) {
+                String cleaned = filePath.substring(prefix.length());
+                LOG.info("Removed project prefix: '" + filePath + "' -> '" + cleaned + "'");
+                return cleaned;
+            }
+        }
+
+        // Also try to handle cases where the path might have been duplicated
+        // e.g., "5-lite/5-lite/src/..." -> "src/..."
+        String[] parts = filePath.split("/");
+        if (parts.length > 1 && parts[0].equals(parts[1])) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed duplicate prefix: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+
+        // If path starts with project name, remove it
+        if (projectName != null && parts.length > 0 && parts[0].equals(projectName)) {
+            String cleaned = String.join("/", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            LOG.info("Removed project name from path: '" + filePath + "' -> '" + cleaned + "'");
+            return cleaned;
+        }
+
+        LOG.info("Path unchanged: '" + filePath + "'");
+        return filePath;
+    }
+    
+    /**
+     * Checks if a file is truly new (untracked)
+     */
+    private boolean isNewFile(String projectPath, String filePath) {
+        try {
+            String result = executeGitCommand(projectPath, "git ls-files \"" + filePath + "\"");
+            return result.trim().isEmpty(); // If empty, file is not tracked
+        } catch (Exception e) {
+            LOG.warn("Error checking if file is new: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Gets the content of a new file formatted as a diff
+     */
+    private String getNewFileContent(String projectPath, String filePath) {
+        try {
+            java.io.File file = new java.io.File(projectPath, filePath);
+            if (!file.exists()) {
+                return "File not found: " + filePath;
+            }
+            
+            java.nio.file.Path path = file.toPath();
+            String content = java.nio.file.Files.readString(path);
+            
+            // Format as a diff showing all lines as added
+            StringBuilder diff = new StringBuilder();
+            diff.append("diff --git a/").append(filePath).append(" b/").append(filePath).append("\n");
+            diff.append("new file mode 100644\n");
+            diff.append("index 0000000..1234567\n");
+            diff.append("--- /dev/null\n");
+            diff.append("+++ b/").append(filePath).append("\n");
+            
+            String[] lines = content.split("\n");
+            diff.append("@@ -0,0 +1,").append(lines.length).append(" @@\n");
+            
+            for (String line : lines) {
+                diff.append("+").append(line).append("\n");
+            }
+            
+            return diff.toString();
+            
+        } catch (Exception e) {
+            LOG.error("Error reading new file content", e);
+            return "Error reading file: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * Executes a git command using the shared utility
+     */
+    private String executeGitCommand(String workingDir, String command) throws Exception {
+        return GitCommandExecutor.executeWithGenericException(workingDir, command);
     }
     
     /**

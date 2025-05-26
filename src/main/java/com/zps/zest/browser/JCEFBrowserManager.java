@@ -188,7 +188,14 @@ public class JCEFBrowserManager {
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
             
-            LOG.info("JavaScript bridge initialized successfully with chunked messaging support");
+            // Load and inject the git integration scripts
+            String gitScript = loadResourceAsString("/js/git.js");
+            cefBrowser.executeJavaScript(gitScript, frame.getURL(), 0);
+            
+            String gitUIScript = loadResourceAsString("/js/git-ui.js");
+            cefBrowser.executeJavaScript(gitUIScript, frame.getURL(), 0);
+            
+            LOG.info("JavaScript bridge initialized successfully with chunked messaging support and git integration");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
         }

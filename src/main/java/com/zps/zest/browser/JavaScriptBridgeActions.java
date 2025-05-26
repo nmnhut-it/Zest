@@ -107,6 +107,9 @@ public class JavaScriptBridgeActions {
                     boolean shouldPush = data.getAsJsonPrimitive("shouldPush").getAsBoolean();
                     return gitService.handleFilesSelected(data, shouldPush);
                 
+                case "getFileDiff":
+                    return gitService.getFileDiff(data);
+                
                 // Content update handling
                 case "contentUpdated":
                     return handleContentUpdated(data);

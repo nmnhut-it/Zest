@@ -3,8 +3,11 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.Task;
 import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.CodeContext;
 import com.zps.zest.browser.utils.GitCommandExecutor;
@@ -37,67 +40,131 @@ public class GitService {
     
     /**
      * Handles commit with message from JavaScript bridge.
-     * This is the simplified flow where the user provides the commit message directly.
+     * This updated version supports multi-line commit messages by chaining -m flags.
+     * Operations are performed asynchronously to avoid blocking the UI.
      */
     public String handleCommitWithMessage(JsonObject data) {
         LOG.info("Processing commit with message: " + data.toString());
-        
+
         try {
             // Parse commit message
             String commitMessage = data.get("message").getAsString();
-            boolean shouldPush = data.has("shouldPush") && data.get("shouldPush").getAsBoolean();
             
             // Parse selected files from JSON
             JsonArray selectedFilesArray = data.getAsJsonArray("selectedFiles");
             List<GitCommitContext.SelectedFile> selectedFiles = new ArrayList<>();
-            
+
             LOG.info("Parsing " + selectedFilesArray.size() + " selected files");
-            
+
             for (int i = 0; i < selectedFilesArray.size(); i++) {
                 JsonObject fileObj = selectedFilesArray.get(i).getAsJsonObject();
                 String path = fileObj.get("path").getAsString();
                 String status = fileObj.get("status").getAsString();
-                
+
                 selectedFiles.add(new GitCommitContext.SelectedFile(path, status));
             }
-            
-            // Stage and commit files
+
+            // Get project path
             String projectPath = project.getBasePath();
             if (projectPath == null) {
                 return createErrorResponse("Project path not found");
             }
-            
-            // Stage each selected file
-            for (GitCommitContext.SelectedFile file : selectedFiles) {
-                String cleanPath = cleanFilePath(file.getPath(), project.getName());
-                String command = "git add \"" + cleanPath + "\"";
-                
-                LOG.info("Staging file: " + cleanPath);
-                executeGitCommand(projectPath, command);
-            }
-            
-            // Commit with the provided message
-            String commitCommand = String.format("git commit -m \"%s\"", escapeForShell(commitMessage));
-            LOG.info("Committing with message: " + commitMessage);
-            
-            String result = executeGitCommand(projectPath, commitCommand);
-            LOG.info("Commit executed successfully: " + result);
-            
-            // Push if requested
-            if (shouldPush) {
-                executeGitCommand(projectPath, "git push");
-                LOG.info("Push executed successfully");
-            }
-            
+
+            // Run commit operation in background
+            new Task.Backgroundable(project, "Git Commit", false) {
+                @Override
+                public void run(@NotNull ProgressIndicator indicator) {
+                    try {
+                        // Show status message
+                        showToolWindowMessage(project, "Committing changes...");
+                        
+                        // Stage each selected file
+                        for (GitCommitContext.SelectedFile file : selectedFiles) {
+                            String cleanPath = cleanFilePath(file.getPath(), project.getName());
+                            String command = "git add \"" + cleanPath + "\"";
+
+                            LOG.info("Staging file: " + cleanPath);
+                            executeGitCommand(projectPath, command);
+                        }
+
+                        // Build git commit command with multiple -m flags for multiline message
+                        String[] lines = commitMessage.split("\\r?\\n");
+                        StringBuilder commitCommand = new StringBuilder("git commit");
+                        for (String line : lines) {
+                            commitCommand.append(" -m \"").append(escapeForShell(line)).append("\"");
+                        }
+
+                        LOG.info("Committing with message: " + commitMessage);
+
+                        String result = executeGitCommand(projectPath, commitCommand.toString());
+                        LOG.info("Commit executed successfully: " + result);
+                        
+                        // Show success message
+                        showToolWindowMessage(project, "Commit completed successfully!");
+                    } catch (Exception e) {
+                        LOG.error("Error during commit operation", e);
+                        showToolWindowMessage(project, "Commit failed: " + e.getMessage());
+                    }
+                }
+            }.queue();
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
-            response.addProperty("message", "Committed " + selectedFiles.size() + " files successfully");
+            response.addProperty("message", "Commit operation started");
             return gson.toJson(response);
-            
+
         } catch (Exception e) {
             LOG.error("Error handling commit with message", e);
             return createErrorResponse("Failed to commit: " + e.getMessage());
         }
+    }
+
+    /**
+     * Handles git push operation asynchronously
+     */
+    public String handleGitPush() {
+        String projectPath = project.getBasePath();
+        if (projectPath == null) {
+            return createErrorResponse("Project path not found");
+        }
+        
+        // Run push operation in background
+        new Task.Backgroundable(project, "Git Push", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    showToolWindowMessage(project, "Pushing changes to remote...");
+                    String result = executeGitCommand(projectPath, "git push");
+                    LOG.info("Push executed successfully: " + result);
+                    showToolWindowMessage(project, "Push completed successfully!");
+                } catch (Exception e) {
+                    LOG.error("Error during push operation", e);
+                    showToolWindowMessage(project, "Push failed: " + e.getMessage());
+                }
+            }
+        }.queue();
+        
+        JsonObject response = new JsonObject();
+        response.addProperty("success", true);
+        response.addProperty("message", "Push operation started");
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Shows a simple status message in the tool window
+     */
+    private void showToolWindowMessage(Project project, String message) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                // Send message to the browser tool window via JavaScript
+                String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }",
+                        message.replace("'", "\\'"));
+                WebBrowserService.getInstance(project).executeJavaScript(script);
+                LOG.info("Sent status message to tool window: " + message);
+            } catch (Exception e) {
+                LOG.warn("Failed to show tool window message: " + message, e);
+            }
+        });
     }
     
     /**
@@ -405,4 +472,3 @@ public class GitService {
         LOG.info("Active contexts remaining: " + GLOBAL_CONTEXTS.size());
     }
 }
-

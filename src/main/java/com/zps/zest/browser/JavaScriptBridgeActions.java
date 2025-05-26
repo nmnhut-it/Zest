@@ -109,6 +109,8 @@ public class JavaScriptBridgeActions {
                 
                 case "commitWithMessage":
                     return gitService.handleCommitWithMessage(data);
+                case "gitPush":
+                    return gitService.handleGitPush();
                 
                 case "getFileDiff":
                     return gitService.getFileDiff(data);

@@ -336,7 +336,17 @@ const GitModal = {
             commitOnlyBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 console.log('Commit button clicked');
-                GitModal.handleWriteMessage(); // Commit with the message from textarea
+                GitModal.handleCommit();
+            });
+        }
+
+        // Push button
+        const pushBtn = document.getElementById('push-btn');
+        if (pushBtn) {
+            pushBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Push button clicked');
+                GitModal.handlePush();
             });
         }
 
@@ -371,6 +381,21 @@ const GitModal = {
             });
         }
 
+        // Operation status close button
+        const statusCloseBtn = document.getElementById('operation-status-close');
+        if (statusCloseBtn) {
+            statusCloseBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Status close button clicked');
+                GitUI.hideOperationStatus();
+                // Hide the entire modal if operation was successful
+                const statusTitle = document.getElementById('operation-status-title');
+                if (statusTitle && (statusTitle.textContent.includes('Success') || statusTitle.textContent.includes('Successful'))) {
+//                    GitModal.hideModal();
+                }
+            });
+        }
+
         // ESC key to close modal
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && document.getElementById('git-file-selection-modal')) {
@@ -397,60 +422,84 @@ const GitModal = {
     /**
      * Generate commit message using OpenWebUI API
      */
-    generateCommitMessage: async function() {
-        console.log('Generating commit message...');
+   generateCommitMessage: async function() {
+       console.log('Generating commit message...');
 
-        // Get selected files
-        const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
-        const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
-            path: cb.dataset.filePath,
-            status: cb.dataset.status
-        }));
+       // Get selected files
+       const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+       const selectedFiles = Array.from(selectedCheckboxes).map(cb => ({
+           path: cb.dataset.filePath,
+           status: cb.dataset.status
+       }));
 
-        if (selectedFiles.length === 0) {
-            alert('Please select at least one file to generate a commit message.');
-            return;
-        }
+       if (selectedFiles.length === 0) {
+           alert('Please select at least one file to generate a commit message.');
+           return;
+       }
 
-        // Show loading state
-        const messageInput = document.getElementById('commit-message-input');
-        const writeMsgBtn = document.getElementById('write-msg-btn');
-        const originalBtnText = writeMsgBtn.textContent;
+       // Show loading state
+       const messageInput = document.getElementById('commit-message-input');
+       const writeMsgBtn = document.getElementById('write-msg-btn');
+       const originalBtnText = writeMsgBtn.textContent;
 
-        messageInput.disabled = true;
-        messageInput.placeholder = 'Generating commit message...';
-        writeMsgBtn.disabled = true;
-        writeMsgBtn.textContent = '⏳ Generating...';
+       messageInput.disabled = true;
+       messageInput.placeholder = 'Generating commit message...';
+       writeMsgBtn.disabled = true;
+       writeMsgBtn.textContent = '⏳ Generating...';
 
-        try {
-            // Get diffs for selected files
-            const diffs = await this.getFileDiffs(selectedFiles);
+       try {
+           // Get diffs for selected files
+           const diffs = await this.getFileDiffs(selectedFiles);
 
-            // Build prompt
-            const prompt = this.buildCommitPrompt(selectedFiles, diffs);
+           // Build prompt
+           const prompt = this.buildCommitPrompt(selectedFiles, diffs);
 
-            // Call OpenWebUI API
-            let commitMessage = await this.callOpenWebUIAPI(prompt);
-           commitMessage = commitMessage.replace(/(```[\s\S]*?```)/g, '');
-            // Update UI with generated message
-            messageInput.value = commitMessage;
-            messageInput.disabled = false;
-            messageInput.placeholder = 'Enter commit message...';
+           // Call OpenWebUI API
+           let commitMessage = await this.callOpenWebUIAPI(prompt);
+           console.log("raw resp from commit msg", commitMessage);
 
-            // Auto-resize textarea
-            messageInput.style.height = 'auto';
-            messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+           // Handle code blocks properly
+           // Check if the entire message is wrapped in code blocks
+           const isEntireMessageCodeBlock = /^\s*```[\s\S]*```\s*$/.test(commitMessage);
 
-        } catch (error) {
-            console.error('Error generating commit message:', error);
-            alert('Failed to generate commit message: ' + error.message);
-            messageInput.disabled = false;
-            messageInput.placeholder = 'Enter commit message...';
-        } finally {
-            writeMsgBtn.disabled = false;
-            writeMsgBtn.textContent = originalBtnText;
-        }
-    },
+           if (isEntireMessageCodeBlock) {
+               // If the entire message is a code block, just remove the outer triple backticks
+               // and any language identifier that might be after the opening backticks
+               commitMessage = commitMessage.replace(/^\s*```(?:\w*\n?)/, '').replace(/```\s*$/, '');
+           } else {
+               // Only remove embedded code blocks if they're not the entire message
+               commitMessage = commitMessage.replace(/(```[\s\S]*?\r?\n?```)/g, '');
+           }
+
+           // Clean up the message while preserving intentional line breaks
+           commitMessage = commitMessage.split('\n')
+               .map(line => line.trim()) // Trim each line
+               .filter(line => line) // Remove empty lines
+               .join('\n'); // Join with newlines
+
+           // Trim extra whitespace at beginning and end
+           commitMessage = commitMessage.trim();
+           console.log("Processed commit message:", commitMessage);
+
+           // Update UI with generated message
+           messageInput.value = commitMessage;
+           messageInput.disabled = false;
+           messageInput.placeholder = 'Enter commit message...';
+
+           // Auto-resize textarea
+           messageInput.style.height = 'auto';
+           messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+
+       } catch (error) {
+           console.error('Error generating commit message:', error);
+           alert('Failed to generate commit message: ' + error.message);
+           messageInput.disabled = false;
+           messageInput.placeholder = 'Enter commit message...';
+       } finally {
+           writeMsgBtn.disabled = false;
+           writeMsgBtn.textContent = originalBtnText;
+       }
+   },
 
     /**
      * Get diffs for selected files
@@ -477,41 +526,98 @@ const GitModal = {
         return diffs;
     },
 
-    /**
-     * Build commit prompt
-     */
-    buildCommitPrompt: function(selectedFiles, diffs) {
-        let prompt = "Generate a concise git commit message for the following changes:\n\n";
+ /**
+  * Build a comprehensive commit prompt that follows a structured long-format style
+  * @param {Array} selectedFiles - Array of file objects with path and status
+  * @param {Object} diffs - Object with file paths as keys and diff content as values
+  * @return {String} - The formatted commit prompt
+  */
+ buildCommitPrompt: function(selectedFiles, diffs) {
+     let prompt = "Generate a detailed git commit message following a structured long-format style:\n\n";
 
-        // Add file list
-        prompt += "Changed files:\n";
-        selectedFiles.forEach(file => {
-            const statusMap = {
-                'M': 'Modified',
-                'A': 'Added',
-                'D': 'Deleted',
-                'R': 'Renamed',
-                'C': 'Copied'
-            };
-            prompt += `- ${file.path} (${statusMap[file.status] || file.status})\n`;
-        });
+     // Add file list with better organization
+     prompt += "## Changed files:\n";
 
-        // Add diffs
-        prompt += "\nFile changes:\n";
-        Object.entries(diffs).forEach(([path, diff]) => {
-            prompt += `\n--- ${path} ---\n`;
-            // Limit diff size to avoid too large prompts
-            const lines = diff.split('\n').slice(0, 50);
-            prompt += lines.join('\n');
-            if (diff.split('\n').length > 50) {
-                prompt += '\n... (diff truncated)';
-            }
-        });
+     // Group files by status for better organization
+     const filesByStatus = {
+         'M': [], 'A': [], 'D': [], 'R': [], 'C': [], 'U': []
+     };
 
-        prompt += "\n\nProvide only the commit message, no explanation. Follow conventional commit format if applicable.";
+     selectedFiles.forEach(file => {
+         const status = file.status || 'U'; // Default to 'U' for unknown
+         if (filesByStatus[status]) {
+             filesByStatus[status].push(file.path);
+         } else {
+             filesByStatus['U'].push(file.path);
+         }
+     });
 
-        return prompt;
-    },
+     const statusMap = {
+         'M': 'Modified',
+         'A': 'Added',
+         'D': 'Deleted',
+         'R': 'Renamed',
+         'C': 'Copied',
+         'U': 'Other'
+     };
+
+     // Output files grouped by status
+     Object.entries(filesByStatus).forEach(([status, files]) => {
+         if (files.length > 0) {
+             prompt += `\n### ${statusMap[status]} files:\n`;
+             files.forEach(path => prompt += `- ${path}\n`);
+         }
+     });
+
+     // Add diffs with better formatting
+     prompt += "\n## File changes:\n";
+     Object.entries(diffs).forEach(([path, diff]) => {
+         prompt += `\n### ${path}\n\`\`\`diff\n`;
+         // Limit diff size but keep enough context
+         const lines = diff.split('\n').slice(0, 75);
+         prompt += lines.join('\n');
+         if (diff.split('\n').length > 75) {
+             prompt += '\n... (diff truncated for brevity)';
+         }
+         prompt += '\n```\n';
+     });
+
+     // Instructions for structured long commit format
+     prompt += `
+ ## Commit Message Format Instructions:
+ Please follow this structure for the long-format commit message:
+
+ 1. First line: Short summary (50-72 chars) following conventional commit format
+    - format: <type>(<scope>): <subject>
+    - example: feat(auth): implement OAuth2 login
+
+ 2. Body: Detailed explanation of what changed and why
+    - Separated from summary by a blank line
+    - Explain what and why, not how
+    - Wrap at 72 characters
+
+ 3. Footer (optional):
+    - Breaking changes (BREAKING CHANGE: description)
+
+ Example output format:
+ \`\`\`
+ feat(user-profile): implement password reset functionality
+
+ Add secure password reset flow with email verification and rate limiting.
+ This change improves security by requiring email confirmation before
+ allowing password changes.
+
+ - Added PasswordResetController with email verification
+ - Implemented rate limiting to prevent brute force attacks
+ - Added unit and integration tests
+
+ BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset
+ \`\`\`
+
+ Please provide ONLY the commit message, no additional explanation.`;
+
+     return prompt;
+ },
 
     /**
      * Call OpenWebUI API
@@ -587,10 +693,10 @@ const GitModal = {
     },
 
     /**
-     * Handle writing commit message
+     * Handle commit operation
      */
-    handleWriteMessage: function() {
-        console.log('Handling write message...');
+    handleCommit: function() {
+        console.log('Handling commit...');
 
         const messageInput = document.getElementById('commit-message-input');
         const message = messageInput ? messageInput.value.trim() : '';
@@ -613,26 +719,105 @@ const GitModal = {
             return;
         }
 
-        console.log('Writing message and committing:', { message, files: selectedFiles });
+        console.log('Committing with message:', { message, files: selectedFiles });
 
-        // Hide modal first
-        this.hideModal();
+        // Disable commit button to prevent multiple submissions
+        const commitBtn = document.getElementById('commit-only-btn');
+        if (commitBtn) commitBtn.disabled = true;
+
+        // Show initial status message and modal overlay
+        GitStatus.showMessage('Starting commit operation...');
+        GitUI.showCommitInProgress();
 
         // Send commit message and selected files to IDE
         if (window.intellijBridge && window.intellijBridge.callIDE) {
             window.intellijBridge.callIDE('commitWithMessage', {
                 message: message,
                 selectedFiles: selectedFiles,
-                shouldPush: false
+                shouldPush: false // Always false - push is separate
             }).then(function(response) {
-                console.log('Commit with message sent to IDE successfully:', response);
+                console.log('Commit request sent to IDE successfully:', response);
+                
+                // Re-enable commit button after response
+                if (commitBtn) commitBtn.disabled = false;
+                
+                // Update the status display
+                if (response && response.success) {
+                    GitUI.showCommitSuccess();
+                    // Status overlay now has a close button instead of auto-closing the modal
+                } else {
+                    const errorMsg = response && response.error ? response.error : 'Unknown error occurred during commit';
+                    GitUI.showCommitError(errorMsg);
+                }
             }).catch(function(error) {
-                console.error('Failed to send commit with message to IDE:', error);
-                alert('Failed to commit: ' + error.message);
+                console.error('Failed to send commit request to IDE:', error);
+                
+                // Re-enable commit button after error
+                if (commitBtn) commitBtn.disabled = false;
+                
+                // Show error in modal and as a status message
+                GitUI.showCommitError(error.message || 'Failed to commit');
+                GitStatus.showMessage('Error: ' + (error.message || 'Failed to commit'));
             });
         } else {
             console.error('IntelliJ Bridge not found');
-            alert('IntelliJ Bridge not available. Please check the connection.');
+            GitStatus.showMessage('Error: IntelliJ Bridge not available');
+            GitUI.showCommitError('IntelliJ Bridge not available. Please check the connection.');
+            
+            // Re-enable commit button
+            if (commitBtn) commitBtn.disabled = false;
+        }
+    },
+
+    /**
+     * Handle push operation
+     */
+    handlePush: function() {
+        console.log('Handling push...');
+        
+        // Disable push button to prevent multiple submissions
+        const pushBtn = document.getElementById('push-btn');
+        if (pushBtn) pushBtn.disabled = true;
+        
+        // Show initial status message and modal overlay
+        GitStatus.showMessage('Starting push operation...');
+        GitUI.showPushInProgress();
+        
+        // Call the git push operation in IDE
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            window.intellijBridge.callIDE('gitPush')
+                .then(function(response) {
+                    console.log('Push request sent to IDE successfully:', response);
+                    
+                    // Re-enable push button after response
+                    if (pushBtn) pushBtn.disabled = false;
+                    
+                    // Update the status display
+                    if (response && response.success) {
+//                        GitUI.showPushSuccess();
+                        // Status overlay now has a close button instead of auto-closing the modal
+                    } else {
+                        const errorMsg = response && response.error ? response.error : 'Unknown error occurred during push';
+                        GitUI.showPushError(errorMsg);
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Failed to send push request to IDE:', error);
+                    
+                    // Re-enable push button after error
+                    if (pushBtn) pushBtn.disabled = false;
+                    
+                    // Show error in modal and as a status message
+                    GitUI.showPushError(error.message || 'Failed to push');
+                    GitStatus.showMessage('Error: ' + (error.message || 'Failed to push'));
+                });
+        } else {
+            console.error('IntelliJ Bridge not found');
+            GitStatus.showMessage('Error: IntelliJ Bridge not available');
+            GitUI.showPushError('IntelliJ Bridge not available. Please check the connection.');
+            
+            // Re-enable push button
+            if (pushBtn) pushBtn.disabled = false;
         }
     },
 

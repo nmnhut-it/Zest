@@ -44,6 +44,50 @@ const GitUI = {
                     ${this.createModalHeader(isDark)}
                     ${this.createModalBody(isDark)}
                     ${this.createModalFooter(isDark)}
+
+                    <!-- Operation Status Display (initially hidden) -->
+                    <div id="operation-status" style="
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: ${isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)'};
+                        backdrop-filter: blur(5px);
+                        display: none;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 10;
+                        animation: fadeIn 0.3s ease-out;
+                        color: ${isDark ? '#f3f4f6' : '#1f2937'};
+                        text-align: center;
+                        padding: 0 20px;
+                    ">
+                        <div id="operation-status-icon" style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+                        <div id="operation-status-title" style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">Operation in Progress</div>
+                        <div id="operation-status-message" style="font-size: 14px; max-width: 400px; opacity: 0.8; margin-bottom: 24px;">Please wait while we process your request...</div>
+                        <button id="operation-status-close" style="
+                            background: ${isDark ? '#3b82f6' : '#3b82f6'};
+                            color: white;
+                            border: none;
+                            padding: 8px 16px;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: 500;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            display: none;
+                        " onmouseover="
+                            this.style.transform = 'translateY(-2px)';
+                            this.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
+                        " onmouseout="
+                            this.style.transform = 'translateY(0)';
+                            this.style.boxShadow = 'none';
+                        ">
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -368,7 +412,33 @@ const GitUI = {
                             this.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.3)';
                         }
                     ">
-                        💾 Commit Selected Files
+                        💾 Commit
+                    </button>
+                    <button id="push-btn" style="
+                        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                        color: white;
+                        border: none;
+                        padding: 5px 10px;
+                        border-radius: 5px;
+                        font-size: 10px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+                        margin-left: 8px;
+                          " onmouseover="
+                                if (!this.disabled) {
+                                    this.style.transform = 'translateY(-1px)';
+                                    this.style.boxShadow = '0 3px 10px rgba(16, 185, 129, 0.4)';
+                                }
+                            " onmouseout="
+                                if (!this.disabled) {
+                                    this.style.transform = 'translateY(0)';
+                                    this.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.3)';
+                                }
+
+                    ">
+                        ⬆️ Push
                     </button>
                 </div>
             </div>
@@ -463,6 +533,143 @@ const GitUI = {
                 </div>
             </div>
         `;
+    },
+
+    /**
+     * Show operation status overlay (loading, success, error)
+     */
+    showOperationStatus: function(type, title, message, showClose = false) {
+        const statusOverlay = document.getElementById('operation-status');
+        const statusIcon = document.getElementById('operation-status-icon');
+        const statusTitle = document.getElementById('operation-status-title');
+        const statusMessage = document.getElementById('operation-status-message');
+        const closeButton = document.getElementById('operation-status-close');
+        
+        if (!statusOverlay || !statusIcon || !statusTitle || !statusMessage || !closeButton) {
+            console.error('Status overlay elements not found');
+            return;
+        }
+        
+        // Set icon based on type
+        let icon = '⏳'; // default loading
+        let color = '#3b82f6'; // default blue
+        
+        switch (type) {
+            case 'loading':
+                icon = '⏳';
+                color = '#3b82f6'; // blue
+                break;
+            case 'success':
+                icon = '✅';
+                color = '#10b981'; // green
+                break;
+            case 'error':
+                icon = '❌';
+                color = '#ef4444'; // red
+                break;
+            case 'warning':
+                icon = '⚠️';
+                color = '#f59e0b'; // amber
+                break;
+        }
+        
+        // Update content
+        statusIcon.innerHTML = icon;
+        statusTitle.innerHTML = title || 'Operation in Progress';
+        statusMessage.innerHTML = message || 'Please wait...';
+        
+        // Show/hide close button
+        closeButton.style.display = showClose ? 'block' : 'none';
+        
+        // Set up close button event if showing
+        if (showClose) {
+            closeButton.onclick = () => this.hideOperationStatus();
+        }
+        
+        // Show the overlay
+        statusOverlay.style.display = 'flex';
+    },
+    
+    /**
+     * Hide operation status overlay
+     */
+    hideOperationStatus: function() {
+        const statusOverlay = document.getElementById('operation-status');
+        if (statusOverlay) {
+            statusOverlay.style.display = 'none';
+        }
+    },
+    
+    /**
+     * Show commit in progress status
+     */
+    showCommitInProgress: function() {
+        this.showOperationStatus(
+            'loading',
+            'Committing Changes',
+            'Please wait while your changes are being committed...',
+            false
+        );
+    },
+    
+    /**
+     * Show commit success status
+     */
+    showCommitSuccess: function() {
+        this.showOperationStatus(
+            'success',
+            'Commit Successful',
+            'Your changes have been committed successfully!',
+            true
+        );
+    },
+    
+    /**
+     * Show commit error status
+     */
+    showCommitError: function(errorMessage) {
+        this.showOperationStatus(
+            'error',
+            'Commit Failed',
+            errorMessage || 'There was an error committing your changes. Please try again.',
+            true
+        );
+    },
+    
+    /**
+     * Show push in progress status
+     */
+    showPushInProgress: function() {
+        this.showOperationStatus(
+            'loading',
+            'Pushing Changes',
+            'Please wait while your changes are being pushed to the remote repository...',
+            false
+        );
+    },
+    
+    /**
+     * Show push success status
+     */
+    showPushSuccess: function() {
+        this.showOperationStatus(
+            'success',
+            'Push Successful',
+            'Your changes have been pushed to the remote repository successfully!',
+            true
+        );
+    },
+    
+    /**
+     * Show push error status
+     */
+    showPushError: function(errorMessage) {
+        this.showOperationStatus(
+            'error',
+            'Push Failed',
+            errorMessage || 'There was an error pushing your changes. Please try again.',
+            true
+        );
     },
 
     /**

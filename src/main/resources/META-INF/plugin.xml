@@ -124,6 +124,15 @@
                 description="Generate commit message based on git changes">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
         </action>
+        
+        <!-- Simple Git Diff Viewer -->
+        <action id="Zest.ShowGitDiffAction"
+                class="com.zps.zest.diff.ShowGitDiffAction"
+                text="Show Git Diff Viewer"
+                description="Show a simple Git diff viewer for changed files">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+            <add-to-group group-id="VcsGroups" anchor="last"/>
+        </action>
 
         <!-- Developer Tools (kept in Tools menu) -->
         <action id="Zest.ToggleDevTools"

@@ -3,11 +3,20 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.CodeContext;
 import com.zps.zest.browser.utils.GitCommandExecutor;
@@ -17,6 +26,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -127,6 +137,68 @@ public class GitService {
     }
 
     /**
+     * Opens a file diff in the GitHub-style diff viewer
+     */
+    public String openFileDiffInIDE(JsonObject data) {
+        LOG.info("Opening file diff in GitHub-style viewer: " + data.toString());
+        
+        try {
+            String filePath = data.get("filePath").getAsString();
+            String status = data.get("status").getAsString();
+            
+            LOG.info("Opening diff for file: " + filePath + " (status: " + status + ")");
+            
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Clean the file path - remove project name prefix if present
+            String cleanedPath = cleanFilePath(filePath, project.getName());
+            LOG.info("Cleaned file path for diff: '" + filePath + "' -> '" + cleanedPath + "'");
+            
+            // Get the diff content for this file
+            String diffContent = "";
+            
+            // For new files, show the entire content as a diff
+            if (status.equals("A") || status.equals("ADDITION")) {
+                if (isNewFile(projectPath, cleanedPath)) {
+                    diffContent = getNewFileContent(projectPath, cleanedPath);
+                } else {
+                    diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                }
+            } else {
+                // For other statuses, try to get the diff
+                diffContent = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                if (diffContent.trim().isEmpty()) {
+                    diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                }
+            }
+            
+            // Show the diff in our custom viewer
+            final String finalDiffContent = diffContent;
+            final String finalCleanedPath = cleanedPath;
+            ApplicationManager.getApplication().invokeLater(() -> {
+                com.zps.zest.diff.GitHubStyleDiffViewer.showDiff(
+                    project, 
+                    finalCleanedPath, 
+                    finalDiffContent,
+                    status
+                );
+            });
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("message", "Opening GitHub-style diff for " + filePath);
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error opening file diff", e);
+            return createErrorResponse("Failed to open diff: " + e.getMessage());
+        }
+    }
+
+    /**
      * Handles git push operation asynchronously
      */
     public String handleGitPush() {
@@ -151,7 +223,7 @@ public class GitService {
                     showStatusMessage(project, "Push completed successfully!");
                     notifyUI(project, "GitUI.showPushSuccess()");
                 } catch (Exception e) {
-//                    LOG.error("Error during push operation", e);
+                    LOG.error("Error during push operation", e);
                     
                     // Show error message and notify UI
                     String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";

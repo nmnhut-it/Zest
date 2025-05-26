@@ -52,7 +52,7 @@ const GitUI = {
                         left: 0;
                         right: 0;
                         bottom: 0;
-                        background: ${isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)'};
+                        background: ${isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)'};
                         backdrop-filter: blur(5px);
                         display: none;
                         flex-direction: column;
@@ -64,16 +64,16 @@ const GitUI = {
                         text-align: center;
                         padding: 0 20px;
                     ">
-                        <div id="operation-status-icon" style="font-size: 48px; margin-bottom: 16px;">⏳</div>
-                        <div id="operation-status-title" style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">Operation in Progress</div>
-                        <div id="operation-status-message" style="font-size: 14px; max-width: 400px; opacity: 0.8; margin-bottom: 24px;">Please wait while we process your request...</div>
+                        <div id="operation-status-icon" style="font-size: 42px; margin-bottom: 12px;">⏳</div>
+                        <div id="operation-status-title" style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">Operation in Progress</div>
+                        <div id="operation-status-message" style="font-size: 13px; max-width: 400px; opacity: 0.8; margin-bottom: 20px;">Please wait while we process your request...</div>
                         <button id="operation-status-close" style="
                             background: ${isDark ? '#3b82f6' : '#3b82f6'};
                             color: white;
                             border: none;
-                            padding: 8px 16px;
-                            border-radius: 6px;
-                            font-size: 14px;
+                            padding: 6px 14px;
+                            border-radius: 5px;
+                            font-size: 13px;
                             font-weight: 500;
                             cursor: pointer;
                             transition: all 0.2s ease;
@@ -85,7 +85,7 @@ const GitUI = {
                             this.style.transform = 'translateY(0)';
                             this.style.boxShadow = 'none';
                         ">
-                            Close
+                            Done
                         </button>
                     </div>
                 </div>
@@ -133,7 +133,7 @@ const GitUI = {
     },
 
     /**
-     * Create modal header with message textarea and Write msg button
+     * Create modal header with message textarea and compact Generate button
      */
     createModalHeader: function(isDark) {
         return `
@@ -147,22 +147,6 @@ const GitUI = {
                 gap: 12px;
                 flex-shrink: 0;
             ">
-                <div style="
-                    width: 28px;
-                    height: 28px;
-                    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-                    border-radius: 6px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                    box-shadow: 0 3px 8px rgba(59, 130, 246, 0.3);
-                ">
-                    <svg width="14" height="14" fill="white" viewBox="0 0 24 24">
-                        <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
-                    </svg>
-                </div>
-                
                 <!-- Commit Message Input -->
                 <div style="flex: 1; display: flex; gap: 8px; align-items: flex-start;">
                     <textarea 
@@ -170,9 +154,9 @@ const GitUI = {
                         placeholder="Enter commit message..."
                         style="
                             flex: 1;
-                            min-height: 32px;
-                            max-height: 80px;
-                            padding: 6px 10px;
+                            min-height: 48px;
+                            max-height: 100px;
+                            padding: 8px 12px;
                             border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)'};
                             border-radius: 6px;
                             background: ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.8)'};
@@ -193,20 +177,21 @@ const GitUI = {
                         "
                     ></textarea>
                     
-                    <button id="write-msg-btn" style="
+                    <button id="write-msg-btn" title="Generate commit message" style="
                         background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
                         color: white;
                         border: none;
-                        padding: 6px 12px;
+                        width: 32px;
+                        height: 32px;
                         border-radius: 6px;
-                        font-size: 11px;
-                        font-weight: 600;
+                        font-size: 14px;
                         cursor: pointer;
                         transition: all 0.2s ease;
                         box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-                        white-space: nowrap;
-                        height: fit-content;
-                        align-self: flex-start;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        flex-shrink: 0;
                     " onmouseover="
                         this.style.transform = 'translateY(-1px)';
                         this.style.boxShadow = '0 3px 10px rgba(139, 92, 246, 0.4)';
@@ -214,7 +199,7 @@ const GitUI = {
                         this.style.transform = 'translateY(0)';
                         this.style.boxShadow = '0 2px 6px rgba(139, 92, 246, 0.3)';
                     ">
-                        ✨ Generate
+                        ✨
                     </button>
                 </div>
             </div>
@@ -222,7 +207,7 @@ const GitUI = {
     },
 
     /**
-     * Create modal body with horizontal split: files top, diff bottom
+     * Create modal body with simplified layout - no diff panel
      */
     createModalBody: function(isDark) {
         return `
@@ -233,126 +218,71 @@ const GitUI = {
                 flex: 1;
                 min-height: 0;
                 overflow: hidden;
+                padding: 8px 16px;
             ">
-                <!-- Top Panel - File List -->
+                <!-- Select All Section -->
                 <div style="
-                    height: 35%;
-                    padding: 10px 16px 6px 16px;
-                    display: flex;
-                    flex-direction: column;
-                    min-height: 0;
-                    border-bottom: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
+                    margin-bottom: 8px;
+                    padding: 6px 10px;
+                    background: ${isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(99, 102, 241, 0.04)'};
+                    border: 1px solid ${isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)'};
+                    border-radius: 5px;
+                    flex-shrink: 0;
                 ">
-                    <!-- Select All Section -->
-                    <div style="
-                        margin-bottom: 8px;
-                        padding: 6px 10px;
-                        background: ${isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(99, 102, 241, 0.04)'};
-                        border: 1px solid ${isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)'};
-                        border-radius: 5px;
-                        flex-shrink: 0;
+                    <label style="
+                        display: flex;
+                        align-items: center;
+                        font-size: 12px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        color: ${isDark ? '#e5e7eb' : '#374151'};
                     ">
-                        <label style="
-                            display: flex;
-                            align-items: center;
-                            font-size: 11px;
-                            font-weight: 600;
+                        <input type="checkbox" id="select-all-files" style="
+                            margin-right: 8px;
+                            width: 14px;
+                            height: 14px;
+                            accent-color: #3b82f6;
                             cursor: pointer;
-                            color: ${isDark ? '#e5e7eb' : '#374151'};
                         ">
-                            <input type="checkbox" id="select-all-files" style="
-                                margin-right: 6px;
-                                width: 12px;
-                                height: 12px;
-                                accent-color: #3b82f6;
-                                cursor: pointer;
-                            ">
-                            <span>Select All Files</span>
-                        </label>
-                    </div>
-
-                    <!-- File List Container -->
-                    <div id="file-list-container" style="
-                        border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
-                        border-radius: 5px;
-                        padding: 4px;
-                        background: ${isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.5)'};
-                        backdrop-filter: blur(10px);
-                        flex: 1;
-                        overflow-y: auto;
-                        min-height: 100px;
-                    ">
-                        <!-- Files will be populated here -->
-                    </div>
+                        <span>Select All Files</span>
+                    </label>
                 </div>
 
-                <!-- Bottom Panel - Diff Viewer -->
-                <div style="
-                    height: 65%;
-                    padding: 6px 16px 10px 16px;
-                    display: flex;
-                    flex-direction: column;
-                    min-height: 0;
+                <!-- File List Container -->
+                <div id="file-list-container" style="
+                    border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
+                    border-radius: 5px;
+                    padding: 8px;
+                    background: ${isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.5)'};
+                    backdrop-filter: blur(10px);
+                    flex: 1;
+                    overflow-y: auto;
+                    min-height: 300px;
                 ">
-                    <!-- Diff Header -->
-                    <div style="
-                        margin-bottom: 8px;
-                        flex-shrink: 0;
-                    ">
-                        <h4 style="
-                            font-size: 12px;
-                            font-weight: 600;
-                            margin: 0 0 3px 0;
-                            color: ${isDark ? '#e5e7eb' : '#374151'};
-                        ">File Changes Preview</h4>
-                        <p style="
-                            font-size: 10px;
-                            color: ${isDark ? '#9ca3af' : '#6b7280'};
-                            margin: 0;
-                        ">Click on a file to preview its changes</p>
-                    </div>
-
-                    <!-- Diff Viewer -->
-                    <div id="diff-viewer" style="
-                        border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
-                        border-radius: 5px;
-                        background: ${isDark ? '#0d1117' : '#f8fafc'};
-                        flex: 1;
-                        overflow-y: auto;
-                        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                        font-size: 10px;
-                        line-height: 1.3;
-                        padding: 8px;
-                        color: ${isDark ? '#e6edf3' : '#24292f'};
-                        min-height: 120px;
-                    ">
-                        <div style="
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            height: 100%;
-                            flex-direction: column;
-                            color: ${isDark ? '#6b7280' : '#9ca3af'};
-                            text-align: center;
-                        ">
-                            <div style="font-size: 20px; margin-bottom: 6px;">📄</div>
-                            <div style="font-size: 11px; font-weight: 500;">Select a file to preview changes</div>
-                            <div style="font-size: 9px; margin-top: 3px;">File diffs will appear here</div>
-                        </div>
-                    </div>
+                    <!-- Files will be populated here -->
+                </div>
+                
+                <!-- Hint Text -->
+                <div style="
+                    margin-top: 8px;
+                    text-align: center;
+                    font-size: 11px;
+                    color: ${isDark ? '#9ca3af' : '#6b7280'};
+                ">
+                    Click on a file to view changes in IntelliJ's diff viewer
                 </div>
             </div>
         `;
     },
 
     /**
-     * Create modal footer with only commit button (removed commit & push)
+     * Create modal footer with compact commit and push buttons
      */
     createModalFooter: function(isDark) {
         return `
             <!-- Modal Footer -->
             <div style="
-                padding: 8px 16px 12px 16px;
+                padding: 6px 16px 8px 16px;
                 border-top: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
                 display: flex;
                 justify-content: space-between;
@@ -373,10 +303,10 @@ const GitUI = {
                         background: ${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(243, 244, 246, 0.8)'};
                         color: ${isDark ? '#e5e7eb' : '#374151'};
                         border: 1px solid ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
-                        padding: 5px 10px;
-                        border-radius: 5px;
+                        padding: 4px 8px;
+                        border-radius: 4px;
                         font-size: 10px;
-                        font-weight: 600;
+                        font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
                         backdrop-filter: blur(10px);
@@ -393,52 +323,52 @@ const GitUI = {
                         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                         color: white;
                         border: none;
-                        padding: 5px 10px;
-                        border-radius: 5px;
+                        padding: 4px 10px;
+                        border-radius: 4px;
                         font-size: 10px;
-                        font-weight: 600;
+                        font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
-                        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+                        box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
                         opacity: 0.5;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
                     " onmouseover="
                         if (!this.disabled) {
                             this.style.transform = 'translateY(-1px)';
-                            this.style.boxShadow = '0 3px 10px rgba(16, 185, 129, 0.4)';
+                            this.style.boxShadow = '0 3px 8px rgba(16, 185, 129, 0.4)';
                         }
                     " onmouseout="
                         if (!this.disabled) {
                             this.style.transform = 'translateY(0)';
-                            this.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.3)';
+                            this.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
                         }
                     ">
-                        💾 Commit
+                        <span style="font-size: 11px;">💾</span> Commit
                     </button>
                     <button id="push-btn" style="
                         background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
                         color: white;
                         border: none;
-                        padding: 5px 10px;
-                        border-radius: 5px;
+                        padding: 4px 10px;
+                        border-radius: 4px;
                         font-size: 10px;
-                        font-weight: 600;
+                        font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
-                        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
-                        margin-left: 8px;
-                          " onmouseover="
-                                if (!this.disabled) {
-                                    this.style.transform = 'translateY(-1px)';
-                                    this.style.boxShadow = '0 3px 10px rgba(16, 185, 129, 0.4)';
-                                }
-                            " onmouseout="
-                                if (!this.disabled) {
-                                    this.style.transform = 'translateY(0)';
-                                    this.style.boxShadow = '0 2px 6px rgba(16, 185, 129, 0.3)';
-                                }
-
+                        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                    " onmouseover="
+                        this.style.transform = 'translateY(-1px)';
+                        this.style.boxShadow = '0 3px 8px rgba(37, 99, 235, 0.4)';
+                    " onmouseout="
+                        this.style.transform = 'translateY(0)';
+                        this.style.boxShadow = '0 2px 4px rgba(37, 99, 235, 0.3)';
                     ">
-                        ⬆️ Push
+                        <span style="font-size: 11px;">⬆️</span> Push
                     </button>
                 </div>
             </div>
@@ -446,7 +376,7 @@ const GitUI = {
     },
 
     /**
-     * Create a file item element with shorter paths and reduced padding
+     * Create a file item element with improved layout and font sizes
      */
     createFileItem: function(status, filePath, index, isDark) {
         const fileItem = document.createElement('div');
@@ -458,54 +388,83 @@ const GitUI = {
         
         // Show only filename, not full path
         const fileName = filePath.split('/').pop() || filePath;
+        
+        // Get directory part of the path for display
+        let dirPath = '';
+        const pathParts = filePath.split('/');
+        if (pathParts.length > 1) {
+            pathParts.pop(); // Remove filename
+            dirPath = pathParts.join('/');
+        }
 
         fileItem.innerHTML = `
             <div class="file-item-content" data-file-path="${filePath}" data-status="${status}" style="
                 display: flex;
                 align-items: center;
-                padding: 5px 8px;
-                margin: 2px 0;
+                padding: 8px 10px;
+                margin: 4px 0;
                 background: ${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'};
                 border: 1px solid ${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'};
-                border-radius: 4px;
+                border-radius: 5px;
                 transition: all 0.2s ease;
                 cursor: pointer;
             " onmouseover="
                 this.style.background = '${isDark ? 'rgba(75, 85, 99, 0.8)' : 'rgba(255, 255, 255, 0.95)'}';
                 this.style.borderColor = '${isDark ? 'rgba(59, 130, 246, 0.4)' : 'rgba(99, 102, 241, 0.3)'}';
-                this.style.transform = 'translateX(1px)';
+                this.style.transform = 'translateX(2px)';
+                this.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
             " onmouseout="
                 this.style.background = '${isDark ? 'rgba(55, 65, 81, 0.6)' : 'rgba(255, 255, 255, 0.8)'}';
                 this.style.borderColor = '${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'}';
                 this.style.transform = 'translateX(0)';
-            " onclick="GitUI.selectFileForDiff('${filePath}', '${status}')">
+                this.style.boxShadow = 'none';
+            " onclick="GitUI.openFileDiff('${filePath}', '${status}')">
                 <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="
-                    margin-right: 8px;
-                    width: 12px;
-                    height: 12px;
+                    margin-right: 10px;
+                    width: 14px;
+                    height: 14px;
                     accent-color: #3b82f6;
                     cursor: pointer;
                 " onclick="event.stopPropagation();">
                 <span style="
-                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-weight: 600;
-                    margin-right: 8px;
-                    padding: 2px 5px;
-                    border-radius: 3px;
-                    font-size: 9px;
+                    margin-right: 10px;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-size: 11px;
                     background: ${statusColor.bg};
                     color: ${statusColor.text};
                     min-width: 14px;
                     text-align: center;
                 " title="${statusDescription}">${statusLabel}</span>
-                <label for="file-${index}" style="
-                    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                    font-size: 10px;
-                    cursor: pointer;
+                <div style="
+                    display: flex;
+                    flex-direction: column;
                     flex: 1;
-                    color: ${isDark ? '#e5e7eb' : '#374151'};
-                    font-weight: 400;
-                " title="${filePath}">${fileName}</label>
+                    min-width: 0;
+                ">
+                    <label for="file-${index}" style="
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 12px;
+                        cursor: pointer;
+                        color: ${isDark ? '#e5e7eb' : '#374151'};
+                        font-weight: 500;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    " title="${fileName}">${fileName}</label>
+                    ${dirPath ? `
+                    <div style="
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 10px;
+                        color: ${isDark ? '#9ca3af' : '#6b7280'};
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    " title="${dirPath}">${dirPath}</div>
+                    ` : ''}
+                </div>
             </div>
         `;
 
@@ -520,15 +479,15 @@ const GitUI = {
             <div style="
                 text-align: center;
                 color: ${isDark ? '#9ca3af' : '#6b7280'};
-                padding: 32px 16px;
+                padding: 20px 16px;
                 font-style: italic;
                 background: ${isDark ? 'rgba(55, 65, 81, 0.3)' : 'rgba(255, 255, 255, 0.5)'};
-                border-radius: 6px;
-                border: 2px dashed ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
+                border-radius: 5px;
+                border: 1px dashed ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
             ">
-                <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
-                <div style="font-size: 12px; font-weight: 500; margin-bottom: 4px;">No changed files found</div>
-                <div style="font-size: 10px; opacity: 0.7;">
+                <div style="font-size: 20px; margin-bottom: 6px;">📁</div>
+                <div style="font-size: 11px; font-weight: 500; margin-bottom: 4px;">No changed files found</div>
+                <div style="font-size: 9px; opacity: 0.7;">
                     Make sure you have uncommitted changes in your repository
                 </div>
             </div>
@@ -673,143 +632,31 @@ const GitUI = {
     },
 
     /**
-     * Select a file for diff viewing
+     * Open file diff in IntelliJ's native diff viewer
      */
-    selectFileForDiff: function(filePath, status) {
-        console.log(`Selecting file for diff: ${filePath} (${status})`);
+    openFileDiff: function(filePath, status) {
+        console.log(`Opening file diff in IntelliJ: ${filePath} (${status})`);
         
-        const diffViewer = document.getElementById('diff-viewer');
-        if (!diffViewer) return;
-
-        // Show loading state
-        diffViewer.innerHTML = `
-            <div style="
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100%;
-                flex-direction: column;
-                color: #6b7280;
-            ">
-                <div style="font-size: 20px; margin-bottom: 8px;">⏳</div>
-                <div style="font-size: 11px;">Loading diff for ${filePath.split('/').pop()}...</div>
-            </div>
-        `;
-
-        // Request diff from IDE
+        // Send request to IDE to open diff
         if (window.intellijBridge && window.intellijBridge.callIDE) {
-            window.intellijBridge.callIDE('getFileDiff', {
+            window.intellijBridge.callIDE('openFileDiffInIDE', {
                 filePath: filePath,
                 status: status
             }).then(function(response) {
-                if (response && response.diff) {
-                    GitUI.displayDiff(filePath, status, response.diff);
+                if (response && response.success) {
+                    console.log('Opened diff in IDE successfully');
                 } else {
-                    GitUI.showDiffError(filePath, 'No diff available');
+                    console.error('Failed to open diff in IDE:', response);
+                    alert('Failed to open diff: ' + (response && response.error ? response.error : 'Unknown error'));
                 }
             }).catch(function(error) {
-                console.error('Failed to get diff:', error);
-                GitUI.showDiffError(filePath, error.message);
+                console.error('Error opening diff in IDE:', error);
+                alert('Error opening diff: ' + error.message);
             });
         } else {
-            GitUI.showDiffError(filePath, 'IDE bridge not available');
+            console.error('IntelliJ Bridge not available');
+            alert('IntelliJ Bridge not available. Please check the connection.');
         }
-    },
-
-    /**
-     * Display diff in the viewer
-     */
-    displayDiff: function(filePath, status, diffContent) {
-        const diffViewer = document.getElementById('diff-viewer');
-        if (!diffViewer) return;
-
-        const statusDescription = GitUtils.getStatusDescription(status);
-        const statusColor = GitUtils.getStatusColor(status);
-        const fileName = filePath.split('/').pop() || filePath;
-
-        // Format diff content
-        const formattedDiff = this.formatDiffContent(diffContent);
-
-        diffViewer.innerHTML = `
-            <div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(107, 114, 128, 0.2);">
-                <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                    <span style="
-                        font-weight: 600;
-                        margin-right: 8px;
-                        padding: 2px 6px;
-                        border-radius: 3px;
-                        font-size: 9px;
-                        background: ${statusColor.bg};
-                        color: ${statusColor.text};
-                        min-width: 16px;
-                        text-align: center;
-                    ">${status}</span>
-                    <span style="font-weight: 600; font-size: 12px;">${fileName}</span>
-                </div>
-                <div style="font-size: 10px; color: #6b7280;">${statusDescription} • ${filePath}</div>
-            </div>
-            <div style="
-                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-                font-size: 10px;
-                line-height: 1.3;
-                white-space: pre-wrap;
-                word-break: break-all;
-            ">${formattedDiff}</div>
-        `;
-    },
-
-    /**
-     * Show diff error
-     */
-    showDiffError: function(filePath, errorMessage) {
-        const diffViewer = document.getElementById('diff-viewer');
-        if (!diffViewer) return;
-
-        const fileName = filePath.split('/').pop() || filePath;
-
-        diffViewer.innerHTML = `
-            <div style="
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 100%;
-                flex-direction: column;
-                color: #ef4444;
-                text-align: center;
-            ">
-                <div style="font-size: 20px; margin-bottom: 8px;">⚠️</div>
-                <div style="font-weight: 600; margin-bottom: 4px; font-size: 11px;">Cannot load diff</div>
-                <div style="font-size: 10px; margin-bottom: 8px;">${fileName}</div>
-                <div style="font-size: 9px; opacity: 0.8;">${errorMessage}</div>
-            </div>
-        `;
-    },
-
-    /**
-     * Format diff content for display
-     */
-    formatDiffContent: function(diffContent) {
-        if (!diffContent || typeof diffContent !== 'string') {
-            return 'No diff content available';
-        }
-
-        // Basic diff formatting with color coding
-        return diffContent
-            .split('\n')
-            .map(line => {
-                if (line.startsWith('+') && !line.startsWith('+++')) {
-                    return `<span style="color: #22c55e; background: rgba(34, 197, 94, 0.1); display: block; padding: 1px 4px;">${this.escapeHtml(line)}</span>`;
-                } else if (line.startsWith('-') && !line.startsWith('---')) {
-                    return `<span style="color: #ef4444; background: rgba(239, 68, 68, 0.1); display: block; padding: 1px 4px;">${this.escapeHtml(line)}</span>`;
-                } else if (line.startsWith('@@')) {
-                    return `<span style="color: #3b82f6; font-weight: 600; display: block; padding: 2px 4px; background: rgba(59, 130, 246, 0.1);">${this.escapeHtml(line)}</span>`;
-                } else if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')) {
-                    return `<span style="color: #6b7280; font-weight: 500; display: block; padding: 1px 4px;">${this.escapeHtml(line)}</span>`;
-                } else {
-                    return `<span style="display: block; padding: 1px 4px;">${this.escapeHtml(line)}</span>`;
-                }
-            })
-            .join('');
     },
 
     /**

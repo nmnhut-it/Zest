@@ -640,7 +640,7 @@ const GitModal = {
         const apiUrl = `${currentUrl}/api/chat/completions`;
 
         console.log('Calling OpenWebUI API at:', apiUrl);
-
+        window.__zest_usage__  = "CHAT_GIT_COMMIT_MESSAGE"
         // Get auth token from cookie
         const authToken = this.getAuthTokenFromCookie();
         if (!authToken) {

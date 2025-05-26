@@ -35,6 +35,9 @@ dependencies {
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
+    // LSP4J for language server protocol support
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.1")
+    
     // MCP SDK dependencies
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")

@@ -445,7 +445,13 @@ const GitModal = {
        messageInput.disabled = true;
        messageInput.placeholder = 'Generating commit message...';
        writeMsgBtn.disabled = true;
-       writeMsgBtn.textContent = '⏳ Generating...';
+       writeMsgBtn.textContent = '✨';
+       writeMsgBtn.style.minWidth = '';  // No minimum width needed
+       writeMsgBtn.style.display = 'flex';
+       writeMsgBtn.style.alignItems = 'center';
+       writeMsgBtn.style.justifyContent = 'center';
+       writeMsgBtn.style.fontSize = '20px';  // Make emoji bigger during generation
+       writeMsgBtn.classList.add('sparkle-animation');  // Add animation
 
        try {
            // Get diffs for selected files
@@ -497,7 +503,13 @@ const GitModal = {
            messageInput.placeholder = 'Enter commit message...';
        } finally {
            writeMsgBtn.disabled = false;
-           writeMsgBtn.textContent = originalBtnText;
+           writeMsgBtn.textContent = originalBtnText || '✨';  // Fallback to just the sparkle if original text is empty
+           writeMsgBtn.style.minWidth = '';  // Reset min-width
+           writeMsgBtn.style.display = '';   // Reset display
+           writeMsgBtn.style.alignItems = ''; // Reset alignItems
+           writeMsgBtn.style.justifyContent = ''; // Reset justifyContent
+           writeMsgBtn.style.fontSize = '';  // Reset font size
+           writeMsgBtn.classList.remove('sparkle-animation');  // Remove animation
        }
    },
 

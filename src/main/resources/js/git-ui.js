@@ -107,6 +107,16 @@ const GitUI = {
                         transform: translateY(0) scale(1);
                     }
                 }
+                
+                @keyframes sparkle {
+                    0% { transform: scale(1); opacity: 1; }
+                    50% { transform: scale(1.2); opacity: 0.8; }
+                    100% { transform: scale(1); opacity: 1; }
+                }
+                
+                .sparkle-animation {
+                    animation: sparkle 1s infinite ease-in-out;
+                }
 
                 #file-list-container::-webkit-scrollbar,
                 #diff-viewer::-webkit-scrollbar {
@@ -149,7 +159,7 @@ const GitUI = {
             ">
                 <!-- Commit Message Input -->
                 <div style="flex: 1; display: flex; gap: 8px; align-items: flex-start;">
-                    <textarea 
+                        <textarea 
                         id="commit-message-input"
                         placeholder="Enter commit message..."
                         style="
@@ -161,7 +171,7 @@ const GitUI = {
                             border-radius: 6px;
                             background: ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.8)'};
                             color: ${isDark ? '#e5e7eb' : '#374151'};
-                            font-size: 12px;
+                            font-size: 14px;
                             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                             resize: vertical;
                             outline: none;
@@ -181,10 +191,10 @@ const GitUI = {
                         background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
                         color: white;
                         border: none;
-                        width: 32px;
-                        height: 32px;
+                        width: 36px;
+                        height: 36px;
                         border-radius: 6px;
-                        font-size: 14px;
+                        font-size: 16px;
                         cursor: pointer;
                         transition: all 0.2s ease;
                         box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
@@ -232,7 +242,7 @@ const GitUI = {
                     <label style="
                         display: flex;
                         align-items: center;
-                        font-size: 12px;
+                        font-size: 13px;
                         font-weight: 600;
                         cursor: pointer;
                         color: ${isDark ? '#e5e7eb' : '#374151'};
@@ -266,7 +276,7 @@ const GitUI = {
                 <div style="
                     margin-top: 8px;
                     text-align: center;
-                    font-size: 11px;
+                    font-size: 12px;
                     color: ${isDark ? '#9ca3af' : '#6b7280'};
                 ">
                     Click on a file to view changes in IntelliJ's diff viewer
@@ -292,7 +302,7 @@ const GitUI = {
                 flex-shrink: 0;
             ">
                 <div style="
-                    font-size: 10px;
+                    font-size: 12px;
                     color: ${isDark ? '#9ca3af' : '#6b7280'};
                 " id="file-count-display">
                     0 files selected
@@ -305,7 +315,7 @@ const GitUI = {
                         border: 1px solid ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
                         padding: 4px 8px;
                         border-radius: 4px;
-                        font-size: 10px;
+                        font-size: 13px;
                         font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
@@ -325,7 +335,7 @@ const GitUI = {
                         border: none;
                         padding: 4px 10px;
                         border-radius: 4px;
-                        font-size: 10px;
+                        font-size: 13px;
                         font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
@@ -353,7 +363,7 @@ const GitUI = {
                         border: none;
                         padding: 4px 10px;
                         border-radius: 4px;
-                        font-size: 10px;
+                        font-size: 13px;
                         font-weight: 500;
                         cursor: pointer;
                         transition: all 0.2s ease;
@@ -432,7 +442,7 @@ const GitUI = {
                     margin-right: 10px;
                     padding: 2px 6px;
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 13px;
                     background: ${statusColor.bg};
                     color: ${statusColor.text};
                     min-width: 14px;
@@ -446,7 +456,7 @@ const GitUI = {
                 ">
                     <label for="file-${index}" style="
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        font-size: 12px;
+                        font-size: 13px;
                         cursor: pointer;
                         color: ${isDark ? '#e5e7eb' : '#374151'};
                         font-weight: 500;
@@ -457,7 +467,7 @@ const GitUI = {
                     ${dirPath ? `
                     <div style="
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        font-size: 10px;
+                        font-size: 11px;
                         color: ${isDark ? '#9ca3af' : '#6b7280'};
                         white-space: nowrap;
                         overflow: hidden;
@@ -486,8 +496,8 @@ const GitUI = {
                 border: 1px dashed ${isDark ? 'rgba(156, 163, 175, 0.3)' : 'rgba(209, 213, 219, 0.5)'};
             ">
                 <div style="font-size: 20px; margin-bottom: 6px;">📁</div>
-                <div style="font-size: 11px; font-weight: 500; margin-bottom: 4px;">No changed files found</div>
-                <div style="font-size: 9px; opacity: 0.7;">
+                <div style="font-size: 13px; font-weight: 500; margin-bottom: 4px;">No changed files found</div>
+                <div style="font-size: 11px; opacity: 0.7;">
                     Make sure you have uncommitted changes in your repository
                 </div>
             </div>

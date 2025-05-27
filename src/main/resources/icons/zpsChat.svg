@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Extremely minimal brackets - just vertical bars at edges -->
+  <path d="M2 2V11" stroke="#AFB1B3" stroke-width="1.2"/>
+  <path d="M11 2V11" stroke="#AFB1B3" stroke-width="1.2"/>
+  
+  <!-- Extra large Z filling most of the space -->
+  <path d="M9 2.5H4V4.5H6L4 10.5H9V8.5H7L9 2.5Z" fill="#AFB1B3"/>
+</svg>

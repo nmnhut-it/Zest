@@ -128,7 +128,10 @@ public class RefactoringToolWindow {
 
                     if (toolWindow != null && toolWindow.isVisible()) {
                         LOG.info("No active refactoring found. Closing tool window.");
-                        toolWindow.hide(null);
+                        // Changed from hide(null) for better compatibility with IntelliJ 2024
+                        if (toolWindow.isActive()) {
+                            toolWindow.hide();
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -152,7 +155,10 @@ public class RefactoringToolWindow {
                     
                     if (!stateManager.isRefactoringInProgress()) {
                         // No active session - hide the tool window
-                        toolWindow.hide(null);
+                        // Changed from hide(null) for better compatibility with IntelliJ 2024
+                        if (toolWindow.isActive()) {
+                            toolWindow.hide();
+                        }
                         return;
                     }
 
@@ -205,32 +211,48 @@ public class RefactoringToolWindow {
                 ToolWindow toolWindow = toolWindowManager.getToolWindow(TOOL_WINDOW_ID);
 
                 if (toolWindow == null) {
-                    LOG.warn("Tool window not found. It should be registered via plugin.xml. Attempting manual registration...");
-                    // Fallback: manually register if not found (shouldn't happen with proper plugin.xml)
-                    toolWindow = toolWindowManager.registerToolWindow(
-                        TOOL_WINDOW_ID, 
-                        true, 
-                        com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
-                    );
-                    toolWindow.setTitle("Refactoring for Testability");
-                    toolWindow.setIcon(com.intellij.icons.AllIcons.Actions.RefactoringBulb);
+                    LOG.warn("Tool window not found. It should be registered via plugin.xml. Cannot proceed with manual registration in IntelliJ 2024.");
+                    Messages.showErrorDialog(project, 
+                        "Refactoring tool window could not be found. Please restart IntelliJ and try again.", 
+                        "Tool Window Error");
+                    return;
+                    
+                    // Manual registration is no longer recommended in IntelliJ 2024
+                    // toolWindow = toolWindowManager.registerToolWindow(
+                    //     TOOL_WINDOW_ID, 
+                    //     true, 
+                    //     com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
+                    // );
+                    // toolWindow.setTitle("Refactoring for Testability");
+                    // toolWindow.setIcon(com.zps.zest.ZestIcons.REFACTORING);
                 }
 
                 // Create and set content using modern API
-                RefactoringUI ui = new RefactoringUI(project, plan, progress, executionManager, stateManager);
-                ContentFactory contentFactory = ContentFactory.getInstance();
-                Content content = contentFactory.createContent(
-                    ui.createPanel(), 
-                    "Refactoring: " + plan.getTargetClass(), 
-                    false
-                );
+                try {
+                    RefactoringUI ui = new RefactoringUI(project, plan, progress, executionManager, stateManager);
+                    ContentFactory contentFactory = ContentFactory.getInstance();
+                    Content content = contentFactory.createContent(
+                        ui.createPanel(), 
+                        "Refactoring: " + plan.getTargetClass(), 
+                        false
+                    );
 
-                // Add the content to the tool window
-                toolWindow.getContentManager().removeAllContents(true);
-                toolWindow.getContentManager().addContent(content);
+                    // Add the content to the tool window
+                    toolWindow.getContentManager().removeAllContents(true);
+                    toolWindow.getContentManager().addContent(content);
+                    
+                    LOG.info("Successfully created and added content to the refactoring tool window");
+                } catch (Exception e) {
+                    LOG.error("Error creating tool window content", e);
+                    Messages.showErrorDialog(project, 
+                        "Failed to create refactoring UI content: " + e.getMessage(), 
+                        "UI Creation Error");
+                    return;
+                }
 
                 // Activate the tool window
-//                toolWindow.setAvailable(true);
+                toolWindow.setAvailable(true);
+                LOG.info("Setting tool window available and showing it");
                 toolWindow.show(null);
 
                 LOG.info("Refactoring tool window shown for: " + plan.getTargetClass());

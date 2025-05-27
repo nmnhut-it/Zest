@@ -162,7 +162,6 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
         // Configure tool window options
         toolWindow.setTitle("ZPS Chat");
         toolWindow.setStripeTitle("ZPS Chat");
-        toolWindow.setIcon(com.intellij.icons.AllIcons.General.Web);
     }
 
     @Override

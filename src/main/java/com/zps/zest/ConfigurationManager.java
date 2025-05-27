@@ -21,7 +21,7 @@ import java.util.concurrent.*;
  * Implements a per-project cache to avoid reloading configuration multiple times.
  */
 public class ConfigurationManager {
-    public static final String CODE_EXPERT = "code_expert";
+    public static final String CODE_EXPERT = "code-expert";
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
     private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";

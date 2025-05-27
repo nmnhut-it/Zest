@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Refactoring icon - line-based lightbulb with circular arrow -->
+  <path d="M8 2C5.23858 2 3 4.23858 3 7C3 8.87447 4.00484 10.5 5.5 11.3695V14L8 12.5L10.5 14V11.3695C11.9952 10.5 13 8.87447 13 7C13 4.23858 10.7614 2 8 2Z" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+  <path d="M8 4.5C6.61929 4.5 5.5 5.61929 5.5 7C5.5 7.65 5.77 8.23 6.2 8.62M7 7.62C6.81 7.44 6.7 7.23 6.7 7C6.7 6.33726 7.33726 5.7 8 5.7C8.66274 5.7 9.3 6.33726 9.3 7C9.3 7.23 9.19 7.44 9 7.62M9.8 8.62C10.23 8.23 10.5 7.65 10.5 7C10.5 5.61929 9.38071 4.5 8 4.5" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+</svg>

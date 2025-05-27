@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
   <!-- Background shape with rounded corners -->
-  <rect x="1" y="1" width="38" height="38" rx="8" fill="#3C93DC"/>
+  <rect x="1" y="1" width="38" height="38" rx="8" fill="#2979C2"/>
   
   <!-- White "Z" letter with modern style -->
   <path d="M27 10H13V15H20L13 30H27V25H20L27 10Z" fill="white"/>

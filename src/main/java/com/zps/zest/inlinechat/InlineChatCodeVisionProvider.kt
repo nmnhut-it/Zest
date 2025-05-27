@@ -6,7 +6,7 @@ import com.intellij.codeInsight.codeVision.ui.model.TextCodeVisionEntry
 import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
@@ -136,17 +136,14 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
         if (actionId == null) {
             return
         }
-        val editorDataContext = DataManager.getInstance().getDataContext(editor.component)
         val action = getAction(actionId!!)
+        val dataContext = DataManager.getInstance().getDataContext(editor.component)
         val event = com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext(
-            "", 
-            com.intellij.openapi.actionSystem.impl.SimpleDataContext.getSimpleContext(
-                com.intellij.openapi.actionSystem.CommonDataKeys.EDITOR,
-                editor,
-                editorDataContext
-            )
+            com.intellij.openapi.actionSystem.ActionPlaces.UNKNOWN,
+            null,
+            dataContext
         )
-        ActionUtil.invokeAction(action, event, null)
+        action.actionPerformed(event)
     }
 
     private fun getAction(actionId: String) = ActionManager.getInstance().getAction(actionId)

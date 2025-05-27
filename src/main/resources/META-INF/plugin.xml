@@ -25,6 +25,9 @@
     <projectListeners>
         <listener class="com.zps.zest.RagManagerProjectListener"
                   topic="com.intellij.openapi.project.ProjectManagerListener"/>
+        <!-- Register the selection gutter icon manager -->
+        <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
+                  topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
 
     <!-- Extension points defined by the plugin.
@@ -58,21 +61,60 @@
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
+        <!-- Register the intention action -->
+        <intentionAction>
+            <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
+            <category>Zest</category>
+            <descriptionDirectoryName>InlineChatIntentionAction</descriptionDirectoryName>
+        </intentionAction>
+
+        <!-- Register project-level services -->
+        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>
+        <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>
+        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>
+        
+        <!-- Register the diff highlighter -->
+        <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
+
     </extensions>
     <actions>
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
 
-        <!-- TESTING ACTIONS -->
+        <!-- INLINE CHAT ACTIONS -->
 
-        <!-- Step-by-Step Test Writing -->
+        <!-- Inline Chat Actions -->
+        <action id="Zest.InlineChatAction" 
+                class="com.zps.zest.inlinechat.InlineChatAction"
+                text="Inline AI Edit"
+                description="Open inline AI editor for context-aware editing">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
+        </action>
+        
+        <!-- These actions will be triggered by UI buttons, not menu items -->
+        <action id="Zest.InlineChatAcceptAction"
+                class="com.zps.zest.inlinechat.InlineChatAcceptAction"
+                text="Accept Inline Edit" 
+                description="Accept the changes proposed by the inline AI editor"/>
+                
+        <action id="Zest.InlineChatDiscardAction"
+                class="com.zps.zest.inlinechat.InlineChatDiscardAction"
+                text="Discard Inline Edit" 
+                description="Discard the changes proposed by the inline AI editor"/>
+                
+        <action id="Zest.InlineChatCancelAction"
+                class="com.zps.zest.inlinechat.InlineChatCancelAction"
+                text="Cancel Inline Edit" 
+                description="Cancel the inline AI editing operation"/>
+        
+        <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
                 text="Step-by-Step Test Writing (Agent)"
                 icon="icons/testWriting16.svg"
                 description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
         </action>
         
         <!-- Quick Test Generator -->

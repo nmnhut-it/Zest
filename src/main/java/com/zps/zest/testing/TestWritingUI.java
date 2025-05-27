@@ -380,7 +380,7 @@ public class TestWritingUI {
 
                 if (toolWindow != null) {
                     JPanel updatedPanel = createPanel();
-                    ContentFactory contentFactory = ContentFactory.SERVICE.getInstance();
+                    ContentFactory contentFactory = ContentFactory.getInstance();
                     Content content = contentFactory.createContent(updatedPanel, "Test Writing: " + plan.getTargetClass(), false);
 
                     toolWindow.getContentManager().removeAllContents(true);

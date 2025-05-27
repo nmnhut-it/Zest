@@ -522,7 +522,8 @@ public class LlmApiCallStage implements PipelineStage {
      */
     private boolean shouldUseStreaming(ConfigurationManager config) {
         // Use the configured value from the configuration
-        return true;
+//        return true;
+        return false;
     }
 
     /**

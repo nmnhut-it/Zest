@@ -103,12 +103,15 @@ public class ConfigurationManager {
 
     // Register project listener to clean up closed projects
     static {
-        ProjectManager.getInstance().addProjectManagerListener(new ProjectManagerListener() {
-            @Override
-            public void projectClosed(Project project) {
-                disposeInstance(project);
-            }
-        });
+        ApplicationManager.getApplication().getMessageBus().connect().subscribe(
+                ProjectManager.TOPIC, 
+                new ProjectManagerListener() {
+                    @Override
+                    public void projectClosed(Project project) {
+                        disposeInstance(project);
+                    }
+                }
+        );
     }
 
     private String apiUrl;

@@ -1,0 +1,6 @@
+public class Example {
+    public void method() {
+        // Regular code that could use AI assistance
+        System.out.println("Hello World");
+    }
+}

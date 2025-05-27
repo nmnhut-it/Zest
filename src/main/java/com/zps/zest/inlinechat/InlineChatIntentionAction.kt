@@ -55,7 +55,23 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
 
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
         val inlineChatService = project.serviceOrNull<InlineChatService>() ?: return
-        if (inlineChatService.inlineChatInputVisible || inlineChatService.hasDiffAction) return
+        
+        // Add debug logging to understand the state
+        if (InlineChatService.DEBUG_SERVICE) {
+            System.out.println("InlineChatIntentionAction.invoke called")
+            System.out.println("inlineChatInputVisible: ${inlineChatService.inlineChatInputVisible}")
+            System.out.println("hasDiffAction: ${inlineChatService.hasDiffAction}")
+            System.out.println("diffActionState: ${inlineChatService.inlineChatDiffActionState}")
+        }
+        
+        // Early return if input is already visible or diff action is in progress
+        if (inlineChatService.inlineChatInputVisible || inlineChatService.hasDiffAction) {
+            if (InlineChatService.DEBUG_SERVICE) {
+                System.out.println("Early return from invoke: input visible or diff action in progress")
+            }
+            return
+        }
+        
         this.project = project
         this.editor = editor
         if (editor != null) {

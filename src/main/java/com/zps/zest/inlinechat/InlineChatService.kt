@@ -51,7 +51,7 @@ class InlineChatService(private val project: Project) : Disposable {
     private var floatingToolbar: InlineChatFloatingToolbar? = null
 
     val hasDiffAction: Boolean
-        get() = inlineChatDiffActionState.any { it.value }
+        get() = inlineChatDiffActionState.any { it.value == true }
 
     /**
      * Parse the LLM response and update the diff segments
@@ -398,7 +398,12 @@ class InlineChatService(private val project: Project) : Disposable {
         llmResponse = null
         extractedCode = null
         diffSegments.clear()
+        
+        // Make sure to fully clear the diff action state map
         inlineChatDiffActionState.clear()
+        inlineChatDiffActionState["Zest.InlineChat.Accept"] = false
+        inlineChatDiffActionState["Zest.InlineChat.Discard"] = false
+        
         originalCode = null
         selectionStartLine = 0
         selectionStartOffset = 0
@@ -413,6 +418,7 @@ class InlineChatService(private val project: Project) : Disposable {
         
         if (DEBUG_SERVICE) {
             System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
+            System.out.println("hasDiffAction after clearing: ${hasDiffAction}")
         }
     }
 
@@ -439,11 +445,36 @@ class InlineChatService(private val project: Project) : Disposable {
                 try {
                     val markupModel = editor.markupModel
                     val highlighters = markupModel.allHighlighters
+                    
+                    // Loop through all highlighters and remove those that might be from our operations
+                    // We need to be more thorough about which highlighters to remove
                     highlighters.forEach { highlighter ->
-                        // Remove highlighters that might be from our diff pass
-                        if (highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX ||
-                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.LAST) {
-                            markupModel.removeHighlighter(highlighter)
+                        // Check if it's one of our layers or if it has one of our tooltips
+                        val tooltip = highlighter.errorStripeTooltip
+                        val isOurHighlighter = (
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX ||
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.LAST ||
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.SELECTION + 1 ||
+                            (tooltip is String && (
+                                tooltip.contains("AI suggestion") || 
+                                tooltip.contains("Added by AI") || 
+                                tooltip.contains("Removed by AI") ||
+                                tooltip.contains("Unchanged") ||
+                                tooltip.contains("AI comment")
+                            ))
+                        )
+                        
+                        if (isOurHighlighter) {
+                            try {
+                                markupModel.removeHighlighter(highlighter)
+                                if (DEBUG_SERVICE) {
+                                    System.out.println("Removed highlighter: ${highlighter.errorStripeTooltip}")
+                                }
+                            } catch (e: Exception) {
+                                if (DEBUG_SERVICE) {
+                                    System.out.println("Error removing highlighter: ${e.message}")
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) {

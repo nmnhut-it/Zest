@@ -113,6 +113,28 @@
             <keyboard-shortcut keymap="$default" first-keystroke="alt shift T"/>
         </action>
         
+        <!-- Test action for inline chat with fake LLM response -->
+        <action id="Zest.TestInlineChatAction"
+                class="com.zps.zest.inlinechat.TestInlineChatAction"
+                text="Test Inline Chat (Fake LLM)" 
+                description="Test the inline chat feature with a fake LLM response that adds comments"
+                icon="AllIcons.Debugger.Db_muted_breakpoint">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift I"/>
+        </action>
+        
+        <!-- Test action for inline chat buttons -->
+        <action id="Zest.TestInlineChatButtonsAction"
+                class="com.zps.zest.inlinechat.TestInlineChatButtonsAction"
+                text="Test Inline Chat Buttons (Show UI)" 
+                description="Test the inline chat accept/reject buttons without LLM call"
+                icon="AllIcons.General.InspectionsEye">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift B"/>
+        </action>
+        
         <!-- Action to clear all diff highlighting -->
         <action id="Zest.ClearHighlightsAction"
                 class="com.zps.zest.inlinechat.ClearHighlightsAction"

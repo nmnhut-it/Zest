@@ -1,5 +1,7 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.codeInsight.codeVision.CodeVisionHost
+import com.intellij.codeInsight.codeVision.CodeVisionProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
@@ -10,7 +12,10 @@ import com.zps.zest.CodeContext
 import com.zps.zest.LlmApiCallStage
 import com.zps.zest.ZestNotifications
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.eclipse.lsp4j.*
 
 /**
@@ -83,9 +88,31 @@ fun getSuggestedCommands(project: Project, location: Location): Deferred<List<Ch
 }
 
 /**
+ * Interface for LLM response providers
+ */
+interface LlmResponseProvider {
+    suspend fun getLlmResponse(codeContext: CodeContext): String?
+}
+
+/**
+ * Default implementation that calls the actual LLM
+ */
+class DefaultLlmResponseProvider : LlmResponseProvider {
+    override suspend fun getLlmResponse(codeContext: CodeContext): String? {
+        val llmStage = LlmApiCallStage()
+        llmStage.process(codeContext)
+        return codeContext.getApiResponse()
+    }
+}
+
+/**
  * Process the command with an LLM and update code
  */
-fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred<Boolean> {
+fun processInlineChatCommand(
+    project: Project, 
+    params: ChatEditParams,
+    responseProvider: LlmResponseProvider = DefaultLlmResponseProvider()
+): Deferred<Boolean> {
     val result = CompletableDeferred<Boolean>()
     
     try {
@@ -134,59 +161,76 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
         val inlineChatService = project.getService(InlineChatService::class.java)
         inlineChatService.originalCode = originalText
         
-        // Use the existing LLM API call stage to process the command
-        val llmStage = LlmApiCallStage()
-        llmStage.process(codeContext)
-        
-        // Process the response
-        val response = codeContext.getApiResponse()
-        if (response != null && response.isNotEmpty()) {
-            // Process the response and update diff highlighting
-            inlineChatService.processLlmResponse(response, originalText)
-            
-            // Check if we extracted code
-            if (inlineChatService.extractedCode != null) {
-                // Validate the implementation
-                val isValid = validateImplementation(originalText, inlineChatService.extractedCode!!)
+        // Use the response provider to get the LLM response
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = responseProvider.getLlmResponse(codeContext)
                 
-                if (!isValid) {
-                    ZestNotifications.showWarning(
+                if (response != null && response.isNotEmpty()) {
+                    // Process the response and update diff highlighting
+                    inlineChatService.processLlmResponse(response, originalText)
+                    
+                    // Check if we extracted code
+                    if (inlineChatService.extractedCode != null) {
+                        // Validate the implementation
+                        val isValid = validateImplementation(originalText, inlineChatService.extractedCode!!)
+                        
+                        if (!isValid) {
+                            ZestNotifications.showWarning(
+                                project,
+                                "Inline Chat Warning",
+                                "The suggested changes may have significantly altered the code structure. Please review carefully."
+                            )
+                        }
+                        
+                        ZestNotifications.showInfo(
+                            project,
+                            "Inline Chat",
+                            "Changes suggested! Review the highlighted code and accept or discard."
+                        )
+                        
+                        // Force editor refresh to show highlights
+                        ApplicationManager.getApplication().invokeLater {
+                            editor.contentComponent.repaint()
+                            
+                            // Try to refresh code vision
+                            try {
+                                val codeVisionHost = editor.getUserData(com.intellij.codeInsight.codeVision.CodeVisionHost.key)
+                                codeVisionHost?.invalidateProvider(com.intellij.codeInsight.codeVision.CodeVisionProvider.providerId<InlineChatAcceptCodeVisionProvider>())
+                                codeVisionHost?.invalidateProvider(com.intellij.codeInsight.codeVision.CodeVisionProvider.providerId<InlineChatDiscardCodeVisionProvider>())
+                            } catch (e: Exception) {
+                                // Code vision might not be available
+                            }
+                        }
+                    } else {
+                        // Show a notification with a snippet of the response
+                        val previewLength = minOf(100, response.length)
+                        val preview = response.substring(0, previewLength) + (if (response.length > previewLength) "..." else "")
+                        
+                        ZestNotifications.showInfo(
+                            project,
+                            "Inline Chat Response",
+                            preview
+                        )
+                    }
+                    
+                    result.complete(true)
+                } else {
+                    ZestNotifications.showError(
                         project,
-                        "Inline Chat Warning",
-                        "The suggested changes may have significantly altered the code structure. Please review carefully."
+                        "Inline Chat Error",
+                        "Failed to get response from LLM"
                     )
+                    result.complete(false)
                 }
-                
-                ZestNotifications.showInfo(
+            } catch (e: Exception) {
+                ZestNotifications.showError(
                     project,
-                    "Inline Chat",
-                    "Changes suggested! Review the highlighted code and accept or discard."
+                    "Inline Chat Error",
+                    "Error in coroutine: ${e.message}"
                 )
-                
-                // Force editor refresh to show highlights
-                ApplicationManager.getApplication().invokeLater {
-                    editor.contentComponent.repaint()
-                }
-            } else {
-                // Show a notification with a snippet of the response
-                val previewLength = minOf(100, response.length)
-                val preview = response.substring(0, previewLength) + (if (response.length > previewLength) "..." else "")
-                
-                ZestNotifications.showInfo(
-                    project,
-                    "Inline Chat Response",
-                    preview
-                )
+                result.complete(false)
             }
-            
-            result.complete(true)
-        } else {
-            ZestNotifications.showError(
-                project,
-                "Inline Chat Error",
-                "Failed to get response from LLM"
-            )
-            result.complete(false)
         }
     } catch (e: Exception) {
         ZestNotifications.showError(

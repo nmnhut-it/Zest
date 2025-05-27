@@ -11,6 +11,8 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.psi.PsiDocumentManager
+import com.zps.zest.CodeContext
+import kotlinx.coroutines.runBlocking
 
 /**
  * Test action that simulates inline chat with a fake LLM response.
@@ -32,11 +34,29 @@ class TestInlineChatAction : AnAction() {
         // Get the selected text
         val originalText = selectionModel.selectedText ?: return
         
-        // Generate fake LLM response
-        val fakeResponse = generateFakeLlmResponse(originalText)
+        // Get the location for the inline chat service
+        val locationInfo = getCurrentLocation(editor)
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        inlineChatService.location = locationInfo.location
         
-        // Process the fake response through the inline chat service
-        processFakeInlineChatResponse(project, editor, originalText, fakeResponse)
+        // Create a fake LLM response provider
+        val fakeResponseProvider = object : LlmResponseProvider {
+            override suspend fun getLlmResponse(codeContext: CodeContext): String? {
+                return generateFakeLlmResponse(originalText)
+            }
+        }
+        
+        // Process the command with our fake response
+        val params = ChatEditParams(
+            location = locationInfo.location,
+            command = "Add analytical comments to each line of code"
+        )
+        
+        // Run the process with our fake provider
+        runBlocking {
+            val deferred = processInlineChatCommand(project, params, fakeResponseProvider)
+            deferred.await()
+        }
     }
     
     /**
@@ -97,43 +117,6 @@ class TestInlineChatAction : AnAction() {
             trimmed.contains("=") && !trimmed.contains("==") -> "assignment statement"
             trimmed.contains(".") && trimmed.contains("(") -> "method call"
             else -> "code statement"
-        }
-    }
-    
-    /**
-     * Process the fake response through the inline chat service
-     */
-    private fun processFakeInlineChatResponse(project: Project, editor: Editor, originalText: String, fakeResponse: String) {
-        // Get the inline chat service
-        val inlineChatService = project.getService(InlineChatService::class.java)
-        
-        // Clear any existing state
-        inlineChatService.clearState()
-        
-        // Process the fake LLM response
-        inlineChatService.processLlmResponse(fakeResponse, originalText)
-        
-        // Enable diff actions
-        inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
-        inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
-        inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Loading"] = false
-        
-        // Force document update to refresh highlighting
-        WriteCommandAction.runWriteCommandAction(project) {
-            PsiDocumentManager.getInstance(project).commitDocument(editor.document)
-        }
-        
-        // Force editor highlighting refresh
-        ApplicationManager.getApplication().invokeLater {
-            editor.contentComponent.repaint()
-            
-            // Show a notification about the test
-            Messages.showInfoMessage(
-                project,
-                "Test inline chat applied! Comments have been added to each line.\n" +
-                "Use the Accept/Discard buttons to apply or reject changes.",
-                "Test Inline Chat"
-            )
         }
     }
     

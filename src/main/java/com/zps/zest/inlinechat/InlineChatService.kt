@@ -50,6 +50,9 @@ class InlineChatService(private val project: Project) : Disposable {
 
     // Current floating toolbar (if shown)
     var floatingToolbar: InlineChatFloatingToolbar? = null
+    
+    // Flag to track active tasks (true if a task is in progress)
+    var taskInProgress = false
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value == true }
@@ -447,10 +450,16 @@ class InlineChatService(private val project: Project) : Disposable {
 
         // Hide floating toolbar if shown - only do this when the task is done or cancelled
         // NOT when it's still in progress
-        if (hasDiffAction || inlineChatInputVisible) {
-            // If we have active diff actions or input visible, keep the toolbar
+        if (hasDiffAction || inlineChatInputVisible || taskInProgress) {
+            // If we have active diff actions, input visible, or a task in progress, keep the toolbar
+            if (DEBUG_SERVICE) {
+                System.out.println("Keeping toolbar visible - hasDiffAction: $hasDiffAction, inlineChatInputVisible: $inlineChatInputVisible, taskInProgress: $taskInProgress")
+            }
         } else {
             // Otherwise, hide it
+            if (DEBUG_SERVICE) {
+                System.out.println("Hiding toolbar - no active tasks or actions")
+            }
             floatingToolbar?.hide()
             floatingToolbar = null
         }
@@ -458,6 +467,7 @@ class InlineChatService(private val project: Project) : Disposable {
         if (DEBUG_SERVICE) {
             System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
             System.out.println("hasDiffAction after clearing: ${hasDiffAction}")
+            System.out.println("taskInProgress: $taskInProgress")
         }
     }
 
@@ -623,6 +633,7 @@ class InlineChatService(private val project: Project) : Disposable {
         selectionEndOffset = 0
         floatingToolbar?.hide()
         floatingToolbar = null
+        taskInProgress = false
     }
 
     /**

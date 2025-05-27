@@ -216,6 +216,13 @@ fun processInlineChatCommand(
                     System.out.println("=== Getting LLM response ===")
                 }
                 
+                // Set task in progress flag
+                inlineChatService.taskInProgress = true
+                
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("Set taskInProgress to true")
+                }
+                
                 val response = responseProvider.getLlmResponse(codeContext)
                 
                 if (DEBUG_RESPONSE_HANDLING) {
@@ -329,10 +336,25 @@ fun processInlineChatCommand(
                     )
                     result.complete(false)
                 }
+                
+                // Clear task in progress flag
+                inlineChatService.taskInProgress = false
+                
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("Set taskInProgress to false")
+                }
+                
             } catch (e: Exception) {
                 if (DEBUG_RESPONSE_HANDLING) {
                     System.out.println("ERROR in coroutine: ${e.message}")
                     e.printStackTrace()
+                }
+                
+                // Make sure to clear task in progress flag even on error
+                inlineChatService.taskInProgress = false
+                
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("Set taskInProgress to false after error")
                 }
                 
                 ZestNotifications.showError(
@@ -541,6 +563,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 }
                 
                 // Clear state and reset highlights
+                inlineChatService.taskInProgress = false
                 inlineChatService.clearState()
                 
                 // Force clear all highlights (this will run on EDT from within the method)

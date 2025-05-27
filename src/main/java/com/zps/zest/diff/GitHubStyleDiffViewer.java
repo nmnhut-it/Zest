@@ -192,19 +192,102 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                 // Get the diff content for this file
                 String diffContent = "";
 
-                // For new files, show the entire content as a diff
-                if (fileStatus.equals("A") || fileStatus.equals("ADDITION")) {
-                    if (isNewFile(projectPath, cleanedPath)) {
-                        diffContent = getNewFileContent(projectPath, cleanedPath);
-                    } else {
-                        diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
-                    }
-                } else {
-                    // For other statuses, try to get the diff
-                    diffContent = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
-                    if (diffContent.trim().isEmpty()) {
-                        diffContent = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
-                    }
+                // Handle different file statuses
+                switch (fileStatus) {
+                    case "A":
+                    case "ADDITION":
+                        // For added files
+                        if (isNewFile(projectPath, cleanedPath)) {
+                            diffContent = getNewFileContent(projectPath, cleanedPath);
+                        } else {
+                            diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                        }
+                        break;
+                        
+                    case "D":
+                    case "DELETION":
+                        // For deleted files, we need to be extra careful with the git commands
+                        try {
+                            LOG.info("Processing deleted file diff: " + cleanedPath);
+                            
+                            // First, try to get the staged deletion diff
+                            diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                            
+                            // If nothing is staged, try to get the file content from the last commit
+                            if (diffContent.trim().isEmpty()) {
+                                try {
+                                    LOG.info("Trying to get file content from HEAD for diff");
+                                    String content = executeGitCommand(projectPath, "git show HEAD:\"" + cleanedPath + "\"");
+                                    if (!content.trim().isEmpty()) {
+                                        LOG.info("Got content from HEAD, formatting as deletion diff");
+                                        diffContent = formatDeletedFileDiff(cleanedPath, content);
+                                    }
+                                } catch (Exception e) {
+                                    LOG.info("Failed to get content from HEAD, trying git log: " + e.getMessage());
+                                    
+                                    // If we can't get the content directly, try to find when it was last seen
+                                    try {
+                                        // List commits that affected this file
+                                        String history = executeGitCommand(projectPath, "git log --pretty=format:\"%H\" -n 1 -- \"" + cleanedPath + "\"");
+                                        if (!history.trim().isEmpty()) {
+                                            String commitHash = history.trim();
+                                            LOG.info("Found file in commit: " + commitHash);
+                                            
+                                            // Get the file content from that commit
+                                            String content = executeGitCommand(projectPath, "git show " + commitHash + ":\"" + cleanedPath + "\"");
+                                            if (!content.trim().isEmpty()) {
+                                                LOG.info("Got content from commit " + commitHash);
+                                                diffContent = formatDeletedFileDiff(cleanedPath, content);
+                                            }
+                                        }
+                                    } catch (Exception ex) {
+                                        LOG.info("Failed to get file history: " + ex.getMessage());
+                                    }
+                                }
+                            }
+                            
+                            // If all methods failed, provide a simple message
+                            if (diffContent.trim().isEmpty()) {
+                                diffContent = "File was deleted: " + cleanedPath + "\n(Content not available)";
+                            }
+                        } catch (Exception e) {
+                            LOG.warn("Error processing deleted file diff: " + e.getMessage(), e);
+                            diffContent = "Deleted file: " + cleanedPath + "\n(Error retrieving content: " + e.getMessage() + ")";
+                        }
+                        break;
+                        
+                    case "M":
+                    case "MODIFICATION":
+                        // For modified files, try unstaged first, then staged
+                        try {
+                            diffContent = executeGitCommand(projectPath, "git diff -- \"" + cleanedPath + "\"");
+                            if (diffContent.trim().isEmpty()) {
+                                diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Error getting standard diff, trying with HEAD: " + e.getMessage());
+                            diffContent = executeGitCommand(projectPath, "git diff HEAD -- \"" + cleanedPath + "\"");
+                        }
+                        break;
+                        
+                    case "R":
+                    case "MOVED":
+                        // For renamed files
+                        diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                        break;
+                        
+                    default:
+                        // Default case, try normal diff first
+                        try {
+                            diffContent = executeGitCommand(projectPath, "git diff -- \"" + cleanedPath + "\"");
+                            if (diffContent.trim().isEmpty()) {
+                                diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Standard diff failed, trying HEAD diff: " + e.getMessage());
+                            diffContent = executeGitCommand(projectPath, "git diff HEAD -- \"" + cleanedPath + "\"");
+                        }
+                        break;
                 }
 
                 return diffContent;
@@ -509,9 +592,33 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
 
 
     /**
+     * Formats the content of a deleted file as a diff.
+     * This is used when we can only get the file content but need to show it as a deletion.
+     */
+    private String formatDeletedFileDiff(String filePath, String content) {
+        StringBuilder diff = new StringBuilder();
+        diff.append("diff --git a/").append(filePath).append(" b/").append(filePath).append("\n");
+        diff.append("deleted file mode 100644\n");
+        diff.append("index 1234567..0000000\n");
+        diff.append("--- a/").append(filePath).append("\n");
+        diff.append("+++ /dev/null\n");
+        
+        String[] lines = content.split("\n");
+        diff.append("@@ -1,").append(lines.length).append(" +0,0 @@\n");
+        
+        for (String line : lines) {
+            diff.append("-").append(line).append("\n");
+        }
+        
+        return diff.toString();
+    }
+
+    /**
      * Execute a git command
      */
     private String executeGitCommand(String workingDir, String command) throws Exception {
+        LOG.info("Executing git command: " + command);
+        
         ProcessBuilder processBuilder = new ProcessBuilder();
         if (System.getProperty("os.name").toLowerCase().contains("windows")) {
             processBuilder.command("cmd.exe", "/c", command);
@@ -558,7 +665,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
      */
     private boolean isNewFile(String projectPath, String filePath) {
         try {
-            String result = executeGitCommand(projectPath, "git ls-files \"" + filePath + "\"");
+            String result = executeGitCommand(projectPath, "git ls-files -- \"" + filePath + "\"");
             return result.trim().isEmpty(); // If empty, file is not tracked
         } catch (Exception e) {
             LOG.warn("Error checking if file is new: " + e.getMessage());

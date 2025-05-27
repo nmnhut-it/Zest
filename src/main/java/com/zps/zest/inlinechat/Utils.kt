@@ -57,14 +57,11 @@ fun getSuggestedCommands(project: Project): Deferred<List<ChatEditCommand>> {
     
     // Get useful commands based on context
     val commands = mutableListOf(
-        ChatEditCommand("Generate unit test", "Generate comprehensive unit tests for this code"),
+        ChatEditCommand("Add logging", "Add appropriate logging statements for debugging"),
         ChatEditCommand("Explain code", "Explain what this code does in detail"),
-        ChatEditCommand("Refactor code", "Suggest refactoring improvements for better readability and maintainability"),
         ChatEditCommand("Generate documentation", "Add comprehensive JavaDoc documentation to this code"),
         ChatEditCommand("Improve error handling", "Improve error handling and add proper exception management"),
-        ChatEditCommand("Optimize performance", "Optimize this code for better performance"),
         ChatEditCommand("Find bugs", "Identify potential bugs or issues in this code"),
-        ChatEditCommand("Add logging", "Add appropriate logging statements for debugging"),
         ChatEditCommand("Convert to stream API", "Convert loops to Java Stream API where appropriate"),
         ChatEditCommand("Extract method", "Extract complex logic into separate methods"),
         ChatEditCommand("Add null checks", "Add proper null checks and validations")

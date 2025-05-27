@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.826</version>  <!-- Replace with your actual version -->
+    <version>1.9.828</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -32,7 +32,7 @@
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
                     icon="AllIcons.General.Web"
-                    canCloseContents="true"/>
+                    canCloseContents="false"/>
 
         <!-- Register the test writing tool window factory -->
         <toolWindow id="Test Writing Assistant"
@@ -40,6 +40,7 @@
                     factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
                     icon="AllIcons.RunConfigurations.TestState.Run"
                     canCloseContents="true"
+                    doNotActivateOnStart="false"
                     secondary="false"/>
 
         <!-- Register the refactoring tool window factory -->
@@ -78,7 +79,7 @@
         <!-- One-click Write Test -->
         <action id="com.zps.zest.GenerateTestByLlm"
                 class="com.zps.zest.GenerateTestByLlm"
-                text="Agent: One-click Write Test"
+                text="Agent: One-Click Write Test"
                 description="Write tests by LLMs">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
         </action>

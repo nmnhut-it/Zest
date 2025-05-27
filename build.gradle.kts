@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.826-SNAPSHOT"
+version = "1.9.828-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -15,9 +15,7 @@ repositories {
 // Configure Gradle IntelliJ Plugin
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
-//    version.set("243.25659.59")
-    version.set("2023.1")
-
+    version.set("2024.3.4.1")
     type.set("IC") // Target IDE Platform
 
     plugins.set(listOf("java"/* Plugin Dependencies */))
@@ -61,7 +59,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("223.0")
-        untilBuild.set("243.*")
+        untilBuild.set("243.*") // Makes it compatible with 2024.3.x
     }
 
     signPlugin {

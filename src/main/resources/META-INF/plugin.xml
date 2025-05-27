@@ -60,11 +60,21 @@
         <intentionAction>
             <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
             <category>Zest</category>
+            <descriptionDirectoryName>InlineChatIntentionAction</descriptionDirectoryName>
         </intentionAction>
 
         <!-- Register project-level services -->
         <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>
         <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>
+        
+        <!-- Register the diff highlighter -->
+        <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
+        
+        <!-- Register code vision providers -->
+        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatLoadingCodeVisionProvider"/>
+        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatCancelCodeVisionProvider"/>
+        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatAcceptCodeVisionProvider"/>
+        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatDiscardCodeVisionProvider"/>
     </extensions>
     <actions>
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true">
@@ -86,6 +96,28 @@
                 class="com.zps.zest.inlinechat.InlineChatAcceptAction"
                 text="Accept Inline Edit" 
                 description="Accept the changes proposed by the inline AI editor"/>
+                
+        <!-- Test action for diff highlighting -->
+        <action id="Zest.TestCommentAction"
+                class="com.zps.zest.inlinechat.TestCommentAction"
+                text="Test Diff Highlighting" 
+                description="Test the diff highlighting by adding comments to every line"
+                icon="AllIcons.Actions.Diff">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift T"/>
+        </action>
+        
+        <!-- Action to clear all diff highlighting -->
+        <action id="Zest.ClearHighlightsAction"
+                class="com.zps.zest.inlinechat.ClearHighlightsAction"
+                text="Clear Diff Highlighting" 
+                description="Clear all diff highlighting from the editor"
+                icon="AllIcons.Actions.Cancel">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift C"/>
+        </action>
                 
         <action id="Zest.InlineChatDiscardAction"
                 class="com.zps.zest.inlinechat.InlineChatDiscardAction"

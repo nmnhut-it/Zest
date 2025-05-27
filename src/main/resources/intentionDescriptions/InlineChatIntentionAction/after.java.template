@@ -1,0 +1,6 @@
+public class Example {
+    public void method() {
+        // Zest inline AI chat is helping with this code
+        System.out.println("Hello World");
+    }
+}

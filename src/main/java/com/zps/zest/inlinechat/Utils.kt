@@ -1,5 +1,6 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Editor
@@ -10,7 +11,6 @@ import com.zps.zest.ZestNotifications
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import org.eclipse.lsp4j.*
-import java.util.concurrent.CompletableFuture
 
 /**
  * Location information with start offset
@@ -68,10 +68,13 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
     val result = CompletableDeferred<Boolean>()
     
     try {
-        // Use the ZestContextProvider to create a code context with appropriate information
-        val editor = ReadAction.compute<Editor,Throwable> {  com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor};
+        // We need to get the editor on the UI thread to avoid read access issues
+        val editor = ApplicationManager.getApplication().runReadAction <Editor?> {
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+        }
+        
         if (editor == null) {
-            ZestNotifications.showError(
+            ZestNotifications.showInfo(
                 project,
                 "Inline Chat Error",
                 "No active editor found"
@@ -80,21 +83,60 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
             return result
         }
         
+        // Show progress notification
+        ZestNotifications.showInfo(
+            project,
+            "Inline Chat",
+            "Processing your request..."
+        )
+        
+        // Get the original text to use for diffing
+        val originalText = ReadAction.compute<String, Throwable> {
+            val document = editor.document
+            val selectionModel = editor.selectionModel
+            
+            if (selectionModel.hasSelection()) {
+                selectionModel.selectedText ?: ""
+            } else {
+                // If no selection, get the entire document content
+                document.text
+            }
+        }
+        
         // Create context with our helper class that integrates with ClassAnalyzer
         val codeContext = ZestContextProvider.createCodeContext(project, editor, params.command)
         
+        // Use the code model instead of test model
+        codeContext.useTestWrightModel(false)
+        
+        // Store original text in service
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        inlineChatService.originalCode = originalText
+        
         // Use the existing LLM API call stage to process the command
         val llmStage = LlmApiCallStage()
-        codeContext.useTestWrightModel(false);
         llmStage.process(codeContext)
         
-        // Store the response in the service for later use
-        val service = project.serviceOrNull<InlineChatService>()
-        service?.let {
-            // In a real implementation, you'd store the response and show the diff
-            // For now, just show a notification with a snippet of the response
-            val response = codeContext.getApiResponse()
-            if (response != null && response.isNotEmpty()) {
+        // Process the response
+        val response = codeContext.getApiResponse()
+        if (response != null && response.isNotEmpty()) {
+            // Process the response and update diff highlighting
+            inlineChatService.processLlmResponse(response, originalText)
+            
+            // Check if we extracted code
+            if (inlineChatService.extractedCode != null) {
+                ZestNotifications.showInfo(
+                    project,
+                    "Inline Chat",
+                    "Changes suggested! Review the highlighted code and accept or discard."
+                )
+                
+                // Force editor refresh to show highlights
+                ApplicationManager.getApplication().invokeLater {
+                    editor.contentComponent.repaint()
+                }
+            } else {
+                // Show a notification with a snippet of the response
                 val previewLength = minOf(100, response.length)
                 val preview = response.substring(0, previewLength) + (if (response.length > previewLength) "..." else "")
                 
@@ -103,16 +145,16 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
                     "Inline Chat Response",
                     preview
                 )
-                
-                result.complete(true)
-            } else {
-                ZestNotifications.showError(
-                    project,
-                    "Inline Chat Error",
-                    "Failed to get response from LLM"
-                )
-                result.complete(false)
             }
+            
+            result.complete(true)
+        } else {
+            ZestNotifications.showError(
+                project,
+                "Inline Chat Error",
+                "Failed to get response from LLM"
+            )
+            result.complete(false)
         }
     } catch (e: Exception) {
         ZestNotifications.showError(
@@ -132,21 +174,89 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
 fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Deferred<Boolean> {
     val result = CompletableDeferred<Boolean>()
     
-    // In a real implementation, this would apply or discard the changes
-    val actionVerb = when (params.action) {
-        "accept" -> "accepted"
-        "discard" -> "discarded"
-        "cancel" -> "cancelled"
-        else -> "processed"
+    try {
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        val editor = ApplicationManager.getApplication().runReadAction<Editor?> {
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+        }
+        
+        if (editor == null) {
+            ZestNotifications.showInfo(
+                project,
+                "Inline Chat Error",
+                "No active editor found"
+            )
+            result.complete(false)
+            return result
+        }
+        
+        when (params.action) {
+            "accept" -> {
+                // Apply the changes to the document
+                val newCode = inlineChatService.applyChanges()
+                if (newCode != null) {
+                    ApplicationManager.getApplication().runWriteAction {
+                        // Apply changes to the document
+                        val document = editor.document
+                        val selectionModel = editor.selectionModel
+                        
+                        if (selectionModel.hasSelection()) {
+                            val startOffset = selectionModel.selectionStart
+                            val endOffset = selectionModel.selectionEnd
+                            document.replaceString(startOffset, endOffset, newCode)
+                        } else {
+                            // If no selection, replace the entire document
+                            document.setText(newCode)
+                        }
+                    }
+                    
+                    ZestNotifications.showInfo(
+                        project,
+                        "Inline Chat",
+                        "Changes applied successfully"
+                    )
+                } else {
+                    ZestNotifications.showError(
+                        project,
+                        "Inline Chat",
+                        "No changes to apply"
+                    )
+                }
+            }
+            "discard" -> {
+                ZestNotifications.showInfo(
+                    project,
+                    "Inline Chat",
+                    "Changes discarded"
+                )
+            }
+            "cancel" -> {
+                ZestNotifications.showInfo(
+                    project,
+                    "Inline Chat",
+                    "Operation cancelled"
+                )
+            }
+        }
+        
+        // Clear state and reset highlights
+        inlineChatService.clearState()
+        
+        // Force editor refresh to clear highlights
+        ApplicationManager.getApplication().invokeLater {
+            editor.contentComponent.repaint()
+        }
+        
+        result.complete(true)
+    } catch (e: Exception) {
+        ZestNotifications.showError(
+            project,
+            "Inline Chat Error",
+            "Error resolving edit: ${e.message}"
+        )
+        result.complete(false)
     }
     
-    ZestNotifications.showInfo(
-        project,
-        "Inline Chat",
-        "Edit $actionVerb"
-    )
-    
-    result.complete(true)
     return result
 }
 

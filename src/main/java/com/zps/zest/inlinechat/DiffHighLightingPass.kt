@@ -5,6 +5,7 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType
 import com.intellij.codeInsight.daemon.impl.UpdateHighlightersUtil
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
@@ -277,30 +278,49 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
     }
 
     override fun doApplyInformationToEditor() {
-        // First, clear any existing highlighters for this pass
-        UpdateHighlightersUtil.setHighlightersToEditor(
-            myProject, myDocument, 0, myDocument.textLength,
-            emptyList(), colorsScheme, id
-        )
+        // This method is called on EDT, so we don't need to wrap in invokeLater
         
-        // Only apply highlights if we have any
-        if (highlights.isNotEmpty()) {
-            // Find the min and max range to only update the affected part of the document
-            val minOffset = highlights.minOfOrNull { it.startOffset } ?: 0
-            val maxOffset = highlights.maxOfOrNull { it.endOffset } ?: myDocument.textLength
-            
-            // Apply only in the range that contains our highlights
+        // First, clear any existing highlighters for this pass
+        try {
             UpdateHighlightersUtil.setHighlightersToEditor(
-                myProject, myDocument, minOffset, maxOffset,
-                highlights, colorsScheme, id
+                myProject, myDocument, 0, myDocument.textLength,
+                emptyList(), colorsScheme, id
             )
             
-            // Log highlighting statistics for debugging
-            logger.debug("Applied ${highlights.size} diff highlights")
-        } else {
-            if (DEBUG_HIGHLIGHTING) {
-                System.out.println("No highlights to apply - clearing all existing highlights")
+            // Check the state to see if we should apply highlights - use ReadAction for service access
+            val inlineChatService = ApplicationManager.getApplication().runReadAction<InlineChatService?> {
+                try {
+                    myProject.getService(InlineChatService::class.java)
+                } catch (e: Exception) {
+                    null
+                }
             }
+            
+            // Skip applying highlights if service indicates we're in a clean state
+            val skipHighlights = inlineChatService?.diffSegments?.isEmpty() == true
+            
+            // Only apply highlights if we have any and aren't in a clean state
+            if (highlights.isNotEmpty() && !skipHighlights) {
+                // Find the min and max range to only update the affected part of the document
+                val minOffset = highlights.minOfOrNull { it.startOffset } ?: 0
+                val maxOffset = highlights.maxOfOrNull { it.endOffset } ?: myDocument.textLength
+                
+                // Apply only in the range that contains our highlights
+                UpdateHighlightersUtil.setHighlightersToEditor(
+                    myProject, myDocument, minOffset, maxOffset,
+                    highlights, colorsScheme, id
+                )
+                
+                // Log highlighting statistics for debugging
+                logger.debug("Applied ${highlights.size} diff highlights")
+            } else {
+                if (DEBUG_HIGHLIGHTING) {
+                    System.out.println("No highlights to apply - cleared all existing highlights")
+                    System.out.println("Skip condition: ${inlineChatService?.diffSegments?.isEmpty() == true}")
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Error applying highlighting", e)
         }
     }
 }

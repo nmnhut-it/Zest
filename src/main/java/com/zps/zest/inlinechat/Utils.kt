@@ -554,13 +554,46 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
         // Clear state and reset highlights
         inlineChatService.clearState()
         
-        // Force clear all diff highlighting
+        // Use multiple clean-up mechanisms to ensure all highlights are removed
+        // All UI operations must be on EDT
         ApplicationManager.getApplication().invokeLater {
-            // Use the force clear method to ensure all highlights are removed
-            inlineChatService.forceClearAllHighlights()
-            
-            if (DEBUG_RESPONSE_HANDLING) {
-                System.out.println("Force cleared all diff highlights")
+            try {
+                // First cleanup pass
+                inlineChatService.forceClearAllHighlights()
+                
+                // Sometimes, the highlighters need a second pass to be fully cleared
+                // Use a timer to delay the second cleanup - Timer callbacks run on EDT
+                javax.swing.Timer(300, { _ ->
+                    try {
+                        // Force another DaemonCodeAnalyzer restart
+                        com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                        
+                        // Second cleanup pass
+                        inlineChatService.forceClearAllHighlights()
+                        
+                        // Force manual repaint
+                        editor.contentComponent.repaint()
+                        
+                        if (DEBUG_RESPONSE_HANDLING) {
+                            System.out.println("Second pass of highlight cleanup complete")
+                        }
+                    } catch (e: Exception) {
+                        if (DEBUG_RESPONSE_HANDLING) {
+                            System.out.println("Error in second cleanup pass: ${e.message}")
+                        }
+                    }
+                }).apply { 
+                    isRepeats = false
+                    start() 
+                }
+                
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("First pass of highlight cleanup complete")
+                }
+            } catch (e: Exception) {
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("Error in first cleanup pass: ${e.message}")
+                }
             }
         }
         

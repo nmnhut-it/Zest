@@ -221,9 +221,19 @@ class InlineChatEditorPreview(
      * Remove the preview and restore original content
      */
     fun hidePreview() {
-        if (originalContent != null) {
+        if (originalContent == null) return
+        
+        // Ensure this runs on EDT
+        if (!ApplicationManager.getApplication().isDispatchThread) {
             ApplicationManager.getApplication().invokeLater {
-                WriteCommandAction.runWriteCommandAction(project, "Hide Inline Chat Preview", null, Runnable {
+                hidePreview()
+            }
+            return
+        }
+        
+        try {
+            WriteCommandAction.runWriteCommandAction(project, "Hide Inline Chat Preview", null, Runnable {
+                try {
                     // Calculate the end offset of the preview content
                     val previewEndOffset = originalStartOffset + modifiedContentLength
                     
@@ -240,8 +250,32 @@ class InlineChatEditorPreview(
                     // Reset state
                     originalContent = null
                     modifiedContentLength = 0
-                })
-            }
+                    
+                    // Get the service and initiate a force cleanup
+                    val inlineChatService = project.getService(InlineChatService::class.java)
+                    
+                    // Force clear all highlights with a delay to ensure it happens after all UI updates
+                    // Timer callbacks run on EDT
+                    javax.swing.Timer(100, { _ ->
+                        inlineChatService.forceClearAllHighlights()
+                        
+                        // Force extra repaint of editor to ensure all visual artifacts are gone
+                        editor.contentComponent.repaint()
+                        
+                        // Force another DaemonCodeAnalyzer restart for good measure
+                        com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                    }).apply { 
+                        isRepeats = false
+                        start() 
+                    }
+                } catch (e: Exception) {
+                    // Log any errors during preview hide
+                    System.out.println("Error hiding preview: ${e.message}")
+                    e.printStackTrace()
+                }
+            })
+        } catch (e: Exception) {
+            System.out.println("Error in hidePreview: ${e.message}")
         }
     }
     
@@ -249,7 +283,15 @@ class InlineChatEditorPreview(
      * Accept the preview and make it permanent
      */
     fun acceptPreview() {
-        ApplicationManager.getApplication().invokeLater {
+        // Ensure this runs on EDT
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            ApplicationManager.getApplication().invokeLater {
+                acceptPreview()
+            }
+            return
+        }
+        
+        try {
             WriteCommandAction.runWriteCommandAction(project, "Accept Inline Chat Changes", null, Runnable {
                 // Just clear the preview highlighting, keep the text
                 clearPreviewHighlighters()
@@ -267,7 +309,12 @@ class InlineChatEditorPreview(
                 
                 // Clear the selection after accepting
                 editor.selectionModel.removeSelection()
+                
+                // Force a repaint
+                editor.contentComponent.repaint()
             })
+        } catch (e: Exception) {
+            System.out.println("Error accepting preview: ${e.message}")
         }
     }
     
@@ -287,13 +334,55 @@ class InlineChatEditorPreview(
      * Clear all preview highlighters
      */
     private fun clearPreviewHighlighters() {
+        // All UI operations must happen on the EDT
+        if (!ApplicationManager.getApplication().isDispatchThread) {
+            ApplicationManager.getApplication().invokeLater {
+                clearPreviewHighlighters()
+            }
+            return
+        }
+        
         val markupModel = editor.markupModel
-        previewHighlighters.forEach { highlighter ->
-            if (highlighter.isValid) {
-                markupModel.removeHighlighter(highlighter)
+        
+        // Create a defensive copy to avoid concurrent modification
+        val highlightersCopy = previewHighlighters.toList()
+        
+        // Clear our tracked highlighters
+        highlightersCopy.forEach { highlighter ->
+            try {
+                if (highlighter.isValid) {
+                    markupModel.removeHighlighter(highlighter)
+                }
+            } catch (e: Exception) {
+                // Ignore errors when removing individual highlighters
+                System.out.println("Error removing highlighter: ${e.message}")
             }
         }
         previewHighlighters.clear()
+        
+        // Extra cleanup - look for any highlighters with our tooltips that might not be tracked
+        try {
+            val allHighlighters = markupModel.allHighlighters
+            allHighlighters.forEach { highlighter ->
+                if (!highlighter.isValid) return@forEach
+                
+                val tooltip = highlighter.errorStripeTooltip
+                if (tooltip is String && (
+                    tooltip.contains("Added by AI") || 
+                    tooltip.contains("Removed by AI") ||
+                    tooltip.contains("Unchanged") ||
+                    tooltip.contains("AI suggestion")
+                )) {
+                    try {
+                        markupModel.removeHighlighter(highlighter)
+                    } catch (e: Exception) {
+                        // Ignore errors
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore errors in the extra cleanup
+        }
     }
     
     /**

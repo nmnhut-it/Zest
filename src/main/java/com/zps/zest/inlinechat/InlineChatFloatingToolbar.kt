@@ -49,11 +49,13 @@ class InlineChatFloatingToolbar(
             val position = if (selectionModel.hasSelection()) {
                 val startOffset = selectionModel.selectionStart
                 val startPoint = editor.offsetToXY(startOffset)
-                Point(startPoint.x + 50, startPoint.y - 40)
+                // Position it above the selection with enough vertical space to avoid obscuring text
+                Point(startPoint.x + 50, startPoint.y - 120)
             } else {
                 val caretOffset = editor.caretModel.offset
                 val caretPoint = editor.offsetToXY(caretOffset)
-                Point(caretPoint.x + 50, caretPoint.y - 40)
+                // Position it above the caret with enough vertical space to avoid obscuring text
+                Point(caretPoint.x + 50, caretPoint.y - 120)
             }
             
             popup?.show(RelativePoint(editor.contentComponent, position))

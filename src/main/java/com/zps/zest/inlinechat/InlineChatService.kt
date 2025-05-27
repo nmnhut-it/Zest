@@ -49,7 +49,7 @@ class InlineChatService(private val project: Project) : Disposable {
     var editorPreview: InlineChatEditorPreview? = null
     
     // Current floating toolbar (if shown)
-    private var floatingToolbar: InlineChatFloatingToolbar? = null
+    var floatingToolbar: InlineChatFloatingToolbar? = null
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value == true }
@@ -413,9 +413,15 @@ class InlineChatService(private val project: Project) : Disposable {
         location = null
         inlineChatInputVisible = false
         
-        // Hide floating toolbar if shown
-        floatingToolbar?.hide()
-        floatingToolbar = null
+        // Hide floating toolbar if shown - only do this when the task is done or cancelled
+        // NOT when it's still in progress
+        if (hasDiffAction || inlineChatInputVisible) {
+            // If we have active diff actions or input visible, keep the toolbar
+        } else {
+            // Otherwise, hide it
+            floatingToolbar?.hide()
+            floatingToolbar = null
+        }
         
         if (DEBUG_SERVICE) {
             System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
@@ -528,9 +534,17 @@ class InlineChatService(private val project: Project) : Disposable {
      */
     fun showFloatingToolbar(editor: Editor) {
         ApplicationManager.getApplication().invokeLater {
-            floatingToolbar?.hide()
+            // Only hide the existing toolbar if we're going to show a new one at a different position
+            // This prevents flickering when refreshing the UI
+            if (floatingToolbar != null) {
+                floatingToolbar?.hide()
+            }
             floatingToolbar = InlineChatFloatingToolbar(project, editor)
             floatingToolbar?.show()
+            
+            // Make sure toolbar is visible while task is active
+            inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
+            inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
         }
     }
 

@@ -543,6 +543,9 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 // Clear the selection after we're done processing
                 editor.selectionModel.removeSelection()
                 
+                // This is an explicit cancel action, so hide all UI elements immediately
+                inlineChatService.floatingToolbar?.hide()
+                
                 ZestNotifications.showInfo(
                     project,
                     "Inline Chat",

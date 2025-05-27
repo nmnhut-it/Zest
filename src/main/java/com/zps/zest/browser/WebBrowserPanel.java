@@ -192,7 +192,8 @@ public class WebBrowserPanel {
         DefaultActionGroup zpsActionGroup = new DefaultActionGroup("ZPS Actions", true);
 
         // Add all ZPS actions to the group
-        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.GitCommitMessageGeneratorAction"));
+        ActionManager gitcommit = ActionManager.getInstance();
+            zpsActionGroup.add(gitcommit.getAction("Zest.GitCommitMessageGeneratorAction"));
 //        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendPipelineToChatBox"));
 //        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.RefactorForTestabilityAction"));
 //        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendCodeReviewToChatBox"));
@@ -204,7 +205,7 @@ public class WebBrowserPanel {
         JButton zpsActionsButton = new JButton("ZPS Actions");
         zpsActionsButton.setToolTipText("ZPS Actions");
         zpsActionsButton.addActionListener(e -> {
-            ActionPopupMenu popupMenu = ActionManager.getInstance().createActionPopupMenu(
+            ActionPopupMenu popupMenu = gitcommit.createActionPopupMenu(
                     ActionPlaces.EDITOR_POPUP, zpsActionGroup);
             popupMenu.getComponent().show(zpsActionsButton, 0, zpsActionsButton.getHeight());
         });

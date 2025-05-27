@@ -252,8 +252,8 @@ fun processInlineChatCommand(
                         
                         // Show inline preview directly in the editor
                         ApplicationManager.getApplication().invokeLater {
-                            // Create and show inline preview
-                            val preview = InlineChatEditorPreview(project, editor)
+                            // Create and show ghost text preview instead of replacing text
+                            val preview = InlineChatGhostTextPreview(project, editor)
                             inlineChatService.editorPreview = preview
                             
                             preview.showPreview(
@@ -264,7 +264,7 @@ fun processInlineChatCommand(
                             )
                             
                             if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Inline preview shown in editor")
+                                System.out.println("Ghost text preview shown in editor")
                             }
                             
                             // Show floating toolbar for Accept/Reject actions
@@ -359,94 +359,6 @@ fun processInlineChatCommand(
 }
 
 /**
- * Validates that the implemented code maintains the overall structure of the original code.
- * This helps ensure the LLM hasn't drastically altered the code beyond the requested changes.
- */
-private fun validateImplementation(originalCode: String, implementedCode: String): Boolean {
-    // Remove whitespace and comments for comparison
-    val normalizedOriginal = normalizeForComparison(originalCode)
-    val normalizedImplemented = normalizeForComparison(implementedCode)
-
-    // Check if the implemented code has roughly similar structure
-    // by comparing size (allowing for reasonable expansion)
-    val originalSize = normalizedOriginal.length
-    val implementedSize = normalizedImplemented.length
-
-    // Implementation should not be smaller than original (unless it's refactoring)
-    if (implementedSize < originalSize * 0.7) {
-        return false
-    }
-
-    // Implementation should not be drastically larger (allowing for reasonable expansion)
-    if (implementedSize > originalSize * 5) {
-        return false
-    }
-
-    // Check that key structural elements are preserved
-    val originalStructure = extractStructuralElements(originalCode)
-    val implementedStructure = extractStructuralElements(implementedCode)
-
-    // Count how many structural elements are preserved
-    var preservedCount = 0
-    for (element in originalStructure) {
-        if (implementedStructure.contains(element)) {
-            preservedCount++
-        }
-    }
-
-    // At least 60% of structural elements should be preserved
-    return if (originalStructure.isNotEmpty()) {
-        preservedCount.toDouble() / originalStructure.size >= 0.6
-    } else {
-        true // If no structural elements found, consider it valid
-    }
-}
-
-/**
- * Normalizes code for comparison by removing whitespace and comments.
- */
-private fun normalizeForComparison(code: String): String {
-    // Remove single-line comments
-    var normalized = code.replace(Regex("//.*?$", RegexOption.MULTILINE), "")
-
-    // Remove multi-line comments
-    normalized = normalized.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-
-    // Remove extra whitespace
-    normalized = normalized.replace(Regex("\\s+"), " ")
-
-    // Trim
-    return normalized.trim()
-}
-
-/**
- * Extracts structural elements (class names, method signatures) from code.
- */
-private fun extractStructuralElements(code: String): Set<String> {
-    val elements = mutableSetOf<String>()
-
-    // Extract class declarations
-    val classPattern = Regex("\\b(class|interface|enum)\\s+(\\w+)")
-    classPattern.findAll(code).forEach { match ->
-        elements.add("${match.groupValues[1]}:${match.groupValues[2]}")
-    }
-
-    // Extract method signatures (simplified)
-    val methodPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*\\w+\\s+(\\w+)\\s*\\(")
-    methodPattern.findAll(code).forEach { match ->
-        elements.add("method:${match.groupValues[3]}")
-    }
-
-    // Extract field declarations
-    val fieldPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*(final)?\\s*\\w+\\s+(\\w+)\\s*[=;]")
-    fieldPattern.findAll(code).forEach { match ->
-        elements.add("field:${match.groupValues[4]}")
-    }
-
-    return elements
-}
-
-/**
  * Resolve an edit (accept/discard/cancel)
  */
 fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Deferred<Boolean> {
@@ -474,51 +386,71 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 when (params.action) {
                     "accept" -> {
                         // If we have an inline preview, accept it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.acceptPreview()
-                            // Clear the selection after accepting changes
-                            editor.selectionModel.removeSelection()
-                            // No notification needed - UI feedback is in the editor
-                        } else {
-                            // Fallback to old behavior if no preview
-                            val newCode = inlineChatService.applyChanges()
-                            if (newCode != null) {
-                                // Ensure document modifications are done in a write action on EDT
-                                com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, "Apply Inline Chat Changes", null, Runnable {
-                                    val document = editor.document
-                                    val selectionModel = editor.selectionModel
+                        when (val preview = inlineChatService.editorPreview) {
+                            is InlineChatEditorPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.acceptPreview()
+                                    // Clear the selection after accepting changes
+                                    editor.selectionModel.removeSelection()
+                                    // No notification needed - UI feedback is in the editor
+                                }
+                            }
+                            is InlineChatGhostTextPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.acceptPreview()
+                                    // Clear the selection after accepting changes
+                                    editor.selectionModel.removeSelection()
+                                    // No notification needed - UI feedback is in the editor
+                                }
+                            }
+                            else -> {
+                                // Fallback to old behavior if no preview
+                                val newCode = inlineChatService.applyChanges()
+                                if (newCode != null) {
+                                    // Ensure document modifications are done in a write action on EDT
+                                    com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, "Apply Inline Chat Changes", null, Runnable {
+                                        val document = editor.document
+                                        val selectionModel = editor.selectionModel
+                                        
+                                        if (selectionModel.hasSelection()) {
+                                            val startOffset = selectionModel.selectionStart
+                                            val endOffset = selectionModel.selectionEnd
+                                            document.replaceString(startOffset, endOffset, newCode)
+                                            // Clear the selection after replacing
+                                            editor.selectionModel.removeSelection()
+                                        } else {
+                                            document.setText(newCode)
+                                        }
+                                    })
                                     
-                                    if (selectionModel.hasSelection()) {
-                                        val startOffset = selectionModel.selectionStart
-                                        val endOffset = selectionModel.selectionEnd
-                                        document.replaceString(startOffset, endOffset, newCode)
-                                        // Clear the selection after replacing
-                                        editor.selectionModel.removeSelection()
-                                    } else {
-                                        document.setText(newCode)
-                                    }
-                                })
-                                
-                                ZestNotifications.showInfo(
-                                    project,
-                                    "Inline Chat",
-                                    "Changes applied successfully"
-                                )
-                            } else {
-                                ZestNotifications.showError(
-                                    project,
-                                    "Inline Chat",
-                                    "No changes to apply"
-                                )
+                                    ZestNotifications.showInfo(
+                                        project,
+                                        "Inline Chat",
+                                        "Changes applied successfully"
+                                    )
+                                } else {
+                                    ZestNotifications.showError(
+                                        project,
+                                        "Inline Chat",
+                                        "No changes to apply"
+                                    )
+                                }
                             }
                         }
                     }
                     "discard" -> {
                         // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        when (val preview = inlineChatService.editorPreview) {
+                            is InlineChatEditorPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.hidePreview()
+                                }
+                            }
+                            is InlineChatGhostTextPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.hidePreview()
+                                }
+                            }
                         }
                         
                         // Clear the selection after we're done processing
@@ -528,9 +460,17 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                     }
                     "cancel" -> {
                         // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        when (val preview = inlineChatService.editorPreview) {
+                            is InlineChatEditorPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.hidePreview()
+                                }
+                            }
+                            is InlineChatGhostTextPreview -> {
+                                if (preview.isPreviewActive()) {
+                                    preview.hidePreview()
+                                }
+                            }
                         }
                         
                         // Clear the selection after we're done processing

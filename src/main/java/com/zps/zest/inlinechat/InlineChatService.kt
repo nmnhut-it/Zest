@@ -46,7 +46,7 @@ class InlineChatService(private val project: Project) : Disposable {
     var originalCode: String? = null
 
     // Preview manager for inline preview
-    var editorPreview: InlineChatEditorPreview? = null
+    var editorPreview: Any? = null
 
     // Current floating toolbar (if shown)
     var floatingToolbar: InlineChatFloatingToolbar? = null

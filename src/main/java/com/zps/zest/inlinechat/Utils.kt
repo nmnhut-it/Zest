@@ -1,7 +1,5 @@
 package com.zps.zest.inlinechat
 
-import com.intellij.codeInsight.codeVision.CodeVisionHost
-import com.intellij.codeInsight.codeVision.CodeVisionProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
@@ -17,6 +15,10 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.eclipse.lsp4j.*
+
+// Debug flags for Utils.kt
+private const val DEBUG_PROCESS_COMMAND = true
+private const val DEBUG_RESPONSE_HANDLING = true
 
 /**
  * Location information with start offset
@@ -115,6 +117,11 @@ fun processInlineChatCommand(
 ): Deferred<Boolean> {
     val result = CompletableDeferred<Boolean>()
     
+    if (DEBUG_PROCESS_COMMAND) {
+        System.out.println("=== processInlineChatCommand ===")
+        System.out.println("Command: ${params.command}")
+    }
+    
     try {
         // We need to get the editor on the UI thread to avoid read access issues
         val editor = ApplicationManager.getApplication().runReadAction <Editor?> {
@@ -139,16 +146,22 @@ fun processInlineChatCommand(
         )
         
         // Get the original text to use for diffing
-        val originalText = ReadAction.compute<String, Throwable> {
+        val (originalText, selectionStartLine) = ReadAction.compute<Pair<String, Int>, Throwable> {
             val document = editor.document
             val selectionModel = editor.selectionModel
             
             if (selectionModel.hasSelection()) {
-                selectionModel.selectedText ?: ""
+                val startLine = document.getLineNumber(selectionModel.selectionStart)
+                Pair(selectionModel.selectedText ?: "", startLine)
             } else {
                 // If no selection, get the entire document content
-                document.text
+                Pair(document.text, 0)
             }
+        }
+        
+        if (DEBUG_PROCESS_COMMAND) {
+            System.out.println("Original text length: ${originalText.length}")
+            System.out.println("Selection start line: $selectionStartLine")
         }
         
         // Create context with our helper class that integrates with ClassAnalyzer
@@ -164,7 +177,16 @@ fun processInlineChatCommand(
         // Use the response provider to get the LLM response
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("=== Getting LLM response ===")
+                }
+                
                 val response = responseProvider.getLlmResponse(codeContext)
+                
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("LLM response received: ${response != null}")
+                    System.out.println("Response length: ${response?.length ?: 0}")
+                }
                 
                 if (response != null && response.isNotEmpty()) {
                     // Process the response and update diff highlighting
@@ -172,6 +194,12 @@ fun processInlineChatCommand(
                     
                     // Check if we extracted code
                     if (inlineChatService.extractedCode != null) {
+                        if (DEBUG_RESPONSE_HANDLING) {
+                            System.out.println("Code extracted successfully!")
+                            System.out.println("Diff segments: ${inlineChatService.diffSegments.size}")
+                            System.out.println("Diff actions enabled: ${inlineChatService.inlineChatDiffActionState}")
+                        }
+                        
                         // Validate the implementation
                         val isValid = validateImplementation(originalText, inlineChatService.extractedCode!!)
                         
@@ -191,18 +219,20 @@ fun processInlineChatCommand(
                         
                         // Force editor refresh to show highlights
                         ApplicationManager.getApplication().invokeLater {
+                            if (DEBUG_RESPONSE_HANDLING) {
+                                System.out.println("Forcing editor refresh...")
+                            }
                             editor.contentComponent.repaint()
                             
-                            // Try to refresh code vision
-                            try {
-                                val codeVisionHost = editor.getUserData(com.intellij.codeInsight.codeVision.CodeVisionHost.key)
-                                codeVisionHost?.invalidateProvider(com.intellij.codeInsight.codeVision.CodeVisionProvider.providerId<InlineChatAcceptCodeVisionProvider>())
-                                codeVisionHost?.invalidateProvider(com.intellij.codeInsight.codeVision.CodeVisionProvider.providerId<InlineChatDiscardCodeVisionProvider>())
-                            } catch (e: Exception) {
-                                // Code vision might not be available
-                            }
+                            // Note: Code Vision refresh happens automatically when
+                            // inlineChatDiffActionState is updated. If buttons don't appear,
+                            // ensure Code Vision is enabled in settings.
                         }
                     } else {
+                        if (DEBUG_RESPONSE_HANDLING) {
+                            System.out.println("No code extracted from response!")
+                        }
+                        
                         // Show a notification with a snippet of the response
                         val previewLength = minOf(100, response.length)
                         val preview = response.substring(0, previewLength) + (if (response.length > previewLength) "..." else "")
@@ -216,6 +246,10 @@ fun processInlineChatCommand(
                     
                     result.complete(true)
                 } else {
+                    if (DEBUG_RESPONSE_HANDLING) {
+                        System.out.println("ERROR: No response from LLM!")
+                    }
+                    
                     ZestNotifications.showError(
                         project,
                         "Inline Chat Error",
@@ -224,6 +258,11 @@ fun processInlineChatCommand(
                     result.complete(false)
                 }
             } catch (e: Exception) {
+                if (DEBUG_RESPONSE_HANDLING) {
+                    System.out.println("ERROR in coroutine: ${e.message}")
+                    e.printStackTrace()
+                }
+                
                 ZestNotifications.showError(
                     project,
                     "Inline Chat Error",

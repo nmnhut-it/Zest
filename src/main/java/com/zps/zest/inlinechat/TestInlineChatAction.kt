@@ -19,8 +19,17 @@ import kotlinx.coroutines.runBlocking
  * This action adds a comment to each line of the selected code.
  */
 class TestInlineChatAction : AnAction() {
+    
+    companion object {
+        // Debug flag - set to true to enable debug output
+        const val DEBUG_TEST_ACTION = true
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("=== TestInlineChatAction.actionPerformed ===")
+        }
+        
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         
@@ -34,15 +43,29 @@ class TestInlineChatAction : AnAction() {
         // Get the selected text
         val originalText = selectionModel.selectedText ?: return
         
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("Selected text length: ${originalText.length}")
+            System.out.println("Selected text preview: ${originalText.take(100)}...")
+        }
+        
         // Get the location for the inline chat service
         val locationInfo = getCurrentLocation(editor)
         val inlineChatService = project.getService(InlineChatService::class.java)
         inlineChatService.location = locationInfo.location
         
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("Location set: ${locationInfo.location}")
+        }
+        
         // Create a fake LLM response provider
         val fakeResponseProvider = object : LlmResponseProvider {
             override suspend fun getLlmResponse(codeContext: CodeContext): String? {
-                return generateFakeLlmResponse(originalText)
+                val response = generateFakeLlmResponse(originalText)
+                if (DEBUG_TEST_ACTION) {
+                    System.out.println("Fake LLM response generated, length: ${response.length}")
+                    System.out.println("Response preview: ${response.take(200)}...")
+                }
+                return response
             }
         }
         
@@ -63,6 +86,11 @@ class TestInlineChatAction : AnAction() {
      * Generates a fake LLM response that adds a comment to each line
      */
     private fun generateFakeLlmResponse(originalText: String): String {
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("=== generateFakeLlmResponse ===")
+            System.out.println("Original text lines: ${originalText.split("\n").size}")
+        }
+        
         val lines = originalText.split("\n")
         val modifiedLines = mutableListOf<String>()
         
@@ -79,16 +107,30 @@ class TestInlineChatAction : AnAction() {
             }
         }
         
+        val modifiedCode = modifiedLines.joinToString("\n")
+        
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("Modified code lines: ${modifiedLines.size}")
+            System.out.println("Modified code preview: ${modifiedCode.take(200)}...")
+        }
+        
         // Wrap in markdown code block like a real LLM would
-        return """
-            Based on my analysis, here's the code with added comments:
-            
-            ```java
-            ${modifiedLines.joinToString("\n")}
-            ```
-            
-            I've added analytical comments to help understand each line of code better.
+        val response = """
+Based on my analysis, here's the code with added comments:
+
+```java
+$modifiedCode
+```
+
+I've added analytical comments to help understand each line of code better.
         """.trimIndent()
+        
+        if (DEBUG_TEST_ACTION) {
+            System.out.println("Full response length: ${response.length}")
+            System.out.println("Response contains ```java: ${response.contains("```java")}")
+        }
+        
+        return response
     }
     
     /**

@@ -20,6 +20,11 @@ import javax.swing.Icon
  * Base class for inline chat code vision providers
  */
 abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware {
+    companion object {
+        // Debug flag - set to true to enable debug output
+        const val DEBUG_CODE_VISION = true
+    }
+    
     private val logger = Logger.getInstance(InlineChatCodeVisionProvider::class.java)
     override val defaultAnchor: CodeVisionAnchorKind = CodeVisionAnchorKind.Top
 
@@ -39,6 +44,11 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
     }
 
     override fun computeCodeVision(editor: Editor, uiData: Any): CodeVisionState {
+        if (DEBUG_CODE_VISION) {
+            System.out.println("=== ${this.javaClass.simpleName}.computeCodeVision ===")
+            System.out.println("Provider ID: $id")
+        }
+        
         // Use ReadAction to avoid threading issues
         return ReadAction.compute<CodeVisionState, Throwable> {
             val project = editor.project ?: return@compute READY_EMPTY
@@ -46,6 +56,12 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
             
             // Check if we have diff actions
             val hasAction = inlineChatService.inlineChatDiffActionState[id] == true
+            
+            if (DEBUG_CODE_VISION) {
+                System.out.println("Has action for $id: $hasAction")
+                System.out.println("All diff action states: ${inlineChatService.inlineChatDiffActionState}")
+            }
+            
             if (!hasAction) {
                 return@compute READY_EMPTY
             }
@@ -53,6 +69,9 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
             // Find a good place to show the button
             val document = editor.document
             if (document.lineCount == 0) {
+                if (DEBUG_CODE_VISION) {
+                    System.out.println("Document has no lines!")
+                }
                 return@compute READY_EMPTY
             }
             
@@ -68,6 +87,10 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
             
             val entry = TextCodeVisionEntry(buttonTitle, id, icon)
             val textRange = TextRange(startOffset, endOffset)
+            
+            if (DEBUG_CODE_VISION) {
+                System.out.println("Creating code vision entry: $buttonTitle at range $textRange")
+            }
             
             // Return a single entry
             return@compute CodeVisionState.Ready(listOf(textRange to entry))

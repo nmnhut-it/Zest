@@ -1,7 +1,5 @@
 package com.zps.zest.inlinechat
 
-import com.intellij.codeInsight.codeVision.CodeVisionHost
-import com.intellij.codeInsight.codeVision.CodeVisionProvider
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -55,40 +53,19 @@ class TestInlineChatButtonsAction : AnAction() {
             // Repaint editor
             editor.contentComponent.repaint()
             
-            // Try to force code vision refresh
-            try {
-                val codeVisionHost = editor.getUserData(CodeVisionHost.key)
-                if (codeVisionHost != null) {
-                    // Invalidate all inline chat providers
-                    codeVisionHost.invalidateProvider(CodeVisionProvider.providerId<InlineChatAcceptCodeVisionProvider>())
-                    codeVisionHost.invalidateProvider(CodeVisionProvider.providerId<InlineChatDiscardCodeVisionProvider>())
-                    
-                    Messages.showInfoMessage(
-                        project,
-                        "Code Vision buttons should now appear at the top of the file.\n\n" +
-                        "If you still don't see them:\n" +
-                        "1. Go to Settings → Editor → Inlay Hints → Code Vision\n" +
-                        "2. Make sure 'Code Vision' is enabled\n" +
-                        "3. Restart IntelliJ if needed",
-                        "Test Inline Chat Buttons"
-                    )
-                } else {
-                    Messages.showWarningMessage(
-                        project,
-                        "Code Vision host not found. Please ensure:\n" +
-                        "1. Code Vision is enabled in Settings → Editor → Inlay Hints → Code Vision\n" +
-                        "2. You may need to restart IntelliJ after enabling it",
-                        "Code Vision Not Available"
-                    )
-                }
-            } catch (e: Exception) {
-                Messages.showErrorDialog(
-                    project,
-                    "Error refreshing Code Vision: ${e.message}\n\n" +
-                    "Please check that Code Vision is enabled in settings.",
-                    "Code Vision Error"
-                )
-            }
+            // Show instructions for enabling Code Vision
+            Messages.showMessageDialog(
+                project,
+                "The inline chat state has been set up for testing.\n\n" +
+                "To see the Accept/Discard buttons:\n" +
+                "1. Go to Settings → Editor → Inlay Hints → Code Vision\n" +
+                "2. Make sure 'Code Vision' is enabled\n" +
+                "3. Restart IntelliJ IDEA\n\n" +
+                "The buttons should appear at the top of the file.\n" +
+                "You can also use the actions directly from the menu.",
+                "Test Inline Chat Buttons",
+                Messages.getInformationIcon()
+            )
         }
     }
     

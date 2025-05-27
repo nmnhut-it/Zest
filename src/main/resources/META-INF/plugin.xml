@@ -80,6 +80,7 @@
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatCancelCodeVisionProvider"/>
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatAcceptCodeVisionProvider"/>
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatDiscardCodeVisionProvider"/>
+        <codeVisionProvider implementation="com.zps.zest.inlinechat.TestCodeVisionProvider"/>
     </extensions>
     <actions>
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
@@ -133,6 +134,28 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="alt shift B"/>
+        </action>
+        
+        <!-- Debug action for inline chat -->
+        <action id="Zest.DebugInlineChatAction"
+                class="com.zps.zest.inlinechat.DebugInlineChatAction"
+                text="Debug Inline Chat State" 
+                description="Show debug information about inline chat and code vision"
+                icon="AllIcons.Actions.StartDebugger">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>
+        </action>
+        
+        <!-- Test action for direct diff replacement -->
+        <action id="Zest.TestDirectDiffAction"
+                class="com.zps.zest.inlinechat.TestDirectDiffAction"
+                text="Test Direct Diff (Replace Text)" 
+                description="Test diff by directly replacing selected text"
+                icon="AllIcons.Vcs.Patch">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift R"/>
         </action>
         
         <!-- Action to clear all diff highlighting -->

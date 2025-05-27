@@ -51,6 +51,11 @@ class DiffHighlightingPassFactory : TextEditorHighlightingPassFactory {
  */
 class DiffHighLightingPass(project: Project, document: Document, val editor: Editor) :
     TextEditorHighlightingPass(project, document, true), DumbAware {
+    
+    companion object {
+        // Debug flag - set to true to enable debug output
+        const val DEBUG_HIGHLIGHTING = true
+    }
 
     private val logger = Logger.getInstance(DiffHighLightingPass::class.java)
 
@@ -170,10 +175,20 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
     }
 
     override fun doCollectInformation(progress: ProgressIndicator) {
+        if (DEBUG_HIGHLIGHTING) {
+            System.out.println("=== DiffHighLightingPass.doCollectInformation ===")
+        }
+        
         // Use ReadAction to ensure thread safety
         ReadAction.run<Throwable> {
             val uri = file?.url ?: return@run
             val diffSegments = inlineChatService.diffSegments
+            
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("File URI: $uri")
+                System.out.println("DiffSegments count: ${diffSegments.size}")
+                System.out.println("Document line count: ${myDocument.lineCount}")
+            }
             
             // Sort segments by line number to ensure correct processing
             val sortedSegments = diffSegments.sortedBy { it.startLine }
@@ -183,9 +198,18 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             
             // Process segments in order
             sortedSegments.forEach { segment ->
+                if (DEBUG_HIGHLIGHTING) {
+                    System.out.println("Processing segment: ${segment.type} lines ${segment.startLine}-${segment.endLine}")
+                }
+                
                 // Skip if these lines have already been processed
                 val linesToProcess = (segment.startLine..segment.endLine).filter { !processedLines.contains(it) }
-                if (linesToProcess.isEmpty()) return@forEach
+                if (linesToProcess.isEmpty()) {
+                    if (DEBUG_HIGHLIGHTING) {
+                        System.out.println("  -> Skipping, lines already processed")
+                    }
+                    return@forEach
+                }
                 
                 when (segment.type) {
                     DiffSegmentType.UNCHANGED -> highlightSegment(segment, "unchanged", processedLines)
@@ -199,6 +223,10 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             
             // Add subtle highlighting for modified lines (lines that were changed but not purely inserted/deleted)
             highlightModifiedLines(sortedSegments)
+            
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("Total highlights collected: ${highlights.size}")
+            }
         }
     }
 
@@ -206,8 +234,15 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
         val startLine = segment.startLine
         val endLine = segment.endLine
         
+        if (DEBUG_HIGHLIGHTING) {
+            System.out.println("  highlightSegment: type=$type, lines=$startLine-$endLine")
+        }
+        
         // Validate line numbers
         if (startLine < 0 || endLine < 0 || startLine >= myDocument.lineCount || endLine >= myDocument.lineCount) {
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("    -> Invalid line numbers! Document has ${myDocument.lineCount} lines")
+            }
             return
         }
         
@@ -218,6 +253,10 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
         val attributes = when {
             type.startsWith("comments") -> lineAttributesMap["comments"] ?: return
             else -> lineAttributesMap[type] ?: return
+        }
+        
+        if (DEBUG_HIGHLIGHTING) {
+            System.out.println("    -> Creating highlight at offset $startOffset-$endOffset")
         }
         
         // Build highlight with descriptive tooltip
@@ -236,8 +275,18 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             .descriptionAndTooltip(tooltip)
             .severity(HighlightSeverity.TEXT_ATTRIBUTES)
         
-        val highlight = builder.create() ?: return
-        highlights.add(highlight)
+        val highlight = builder.create()
+        if (highlight != null) {
+            highlights.add(highlight)
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("    -> Highlight created successfully")
+            }
+        } else {
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("    -> Failed to create highlight!")
+            }
+            return
+        }
         
         // Mark lines as processed
         for (line in startLine..endLine) {

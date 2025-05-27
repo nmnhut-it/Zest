@@ -15,6 +15,13 @@ import org.eclipse.lsp4j.Location
  */
 @Service(Service.Level.PROJECT)
 class InlineChatService(private val project: Project) : Disposable {
+    
+    companion object {
+        // Debug flags - set to true to enable debug output
+        const val DEBUG_SERVICE = true
+        const val DEBUG_DIFF_SEGMENTS = true
+        const val DEBUG_CODE_EXTRACTION = true
+    }
 
     var inlineChatInputVisible = false
     var inlineChatDiffActionState = mutableMapOf<String, Boolean>()
@@ -38,20 +45,45 @@ class InlineChatService(private val project: Project) : Disposable {
     /**
      * Parse the LLM response and update the diff segments
      */
-    fun processLlmResponse(response: String, originalText: String) {
+    fun processLlmResponse(response: String, originalText: String, selectionStartLine: Int = 0) {
+        if (DEBUG_SERVICE) {
+            System.out.println("=== InlineChatService.processLlmResponse ===")
+            System.out.println("Original text length: ${originalText.length}")
+            System.out.println("Response length: ${response.length}")
+            System.out.println("Selection start line: $selectionStartLine")
+            System.out.println("Response preview: ${response.take(200)}...")
+        }
+        
         llmResponse = response
         originalCode = originalText
         
         // Extract code from the response
         extractedCode = extractCodeFromResponse(response)
         
+        if (DEBUG_SERVICE) {
+            System.out.println("Extracted code: ${extractedCode?.take(200) ?: "NULL"}")
+        }
+        
         // Generate diff segments
         if (extractedCode != null) {
-            diffSegments = generateDiffSegments(originalText, extractedCode!!)
+            diffSegments = generateDiffSegments(originalText, extractedCode!!, selectionStartLine)
+            
+            if (DEBUG_SERVICE) {
+                System.out.println("Generated ${diffSegments.size} diff segments")
+                System.out.println("Setting diff action states to true")
+            }
             
             // Enable diff actions
             inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
             inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
+            
+            if (DEBUG_SERVICE) {
+                System.out.println("Diff action states: $inlineChatDiffActionState")
+            }
+        } else {
+            if (DEBUG_SERVICE) {
+                System.out.println("No code extracted from response!")
+            }
         }
     }
     
@@ -59,15 +91,36 @@ class InlineChatService(private val project: Project) : Disposable {
      * Extract code blocks from a markdown response
      */
     private fun extractCodeFromResponse(response: String): String? {
+        if (DEBUG_CODE_EXTRACTION) {
+            System.out.println("=== InlineChatService.extractCodeFromResponse ===")
+            System.out.println("Looking for code blocks in response...")
+        }
+        
         val codeBlockRegex = Regex("```(?:java)?\\s*([\\s\\S]*?)```")
         val match = codeBlockRegex.find(response)
+        
+        if (DEBUG_CODE_EXTRACTION) {
+            System.out.println("Regex match found: ${match != null}")
+            if (match != null) {
+                System.out.println("Match groups count: ${match.groups.size}")
+                System.out.println("Extracted code preview: ${match.groups[1]?.value?.take(100)}")
+            }
+        }
+        
         return match?.groups?.get(1)?.value?.trim()
     }
     
     /**
      * Generate diff segments by comparing original and new code using IntelliJ's diff API
      */
-    private fun generateDiffSegments(original: String, modified: String): MutableList<DiffSegment> {
+    private fun generateDiffSegments(original: String, modified: String, selectionStartLine: Int = 0): MutableList<DiffSegment> {
+        if (DEBUG_DIFF_SEGMENTS) {
+            System.out.println("=== InlineChatService.generateDiffSegments ===")
+            System.out.println("Original lines: ${original.split("\n").size}")
+            System.out.println("Modified lines: ${modified.split("\n").size}")
+            System.out.println("Selection start line: $selectionStartLine")
+        }
+        
         val segments = mutableListOf<DiffSegment>()
         
         try {
@@ -80,25 +133,38 @@ class InlineChatService(private val project: Project) : Disposable {
                 DumbProgressIndicator.INSTANCE
             )
             
+            if (DEBUG_DIFF_SEGMENTS) {
+                System.out.println("ComparisonManager returned ${lineFragments.size} fragments")
+            }
+            
             // Convert LineFragments to DiffSegments
             var currentLine = 0
             
-            // Add header segment
-            segments.add(DiffSegment(0, 0, DiffSegmentType.HEADER, "AI Suggested Changes"))
+            // Add header segment at the selection start
+            segments.add(DiffSegment(
+                selectionStartLine, 
+                selectionStartLine, 
+                DiffSegmentType.HEADER, 
+                "AI Suggested Changes"
+            ))
             
-            for (fragment in lineFragments) {
+            for ((index, fragment) in lineFragments.withIndex()) {
                 val startLine1 = fragment.startLine1
                 val endLine1 = fragment.endLine1
                 val startLine2 = fragment.startLine2
                 val endLine2 = fragment.endLine2
+                
+                if (DEBUG_DIFF_SEGMENTS) {
+                    System.out.println("Fragment $index: original[$startLine1-$endLine1] -> modified[$startLine2-$endLine2]")
+                }
                 
                 // Handle unchanged lines before this fragment
                 if (currentLine < startLine2) {
                     // These lines are unchanged
                     for (line in currentLine until startLine2) {
                         segments.add(DiffSegment(
-                            line + 1,
-                            line + 1,
+                            selectionStartLine + line + 1,
+                            selectionStartLine + line + 1,
                             DiffSegmentType.UNCHANGED,
                             getLineContent(modified, line)
                         ))
@@ -109,10 +175,13 @@ class InlineChatService(private val project: Project) : Disposable {
                 when {
                     // Pure insertion (no lines in original, lines in modified)
                     startLine1 == endLine1 && startLine2 < endLine2 -> {
+                        if (DEBUG_DIFF_SEGMENTS) {
+                            System.out.println("  -> INSERTION at lines $startLine2-$endLine2")
+                        }
                         for (line in startLine2 until endLine2) {
                             segments.add(DiffSegment(
-                                line + 1,
-                                line + 1,
+                                selectionStartLine + line + 1,
+                                selectionStartLine + line + 1,
                                 DiffSegmentType.INSERTED,
                                 getLineContent(modified, line)
                             ))
@@ -120,21 +189,27 @@ class InlineChatService(private val project: Project) : Disposable {
                     }
                     // Pure deletion (lines in original, no lines in modified)
                     startLine1 < endLine1 && startLine2 == endLine2 -> {
+                        if (DEBUG_DIFF_SEGMENTS) {
+                            System.out.println("  -> DELETION of ${endLine1 - startLine1} lines")
+                        }
                         // For deletions, we add a marker at the current position
                         segments.add(DiffSegment(
-                            startLine2 + 1,
-                            startLine2 + 1,
+                            selectionStartLine + startLine2 + 1,
+                            selectionStartLine + startLine2 + 1,
                             DiffSegmentType.DELETED,
                             "// ${endLine1 - startLine1} line(s) deleted"
                         ))
                     }
                     // Modification (both have lines)
                     else -> {
+                        if (DEBUG_DIFF_SEGMENTS) {
+                            System.out.println("  -> MODIFICATION")
+                        }
                         // Show the modified lines as insertions
                         for (line in startLine2 until endLine2) {
                             segments.add(DiffSegment(
-                                line + 1,
-                                line + 1,
+                                selectionStartLine + line + 1,
+                                selectionStartLine + line + 1,
                                 DiffSegmentType.INSERTED,
                                 getLineContent(modified, line)
                             ))
@@ -150,8 +225,8 @@ class InlineChatService(private val project: Project) : Disposable {
             if (currentLine < totalLines) {
                 for (line in currentLine until totalLines) {
                     segments.add(DiffSegment(
-                        line + 1,
-                        line + 1,
+                        selectionStartLine + line + 1,
+                        selectionStartLine + line + 1,
                         DiffSegmentType.UNCHANGED,
                         getLineContent(modified, line)
                     ))
@@ -159,7 +234,7 @@ class InlineChatService(private val project: Project) : Disposable {
             }
             
             // Add footer segment
-            val lastLine = segments.lastOrNull()?.endLine ?: 1
+            val lastLine = segments.lastOrNull()?.endLine ?: (selectionStartLine + 1)
             segments.add(DiffSegment(
                 lastLine + 1,
                 lastLine + 1,
@@ -167,9 +242,20 @@ class InlineChatService(private val project: Project) : Disposable {
                 "End of changes"
             ))
             
+            if (DEBUG_DIFF_SEGMENTS) {
+                System.out.println("Final segment count: ${segments.size}")
+                segments.forEachIndexed { idx, segment ->
+                    System.out.println("  Segment $idx: ${segment.type} lines ${segment.startLine}-${segment.endLine}")
+                }
+            }
+            
         } catch (e: Exception) {
+            if (DEBUG_DIFF_SEGMENTS) {
+                System.out.println("ERROR in diff generation: ${e.message}")
+                e.printStackTrace()
+            }
             // Fallback to simple line-by-line comparison if diff API fails
-            segments.addAll(generateSimpleDiffSegments(original, modified))
+            segments.addAll(generateSimpleDiffSegments(original, modified, selectionStartLine))
         }
         
         return segments
@@ -186,18 +272,18 @@ class InlineChatService(private val project: Project) : Disposable {
     /**
      * Fallback simple diff generation (original implementation)
      */
-    private fun generateSimpleDiffSegments(original: String, modified: String): List<DiffSegment> {
+    private fun generateSimpleDiffSegments(original: String, modified: String, selectionStartLine: Int = 0): List<DiffSegment> {
         val segments = mutableListOf<DiffSegment>()
         
         // Add header segment
-        segments.add(DiffSegment(0, 0, DiffSegmentType.HEADER, "AI Suggested Changes"))
+        segments.add(DiffSegment(selectionStartLine, selectionStartLine, DiffSegmentType.HEADER, "AI Suggested Changes"))
         
         // Split into lines
         val originalLines = original.split("\n")
         val modifiedLines = modified.split("\n")
         
         // Simple line-by-line comparison
-        var currentLine = 1
+        var currentLine = selectionStartLine + 1
         var i = 0
         var j = 0
         

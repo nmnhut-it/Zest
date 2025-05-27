@@ -73,11 +73,23 @@ class InlineChatEditorPreview(
     ) {
         ApplicationManager.getApplication().invokeLater {
             WriteCommandAction.runWriteCommandAction(project, "Show Inline Chat Preview", null, Runnable {
-                // Store original state
+                // Debug logging
+                println("=== InlineChatEditorPreview.showPreview ===")
+                println("Original text length: ${originalText.length}")
+                println("Modified text length: ${modifiedText.length}")
+                println("Start offset: $startOffset")
+                println("End offset: $endOffset")
+                println("Selection length: ${endOffset - startOffset}")
+                println("Document length: ${editor.document.textLength}")
+                
+                // Store original state - this should be the text that's currently in the selection
                 originalContent = editor.document.getText(TextRange(startOffset, endOffset))
                 originalStartOffset = startOffset
                 originalEndOffset = endOffset
                 modifiedContentLength = modifiedText.length  // Store the modified content length
+                
+                println("Stored original content length: ${originalContent?.length}")
+                println("About to replace range $startOffset-$endOffset with text of length ${modifiedText.length}")
                 
                 // Replace with modified text
                 editor.document.replaceString(startOffset, endOffset, modifiedText)
@@ -111,30 +123,55 @@ class InlineChatEditorPreview(
         
         // Get diff segments from InlineChatService
         val inlineChatService = project.getService(InlineChatService::class.java)
-        val segments = inlineChatService.generateDiffSegments(originalText, modifiedText, 0)
+        val baseLineNumber = document.getLineNumber(baseOffset)
+        val segments = inlineChatService.generateDiffSegments(originalText, modifiedText, baseLineNumber)
         
         // Clear any existing preview highlighters
         clearPreviewHighlighters()
         
         // Apply highlighting for each segment
         segments.forEach { segment ->
-            val docStartLine = document.getLineNumber(baseOffset) + segment.startLine
-            val docEndLine = document.getLineNumber(baseOffset) + segment.endLine
+            // Skip header/footer segments as they're not real content
+            if (segment.type == DiffSegmentType.HEADER || segment.type == DiffSegmentType.FOOTER) {
+                return@forEach
+            }
             
-            if (docStartLine < document.lineCount && docEndLine < document.lineCount) {
-                val segmentStartOffset = document.getLineStartOffset(docStartLine)
-                val segmentEndOffset = document.getLineEndOffset(docEndLine)
+            val startLine = segment.startLine
+            val endLine = segment.endLine
+            
+            if (startLine < document.lineCount && endLine < document.lineCount) {
+                val segmentStartOffset = document.getLineStartOffset(startLine)
+                val segmentEndOffset = document.getLineEndOffset(endLine)
                 
                 val attributes = when (segment.type) {
-                    DiffSegmentType.INSERTED -> PREVIEW_ADDED
-                    DiffSegmentType.DELETED -> PREVIEW_REMOVED
-                    DiffSegmentType.UNCHANGED -> PREVIEW_CONTEXT
-                    DiffSegmentType.HEADER -> PREVIEW_CONTEXT
-                    DiffSegmentType.FOOTER -> PREVIEW_CONTEXT
-                    DiffSegmentType.COMMENT -> PREVIEW_CONTEXT
+                    DiffSegmentType.INSERTED -> TextAttributes(
+                        null,
+                        JBColor(Color(198, 255, 198), Color(59, 91, 59)),  // Light green / dark green
+                        null,
+                        null,
+                        Font.PLAIN
+                    )
+                    DiffSegmentType.DELETED -> TextAttributes(
+                        null,
+                        JBColor(Color(255, 220, 220), Color(91, 59, 59)),  // Light red / dark red
+                        null,
+                        null,
+                        Font.PLAIN
+                    ).apply {
+                        effectType = EffectType.STRIKEOUT
+                        effectColor = JBColor.RED
+                    }
+                    DiffSegmentType.UNCHANGED -> TextAttributes(
+                        null,
+                        null,  // No background for unchanged
+                        null,
+                        null,
+                        Font.PLAIN
+                    )
+                    else -> return@forEach
                 }
                 
-                if (segmentStartOffset < segmentEndOffset) {
+                if (segmentStartOffset < segmentEndOffset && segmentStartOffset >= 0 && segmentEndOffset <= document.textLength) {
                     val highlighter = markupModel.addRangeHighlighter(
                         segmentStartOffset,
                         segmentEndOffset,
@@ -148,9 +185,7 @@ class InlineChatEditorPreview(
                         DiffSegmentType.INSERTED -> "Added by AI"
                         DiffSegmentType.DELETED -> "Removed by AI"
                         DiffSegmentType.UNCHANGED -> "Unchanged"
-                        DiffSegmentType.HEADER -> "AI suggestion start"
-                        DiffSegmentType.FOOTER -> "AI suggestion end"
-                        DiffSegmentType.COMMENT -> "AI comment"
+                        else -> ""
                     }
                     
                     previewHighlighters.add(highlighter)

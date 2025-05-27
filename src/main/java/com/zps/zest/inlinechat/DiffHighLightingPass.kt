@@ -18,6 +18,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
+import com.intellij.ui.JBColor
 import java.awt.Color
 import java.awt.Font
 
@@ -70,62 +71,12 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
     init {
         colorsScheme = EditorColorsManager.getInstance().globalScheme
         
-        // Enhanced color scheme for better visibility
-        val headerColor = Color(64f / 255, 166f / 255, 1f, 0.5f)  // Bright blue with 50% opacity
-        val insertColor = Color(0f, 128f / 255, 0f, 0.3f)         // Green with 30% opacity
-        val deleteColor = Color(220f / 255, 20f / 255, 60f / 255, 0.3f)  // Crimson with 30% opacity
-        val modifiedColor = Color(255f / 255, 165f / 255, 0f, 0.3f)  // Orange with 30% opacity
+        // Simple color scheme for better visibility - use JBColor for theme support
+        val insertColor = JBColor(Color(198, 255, 198), Color(59, 91, 59))  // Light green / dark green
+        val deleteColor = JBColor(Color(255, 220, 220), Color(91, 59, 59))  // Light red / dark red
+        val unchangedColor = null  // No background for unchanged
         
         lineAttributesMap = mapOf(
-            "header" to TextAttributes(
-                Color(0, 0, 200),  // Blue text
-                headerColor,
-                null,
-                null,
-                Font.BOLD
-            ),
-            "footer" to TextAttributes(
-                Color(0, 0, 200),  // Blue text
-                headerColor,
-                null,
-                null,
-                Font.BOLD
-            ),
-            "commentsFirstLine" to TextAttributes(
-                Color(100, 100, 100),  // Gray text
-                colorsScheme?.getColor(EditorColors.DOCUMENTATION_COLOR),
-                null,
-                null,
-                Font.ITALIC
-            ),
-            "comments" to TextAttributes(
-                Color(100, 100, 100),  // Gray text
-                colorsScheme?.getColor(EditorColors.DOCUMENTATION_COLOR),
-                null,
-                null,
-                Font.ITALIC
-            ),
-            "waiting" to TextAttributes(
-                null,
-                Color(200, 200, 200, 80),  // Light gray with low opacity
-                null,
-                null,
-                0
-            ),
-            "inProgress" to TextAttributes(
-                null, 
-                Color(255, 215, 0, 80),  // Gold with low opacity
-                null, 
-                null, 
-                0
-            ),
-            "unchanged" to TextAttributes(
-                null, 
-                Color(240, 240, 240, 20),  // Very light gray with very low opacity
-                null, 
-                null, 
-                0
-            ),
             "inserted" to TextAttributes(
                 null, 
                 insertColor, 
@@ -140,12 +91,33 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 null, 
                 0
             ),
-            "modified" to TextAttributes(
+            "unchanged" to TextAttributes(
+                null, 
+                unchangedColor, 
+                null, 
+                null, 
+                0
+            ),
+            "header" to TextAttributes(
                 null,
-                modifiedColor,
+                null,
                 null,
                 null,
                 0
+            ),
+            "footer" to TextAttributes(
+                null,
+                null,
+                null,
+                null,
+                0
+            ),
+            "comments" to TextAttributes(
+                null,
+                null,
+                null,
+                null,
+                Font.ITALIC
             )
         )
 
@@ -234,9 +206,6 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 }
             }
             
-            // Add subtle highlighting for modified lines (lines that were changed but not purely inserted/deleted)
-            highlightModifiedLines(sortedSegments)
-            
             if (DEBUG_HIGHLIGHTING) {
                 System.out.println("Total highlights collected: ${highlights.size}")
             }
@@ -304,38 +273,6 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
         // Mark lines as processed
         for (line in startLine..endLine) {
             processedLines.add(line)
-        }
-    }
-    
-    /**
-     * Highlight lines that were modified (not purely inserted or deleted)
-     */
-    private fun highlightModifiedLines(segments: List<DiffSegment>) {
-        // Look for patterns where a deletion is immediately followed by an insertion
-        // This typically indicates a modification
-        for (i in 0 until segments.size - 1) {
-            val current = segments[i]
-            val next = segments[i + 1]
-            
-            if (current.type == DiffSegmentType.DELETED && next.type == DiffSegmentType.INSERTED) {
-                // Check if they're adjacent or very close
-                if (kotlin.math.abs(current.endLine - next.startLine) <= 1) {
-                    // This is likely a modification - add special highlighting
-                    val modifiedRange = TextRange(
-                        myDocument.getLineStartOffset(next.startLine.coerceIn(0, myDocument.lineCount - 1)),
-                        myDocument.getLineEndOffset(next.endLine.coerceIn(0, myDocument.lineCount - 1))
-                    )
-                    
-                    val builder = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
-                        .range(modifiedRange)
-                        .textAttributes(lineAttributesMap["modified"] ?: return)
-                        .descriptionAndTooltip("Modified by AI suggestion")
-                        .severity(HighlightSeverity.TEXT_ATTRIBUTES)
-                    
-                    val highlight = builder.create() ?: continue
-                    highlights.add(highlight)
-                }
-            }
         }
     }
 

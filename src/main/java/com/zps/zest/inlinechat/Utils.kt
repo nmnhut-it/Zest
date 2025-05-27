@@ -146,17 +146,37 @@ fun processInlineChatCommand(
         )
         
         // Get the original text to use for diffing
-        val (originalText, selectionStartLine) = ReadAction.compute<Pair<String, Int>, Throwable> {
+        val selectionInfo = ReadAction.compute<SelectionInfo, Throwable> {
             val document = editor.document
             val selectionModel = editor.selectionModel
             
             if (selectionModel.hasSelection()) {
                 val startLine = document.getLineNumber(selectionModel.selectionStart)
-                Pair(selectionModel.selectedText ?: "", startLine)
+                SelectionInfo(
+                    selectionModel.selectedText ?: "", 
+                    startLine,
+                    selectionModel.selectionStart,
+                    selectionModel.selectionEnd
+                )
             } else {
-                // If no selection, get the entire document content
-                Pair(document.text, 0)
+                // If no selection, don't process anything
+                SelectionInfo("", 0, 0, 0)
             }
+        }
+        
+        val originalText = selectionInfo.text
+        val selectionStartLine = selectionInfo.startLine
+        val selectionStartOffset = selectionInfo.startOffset
+        val selectionEndOffset = selectionInfo.endOffset
+        
+        if (originalText.isEmpty()) {
+            ZestNotifications.showWarning(
+                project,
+                "Inline Chat",
+                "Please select some code first"
+            )
+            result.complete(false)
+            return result
         }
         
         if (DEBUG_PROCESS_COMMAND) {
@@ -173,6 +193,8 @@ fun processInlineChatCommand(
         // Store original text in service
         val inlineChatService = project.getService(InlineChatService::class.java)
         inlineChatService.originalCode = originalText
+        inlineChatService.selectionStartOffset = selectionStartOffset
+        inlineChatService.selectionEndOffset = selectionEndOffset
         
         // Use the response provider to get the LLM response
         CoroutineScope(Dispatchers.IO).launch {
@@ -213,10 +235,6 @@ fun processInlineChatCommand(
                         
                         // Show inline preview directly in the editor
                         ApplicationManager.getApplication().invokeLater {
-                            val selectionModel = editor.selectionModel
-                            val startOffset = selectionModel.selectionStart
-                            val endOffset = selectionModel.selectionEnd
-                            
                             // Create and show inline preview
                             val preview = InlineChatEditorPreview(project, editor)
                             inlineChatService.editorPreview = preview
@@ -224,13 +242,16 @@ fun processInlineChatCommand(
                             preview.showPreview(
                                 originalText,
                                 inlineChatService.extractedCode!!,
-                                startOffset,
-                                endOffset
+                                selectionStartOffset,
+                                selectionEndOffset
                             )
                             
                             if (DEBUG_RESPONSE_HANDLING) {
                                 System.out.println("Inline preview shown in editor")
                             }
+                            
+                            // Show floating toolbar for Accept/Reject actions
+                            inlineChatService.showFloatingToolbar(editor)
                         }
                         
                         ZestNotifications.showInfo(
@@ -547,3 +568,11 @@ data class ChatEditParams(
  * Parameters for resolving an edit operation
  */
 data class ChatEditResolveParams(val location: Location, val action: String)
+
+// Helper data class for returning multiple values
+private data class SelectionInfo(
+    val text: String,
+    val startLine: Int,
+    val startOffset: Int,
+    val endOffset: Int
+)

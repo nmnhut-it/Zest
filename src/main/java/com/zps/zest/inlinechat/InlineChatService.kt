@@ -6,6 +6,7 @@ import com.intellij.diff.fragments.LineFragment
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.DumbProgressIndicator
 import com.intellij.openapi.project.Project
 import org.eclipse.lsp4j.Location
@@ -28,6 +29,8 @@ class InlineChatService(private val project: Project) : Disposable {
     var inlineChatDiffActionState = mutableMapOf<String, Boolean>()
     var location: Location? = null
     var selectionStartLine: Int = 0
+    var selectionStartOffset: Int = 0
+    var selectionEndOffset: Int = 0
     
     // Store LLM response for reference
     var llmResponse: String? = null
@@ -43,6 +46,9 @@ class InlineChatService(private val project: Project) : Disposable {
     
     // Preview manager for inline preview
     var editorPreview: InlineChatEditorPreview? = null
+    
+    // Current floating toolbar (if shown)
+    private var floatingToolbar: InlineChatFloatingToolbar? = null
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value }
@@ -94,6 +100,16 @@ class InlineChatService(private val project: Project) : Disposable {
                     System.out.println("Triggering DaemonCodeAnalyzer restart for Code Vision update")
                 }
                 com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                
+                // Show floating toolbar
+                val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+                if (editor != null) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Showing floating toolbar for Accept/Reject actions")
+                    }
+                    floatingToolbar = InlineChatFloatingToolbar(project, editor)
+                    floatingToolbar?.show()
+                }
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -385,9 +401,15 @@ class InlineChatService(private val project: Project) : Disposable {
         inlineChatDiffActionState.clear()
         originalCode = null
         selectionStartLine = 0
+        selectionStartOffset = 0
+        selectionEndOffset = 0
         editorPreview = null
         location = null
         inlineChatInputVisible = false
+        
+        // Hide floating toolbar if shown
+        floatingToolbar?.hide()
+        floatingToolbar = null
         
         if (DEBUG_SERVICE) {
             System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
@@ -440,6 +462,17 @@ class InlineChatService(private val project: Project) : Disposable {
         }
     }
 
+    /**
+     * Show the floating toolbar for Accept/Reject actions
+     */
+    fun showFloatingToolbar(editor: Editor) {
+        ApplicationManager.getApplication().invokeLater {
+            floatingToolbar?.hide()
+            floatingToolbar = InlineChatFloatingToolbar(project, editor)
+            floatingToolbar?.show()
+        }
+    }
+
     override fun dispose() {
         inlineChatInputVisible = false
         inlineChatDiffActionState.clear()
@@ -449,5 +482,9 @@ class InlineChatService(private val project: Project) : Disposable {
         diffSegments.clear()
         originalCode = null
         selectionStartLine = 0
+        selectionStartOffset = 0
+        selectionEndOffset = 0
+        floatingToolbar?.hide()
+        floatingToolbar = null
     }
 }

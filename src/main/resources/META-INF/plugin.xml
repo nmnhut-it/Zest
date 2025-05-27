@@ -75,12 +75,6 @@
         
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
-        
-        <!-- Register code vision providers -->
-        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatLoadingCodeVisionProvider"/>
-        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatCancelCodeVisionProvider"/>
-        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatAcceptCodeVisionProvider"/>
-        <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatDiscardCodeVisionProvider"/>
 
     </extensions>
     <actions>

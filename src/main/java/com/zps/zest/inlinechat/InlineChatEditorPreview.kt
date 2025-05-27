@@ -29,6 +29,7 @@ class InlineChatEditorPreview(
     private var originalContent: String? = null
     private var originalStartOffset: Int = 0
     private var originalEndOffset: Int = 0
+    private var modifiedContentLength: Int = 0  // Track the length of modified content
     private var previewHighlighters = mutableListOf<RangeHighlighter>()
     
     companion object {
@@ -76,9 +77,13 @@ class InlineChatEditorPreview(
                 originalContent = editor.document.getText(TextRange(startOffset, endOffset))
                 originalStartOffset = startOffset
                 originalEndOffset = endOffset
+                modifiedContentLength = modifiedText.length  // Store the modified content length
                 
                 // Replace with modified text
                 editor.document.replaceString(startOffset, endOffset, modifiedText)
+                
+                // Calculate the new end offset after replacement
+                val newEndOffset = startOffset + modifiedText.length
                 
                 // Apply preview highlighting
                 applyPreviewHighlighting(originalText, modifiedText, startOffset)
@@ -88,7 +93,7 @@ class InlineChatEditorPreview(
                 editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
                 
                 // Add visual indicators that this is a preview
-                addPreviewMarkers(startOffset)
+                addPreviewMarkers(startOffset, newEndOffset)
             })
         }
     }
@@ -157,16 +162,16 @@ class InlineChatEditorPreview(
     /**
      * Add visual markers to indicate this is a preview
      */
-    private fun addPreviewMarkers(startOffset: Int) {
+    private fun addPreviewMarkers(startOffset: Int, endOffset: Int) {
         val markupModel = editor.markupModel
         val document = editor.document
         val startLine = document.getLineNumber(startOffset)
         
         // Add a gutter icon to show this is a preview
         if (startLine > 0) {
-            val lineStartOffset = document.getLineStartOffset(startLine - 1)
+            val previousLine = startLine - 1
             val gutterHighlighter = markupModel.addLineHighlighter(
-                lineStartOffset,
+                previousLine,
                 HighlighterLayer.LAST,
                 null
             )
@@ -176,10 +181,6 @@ class InlineChatEditorPreview(
         }
         
         // Add a subtle border around the preview area
-        val endOffset = document.textLength.coerceAtMost(
-            startOffset + (editor.document.getText(TextRange(startOffset, document.textLength)).length)
-        )
-        
         val borderHighlighter = markupModel.addRangeHighlighter(
             startOffset,
             endOffset,
@@ -200,13 +201,10 @@ class InlineChatEditorPreview(
         if (originalContent != null) {
             ApplicationManager.getApplication().invokeLater {
                 WriteCommandAction.runWriteCommandAction(project, "Hide Inline Chat Preview", null, Runnable {
+                    // Calculate the end offset of the preview content
+                    val previewEndOffset = originalStartOffset + modifiedContentLength
+                    
                     // Restore original content
-                    val currentModifiedLength = editor.document.textLength - originalStartOffset
-                    val currentEndOffset = originalStartOffset + currentModifiedLength
-                    
-                    // Find the actual end of the preview content
-                    val previewEndOffset = findPreviewEndOffset()
-                    
                     editor.document.replaceString(
                         originalStartOffset,
                         previewEndOffset,
@@ -218,6 +216,7 @@ class InlineChatEditorPreview(
                     
                     // Reset state
                     originalContent = null
+                    modifiedContentLength = 0
                 })
             }
         }
@@ -234,6 +233,7 @@ class InlineChatEditorPreview(
                 
                 // Reset state
                 originalContent = null
+                modifiedContentLength = 0
                 
                 // Update the inline chat service state
                 val inlineChatService = project.getService(InlineChatService::class.java)

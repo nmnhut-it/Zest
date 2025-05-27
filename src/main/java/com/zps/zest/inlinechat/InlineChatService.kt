@@ -43,6 +43,9 @@ class InlineChatService(private val project: Project) : Disposable {
     
     // Preview manager for inline preview
     var editorPreview: InlineChatEditorPreview? = null
+    
+    // Current floating toolbar (if shown)
+    private var floatingToolbar: InlineChatFloatingToolbar? = null
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value }
@@ -85,6 +88,7 @@ class InlineChatService(private val project: Project) : Disposable {
             
             if (DEBUG_SERVICE) {
                 System.out.println("Diff action states: $inlineChatDiffActionState")
+                System.out.println("Selection start line for Code Vision: $selectionStartLine")
             }
             
             // Notify Code Vision providers about the change
@@ -94,8 +98,15 @@ class InlineChatService(private val project: Project) : Disposable {
                 }
                 com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
                 
-                // Note: CodeVisionHost.invalidateProvider requires LensInvalidateSignal, not Class
-                // The DaemonCodeAnalyzer.restart() should trigger Code Vision refresh
+                // Show floating toolbar as a fallback
+                val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+                if (editor != null) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Showing floating toolbar for Accept/Reject actions")
+                    }
+                    floatingToolbar = InlineChatFloatingToolbar(project, editor)
+                    floatingToolbar?.show()
+                }
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -388,6 +399,10 @@ class InlineChatService(private val project: Project) : Disposable {
         originalCode = null
         selectionStartLine = 0
         editorPreview = null
+        
+        // Hide floating toolbar if shown
+        floatingToolbar?.hide()
+        floatingToolbar = null
     }
 
     override fun dispose() {

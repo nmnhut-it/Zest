@@ -23,9 +23,21 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
     companion object {
         // Debug flag - set to true to enable debug output
         const val DEBUG_CODE_VISION = true
+        
+        init {
+            if (DEBUG_CODE_VISION) {
+                System.out.println("=== InlineChatCodeVisionProvider companion object initialized ===")
+            }
+        }
     }
     
     private val logger = Logger.getInstance(InlineChatCodeVisionProvider::class.java)
+    
+    init {
+        if (DEBUG_CODE_VISION) {
+            System.out.println("=== ${this.javaClass.simpleName} initialized ===")
+        }
+    }
     override val defaultAnchor: CodeVisionAnchorKind = CodeVisionAnchorKind.Top
 
     // provider id
@@ -47,6 +59,7 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
         if (DEBUG_CODE_VISION) {
             System.out.println("=== ${this.javaClass.simpleName}.computeCodeVision ===")
             System.out.println("Provider ID: $id")
+            System.out.println("Editor: ${editor.virtualFile?.path}")
         }
         
         // Use ReadAction to avoid threading issues
@@ -75,15 +88,32 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
                 return@compute READY_EMPTY
             }
             
+            // Place at the selection start line or top of file
+            val lineToPlace = if (inlineChatService.selectionStartLine > 0 && 
+                                 inlineChatService.selectionStartLine < document.lineCount) {
+                inlineChatService.selectionStartLine
+            } else {
+                0
+            }
+            
+            if (DEBUG_CODE_VISION) {
+                System.out.println("Placing Code Vision at line: $lineToPlace")
+            }
+            
             // Place at the top of the file
             val buttonTitle = if (actionId != null) {
-                "$action (${KeymapUtil.getFirstKeyboardShortcutText(getAction(actionId!!))})"
+                val shortcut = KeymapUtil.getFirstKeyboardShortcutText(getAction(actionId!!))
+                if (shortcut.isNotEmpty()) {
+                    "$action ($shortcut)"
+                } else {
+                    action ?: ""
+                }
             } else {
                 action ?: ""
             }
             
-            val startOffset = 0
-            val endOffset = document.getLineEndOffset(0)
+            val startOffset = document.getLineStartOffset(lineToPlace)
+            val endOffset = document.getLineEndOffset(lineToPlace)
             
             val entry = TextCodeVisionEntry(buttonTitle, id, icon)
             val textRange = TextRange(startOffset, endOffset)
@@ -98,6 +128,11 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
     }
 
     override fun handleClick(editor: Editor, textRange: TextRange, entry: CodeVisionEntry) {
+        if (DEBUG_CODE_VISION) {
+            System.out.println("=== ${this.javaClass.simpleName}.handleClick ===")
+            System.out.println("Action ID: $actionId")
+        }
+        
         if (actionId == null) {
             return
         }

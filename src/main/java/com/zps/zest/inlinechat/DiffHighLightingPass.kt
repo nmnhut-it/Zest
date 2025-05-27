@@ -186,8 +186,21 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             
             if (DEBUG_HIGHLIGHTING) {
                 System.out.println("File URI: $uri")
+                System.out.println("Editor file URI: ${editor.virtualFile?.url}")
                 System.out.println("DiffSegments count: ${diffSegments.size}")
                 System.out.println("Document line count: ${myDocument.lineCount}")
+                System.out.println("InlineChatService location: ${inlineChatService.location}")
+            }
+            
+            // Check if this highlighting pass is for the same file that has the diff segments
+            val currentFileUri = editor.virtualFile?.url
+            val diffFileUri = inlineChatService.location?.uri
+            
+            if (currentFileUri != null && diffFileUri != null && currentFileUri != diffFileUri) {
+                if (DEBUG_HIGHLIGHTING) {
+                    System.out.println("  -> Skipping highlighting: Different file (current: $currentFileUri, diff: $diffFileUri)")
+                }
+                return@run
             }
             
             // Sort segments by line number to ensure correct processing

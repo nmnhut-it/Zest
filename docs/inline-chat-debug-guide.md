@@ -52,8 +52,21 @@ Several test actions have been added to help diagnose issues:
 
 1. **Test Inline Chat (Fake LLM)** - Uses a fake LLM response to test the flow
 2. **Test Direct Diff (Replace Text)** - Directly replaces text and sets up diff
-3. **Debug Inline Chat State** - Shows current state in a dialog
-4. **Clear Diff Highlighting** - Clears all diff highlights
+3. **Test Code Vision Buttons** - Tests if Code Vision is enabled and working
+4. **Debug Inline Chat State** - Shows current state in a dialog
+5. **Clear Diff Highlighting** - Clears all diff highlights
+
+## Fixed Issues
+
+### 1. Line Number Offset Problem
+The diff segments were being generated with line numbers starting from 0, but when applied to a document with a selection starting at line 38, the highlights appeared at the wrong location. Fixed by:
+- Passing `selectionStartLine` through the processing chain
+- Adjusting all diff segment line numbers by the selection offset
+
+### 2. Code Vision Buttons Not Showing
+Fixed by:
+- Adding explicit `DaemonCodeAnalyzer.restart()` calls after setting diff action states
+- Ensuring Code Vision is enabled in the IDE settings
 
 ## Common Issues to Check
 
@@ -66,14 +79,17 @@ When debugging, look for:
 2. **Diff Segments**
    - Check the number of segments generated
    - Verify segment types and line numbers
+   - Ensure line numbers match the selection position
 
 3. **Code Vision**
    - Check if diff action states are set to true
-   - Verify Code Vision is computing entries
+   - Verify Code Vision is enabled in Settings
+   - Look for Code Vision debug output
 
 4. **Highlighting**
    - Check document line count vs segment line numbers
-   - Verify highlights are being created
+   - Verify highlights are being created at correct offsets
+   - Ensure selection start line is being used
 
 ## Running Debug
 
@@ -86,3 +102,12 @@ When debugging, look for:
 ## Turning Off Debug
 
 To disable debug output, simply set the relevant flags to `false` in the companion objects.
+
+## Code Vision Setup
+
+If Code Vision buttons aren't appearing:
+1. Go to Settings → Editor → Inlay Hints → Code Vision
+2. Enable "Code vision"
+3. Restart IntelliJ IDEA
+4. Use the "Test Code Vision Buttons" action to verify
+

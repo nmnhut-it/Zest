@@ -4,6 +4,7 @@ import com.intellij.diff.comparison.ComparisonManager
 import com.intellij.diff.comparison.ComparisonPolicy
 import com.intellij.diff.fragments.LineFragment
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.progress.DumbProgressIndicator
 import com.intellij.openapi.project.Project
@@ -19,13 +20,14 @@ class InlineChatService(private val project: Project) : Disposable {
     companion object {
         // Debug flags - set to true to enable debug output
         const val DEBUG_SERVICE = true
-        const val DEBUG_DIFF_SEGMENTS = true
+        const val DEBUG_DIFF_SEGMENTS = false
         const val DEBUG_CODE_EXTRACTION = true
     }
 
     var inlineChatInputVisible = false
     var inlineChatDiffActionState = mutableMapOf<String, Boolean>()
     var location: Location? = null
+    var selectionStartLine: Int = 0
     
     // Store LLM response for reference
     var llmResponse: String? = null
@@ -56,6 +58,7 @@ class InlineChatService(private val project: Project) : Disposable {
         
         llmResponse = response
         originalCode = originalText
+        this.selectionStartLine = selectionStartLine  // Store the selection start line
         
         // Extract code from the response
         extractedCode = extractCodeFromResponse(response)
@@ -79,6 +82,17 @@ class InlineChatService(private val project: Project) : Disposable {
             
             if (DEBUG_SERVICE) {
                 System.out.println("Diff action states: $inlineChatDiffActionState")
+            }
+            
+            // Notify Code Vision providers about the change
+            ApplicationManager.getApplication().invokeLater {
+                if (DEBUG_SERVICE) {
+                    System.out.println("Triggering DaemonCodeAnalyzer restart for Code Vision update")
+                }
+                com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                
+                // Note: CodeVisionHost.invalidateProvider requires LensInvalidateSignal, not Class
+                // The DaemonCodeAnalyzer.restart() should trigger Code Vision refresh
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -163,8 +177,8 @@ class InlineChatService(private val project: Project) : Disposable {
                     // These lines are unchanged
                     for (line in currentLine until startLine2) {
                         segments.add(DiffSegment(
-                            selectionStartLine + line + 1,
-                            selectionStartLine + line + 1,
+                            selectionStartLine + line,
+                            selectionStartLine + line,
                             DiffSegmentType.UNCHANGED,
                             getLineContent(modified, line)
                         ))
@@ -180,8 +194,8 @@ class InlineChatService(private val project: Project) : Disposable {
                         }
                         for (line in startLine2 until endLine2) {
                             segments.add(DiffSegment(
-                                selectionStartLine + line + 1,
-                                selectionStartLine + line + 1,
+                                selectionStartLine + line,
+                                selectionStartLine + line,
                                 DiffSegmentType.INSERTED,
                                 getLineContent(modified, line)
                             ))
@@ -194,8 +208,8 @@ class InlineChatService(private val project: Project) : Disposable {
                         }
                         // For deletions, we add a marker at the current position
                         segments.add(DiffSegment(
-                            selectionStartLine + startLine2 + 1,
-                            selectionStartLine + startLine2 + 1,
+                            selectionStartLine + startLine2,
+                            selectionStartLine + startLine2,
                             DiffSegmentType.DELETED,
                             "// ${endLine1 - startLine1} line(s) deleted"
                         ))
@@ -208,8 +222,8 @@ class InlineChatService(private val project: Project) : Disposable {
                         // Show the modified lines as insertions
                         for (line in startLine2 until endLine2) {
                             segments.add(DiffSegment(
-                                selectionStartLine + line + 1,
-                                selectionStartLine + line + 1,
+                                selectionStartLine + line,
+                                selectionStartLine + line,
                                 DiffSegmentType.INSERTED,
                                 getLineContent(modified, line)
                             ))
@@ -225,8 +239,8 @@ class InlineChatService(private val project: Project) : Disposable {
             if (currentLine < totalLines) {
                 for (line in currentLine until totalLines) {
                     segments.add(DiffSegment(
-                        selectionStartLine + line + 1,
-                        selectionStartLine + line + 1,
+                        selectionStartLine + line,
+                        selectionStartLine + line,
                         DiffSegmentType.UNCHANGED,
                         getLineContent(modified, line)
                     ))
@@ -234,7 +248,7 @@ class InlineChatService(private val project: Project) : Disposable {
             }
             
             // Add footer segment
-            val lastLine = segments.lastOrNull()?.endLine ?: (selectionStartLine + 1)
+            val lastLine = segments.lastOrNull()?.endLine ?: selectionStartLine
             segments.add(DiffSegment(
                 lastLine + 1,
                 lastLine + 1,
@@ -266,7 +280,14 @@ class InlineChatService(private val project: Project) : Disposable {
      */
     private fun getLineContent(text: String, lineIndex: Int): String {
         val lines = text.split("\n")
-        return if (lineIndex in lines.indices) lines[lineIndex] else ""
+        return if (lineIndex in lines.indices) {
+            lines[lineIndex]
+        } else {
+            if (DEBUG_DIFF_SEGMENTS) {
+                System.out.println("WARNING: Line index $lineIndex out of bounds (text has ${lines.size} lines)")
+            }
+            ""
+        }
     }
     
     /**
@@ -283,7 +304,7 @@ class InlineChatService(private val project: Project) : Disposable {
         val modifiedLines = modified.split("\n")
         
         // Simple line-by-line comparison
-        var currentLine = selectionStartLine + 1
+        var currentLine = selectionStartLine
         var i = 0
         var j = 0
         
@@ -354,11 +375,15 @@ class InlineChatService(private val project: Project) : Disposable {
      * Clear the current state
      */
     fun clearState() {
+        if (DEBUG_SERVICE) {
+            System.out.println("=== InlineChatService.clearState ===")
+        }
         llmResponse = null
         extractedCode = null
         diffSegments.clear()
         inlineChatDiffActionState.clear()
         originalCode = null
+        selectionStartLine = 0
     }
 
     override fun dispose() {
@@ -369,5 +394,6 @@ class InlineChatService(private val project: Project) : Disposable {
         extractedCode = null
         diffSegments.clear()
         originalCode = null
+        selectionStartLine = 0
     }
 }

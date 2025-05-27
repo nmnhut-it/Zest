@@ -33,10 +33,12 @@ class TestDirectDiffAction : AnAction() {
         val originalText = selectionModel.selectedText ?: return
         val startOffset = selectionModel.selectionStart
         val endOffset = selectionModel.selectionEnd
+        val selectionStartLine = editor.document.getLineNumber(startOffset)
         
         System.out.println("=== TestDirectDiffAction ===")
         System.out.println("Original text length: ${originalText.length}")
         System.out.println("Selection range: $startOffset-$endOffset")
+        System.out.println("Selection start line: $selectionStartLine")
         
         // Create modified version (add comments to each line)
         val modifiedText = createModifiedText(originalText)
@@ -64,22 +66,17 @@ class TestDirectDiffAction : AnAction() {
         System.out.println("Fake LLM response created")
         
         // Process the response
-        inlineChatService.processLlmResponse(fakeLlmResponse, originalText)
+        inlineChatService.processLlmResponse(fakeLlmResponse, originalText, selectionStartLine)
         
         System.out.println("LLM response processed")
         System.out.println("Extracted code: ${inlineChatService.extractedCode != null}")
         System.out.println("Diff segments: ${inlineChatService.diffSegments.size}")
         System.out.println("Diff action states: ${inlineChatService.inlineChatDiffActionState}")
         
-        // Replace the selected text with the modified version
-        WriteCommandAction.runWriteCommandAction(project) {
-            editor.document.replaceString(startOffset, endOffset, modifiedText)
-            
-            // Commit the document
-            PsiDocumentManager.getInstance(project).commitDocument(editor.document)
-        }
+        // DO NOT replace the text immediately - the diff highlighting should show the proposed changes
+        // The user should accept/reject the changes using the Code Vision buttons
         
-        System.out.println("Text replaced in document")
+        System.out.println("Diff segments prepared - check the highlighting in the editor")
         
         // Force editor refresh
         ApplicationManager.getApplication().invokeLater {
@@ -92,7 +89,9 @@ class TestDirectDiffAction : AnAction() {
                 "Direct diff test applied!\n" +
                 "Segments: ${inlineChatService.diffSegments.size}\n" +
                 "Accept button: ${inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Accept"]}\n" +
-                "Discard button: ${inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Discard"]}",
+                "Discard button: ${inlineChatService.inlineChatDiffActionState["Zest.InlineChat.Discard"]}\n\n" +
+                "The diff highlighting should now show the proposed changes.\n" +
+                "Use the Accept/Discard buttons to apply or reject the changes.",
                 "Test Complete"
             )
         }

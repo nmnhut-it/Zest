@@ -17,11 +17,18 @@ class TestCodeVisionProvider : CodeVisionProvider<Unit>, DumbAware {
     override val defaultAnchor: CodeVisionAnchorKind = CodeVisionAnchorKind.Top
     override val relativeOrderings: List<CodeVisionRelativeOrdering> = emptyList()
     
+    init {
+        System.out.println("=== TestCodeVisionProvider created ===")
+    }
+    
     override fun precomputeOnUiThread(editor: Editor) {
+        System.out.println("=== TestCodeVisionProvider.precomputeOnUiThread called ===")
         // No UI precomputation needed
     }
     
     override fun computeCodeVision(editor: Editor, uiData: Unit): CodeVisionState {
+        System.out.println("=== TestCodeVisionProvider.computeCodeVision called ===")
+        
         // Always show a test button on the first line
         val document = editor.document
         if (document.lineCount == 0) {
@@ -29,12 +36,14 @@ class TestCodeVisionProvider : CodeVisionProvider<Unit>, DumbAware {
         }
         
         val entry = TextCodeVisionEntry(
-            "Test Code Vision Button",
+            "Test Code Vision Button (Working!)",
             id,
             AllIcons.General.InspectionsOK
         )
         
         val textRange = TextRange(0, document.getLineEndOffset(0))
+        
+        System.out.println("TestCodeVisionProvider: Creating entry at range $textRange")
         
         return CodeVisionState.Ready(listOf(textRange to entry))
     }

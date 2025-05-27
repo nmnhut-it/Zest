@@ -147,6 +147,17 @@
             <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>
         </action>
         
+        <!-- Test action for Code Vision -->
+        <action id="Zest.TestCodeVisionAction"
+                class="com.zps.zest.inlinechat.TestCodeVisionAction"
+                text="Test Code Vision Buttons" 
+                description="Test if Code Vision buttons are working"
+                icon="AllIcons.General.InspectionsOK">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift V"/>
+        </action>
+        
         <!-- Test action for direct diff replacement -->
         <action id="Zest.TestDirectDiffAction"
                 class="com.zps.zest.inlinechat.TestDirectDiffAction"

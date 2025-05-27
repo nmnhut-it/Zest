@@ -1,6 +1,5 @@
 package com.zps.zest.inlinechat
 
-import com.intellij.codeInsight.codeVision.CodeVisionInitializer
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -30,6 +29,7 @@ class DebugInlineChatAction : AnAction() {
         debugInfo.append("  Input visible: ${inlineChatService.inlineChatInputVisible}\n")
         debugInfo.append("  Has diff action: ${inlineChatService.hasDiffAction}\n")
         debugInfo.append("  Location: ${inlineChatService.location}\n")
+        debugInfo.append("  Selection start line: ${inlineChatService.selectionStartLine}\n")
         debugInfo.append("  Original code length: ${inlineChatService.originalCode?.length ?: "null"}\n")
         debugInfo.append("  Extracted code length: ${inlineChatService.extractedCode?.length ?: "null"}\n")
         debugInfo.append("  LLM response length: ${inlineChatService.llmResponse?.length ?: "null"}\n")
@@ -55,9 +55,10 @@ class DebugInlineChatAction : AnAction() {
         debugInfo.append("\n")
         
         // Code Vision status
-//        debugInfo.append("CODE VISION:\n")
-//        val codeVisionEnabled = CodeVisionInitializer.getInstance(project).isEnabled
-//        debugInfo.append("  Code Vision enabled: $codeVisionEnabled\n")
+        debugInfo.append("CODE VISION:\n")
+        debugInfo.append("  Check Settings → Editor → Inlay Hints → Code Vision\n")
+        debugInfo.append("  If buttons not showing, ensure Code Vision is enabled\n")
+        debugInfo.append("\n")
         
         // Show the debug info
         Messages.showMessageDialog(

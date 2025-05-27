@@ -59,6 +59,16 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
         if (editor != null) {
             val locationInfo = getCurrentLocation(editor = editor)
             inlineChatService.location = locationInfo.location
+            
+            // Set the selection start line
+            val selectionModel = editor.selectionModel
+            if (selectionModel.hasSelection()) {
+                inlineChatService.selectionStartLine = editor.document.getLineNumber(selectionModel.selectionStart)
+                if (InlineChatService.DEBUG_SERVICE) {
+                    System.out.println("InlineChatIntentionAction: Selection start line set to ${inlineChatService.selectionStartLine}")
+                }
+            }
+            
             inlineChatService.inlineChatInputVisible = true
             addInputToEditor(project, editor, locationInfo.startOffset)
         }

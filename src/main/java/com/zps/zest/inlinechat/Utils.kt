@@ -190,7 +190,7 @@ fun processInlineChatCommand(
                 
                 if (response != null && response.isNotEmpty()) {
                     // Process the response and update diff highlighting
-                    inlineChatService.processLlmResponse(response, originalText)
+                    inlineChatService.processLlmResponse(response, originalText, selectionStartLine)
                     
                     // Check if we extracted code
                     if (inlineChatService.extractedCode != null) {
@@ -223,6 +223,25 @@ fun processInlineChatCommand(
                                 System.out.println("Forcing editor refresh...")
                             }
                             editor.contentComponent.repaint()
+                            
+                            // Force Code Vision refresh
+                            com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                            
+                            if (DEBUG_RESPONSE_HANDLING) {
+                                System.out.println("DaemonCodeAnalyzer restarted for Code Vision refresh")
+                            }
+                            
+                            // Commit document to ensure changes are visible
+                            try {
+                                com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(editor.document)
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("Document committed")
+                                }
+                            } catch (e: Exception) {
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("Error committing document: ${e.message}")
+                                }
+                            }
                             
                             // Note: Code Vision refresh happens automatically when
                             // inlineChatDiffActionState is updated. If buttons don't appear,

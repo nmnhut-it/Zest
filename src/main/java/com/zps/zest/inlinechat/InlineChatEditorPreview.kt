@@ -73,23 +73,11 @@ class InlineChatEditorPreview(
     ) {
         ApplicationManager.getApplication().invokeLater {
             WriteCommandAction.runWriteCommandAction(project, "Show Inline Chat Preview", null, Runnable {
-                // Debug logging
-                println("=== InlineChatEditorPreview.showPreview ===")
-                println("Original text length: ${originalText.length}")
-                println("Modified text length: ${modifiedText.length}")
-                println("Start offset: $startOffset")
-                println("End offset: $endOffset")
-                println("Selection length: ${endOffset - startOffset}")
-                println("Document length: ${editor.document.textLength}")
-                
                 // Store original state - this should be the text that's currently in the selection
                 originalContent = editor.document.getText(TextRange(startOffset, endOffset))
                 originalStartOffset = startOffset
                 originalEndOffset = endOffset
                 modifiedContentLength = modifiedText.length  // Store the modified content length
-                
-                println("Stored original content length: ${originalContent?.length}")
-                println("About to replace range $startOffset-$endOffset with text of length ${modifiedText.length}")
                 
                 // Replace with modified text
                 editor.document.replaceString(startOffset, endOffset, modifiedText)
@@ -276,6 +264,9 @@ class InlineChatEditorPreview(
                 
                 // Force a refresh to clear diff highlights
                 com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                
+                // Clear the selection after accepting
+                editor.selectionModel.removeSelection()
             })
         }
     }

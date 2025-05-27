@@ -138,18 +138,19 @@ fun processInlineChatCommand(
             return result
         }
         
-        // Show progress notification
-        ZestNotifications.showInfo(
-            project,
-            "Inline Chat",
-            "Processing your request..."
-        )
-        
+//        // Show progress notification
+//        ZestNotifications.showInfo(
+//            project,
+//            "Inline Chat",
+//            "Processing your request..."
+//        )
+//
         // Get the original text to use for diffing
         val selectionInfo = ReadAction.compute<SelectionInfo, Throwable> {
             val document = editor.document
             val selectionModel = editor.selectionModel
             
+            // If there's a selection, use it
             if (selectionModel.hasSelection()) {
                 val startLine = document.getLineNumber(selectionModel.selectionStart)
                 SelectionInfo(
@@ -159,8 +160,23 @@ fun processInlineChatCommand(
                     selectionModel.selectionEnd
                 )
             } else {
-                // If no selection, don't process anything
-                SelectionInfo("", 0, 0, 0)
+                // If selection was cleared but we have stored values in service, use those
+                val inlineChatService = project.getService(InlineChatService::class.java)
+                if (inlineChatService.originalCode != null && 
+                    inlineChatService.selectionStartOffset > 0 && 
+                    inlineChatService.selectionEndOffset > inlineChatService.selectionStartOffset) {
+                    
+                    val startLine = document.getLineNumber(inlineChatService.selectionStartOffset)
+                    SelectionInfo(
+                        inlineChatService.originalCode!!, 
+                        startLine,
+                        inlineChatService.selectionStartOffset,
+                        inlineChatService.selectionEndOffset
+                    )
+                } else {
+                    // If no selection and no stored values, don't process anything
+                    SelectionInfo("", 0, 0, 0)
+                }
             }
         }
         
@@ -461,6 +477,8 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 val preview = inlineChatService.editorPreview
                 if (preview != null && preview.isPreviewActive()) {
                     preview.acceptPreview()
+                    // Clear the selection after accepting changes
+                    editor.selectionModel.removeSelection()
                     ZestNotifications.showInfo(
                         project,
                         "Inline Chat",
@@ -478,6 +496,8 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                                 val startOffset = selectionModel.selectionStart
                                 val endOffset = selectionModel.selectionEnd
                                 document.replaceString(startOffset, endOffset, newCode)
+                                // Clear the selection after replacing
+                                editor.selectionModel.removeSelection()
                             } else {
                                 document.setText(newCode)
                             }
@@ -504,6 +524,9 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                     preview.hidePreview()
                 }
                 
+                // Clear the selection after we're done processing
+                editor.selectionModel.removeSelection()
+                
                 ZestNotifications.showInfo(
                     project,
                     "Inline Chat",
@@ -516,6 +539,9 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 if (preview != null && preview.isPreviewActive()) {
                     preview.hidePreview()
                 }
+                
+                // Clear the selection after we're done processing
+                editor.selectionModel.removeSelection()
                 
                 ZestNotifications.showInfo(
                     project,

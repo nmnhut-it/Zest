@@ -110,14 +110,35 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
     }
 
     private fun onInputSubmit(value: String) {
+        // Capture selection information first, then submit the command
+        // No need to keep the actual selection, but we need its info for processing
         chatEdit(command = value)
-        editor?.selectionModel?.removeSelection()
+        // Add to command history
         project?.serviceOrNull<CommandHistory>()?.addCommand(value)
     }
 
     private fun chatEdit(command: String) {
         val scope = CoroutineScope(Dispatchers.IO)
         val inlineChatService = project?.serviceOrNull<InlineChatService>() ?: return
+        
+        // Capture and store selection info before proceeding
+        editor?.let { 
+            val selectionModel = it.selectionModel
+            if (selectionModel.hasSelection()) {
+                // Store selection offsets in the service
+                inlineChatService.selectionStartOffset = selectionModel.selectionStart
+                inlineChatService.selectionEndOffset = selectionModel.selectionEnd
+                
+                // Store the selected text directly
+                val selectedText = selectionModel.selectedText
+                if (!selectedText.isNullOrEmpty()) {
+                    inlineChatService.originalCode = selectedText
+                }
+                
+                // Now it's safe to clear the selection since we've captured what we need
+                selectionModel.removeSelection()
+            }
+        }
         
         scope.launch {
             // We need to get the location in a read action since we're in a background thread

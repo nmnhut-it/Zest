@@ -11,10 +11,17 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
+import com.intellij.ui.JBColor
 import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Font
 import java.awt.Point
+import javax.swing.BorderFactory
 import javax.swing.JPanel
+import javax.swing.SwingConstants
 
 /**
  * Shows a floating toolbar with Accept/Reject buttons for inline chat
@@ -24,6 +31,7 @@ class InlineChatFloatingToolbar(
     private val editor: Editor
 ) {
     private var popup: com.intellij.openapi.ui.popup.JBPopup? = null
+    private var warningMessage: String? = null
     
     fun show() {
         ApplicationManager.getApplication().invokeLater {
@@ -69,10 +77,23 @@ class InlineChatFloatingToolbar(
         }
     }
     
+    /**
+     * Set a warning message to be displayed in the toolbar
+     */
+    fun setWarningMessage(message: String?) {
+        this.warningMessage = message
+        // If popup is already visible, re-create it with the warning
+        if (popup?.isVisible == true) {
+            hide()
+            show()
+        }
+    }
+    
     private fun createToolbarPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
         panel.border = JBUI.Borders.empty(4)
         
+        // Create the action toolbar with Accept/Reject buttons
         val actionGroup = DefaultActionGroup().apply {
             add(AcceptAction())
             add(RejectAction())
@@ -85,7 +106,43 @@ class InlineChatFloatingToolbar(
         )
         toolbar.targetComponent = editor.contentComponent
         
-        panel.add(toolbar.component, BorderLayout.CENTER)
+        // Main panel with buttons
+        val buttonPanel = JPanel(BorderLayout())
+        buttonPanel.add(toolbar.component, BorderLayout.CENTER)
+        panel.add(buttonPanel, BorderLayout.NORTH)
+        
+        // Add warning message if present
+        if (!warningMessage.isNullOrEmpty()) {
+            val warningPanel = createWarningPanel(warningMessage!!)
+            panel.add(warningPanel, BorderLayout.CENTER)
+        }
+        
+        return panel
+    }
+    
+    private fun createWarningPanel(message: String): JPanel {
+        val panel = JPanel(BorderLayout())
+        // Use standard warning colors
+        val warningBorderColor = JBColor(Color(255, 190, 0), Color(210, 130, 0))  // Amber/orange color
+        val warningBackgroundColor = JBColor(Color(255, 250, 220), Color(80, 70, 40))  // Light yellow/amber background
+        
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(warningBorderColor, 1, true),
+            BorderFactory.createEmptyBorder(8, 8, 8, 8)
+        )
+        panel.background = warningBackgroundColor
+        
+        val warningIcon = JBLabel(AllIcons.General.BalloonWarning)
+        
+        val warningLabel = JBLabel(message, SwingConstants.LEFT)
+        warningLabel.font = warningLabel.font.deriveFont(Font.PLAIN, 12f)
+        
+        val innerPanel = JPanel(BorderLayout(8, 0))
+        innerPanel.background = panel.background
+        innerPanel.add(warningIcon, BorderLayout.WEST)
+        innerPanel.add(warningLabel, BorderLayout.CENTER)
+        
+        panel.add(innerPanel, BorderLayout.CENTER)
         
         return panel
     }

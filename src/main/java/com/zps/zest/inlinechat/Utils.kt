@@ -238,15 +238,16 @@ fun processInlineChatCommand(
                             System.out.println("Diff actions enabled: ${inlineChatService.inlineChatDiffActionState}")
                         }
                         
-                        // Validate the implementation
-                        val isValid = validateImplementation(originalText, inlineChatService.extractedCode!!)
+                        // Validate the implementation using the function in InlineChatService
+                        val isValid = inlineChatService.validateImplementation(originalText, inlineChatService.extractedCode!!)
                         
                         if (!isValid) {
-                            ZestNotifications.showWarning(
-                                project,
-                                "Inline Chat Warning",
-                                "The suggested changes may have significantly altered the code structure. Please review carefully."
-                            )
+                            // Add warning message to the floating toolbar instead of showing a notification
+                            ApplicationManager.getApplication().invokeLater {
+                                inlineChatService.floatingToolbar?.setWarningMessage(
+                                    "The suggested changes may have significantly altered the code structure. Please review carefully."
+                                )
+                            }
                         }
                         
                         // Show inline preview directly in the editor
@@ -270,11 +271,7 @@ fun processInlineChatCommand(
                             inlineChatService.showFloatingToolbar(editor)
                         }
                         
-                        ZestNotifications.showInfo(
-                            project,
-                            "Inline Chat",
-                            "Preview shown in editor. Use Code Vision buttons to Accept or Reject."
-                        )
+                        // No notification needed - UI feedback is in the editor and toolbar
                         
                         // Force editor refresh to show highlights
                         ApplicationManager.getApplication().invokeLater {
@@ -369,26 +366,26 @@ private fun validateImplementation(originalCode: String, implementedCode: String
     // Remove whitespace and comments for comparison
     val normalizedOriginal = normalizeForComparison(originalCode)
     val normalizedImplemented = normalizeForComparison(implementedCode)
-    
+
     // Check if the implemented code has roughly similar structure
     // by comparing size (allowing for reasonable expansion)
     val originalSize = normalizedOriginal.length
     val implementedSize = normalizedImplemented.length
-    
+
     // Implementation should not be smaller than original (unless it's refactoring)
     if (implementedSize < originalSize * 0.7) {
         return false
     }
-    
+
     // Implementation should not be drastically larger (allowing for reasonable expansion)
     if (implementedSize > originalSize * 5) {
         return false
     }
-    
+
     // Check that key structural elements are preserved
     val originalStructure = extractStructuralElements(originalCode)
     val implementedStructure = extractStructuralElements(implementedCode)
-    
+
     // Count how many structural elements are preserved
     var preservedCount = 0
     for (element in originalStructure) {
@@ -396,7 +393,7 @@ private fun validateImplementation(originalCode: String, implementedCode: String
             preservedCount++
         }
     }
-    
+
     // At least 60% of structural elements should be preserved
     return if (originalStructure.isNotEmpty()) {
         preservedCount.toDouble() / originalStructure.size >= 0.6
@@ -411,13 +408,13 @@ private fun validateImplementation(originalCode: String, implementedCode: String
 private fun normalizeForComparison(code: String): String {
     // Remove single-line comments
     var normalized = code.replace(Regex("//.*?$", RegexOption.MULTILINE), "")
-    
+
     // Remove multi-line comments
     normalized = normalized.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-    
+
     // Remove extra whitespace
     normalized = normalized.replace(Regex("\\s+"), " ")
-    
+
     // Trim
     return normalized.trim()
 }
@@ -427,25 +424,25 @@ private fun normalizeForComparison(code: String): String {
  */
 private fun extractStructuralElements(code: String): Set<String> {
     val elements = mutableSetOf<String>()
-    
+
     // Extract class declarations
     val classPattern = Regex("\\b(class|interface|enum)\\s+(\\w+)")
     classPattern.findAll(code).forEach { match ->
         elements.add("${match.groupValues[1]}:${match.groupValues[2]}")
     }
-    
+
     // Extract method signatures (simplified)
     val methodPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*\\w+\\s+(\\w+)\\s*\\(")
     methodPattern.findAll(code).forEach { match ->
         elements.add("method:${match.groupValues[3]}")
     }
-    
+
     // Extract field declarations
     val fieldPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*(final)?\\s*\\w+\\s+(\\w+)\\s*[=;]")
     fieldPattern.findAll(code).forEach { match ->
         elements.add("field:${match.groupValues[4]}")
     }
-    
+
     return elements
 }
 
@@ -482,11 +479,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                             preview.acceptPreview()
                             // Clear the selection after accepting changes
                             editor.selectionModel.removeSelection()
-                            ZestNotifications.showInfo(
-                                project,
-                                "Inline Chat",
-                                "Changes accepted"
-                            )
+                            // No notification needed - UI feedback is in the editor
                         } else {
                             // Fallback to old behavior if no preview
                             val newCode = inlineChatService.applyChanges()
@@ -531,11 +524,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         // Clear the selection after we're done processing
                         editor.selectionModel.removeSelection()
                         
-                        ZestNotifications.showInfo(
-                            project,
-                            "Inline Chat",
-                            "Changes discarded"
-                        )
+                        // No notification needed - UI feedback is in the editor
                     }
                     "cancel" -> {
                         // If we have an inline preview, hide it
@@ -550,11 +539,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         // This is an explicit cancel action, so hide all UI elements immediately
                         inlineChatService.floatingToolbar?.hide()
                         
-                        ZestNotifications.showInfo(
-                            project,
-                            "Inline Chat",
-                            "Operation cancelled"
-                        )
+                        // No notification needed - UI feedback is in the editor
                     }
                 }
                 

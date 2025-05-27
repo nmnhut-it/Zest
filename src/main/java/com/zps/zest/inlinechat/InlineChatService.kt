@@ -399,10 +399,62 @@ class InlineChatService(private val project: Project) : Disposable {
         originalCode = null
         selectionStartLine = 0
         editorPreview = null
+        location = null
+        inlineChatInputVisible = false
         
         // Hide floating toolbar if shown
         floatingToolbar?.hide()
         floatingToolbar = null
+        
+        if (DEBUG_SERVICE) {
+            System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
+        }
+    }
+
+    /**
+     * Force clear all diff highlights from the editor
+     */
+    fun forceClearAllHighlights() {
+        if (DEBUG_SERVICE) {
+            System.out.println("=== InlineChatService.forceClearAllHighlights ===")
+        }
+        
+        // Clear all state
+        clearState()
+        
+        // Force refresh in the UI thread
+        ApplicationManager.getApplication().invokeLater {
+            // Get the current editor
+            val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+            if (editor != null) {
+                // Force DaemonCodeAnalyzer to restart completely
+                com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+                
+                // Clear all highlighters manually if needed
+                try {
+                    val markupModel = editor.markupModel
+                    val highlighters = markupModel.allHighlighters
+                    highlighters.forEach { highlighter ->
+                        // Remove highlighters that might be from our diff pass
+                        if (highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX ||
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.LAST) {
+                            markupModel.removeHighlighter(highlighter)
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Error clearing highlighters: ${e.message}")
+                    }
+                }
+                
+                // Force editor repaint
+                editor.contentComponent.repaint()
+            }
+            
+            if (DEBUG_SERVICE) {
+                System.out.println("Forced clear complete")
+            }
+        }
     }
 
     override fun dispose() {

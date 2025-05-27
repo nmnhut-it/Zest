@@ -238,6 +238,9 @@ class InlineChatEditorPreview(
                 // Update the inline chat service state
                 val inlineChatService = project.getService(InlineChatService::class.java)
                 inlineChatService.clearState()
+                
+                // Force a refresh to clear diff highlights
+                com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
             })
         }
     }

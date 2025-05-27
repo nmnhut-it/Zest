@@ -507,9 +507,14 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
         // Clear state and reset highlights
         inlineChatService.clearState()
         
-        // Force editor refresh to clear highlights
+        // Force clear all diff highlighting
         ApplicationManager.getApplication().invokeLater {
-            editor.contentComponent.repaint()
+            // Use the force clear method to ensure all highlights are removed
+            inlineChatService.forceClearAllHighlights()
+            
+            if (DEBUG_RESPONSE_HANDLING) {
+                System.out.println("Force cleared all diff highlights")
+            }
         }
         
         result.complete(true)

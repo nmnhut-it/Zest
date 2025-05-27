@@ -342,7 +342,7 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
     override fun doApplyInformationToEditor() {
         // First, clear any existing highlighters for this pass
         UpdateHighlightersUtil.setHighlightersToEditor(
-            myProject, myDocument, 0, 0,
+            myProject, myDocument, 0, myDocument.textLength,
             emptyList(), colorsScheme, id
         )
         
@@ -360,6 +360,10 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             
             // Log highlighting statistics for debugging
             logger.debug("Applied ${highlights.size} diff highlights")
+        } else {
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("No highlights to apply - clearing all existing highlights")
+            }
         }
     }
 }

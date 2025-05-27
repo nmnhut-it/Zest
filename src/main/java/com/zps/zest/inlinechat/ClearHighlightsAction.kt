@@ -21,20 +21,11 @@ class ClearHighlightsAction : AnAction() {
         // Get the InlineChatService
         val service = project.getService(InlineChatService::class.java)
         
-        // Clear all diff segments
-        WriteCommandAction.runWriteCommandAction(project) {
-            service.diffSegments = ArrayList()
-            service.originalCode = null
-            
-            // Force document update to refresh highlighting
-            PsiDocumentManager.getInstance(project).commitDocument(editor.document)
-        }
+        // Use the force clear method
+        service.forceClearAllHighlights()
         
-        // Force editor highlighting refresh
+        // Show a notification
         ApplicationManager.getApplication().invokeLater {
-            editor.contentComponent.repaint()
-            
-            // Show a notification
             Messages.showInfoMessage(
                 project,
                 "All diff highlighting has been cleared.",

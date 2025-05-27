@@ -31,17 +31,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Service for handling git commit operations from JavaScript bridge.
- * This manages git commit contexts and file selection workflows.
- */
 public class GitService {
+
     private static final Logger LOG = Logger.getInstance(GitService.class);
-    
     private final Project project;
     private final Gson gson = new Gson();
-    
-    // Static map to store contexts across all instances
+
     private static final ConcurrentHashMap<String, GitCommitContext> GLOBAL_CONTEXTS = new ConcurrentHashMap<>();
     
     public GitService(@NotNull Project project) {
@@ -93,10 +88,35 @@ public class GitService {
                         // Stage each selected file
                         for (GitCommitContext.SelectedFile file : selectedFiles) {
                             String cleanPath = cleanFilePath(file.getPath(), project.getName());
-                            String command = "git add \"" + cleanPath + "\"";
-
-                            LOG.info("Staging file: " + cleanPath);
-                            executeGitCommand(projectPath, command);
+                            String command;
+                            
+                            // Special handling for deleted files
+                            if ("D".equals(file.getStatus())) {
+                                // Use 'git rm' with the --ignore-unmatch flag to prevent errors for already deleted files
+                                command = "git rm --ignore-unmatch -- \"" + cleanPath + "\"";
+                                LOG.info("Removing deleted file: " + cleanPath);
+                            } else {
+                                command = "git add -- \"" + cleanPath + "\"";
+                                LOG.info("Staging file: " + cleanPath);
+                            }
+                            
+                            try {
+                                executeGitCommand(projectPath, command);
+                            } catch (Exception e) {
+                                LOG.warn("Error staging file " + cleanPath + ": " + e.getMessage());
+                                // Try alternative approach for deleted files that are giving trouble
+                                if ("D".equals(file.getStatus())) {
+                                    LOG.info("Trying alternative approach for deleted file: " + cleanPath);
+                                    try {
+                                        // Force path-spec to ensure git treats this as a path
+                                        executeGitCommand(projectPath, "git rm -f -- \"" + cleanPath + "\"");
+                                        LOG.info("Alternative approach succeeded");
+                                    } catch (Exception e2) {
+                                        LOG.warn("Alternative approach also failed: " + e2.getMessage());
+                                        // Continue with other files
+                                    }
+                                }
+                            }
                         }
 
                         // Build git commit command with multiple -m flags for multiline message
@@ -408,31 +428,84 @@ public class GitService {
                         diff = getNewFileContent(projectPath, cleanedPath);
                     } else {
                         // For staged files, get cached diff
-                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                        diff = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
                     }
                     break;
                     
                 case "M": // Modified
                     // Get unstaged changes first, then staged if no unstaged
-                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                    diff = executeGitCommand(projectPath, "git diff -- \"" + cleanedPath + "\"");
                     if (diff.trim().isEmpty()) {
-                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                        diff = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
                     }
                     break;
                     
                 case "D": // Deleted
-                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
-                    if (diff.trim().isEmpty()) {
-                        diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    // For deleted files that may not exist in the working tree anymore, we need to use more robust commands
+                    try {
+                        LOG.info("Processing deleted file: " + cleanedPath);
+                        
+                        // First, check if the file is already staged for deletion
+                        try {
+                            diff = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
+                            if (!diff.trim().isEmpty()) {
+                                LOG.info("Found staged deletion diff, length: " + diff.length());
+                                break; // Use this diff if available
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Failed to get staged diff for deleted file: " + e.getMessage());
+                        }
+                        
+                        // Next, try to get the file content from the last commit
+                        try {
+                            LOG.info("Trying to get file content from HEAD");
+                            String content = executeGitCommand(projectPath, "git show HEAD:\"" + cleanedPath + "\"");
+                            if (!content.trim().isEmpty()) {
+                                LOG.info("Got content from HEAD, formatting as deletion diff");
+                                diff = formatDeletedFileDiff(cleanedPath, content);
+                                break; // Use this formatted diff
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Failed to get content from HEAD: " + e.getMessage());
+                        }
+                        
+                        // If we can't get the content directly, try to find when it was last seen
+                        try {
+                            LOG.info("Trying to find file in Git history");
+                            // List commits that affected this file
+                            String history = executeGitCommand(projectPath, "git log --pretty=format:\"%H\" -n 1 -- \"" + cleanedPath + "\"");
+                            if (!history.trim().isEmpty()) {
+                                String commitHash = history.trim();
+                                LOG.info("Found file in commit: " + commitHash);
+                                
+                                // Get the file content from that commit
+                                String content = executeGitCommand(projectPath, "git show " + commitHash + ":\"" + cleanedPath + "\"");
+                                if (!content.trim().isEmpty()) {
+                                    LOG.info("Got content from commit " + commitHash);
+                                    diff = formatDeletedFileDiff(cleanedPath, content);
+                                    break; // Use this formatted diff
+                                }
+                            }
+                        } catch (Exception e) {
+                            LOG.info("Failed to get file history: " + e.getMessage());
+                        }
+                        
+                        // If all else fails, provide a simple message
+                        diff = "File was deleted: " + cleanedPath + "\n(Content not available)";
+                        LOG.info("Using fallback message for deleted file");
+                        
+                    } catch (Exception e) {
+                        LOG.warn("Error processing deleted file: " + e.getMessage(), e);
+                        diff = "Deleted file: " + cleanedPath + "\n(Error retrieving content: " + e.getMessage() + ")";
                     }
                     break;
                     
                 case "R": // Renamed
-                    diff = executeGitCommand(projectPath, "git diff --cached \"" + cleanedPath + "\"");
+                    diff = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
                     break;
                     
                 default:
-                    diff = executeGitCommand(projectPath, "git diff \"" + cleanedPath + "\"");
+                    diff = executeGitCommand(projectPath, "git diff -- \"" + cleanedPath + "\"");
                     break;
             }
             
@@ -447,6 +520,28 @@ public class GitService {
             LOG.error("Error getting file diff", e);
             return createErrorResponse("Failed to get file diff: " + e.getMessage());
         }
+    }
+    
+    /**
+     * Formats the content of a deleted file as a diff.
+     * This is used when we can only get the file content but need to show it as a deletion.
+     */
+    private String formatDeletedFileDiff(String filePath, String content) {
+        StringBuilder diff = new StringBuilder();
+        diff.append("diff --git a/").append(filePath).append(" b/").append(filePath).append("\n");
+        diff.append("deleted file mode 100644\n");
+        diff.append("index 1234567..0000000\n");
+        diff.append("--- a/").append(filePath).append("\n");
+        diff.append("+++ /dev/null\n");
+        
+        String[] lines = content.split("\n");
+        diff.append("@@ -1,").append(lines.length).append(" +0,0 @@\n");
+        
+        for (String line : lines) {
+            diff.append("-").append(line).append("\n");
+        }
+        
+        return diff.toString();
     }
     
     /**
@@ -492,7 +587,8 @@ public class GitService {
      */
     private boolean isNewFile(String projectPath, String filePath) {
         try {
-            String result = executeGitCommand(projectPath, "git ls-files \"" + filePath + "\"");
+            // Use -- to ensure proper path-spec handling
+            String result = executeGitCommand(projectPath, "git ls-files -- \"" + filePath + "\"");
             return result.trim().isEmpty(); // If empty, file is not tracked
         } catch (Exception e) {
             LOG.warn("Error checking if file is new: " + e.getMessage());

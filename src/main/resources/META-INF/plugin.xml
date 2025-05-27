@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.830</version>  <!-- Replace with your actual version -->
+    <version>1.9.840</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -88,31 +88,35 @@
         <action id="Zest.InlineChatAction" 
                 class="com.zps.zest.inlinechat.InlineChatAction"
                 text="Inline AI Edit"
+                icon="AllIcons.Actions.IntentionBulb"
                 description="Open inline AI editor for context-aware editing">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="shift SPACE" replace-all="true" />
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
         
         <!-- These actions will be triggered by UI buttons, not menu items -->
         <action id="Zest.InlineChatAcceptAction"
                 class="com.zps.zest.inlinechat.InlineChatAcceptAction"
                 text="Accept Inline Edit" 
-                description="Accept the changes proposed by the inline AI editor"/>
+                description="Accept the changes proposed by the inline AI editor"
+                keymap="$default"
+        />
                 
         <action id="Zest.InlineChatDiscardAction"
                 class="com.zps.zest.inlinechat.InlineChatDiscardAction"
                 text="Discard Inline Edit" 
                 description="Discard the changes proposed by the inline AI editor"/>
-                
+
         <action id="Zest.InlineChatCancelAction"
                 class="com.zps.zest.inlinechat.InlineChatCancelAction"
-                text="Cancel Inline Edit" 
-                description="Cancel the inline AI editing operation"/>
-        
+                text="Cancel Inline Edit"
+                description="Cancel the inline AI editing operation">
+        </action>
         <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
                 text="Step-by-Step Test Writing (Agent)"
-                icon="icons/testWriting16.svg"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
         </action>
@@ -121,7 +125,7 @@
         <action id="com.zps.zest.GenerateTestByLlm"
                 class="com.zps.zest.GenerateTestByLlm"
                 text="Quick Test Generator (Agent)"
-                icon="icons/testWriting16.svg"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Automatically generate tests for the current class">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
         </action>
@@ -130,7 +134,7 @@
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
                 text="Test Advisor (Chat)"
-                icon="icons/testWriting16.svg"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Get advice on writing tests for this class">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
         </action>
@@ -141,7 +145,7 @@
         <action id="Zest.AgentBasedRefactoringAction"
                 class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
                 text="Step-by-Step Refactoring (Agent)"
-                icon="icons/refactoring16.svg"
+                 icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
         </action>
@@ -150,7 +154,7 @@
         <action id="Zest.RefactorForTestabilityAction"
                 class="com.zps.zest.RefactorForTestabilityAction"
                 text="Refactoring Advisor (Chat)"
-                icon="icons/refactoring16.svg"
+                 icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Get advice on how to refactor the selected code for testability">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
         </action>

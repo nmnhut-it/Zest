@@ -395,11 +395,10 @@ public class LlmApiCallStage implements PipelineStage {
 
             // OpenWebUI payload format without streaming
             String payload = String.format(
-                    "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false}",
+                    "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false,\"custom_tool\":\"Zest|ZEST_API_CALL\"}",
                     model,
                     escapeJson(prompt)
             );
-
             sendPayload(connection, payload);
 
             int responseCode = connection.getResponseCode();

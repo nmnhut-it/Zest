@@ -614,7 +614,7 @@ public class ClassAnalyzer {
      * @param selectionEnd The end offset of the selection
      * @return A map of class names to their full implementations
      */
-    static java.util.Map<String, String> collectRelatedClassImplementations(PsiFile psiFile, int selectionStart, int selectionEnd) {
+    public static java.util.Map<String, String> collectRelatedClassImplementations(PsiFile psiFile, int selectionStart, int selectionEnd) {
         java.util.Map<String, String> classImpls = new java.util.HashMap<>();
 
         if (!(psiFile instanceof PsiJavaFile)) {

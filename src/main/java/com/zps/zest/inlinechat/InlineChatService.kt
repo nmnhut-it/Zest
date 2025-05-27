@@ -1,12 +1,17 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.diff.comparison.ComparisonManager
+import com.intellij.diff.comparison.ComparisonPolicy
+import com.intellij.diff.fragments.LineFragment
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.progress.DumbProgressIndicator
 import com.intellij.openapi.project.Project
 import org.eclipse.lsp4j.Location
 
 /**
- * Service for managing inline chat state and diff information
+ * Service for managing inline chat state and diff information.
+ * Uses IntelliJ's built-in diff system for accurate code comparison.
  */
 @Service(Service.Level.PROJECT)
 class InlineChatService(private val project: Project) : Disposable {
@@ -60,11 +65,128 @@ class InlineChatService(private val project: Project) : Disposable {
     }
     
     /**
-     * Generate diff segments by comparing original and new code
-     * This is a simple implementation - a more sophisticated diff algorithm
-     * would be needed for a production feature
+     * Generate diff segments by comparing original and new code using IntelliJ's diff API
      */
     private fun generateDiffSegments(original: String, modified: String): MutableList<DiffSegment> {
+        val segments = mutableListOf<DiffSegment>()
+        
+        try {
+            // Use IntelliJ's ComparisonManager for accurate diff calculation
+            val comparisonManager = ComparisonManager.getInstance()
+            val lineFragments = comparisonManager.compareLines(
+                original,
+                modified,
+                ComparisonPolicy.DEFAULT,
+                DumbProgressIndicator.INSTANCE
+            )
+            
+            // Convert LineFragments to DiffSegments
+            var currentLine = 0
+            
+            // Add header segment
+            segments.add(DiffSegment(0, 0, DiffSegmentType.HEADER, "AI Suggested Changes"))
+            
+            for (fragment in lineFragments) {
+                val startLine1 = fragment.startLine1
+                val endLine1 = fragment.endLine1
+                val startLine2 = fragment.startLine2
+                val endLine2 = fragment.endLine2
+                
+                // Handle unchanged lines before this fragment
+                if (currentLine < startLine2) {
+                    // These lines are unchanged
+                    for (line in currentLine until startLine2) {
+                        segments.add(DiffSegment(
+                            line + 1,
+                            line + 1,
+                            DiffSegmentType.UNCHANGED,
+                            getLineContent(modified, line)
+                        ))
+                    }
+                }
+                
+                // Process the changed fragment
+                when {
+                    // Pure insertion (no lines in original, lines in modified)
+                    startLine1 == endLine1 && startLine2 < endLine2 -> {
+                        for (line in startLine2 until endLine2) {
+                            segments.add(DiffSegment(
+                                line + 1,
+                                line + 1,
+                                DiffSegmentType.INSERTED,
+                                getLineContent(modified, line)
+                            ))
+                        }
+                    }
+                    // Pure deletion (lines in original, no lines in modified)
+                    startLine1 < endLine1 && startLine2 == endLine2 -> {
+                        // For deletions, we add a marker at the current position
+                        segments.add(DiffSegment(
+                            startLine2 + 1,
+                            startLine2 + 1,
+                            DiffSegmentType.DELETED,
+                            "// ${endLine1 - startLine1} line(s) deleted"
+                        ))
+                    }
+                    // Modification (both have lines)
+                    else -> {
+                        // Show the modified lines as insertions
+                        for (line in startLine2 until endLine2) {
+                            segments.add(DiffSegment(
+                                line + 1,
+                                line + 1,
+                                DiffSegmentType.INSERTED,
+                                getLineContent(modified, line)
+                            ))
+                        }
+                    }
+                }
+                
+                currentLine = endLine2
+            }
+            
+            // Handle any remaining unchanged lines
+            val totalLines = modified.split("\n").size
+            if (currentLine < totalLines) {
+                for (line in currentLine until totalLines) {
+                    segments.add(DiffSegment(
+                        line + 1,
+                        line + 1,
+                        DiffSegmentType.UNCHANGED,
+                        getLineContent(modified, line)
+                    ))
+                }
+            }
+            
+            // Add footer segment
+            val lastLine = segments.lastOrNull()?.endLine ?: 1
+            segments.add(DiffSegment(
+                lastLine + 1,
+                lastLine + 1,
+                DiffSegmentType.FOOTER,
+                "End of changes"
+            ))
+            
+        } catch (e: Exception) {
+            // Fallback to simple line-by-line comparison if diff API fails
+            segments.addAll(generateSimpleDiffSegments(original, modified))
+        }
+        
+        return segments
+    }
+    
+    /**
+     * Get the content of a specific line from text
+     */
+    private fun getLineContent(text: String, lineIndex: Int): String {
+        val lines = text.split("\n")
+        return if (lineIndex in lines.indices) lines[lineIndex] else ""
+    }
+    
+    /**
+     * Fallback simple diff generation (original implementation)
+     */
+    private fun generateSimpleDiffSegments(original: String, modified: String): List<DiffSegment> {
         val segments = mutableListOf<DiffSegment>()
         
         // Add header segment
@@ -75,7 +197,6 @@ class InlineChatService(private val project: Project) : Disposable {
         val modifiedLines = modified.split("\n")
         
         // Simple line-by-line comparison
-        // For a real implementation, use a proper diff algorithm like Myers diff
         var currentLine = 1
         var i = 0
         var j = 0
@@ -102,38 +223,29 @@ class InlineChatService(private val project: Project) : Disposable {
                 }
                 originalLines[i] == modifiedLines[j] -> {
                     // Matching lines
+                    segments.add(DiffSegment(currentLine, currentLine, DiffSegmentType.UNCHANGED, originalLines[i]))
                     i++
                     j++
                     currentLine++
                 }
                 else -> {
-                    // Different lines - could be modification, insertion, or deletion
-                    val startLine = currentLine
-                    val content = StringBuilder()
+                    // Different lines - mark as insertion
+                    segments.add(DiffSegment(currentLine, currentLine, DiffSegmentType.INSERTED, modifiedLines[j]))
+                    j++
+                    currentLine++
                     
-                    // Check if it's an insertion
+                    // Check if the original line appears later
                     var found = false
-                    for (k in i + 1 until originalLines.size) {
-                        if (originalLines[k] == modifiedLines[j]) {
-                            // Found a match later - lines i to k-1 were deleted
-                            // and replaced with current j
-                            content.append(modifiedLines[j]).append("\n")
-                            segments.add(DiffSegment(startLine, startLine, DiffSegmentType.INSERTED, content.toString()))
-                            
-                            i = k
-                            j++
-                            currentLine++
+                    for (k in j until modifiedLines.size) {
+                        if (originalLines[i] == modifiedLines[k]) {
                             found = true
                             break
                         }
                     }
                     
                     if (!found) {
-                        // No match found - probably a completely new line
-                        content.append(modifiedLines[j]).append("\n")
-                        segments.add(DiffSegment(startLine, startLine, DiffSegmentType.INSERTED, content.toString()))
-                        j++
-                        currentLine++
+                        // Original line was removed, skip it
+                        i++
                     }
                 }
             }

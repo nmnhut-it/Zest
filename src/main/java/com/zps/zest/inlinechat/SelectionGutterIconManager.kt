@@ -1,5 +1,6 @@
 package com.zps.zest.inlinechat
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.invokeLater
@@ -27,6 +28,11 @@ class SelectionGutterIconManager : ProjectActivity {
     // Use the plugin icon as the gutter icon
     private val selectionIcon: Icon by lazy {
         IconLoader.getIcon("/META-INF/pluginIcon.svg", SelectionGutterIconManager::class.java)
+    }
+    
+    // Special icon for when TODOs are detected
+    private val todoIcon: Icon by lazy {
+        AllIcons.General.TodoDefault
     }
 
     private val editorToHighlighter = mutableMapOf<Editor, RangeHighlighter>()
@@ -120,6 +126,18 @@ class SelectionGutterIconManager : ProjectActivity {
             val lineStart = ReadAction.compute<Int, RuntimeException> { 
                 editor.document.getLineStartOffset(lineNumber) 
             }
+            
+            // Check if selection contains TODOs
+            val (icon, tooltip) = ReadAction.compute<Pair<Icon, String>, RuntimeException> {
+                val selectedText = editor.selectionModel.selectedText ?: ""
+                if (ZestContextProvider.containsTodos(selectedText)) {
+                    val todos = ZestContextProvider.extractTodos(selectedText)
+                    val todoCount = todos.size
+                    Pair(todoIcon, "Open Zest inline AI - $todoCount TODO(s) detected")
+                } else {
+                    Pair(selectionIcon, "Open Zest inline AI")
+                }
+            }
 
             val markupModel = editor.markupModel
             val highlighter = markupModel.addRangeHighlighter(
@@ -130,7 +148,7 @@ class SelectionGutterIconManager : ProjectActivity {
             )
 
             highlighter.gutterIconRenderer = object : GutterIconRenderer() {
-                override fun getIcon(): Icon = selectionIcon
+                override fun getIcon(): Icon = icon
 
                 override fun equals(other: Any?): Boolean {
                     return other is GutterIconRenderer && other.javaClass == this.javaClass
@@ -138,7 +156,7 @@ class SelectionGutterIconManager : ProjectActivity {
 
                 override fun hashCode(): Int = javaClass.hashCode()
 
-                override fun getTooltipText(): String = "Open Zest inline AI"
+                override fun getTooltipText(): String = tooltip
 
                 override fun getClickAction(): AnAction {
                     return InlineChatAction()

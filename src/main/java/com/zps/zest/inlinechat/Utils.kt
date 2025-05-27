@@ -2,6 +2,7 @@ package com.zps.zest.inlinechat
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -48,14 +49,34 @@ fun getSuggestedCommands(project: Project, location: Location): Deferred<List<Ch
     val result = CompletableDeferred<List<ChatEditCommand>>()
     
     // Get useful commands based on context
-    val commands = listOf(
-        ChatEditCommand("Generate unit test", "Generate a unit test for this method"),
-        ChatEditCommand("Explain code", "Explain what this code does"),
-        ChatEditCommand("Refactor code", "Suggest how to refactor this code for better readability"),
-        ChatEditCommand("Generate documentation", "Add comprehensive documentation to this code"),
-        ChatEditCommand("Improve error handling", "Improve error handling in this code"),
-        ChatEditCommand("Optimize performance", "Optimize this code for better performance")
+    val commands = mutableListOf(
+        ChatEditCommand("Generate unit test", "Generate comprehensive unit tests for this code"),
+        ChatEditCommand("Explain code", "Explain what this code does in detail"),
+        ChatEditCommand("Refactor code", "Suggest refactoring improvements for better readability and maintainability"),
+        ChatEditCommand("Generate documentation", "Add comprehensive JavaDoc documentation to this code"),
+        ChatEditCommand("Improve error handling", "Improve error handling and add proper exception management"),
+        ChatEditCommand("Optimize performance", "Optimize this code for better performance"),
+        ChatEditCommand("Find bugs", "Identify potential bugs or issues in this code"),
+        ChatEditCommand("Add logging", "Add appropriate logging statements for debugging"),
+        ChatEditCommand("Convert to stream API", "Convert loops to Java Stream API where appropriate"),
+        ChatEditCommand("Extract method", "Extract complex logic into separate methods"),
+        ChatEditCommand("Add null checks", "Add proper null checks and validations")
     )
+    
+    // Check if the selected text contains TODOs
+    ReadAction.run<Throwable> {
+        val editor = ApplicationManager.getApplication().runReadAction<Editor?> {
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+        }
+        
+        if (editor != null && editor.selectionModel.hasSelection()) {
+            val selectedText = editor.selectionModel.selectedText ?: ""
+            if (ZestContextProvider.containsTodos(selectedText)) {
+                // Add TODO-specific command at the beginning
+                commands.add(0, ChatEditCommand("Implement TODOs", "Implement all TODO comments in the selected code"))
+            }
+        }
+    }
     
     result.complete(commands)
     return result
@@ -74,7 +95,7 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
         }
         
         if (editor == null) {
-            ZestNotifications.showInfo(
+            ZestNotifications.showError(
                 project,
                 "Inline Chat Error",
                 "No active editor found"
@@ -125,6 +146,17 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
             
             // Check if we extracted code
             if (inlineChatService.extractedCode != null) {
+                // Validate the implementation
+                val isValid = validateImplementation(originalText, inlineChatService.extractedCode!!)
+                
+                if (!isValid) {
+                    ZestNotifications.showWarning(
+                        project,
+                        "Inline Chat Warning",
+                        "The suggested changes may have significantly altered the code structure. Please review carefully."
+                    )
+                }
+                
                 ZestNotifications.showInfo(
                     project,
                     "Inline Chat",
@@ -169,6 +201,94 @@ fun processInlineChatCommand(project: Project, params: ChatEditParams): Deferred
 }
 
 /**
+ * Validates that the implemented code maintains the overall structure of the original code.
+ * This helps ensure the LLM hasn't drastically altered the code beyond the requested changes.
+ */
+private fun validateImplementation(originalCode: String, implementedCode: String): Boolean {
+    // Remove whitespace and comments for comparison
+    val normalizedOriginal = normalizeForComparison(originalCode)
+    val normalizedImplemented = normalizeForComparison(implementedCode)
+    
+    // Check if the implemented code has roughly similar structure
+    // by comparing size (allowing for reasonable expansion)
+    val originalSize = normalizedOriginal.length
+    val implementedSize = normalizedImplemented.length
+    
+    // Implementation should not be smaller than original (unless it's refactoring)
+    if (implementedSize < originalSize * 0.7) {
+        return false
+    }
+    
+    // Implementation should not be drastically larger (allowing for reasonable expansion)
+    if (implementedSize > originalSize * 5) {
+        return false
+    }
+    
+    // Check that key structural elements are preserved
+    val originalStructure = extractStructuralElements(originalCode)
+    val implementedStructure = extractStructuralElements(implementedCode)
+    
+    // Count how many structural elements are preserved
+    var preservedCount = 0
+    for (element in originalStructure) {
+        if (implementedStructure.contains(element)) {
+            preservedCount++
+        }
+    }
+    
+    // At least 60% of structural elements should be preserved
+    return if (originalStructure.isNotEmpty()) {
+        preservedCount.toDouble() / originalStructure.size >= 0.6
+    } else {
+        true // If no structural elements found, consider it valid
+    }
+}
+
+/**
+ * Normalizes code for comparison by removing whitespace and comments.
+ */
+private fun normalizeForComparison(code: String): String {
+    // Remove single-line comments
+    var normalized = code.replace(Regex("//.*?$", RegexOption.MULTILINE), "")
+    
+    // Remove multi-line comments
+    normalized = normalized.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+    
+    // Remove extra whitespace
+    normalized = normalized.replace(Regex("\\s+"), " ")
+    
+    // Trim
+    return normalized.trim()
+}
+
+/**
+ * Extracts structural elements (class names, method signatures) from code.
+ */
+private fun extractStructuralElements(code: String): Set<String> {
+    val elements = mutableSetOf<String>()
+    
+    // Extract class declarations
+    val classPattern = Regex("\\b(class|interface|enum)\\s+(\\w+)")
+    classPattern.findAll(code).forEach { match ->
+        elements.add("${match.groupValues[1]}:${match.groupValues[2]}")
+    }
+    
+    // Extract method signatures (simplified)
+    val methodPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*\\w+\\s+(\\w+)\\s*\\(")
+    methodPattern.findAll(code).forEach { match ->
+        elements.add("method:${match.groupValues[3]}")
+    }
+    
+    // Extract field declarations
+    val fieldPattern = Regex("\\b(public|private|protected)?\\s*(static)?\\s*(final)?\\s*\\w+\\s+(\\w+)\\s*[=;]")
+    fieldPattern.findAll(code).forEach { match ->
+        elements.add("field:${match.groupValues[4]}")
+    }
+    
+    return elements
+}
+
+/**
  * Resolve an edit (accept/discard/cancel)
  */
 fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Deferred<Boolean> {
@@ -181,7 +301,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
         }
         
         if (editor == null) {
-            ZestNotifications.showInfo(
+            ZestNotifications.showError(
                 project,
                 "Inline Chat Error",
                 "No active editor found"
@@ -195,7 +315,7 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 // Apply the changes to the document
                 val newCode = inlineChatService.applyChanges()
                 if (newCode != null) {
-                    ApplicationManager.getApplication().runWriteAction {
+                    WriteAction.run<Throwable> {
                         // Apply changes to the document
                         val document = editor.document
                         val selectionModel = editor.selectionModel

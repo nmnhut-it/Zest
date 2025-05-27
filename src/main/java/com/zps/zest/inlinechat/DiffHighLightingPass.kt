@@ -46,7 +46,8 @@ class DiffHighlightingPassFactory : TextEditorHighlightingPassFactory {
 }
 
 /**
- * Highlighting pass that shows the diff between original code and AI-suggested changes
+ * Highlighting pass that shows the diff between original code and AI-suggested changes.
+ * Enhanced to work with IntelliJ's diff fragments and provide better visualization.
  */
 class DiffHighLightingPass(project: Project, document: Document, val editor: Editor) :
     TextEditorHighlightingPass(project, document, true), DumbAware {
@@ -63,9 +64,12 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
 
     init {
         colorsScheme = EditorColorsManager.getInstance().globalScheme
+        
+        // Enhanced color scheme for better visibility
         val headerColor = Color(64f / 255, 166f / 255, 1f, 0.5f)  // Bright blue with 50% opacity
         val insertColor = Color(0f, 128f / 255, 0f, 0.3f)         // Green with 30% opacity
         val deleteColor = Color(220f / 255, 20f / 255, 60f / 255, 0.3f)  // Crimson with 30% opacity
+        val modifiedColor = Color(255f / 255, 165f / 255, 0f, 0.3f)  // Orange with 30% opacity
         
         lineAttributesMap = mapOf(
             "header" to TextAttributes(
@@ -112,7 +116,7 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             ),
             "unchanged" to TextAttributes(
                 null, 
-                Color(230, 230, 230, 40),  // Very light gray with low opacity
+                Color(240, 240, 240, 20),  // Very light gray with very low opacity
                 null, 
                 null, 
                 0
@@ -131,6 +135,13 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 null, 
                 0
             ),
+            "modified" to TextAttributes(
+                null,
+                modifiedColor,
+                null,
+                null,
+                0
+            )
         )
 
         textAttributesMap = mapOf(
@@ -148,6 +159,13 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 null,
                 0
             ),
+            "modified" to TextAttributes(
+                Color(184, 134, 11),  // Dark goldenrod text
+                Color(255, 223, 186, 80),  // Peach with low opacity
+                null,
+                null,
+                0
+            )
         )
     }
 
@@ -160,34 +178,41 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             // Sort segments by line number to ensure correct processing
             val sortedSegments = diffSegments.sortedBy { it.startLine }
             
+            // Keep track of processed lines to avoid overlapping highlights
+            val processedLines = mutableSetOf<Int>()
+            
             // Process segments in order
             sortedSegments.forEach { segment ->
+                // Skip if these lines have already been processed
+                val linesToProcess = (segment.startLine..segment.endLine).filter { !processedLines.contains(it) }
+                if (linesToProcess.isEmpty()) return@forEach
+                
                 when (segment.type) {
-                    DiffSegmentType.UNCHANGED -> highlightSegment(segment, "unchanged")
-                    DiffSegmentType.INSERTED -> highlightSegment(segment, "inserted")
-                    DiffSegmentType.DELETED -> highlightSegment(segment, "deleted")
-                    DiffSegmentType.HEADER -> highlightSegment(segment, "header")
-                    DiffSegmentType.FOOTER -> highlightSegment(segment, "footer")
-                    DiffSegmentType.COMMENT -> highlightSegment(segment, "comments")
+                    DiffSegmentType.UNCHANGED -> highlightSegment(segment, "unchanged", processedLines)
+                    DiffSegmentType.INSERTED -> highlightSegment(segment, "inserted", processedLines)
+                    DiffSegmentType.DELETED -> highlightSegment(segment, "deleted", processedLines)
+                    DiffSegmentType.HEADER -> highlightSegment(segment, "header", processedLines)
+                    DiffSegmentType.FOOTER -> highlightSegment(segment, "footer", processedLines)
+                    DiffSegmentType.COMMENT -> highlightSegment(segment, "comments", processedLines)
                 }
             }
+            
+            // Add subtle highlighting for modified lines (lines that were changed but not purely inserted/deleted)
+            highlightModifiedLines(sortedSegments)
         }
     }
 
-    private fun highlightSegment(segment: DiffSegment, type: String) {
+    private fun highlightSegment(segment: DiffSegment, type: String, processedLines: MutableSet<Int>) {
         val startLine = segment.startLine
         val endLine = segment.endLine
-        val startOffset = if (startLine >= 0 && startLine < myDocument.lineCount) {
-            myDocument.getLineStartOffset(startLine)
-        } else {
+        
+        // Validate line numbers
+        if (startLine < 0 || endLine < 0 || startLine >= myDocument.lineCount || endLine >= myDocument.lineCount) {
             return
         }
         
-        val endOffset = if (endLine >= 0 && endLine < myDocument.lineCount) {
-            myDocument.getLineEndOffset(endLine)
-        } else {
-            return
-        }
+        val startOffset = myDocument.getLineStartOffset(startLine)
+        val endOffset = myDocument.getLineEndOffset(endLine)
         
         val textRange = TextRange(startOffset, endOffset)
         val attributes = when {
@@ -195,14 +220,61 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             else -> lineAttributesMap[type] ?: return
         }
         
+        // Build highlight with descriptive tooltip
+        val tooltip = when (segment.type) {
+            DiffSegmentType.INSERTED -> "Added by AI suggestion"
+            DiffSegmentType.DELETED -> "Removed by AI suggestion"
+            DiffSegmentType.UNCHANGED -> "Unchanged"
+            DiffSegmentType.HEADER -> "AI suggestion start"
+            DiffSegmentType.FOOTER -> "AI suggestion end"
+            DiffSegmentType.COMMENT -> "AI comment"
+        }
+        
         val builder = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
             .range(textRange)
             .textAttributes(attributes)
-            .descriptionAndTooltip("Zest inline diff")
+            .descriptionAndTooltip(tooltip)
             .severity(HighlightSeverity.TEXT_ATTRIBUTES)
         
         val highlight = builder.create() ?: return
         highlights.add(highlight)
+        
+        // Mark lines as processed
+        for (line in startLine..endLine) {
+            processedLines.add(line)
+        }
+    }
+    
+    /**
+     * Highlight lines that were modified (not purely inserted or deleted)
+     */
+    private fun highlightModifiedLines(segments: List<DiffSegment>) {
+        // Look for patterns where a deletion is immediately followed by an insertion
+        // This typically indicates a modification
+        for (i in 0 until segments.size - 1) {
+            val current = segments[i]
+            val next = segments[i + 1]
+            
+            if (current.type == DiffSegmentType.DELETED && next.type == DiffSegmentType.INSERTED) {
+                // Check if they're adjacent or very close
+                if (kotlin.math.abs(current.endLine - next.startLine) <= 1) {
+                    // This is likely a modification - add special highlighting
+                    val modifiedRange = TextRange(
+                        myDocument.getLineStartOffset(next.startLine.coerceIn(0, myDocument.lineCount - 1)),
+                        myDocument.getLineEndOffset(next.endLine.coerceIn(0, myDocument.lineCount - 1))
+                    )
+                    
+                    val builder = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
+                        .range(modifiedRange)
+                        .textAttributes(lineAttributesMap["modified"] ?: return)
+                        .descriptionAndTooltip("Modified by AI suggestion")
+                        .severity(HighlightSeverity.TEXT_ATTRIBUTES)
+                    
+                    val highlight = builder.create() ?: continue
+                    highlights.add(highlight)
+                }
+            }
+        }
     }
 
     override fun doApplyInformationToEditor() {
@@ -223,6 +295,9 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 myProject, myDocument, minOffset, maxOffset,
                 highlights, colorsScheme, id
             )
+            
+            // Log highlighting statistics for debugging
+            logger.debug("Applied ${highlights.size} diff highlights")
         }
     }
 }

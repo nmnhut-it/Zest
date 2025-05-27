@@ -70,6 +70,14 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
     }
 
     override fun getText(): String {
+        // Check if the selection contains TODOs
+        val editor = this.editor
+        if (editor != null && editor.selectionModel.hasSelection()) {
+            val selectedText = editor.selectionModel.selectedText ?: ""
+            if (ZestContextProvider.containsTodos(selectedText)) {
+                return "Open Zest inline edit (TODOs detected)"
+            }
+        }
         return "Open Zest inline edit"
     }
 
@@ -422,7 +430,14 @@ class InlineInputComponent(
                 CommandListItem(
                     label = it.label,
                     value = it.command,
-                    icon = AllIcons.Actions.IntentionBulbGrey,
+                    icon = when {
+                        it.label.contains("TODO", ignoreCase = true) -> AllIcons.General.TodoDefault
+                        it.label.contains("test", ignoreCase = true) -> AllIcons.RunConfigurations.TestState.Run
+                        it.label.contains("document", ignoreCase = true) -> AllIcons.Actions.Edit
+                        it.label.contains("refactor", ignoreCase = true) -> AllIcons.Actions.RefactoringBulb
+                        it.label.contains("bug", ignoreCase = true) -> AllIcons.General.BalloonError
+                        else -> AllIcons.Actions.IntentionBulbGrey
+                    },
                     description = it.command,
                     canDelete = false
                 )

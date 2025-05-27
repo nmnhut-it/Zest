@@ -2,12 +2,12 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.828</version>  <!-- Replace with your actual version -->
+    <version>1.9.829</version>  <!-- Replace with your actual version -->
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
     <name>Zest</name>
-
+    
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
     <description><![CDATA[
@@ -18,6 +18,9 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
+    
+    <!-- IDE compatibility -->
+    <idea-version since-build="223.0" until-build="243.*"/>
 
     <projectListeners>
         <listener class="com.zps.zest.RagManagerProjectListener"
@@ -31,14 +34,14 @@
         <toolWindow id="ZPS Chat"
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
-                    icon="AllIcons.General.Web"
+                    icon="icons/zpsChat.svg"
                     canCloseContents="false"/>
 
         <!-- Register the test writing tool window factory -->
         <toolWindow id="Test Writing Assistant"
                     anchor="bottom"
                     factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
-                    icon="AllIcons.RunConfigurations.TestState.Run"
+                    icon="icons/testWriting.svg"
                     canCloseContents="true"
                     doNotActivateOnStart="false"
                     secondary="false"/>
@@ -47,8 +50,9 @@
         <toolWindow id="Refactoring for Testability"
                     anchor="bottom"
                     factoryClass="com.zps.zest.refactoring.RefactoringToolWindowFactory"
-                    icon="AllIcons.Actions.RefactoringBulb"
+                    icon="icons/refactoring.svg"
                     canCloseContents="true"
+                    doNotActivateOnStart="false"
                     secondary="false"/>
 
         <!-- Register notification group -->
@@ -56,74 +60,95 @@
 
     </extensions>
     <actions>
-        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true">
+        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
 
-        <!-- CHAT ACTIONS GROUP -->
+        <!-- TESTING ACTIONS -->
 
-        <!-- Agent-based Test Writing (most discoverable) -->
+        <!-- Step-by-Step Test Writing -->
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
-                text="Agent: Step-by-Step Test Writing"
+                text="Step-by-Step Test Writing (Agent)"
+                icon="icons/testWriting16.svg"
                 description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
             <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>
-        <!-- Agent-based Refactoring -->
-        <action id="Zest.AgentBasedRefactoringAction"
-                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
-                text="Agent: Step-by-Step Refactor for Testability"
-                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
-        </action>
-        <!-- One-click Write Test -->
+        
+        <!-- Quick Test Generator -->
         <action id="com.zps.zest.GenerateTestByLlm"
                 class="com.zps.zest.GenerateTestByLlm"
-                text="Agent: One-Click Write Test"
-                description="Write tests by LLMs">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
+                text="Quick Test Generator (Agent)"
+                icon="icons/testWriting16.svg"
+                description="Automatically generate tests for the current class">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
         </action>
-        <!-- Add Comment for This Class -->
-        <action id="Zest.GenerateCodeCommentsAction"
-                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"
-                text="Agent: Write Comment for Selected Text"
-                description="Add comment for this class">
+        
+        <!-- Test Advisor -->
+        <action id="Zest.SendPipelineToChatBox"
+                class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
+                text="Test Advisor (Chat)"
+                icon="icons/testWriting16.svg"
+                description="Get advice on writing tests for this class">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
         </action>
+
+        <!-- REFACTORING ACTIONS -->
+        
+        <!-- Step-by-Step Refactoring -->
+        <action id="Zest.AgentBasedRefactoringAction"
+                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
+                text="Step-by-Step Refactoring (Agent)"
+                icon="icons/refactoring16.svg"
+                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
+        </action>
+        
+        <!-- Refactoring Advisor -->
+        <action id="Zest.RefactorForTestabilityAction"
+                class="com.zps.zest.RefactorForTestabilityAction"
+                text="Refactoring Advisor (Chat)"
+                icon="icons/refactoring16.svg"
+                description="Get advice on how to refactor the selected code for testability">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
+        </action>
+
+        <!-- CODE ENHANCEMENT ACTIONS -->
+        
+        <!-- Code Review -->
+        <action id="Zest.SendCodeReviewToChatBox"
+                class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
+                text="Code Review (Chat)"
+                icon="icons/zpsChat16.svg"
+                description="Get a code review for the current class">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.RefactorForTestabilityAction"/>
+        </action>
+        
+        <!-- Add Comments -->
+        <action id="Zest.GenerateCodeCommentsAction"
+                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"
+                text="Add Comments (Agent)"
+                description="Generate comments for the selected code">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>
+        </action>
+        
         <!-- Implement TODOs -->
         <action id="com.zps.zest.ImplementTodosAction"
                 class="com.zps.zest.ImplementTodosAction"
-                text="Implement Your TODOs"
-                description="Implement TODOs in selected code using Ollama">
+                text="Implement TODOs"
+                description="Implement TODOs in selected code using AI">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>
         </action>
-        <!-- Review This Class -->
-        <action id="Zest.SendCodeReviewToChatBox"
-                class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
-                text="Chat: Review This Class"
-                description="Review this class in chat ZPS">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
-        </action>
-        <!-- Refactor Advisory (Chat) -->
-        <action id="Zest.RefactorForTestabilityAction"
-                class="com.zps.zest.RefactorForTestabilityAction"
-                text="Chat: Refactor Advisory for Testability"
-                description="Give advice on how to refactor the selected code for testability of this class">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>
-        </action>
-        <!-- Write Tests for This Class (Chat) -->
-        <action id="Zest.SendPipelineToChatBox"
-                class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
-                text="Chat: Write Tests for This Class"
-                description="Generate a test prompt and send it to chat box">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.RefactorForTestabilityAction"/>
-        </action>
-        <!-- Generate Git Commit Message (Chat) -->
+
+        <!-- VERSION CONTROL ACTIONS -->
+        
+        <!-- Generate Commit Message -->
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
-                text="Chat: Generate Git Commit Message"
-                description="Generate commit message based on git changes">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
+                text="Generate Commit Message (Chat)"
+                icon="icons/zpsChat16.svg"
+                description="Generate a commit message based on git changes">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
         
         <!-- Simple Git Diff Viewer -->
@@ -135,7 +160,9 @@
 <!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
 <!--        </action>-->
 
-        <!-- Developer Tools (kept in Tools menu) -->
+        <!-- DEVELOPER TOOLS -->
+        
+        <!-- Toggle Dev Tools -->
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                 text="Toggle ZPS Chat Developer Tools"

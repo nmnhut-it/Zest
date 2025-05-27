@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Testing beaker with checkmark - line-based -->
+  <path d="M11 2H5V4L2 10V12.5C2 13.3284 2.67157 14 3.5 14H12.5C13.3284 14 14 13.3284 14 12.5V10L11 4V2Z" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+  <path d="M6 2H10V4H6V2Z" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+  <path d="M8 11L5 8L6.5 6.5L8 8L10.5 5.5L12 7" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+</svg>

@@ -3,6 +3,7 @@ package com.zps.zest.testing;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
@@ -10,6 +11,7 @@ import com.intellij.ui.content.ContentFactory;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.net.URL;
 
 /**
  * Factory for creating the Test Writing Assistant tool window.
@@ -52,7 +54,9 @@ public class TestWritingToolWindowFactory implements ToolWindowFactory, DumbAwar
         LOG.info("Initializing Test Writing Assistant tool window for IntelliJ 2024 compatibility");
         toolWindow.setTitle("Test Writing Assistant");
         toolWindow.setStripeTitle("Test Writing");
-        toolWindow.setIcon(com.intellij.icons.AllIcons.RunConfigurations.TestState.Run);
+        // Load icon manually from resources
+//        toolWindow.setIcon(com.zps.zest.ZestIcons.TEST_WRITING);
+
         toolWindow.setAvailable(true);
         LOG.info("Tool window availability set to true");
     }

@@ -148,7 +148,7 @@ public class TestWritingToolWindow {
                         com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
                     );
                     toolWindow.setTitle("Test Writing Assistant");
-                    toolWindow.setIcon(com.intellij.icons.AllIcons.RunConfigurations.TestState.Run);
+//                    toolWindow.setIcon(com.intellij.icons.AllIcons.RunConfigurations.TestState.Run);
                 }
 
                 // Create and set content

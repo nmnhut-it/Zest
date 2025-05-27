@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chat bubble with AI enhancement - line-based -->
+  <path d="M13.5 4.5C13.5 3.39543 12.6046 2.5 11.5 2.5H4.5C3.39543 2.5 2.5 3.39543 2.5 4.5V9.5C2.5 10.6046 3.39543 11.5 4.5 11.5H6.5L8 14L9.5 11.5H11.5C12.6046 11.5 13.5 10.6046 13.5 9.5V4.5Z" stroke="#AFB1B3" stroke-width="1" fill="none"/>
+  <!-- AI-like network pattern inside -->
+  <circle cx="5" cy="6" r="0.75" stroke="#AFB1B3" stroke-width="0.5" fill="none"/>
+  <circle cx="8" cy="6" r="0.75" stroke="#AFB1B3" stroke-width="0.5" fill="none"/>
+  <circle cx="11" cy="6" r="0.75" stroke="#AFB1B3" stroke-width="0.5" fill="none"/>
+  <circle cx="6.5" cy="8.5" r="0.75" stroke="#AFB1B3" stroke-width="0.5" fill="none"/>
+  <circle cx="9.5" cy="8.5" r="0.75" stroke="#AFB1B3" stroke-width="0.5" fill="none"/>
+  <path d="M5 6L6.5 8.5M5 6L8 6M8 6L6.5 8.5M8 6L9.5 8.5M11 6L9.5 8.5" stroke="#AFB1B3" stroke-width="0.5"/>
+</svg>

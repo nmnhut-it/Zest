@@ -19,9 +19,9 @@ class InlineChatService(private val project: Project) : Disposable {
     
     companion object {
         // Debug flags - set to true to enable debug output
-        const val DEBUG_SERVICE = true
+        const val DEBUG_SERVICE = false
         const val DEBUG_DIFF_SEGMENTS = false
-        const val DEBUG_CODE_EXTRACTION = true
+        const val DEBUG_CODE_EXTRACTION = false
     }
 
     var inlineChatInputVisible = false
@@ -43,9 +43,6 @@ class InlineChatService(private val project: Project) : Disposable {
     
     // Preview manager for inline preview
     var editorPreview: InlineChatEditorPreview? = null
-    
-    // Current floating toolbar (if shown)
-    private var floatingToolbar: InlineChatFloatingToolbar? = null
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value }
@@ -97,16 +94,6 @@ class InlineChatService(private val project: Project) : Disposable {
                     System.out.println("Triggering DaemonCodeAnalyzer restart for Code Vision update")
                 }
                 com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-                
-                // Show floating toolbar as a fallback
-                val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
-                if (editor != null) {
-                    if (DEBUG_SERVICE) {
-                        System.out.println("Showing floating toolbar for Accept/Reject actions")
-                    }
-                    floatingToolbar = InlineChatFloatingToolbar(project, editor)
-                    floatingToolbar?.show()
-                }
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -401,10 +388,6 @@ class InlineChatService(private val project: Project) : Disposable {
         editorPreview = null
         location = null
         inlineChatInputVisible = false
-        
-        // Hide floating toolbar if shown
-        floatingToolbar?.hide()
-        floatingToolbar = null
         
         if (DEBUG_SERVICE) {
             System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")

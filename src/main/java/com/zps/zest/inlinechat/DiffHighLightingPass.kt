@@ -54,7 +54,7 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
     
     companion object {
         // Debug flag - set to true to enable debug output
-        const val DEBUG_HIGHLIGHTING = true
+        const val DEBUG_HIGHLIGHTING = false
     }
 
     private val logger = Logger.getInstance(DiffHighLightingPass::class.java)

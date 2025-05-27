@@ -22,7 +22,7 @@ import javax.swing.Icon
 abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware {
     companion object {
         // Debug flag - set to true to enable debug output
-        const val DEBUG_CODE_VISION = true
+        const val DEBUG_CODE_VISION = false
         
         init {
             if (DEBUG_CODE_VISION) {
@@ -137,7 +137,16 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
             return
         }
         val editorDataContext = DataManager.getInstance().getDataContext(editor.component)
-        ActionUtil.invokeAction(getAction(actionId!!), editorDataContext, "", null, null)
+        val action = getAction(actionId!!)
+        val event = com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext(
+            "", 
+            com.intellij.openapi.actionSystem.impl.SimpleDataContext.getSimpleContext(
+                com.intellij.openapi.actionSystem.CommonDataKeys.EDITOR,
+                editor,
+                editorDataContext
+            )
+        )
+        ActionUtil.invokeAction(action, event, null)
     }
 
     private fun getAction(actionId: String) = ActionManager.getInstance().getAction(actionId)

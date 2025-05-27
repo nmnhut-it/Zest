@@ -81,14 +81,14 @@
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatCancelCodeVisionProvider"/>
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatAcceptCodeVisionProvider"/>
         <codeVisionProvider implementation="com.zps.zest.inlinechat.InlineChatDiscardCodeVisionProvider"/>
-        <codeVisionProvider implementation="com.zps.zest.inlinechat.TestCodeVisionProvider"/>
+
     </extensions>
     <actions>
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
 
-        <!-- TESTING ACTIONS -->
+        <!-- INLINE CHAT ACTIONS -->
 
         <!-- Inline Chat Actions -->
         <action id="Zest.InlineChatAction" 
@@ -103,105 +103,6 @@
                 class="com.zps.zest.inlinechat.InlineChatAcceptAction"
                 text="Accept Inline Edit" 
                 description="Accept the changes proposed by the inline AI editor"/>
-                
-        <!-- Test action for diff highlighting -->
-        <action id="Zest.TestCommentAction"
-                class="com.zps.zest.inlinechat.TestCommentAction"
-                text="Test Diff Highlighting" 
-                description="Test the diff highlighting by adding comments to every line"
-                icon="AllIcons.Actions.Diff">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift T"/>
-        </action>
-        
-        <!-- Test action for true inline preview -->
-        <action id="Zest.TestTrueInlinePreviewAction"
-                class="com.zps.zest.inlinechat.TestTrueInlinePreviewAction"
-                text="Test True Inline Preview (In Editor)" 
-                description="Test inline preview that replaces text directly in the editor"
-                icon="AllIcons.Actions.InlayRenameInNoCodeFiles">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt I"/>
-        </action>
-        
-        <!-- Test action for inline chat with preview -->
-        <action id="Zest.TestInlineChatWithPreviewAction"
-                class="com.zps.zest.inlinechat.TestInlineChatWithPreviewAction"
-                text="Test Inline Chat with Preview" 
-                description="Test the inline chat feature with proper preview before applying"
-                icon="AllIcons.Actions.Preview">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift P"/>
-        </action>
-        
-        <!-- Test action for inline chat with fake LLM response -->
-        <action id="Zest.TestInlineChatAction"
-                class="com.zps.zest.inlinechat.TestInlineChatAction"
-                text="Test Inline Chat (Fake LLM)" 
-                description="Test the inline chat feature with a fake LLM response that adds comments"
-                icon="AllIcons.Debugger.Db_muted_breakpoint">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift I"/>
-        </action>
-        
-        <!-- Test action for inline chat buttons -->
-        <action id="Zest.TestInlineChatButtonsAction"
-                class="com.zps.zest.inlinechat.TestInlineChatButtonsAction"
-                text="Test Inline Chat Buttons (Show UI)" 
-                description="Test the inline chat accept/reject buttons without LLM call"
-                icon="AllIcons.General.InspectionsEye">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift B"/>
-        </action>
-        
-        <!-- Debug action for inline chat -->
-        <action id="Zest.DebugInlineChatAction"
-                class="com.zps.zest.inlinechat.DebugInlineChatAction"
-                text="Debug Inline Chat State" 
-                description="Show debug information about inline chat and code vision"
-                icon="AllIcons.Actions.StartDebugger">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift D"/>
-        </action>
-        
-        <!-- Test action for Code Vision -->
-        <action id="Zest.TestCodeVisionAction"
-                class="com.zps.zest.inlinechat.TestCodeVisionAction"
-                text="Test Code Vision Buttons" 
-                description="Test if Code Vision buttons are working"
-                icon="AllIcons.General.InspectionsOK">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift V"/>
-        </action>
-        
-        <!-- Test action for direct diff replacement -->
-        <action id="Zest.TestDirectDiffAction"
-                class="com.zps.zest.inlinechat.TestDirectDiffAction"
-                text="Test Direct Diff (Replace Text)" 
-                description="Test diff by directly replacing selected text"
-                icon="AllIcons.Vcs.Patch">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift R"/>
-        </action>
-        
-        <!-- Action to clear all diff highlighting -->
-        <action id="Zest.ClearHighlightsAction"
-                class="com.zps.zest.inlinechat.ClearHighlightsAction"
-                text="Clear Diff Highlighting" 
-                description="Clear all diff highlighting from the editor"
-                icon="AllIcons.Actions.Cancel">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="alt shift C"/>
-        </action>
                 
         <action id="Zest.InlineChatDiscardAction"
                 class="com.zps.zest.inlinechat.InlineChatDiscardAction"

@@ -21,8 +21,10 @@ import com.intellij.ui.components.IconLabelButton
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.ZestNotifications
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import java.awt.*
 import java.awt.event.FocusAdapter
@@ -116,7 +118,6 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
     private fun chatEdit(command: String) {
         val scope = CoroutineScope(Dispatchers.IO)
         val inlineChatService = project?.serviceOrNull<InlineChatService>() ?: return
-        val editor = editor ?: return
         
         scope.launch {
             // We need to get the location in a read action since we're in a background thread
@@ -418,9 +419,8 @@ class InlineInputComponent(
     }
 
     private fun getCommandList(): List<CommandListItem> {
-        val location = project.serviceOrNull<InlineChatService>()?.location ?: return emptyList()
         val suggestedItems = try {
-            getSuggestedCommands(project, location).let { deferred -> 
+            getSuggestedCommands(project).let { deferred -> 
                 // This is a simplified approach - in a real implementation,
                 // you would handle this asynchronously
                 deferred.invokeOnCompletion {
@@ -431,6 +431,7 @@ class InlineInputComponent(
                     }
                 }
                 
+                @OptIn(ExperimentalCoroutinesApi::class)
                 if (deferred.isCompleted) {
                     deferred.getCompleted()
                 } else {

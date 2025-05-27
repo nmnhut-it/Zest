@@ -17,8 +17,8 @@ import kotlinx.coroutines.launch
 import org.eclipse.lsp4j.*
 
 // Debug flags for Utils.kt
-private const val DEBUG_PROCESS_COMMAND = true
-private const val DEBUG_RESPONSE_HANDLING = true
+private const val DEBUG_PROCESS_COMMAND = false
+private const val DEBUG_RESPONSE_HANDLING = false
 
 /**
  * Location information with start offset
@@ -52,7 +52,7 @@ fun getCurrentLocation(editor: Editor): LocationInfo {
 /**
  * Gets suggested commands for inline chat based on context
  */
-fun getSuggestedCommands(project: Project, location: Location): Deferred<List<ChatEditCommand>> {
+fun getSuggestedCommands(project: Project): Deferred<List<ChatEditCommand>> {
     val result = CompletableDeferred<List<ChatEditCommand>>()
     
     // Get useful commands based on context

@@ -440,75 +440,90 @@ class InlineChatService(private val project: Project) : Disposable {
         // Clear all state first - state clearing is safe to do from any thread
         clearState()
         
-        // All UI operations must be done on EDT
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                // Get the current editor - this is a read operation
-                val editor = ApplicationManager.getApplication().runReadAction<Editor?> {
-                    com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
-                } ?: return@invokeLater
-                
-                // Force DaemonCodeAnalyzer to restart completely on EDT
-                com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-                
-                // Clear all highlighters manually - READ operations first, then UI modifications
-                val highlightersToRemove = ApplicationManager.getApplication().runReadAction<List<RangeHighlighter>> {
-                    try {
-                        val markupModel = editor.markupModel
-                        val highlighters = markupModel.allHighlighters
+        // All UI operations must be done on EDT - use invokeAndWait to ensure completion
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            // Already on EDT, execute directly
+            performClearHighlights()
+        } else {
+            // Not on EDT, use invokeAndWait
+            ApplicationManager.getApplication().invokeAndWait {
+                performClearHighlights()
+            }
+        }
+    }
+    
+    /**
+     * Helper method to perform the actual highlight clearing on EDT
+     */
+    private fun performClearHighlights() {
+        try {
+            // Get the current editor - this is a read operation
+            val editor = ApplicationManager.getApplication().runReadAction<Editor?> {
+                com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+            } ?: return
+            
+            // Force DaemonCodeAnalyzer to restart completely on EDT
+            com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
+            
+            // Clear all highlighters manually - READ operations first, then UI modifications
+            val highlightersToRemove = ApplicationManager.getApplication().runReadAction<List<RangeHighlighter>> {
+                try {
+                    val markupModel = editor.markupModel
+                    val highlighters = markupModel.allHighlighters
+                    
+                    // Find highlighters that match our criteria
+                    highlighters.filter { highlighter ->
+                        if (!highlighter.isValid) return@filter false
                         
-                        // Find highlighters that match our criteria
-                        highlighters.filter { highlighter ->
-                            if (!highlighter.isValid) return@filter false
-                            
-                            // Check if it's one of our layers or if it has one of our tooltips
-                            val tooltip = highlighter.errorStripeTooltip
-                            (
-                                highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX ||
-                                highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.LAST ||
-                                highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.SELECTION + 1 ||
-                                (tooltip is String && (
-                                    tooltip.contains("AI suggestion") || 
-                                    tooltip.contains("Added by AI") || 
-                                    tooltip.contains("Removed by AI") ||
-                                    tooltip.contains("Unchanged") ||
-                                    tooltip.contains("AI comment")
-                                ))
-                            )
-                        }
-                    } catch (e: Exception) {
-                        if (DEBUG_SERVICE) {
-                            System.out.println("Error finding highlighters: ${e.message}")
-                        }
-                        emptyList()
+                        // Check if it's one of our layers or if it has one of our tooltips
+                        val tooltip = highlighter.errorStripeTooltip
+                        (
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX ||
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.LAST ||
+                            highlighter.layer == com.intellij.openapi.editor.markup.HighlighterLayer.SELECTION + 1 ||
+                            (tooltip is String && (
+                                tooltip.contains("AI suggestion") || 
+                                tooltip.contains("Added by AI") || 
+                                tooltip.contains("Removed by AI") ||
+                                tooltip.contains("Unchanged") ||
+                                tooltip.contains("AI comment")
+                            ))
+                        )
                     }
+                } catch (e: Exception) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Error finding highlighters: ${e.message}")
+                    }
+                    emptyList()
                 }
-                
-                // Now remove the highlighters we found - this is a UI operation
-                highlightersToRemove.forEach { highlighter ->
-                    try {
-                        if (highlighter.isValid) {
-                            editor.markupModel.removeHighlighter(highlighter)
-                            if (DEBUG_SERVICE) {
-                                System.out.println("Removed highlighter: ${highlighter.errorStripeTooltip}")
-                            }
-                        }
-                    } catch (e: Exception) {
+            }
+            
+            // Now remove the highlighters we found - this is a UI operation
+            highlightersToRemove.forEach { highlighter ->
+                try {
+                    if (highlighter.isValid) {
+                        editor.markupModel.removeHighlighter(highlighter)
                         if (DEBUG_SERVICE) {
-                            System.out.println("Error removing highlighter: ${e.message}")
+                            System.out.println("Removed highlighter: ${highlighter.errorStripeTooltip}")
                         }
                     }
+                } catch (e: Exception) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Error removing highlighter: ${e.message}")
+                    }
                 }
-                
-                // Force editor repaint on EDT
-                editor.contentComponent.repaint()
-                
-                if (DEBUG_SERVICE) {
-                    System.out.println("Forced clear complete")
-                }
-                
-                // Add a small delay and force another refresh
-                javax.swing.Timer(500, { _ ->
+            }
+            
+            // Force editor repaint on EDT
+            editor.contentComponent.repaint()
+            
+            if (DEBUG_SERVICE) {
+                System.out.println("Forced clear complete")
+            }
+            
+            // Add a small delay and force another refresh
+            javax.swing.Timer(500, { _ ->
+                try {
                     // This timer callback will run on EDT
                     // Force another DaemonCodeAnalyzer restart to be safe
                     com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
@@ -516,15 +531,19 @@ class InlineChatService(private val project: Project) : Disposable {
                     if (DEBUG_SERVICE) {
                         System.out.println("Secondary refresh complete")
                     }
-                }).apply { 
-                    isRepeats = false
-                    start() 
+                } catch (e: Exception) {
+                    if (DEBUG_SERVICE) {
+                        System.out.println("Error in timer callback: ${e.message}")
+                    }
                 }
-            } catch (e: Exception) {
-                if (DEBUG_SERVICE) {
-                    System.out.println("Error in forceClearAllHighlights: ${e.message}")
-                    e.printStackTrace()
-                }
+            }).apply { 
+                isRepeats = false
+                start() 
+            }
+        } catch (e: Exception) {
+            if (DEBUG_SERVICE) {
+                System.out.println("Error in performClearHighlights: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

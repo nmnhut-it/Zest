@@ -456,152 +456,126 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
     val result = CompletableDeferred<Boolean>()
     
     try {
+        // Get the InlineChatService reference
         val inlineChatService = project.getService(InlineChatService::class.java)
-        val editor = ApplicationManager.getApplication().runReadAction<Editor?> {
-            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
-        }
         
-        if (editor == null) {
-            ZestNotifications.showError(
-                project,
-                "Inline Chat Error",
-                "No active editor found"
-            )
-            result.complete(false)
-            return result
-        }
-        
-        when (params.action) {
-            "accept" -> {
-                // If we have an inline preview, accept it
-                val preview = inlineChatService.editorPreview
-                if (preview != null && preview.isPreviewActive()) {
-                    preview.acceptPreview()
-                    // Clear the selection after accepting changes
-                    editor.selectionModel.removeSelection()
-                    ZestNotifications.showInfo(
+        // Get the editor, but ensure we're doing it on EDT
+        ApplicationManager.getApplication().invokeAndWait {
+            try {
+                val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
+                
+                if (editor == null) {
+                    ZestNotifications.showError(
                         project,
-                        "Inline Chat",
-                        "Changes accepted"
+                        "Inline Chat Error",
+                        "No active editor found"
                     )
-                } else {
-                    // Fallback to old behavior if no preview
-                    val newCode = inlineChatService.applyChanges()
-                    if (newCode != null) {
-                        WriteAction.run<Throwable> {
-                            val document = editor.document
-                            val selectionModel = editor.selectionModel
-                            
-                            if (selectionModel.hasSelection()) {
-                                val startOffset = selectionModel.selectionStart
-                                val endOffset = selectionModel.selectionEnd
-                                document.replaceString(startOffset, endOffset, newCode)
-                                // Clear the selection after replacing
-                                editor.selectionModel.removeSelection()
+                    result.complete(false)
+                    return@invokeAndWait
+                }
+                
+                when (params.action) {
+                    "accept" -> {
+                        // If we have an inline preview, accept it
+                        val preview = inlineChatService.editorPreview
+                        if (preview != null && preview.isPreviewActive()) {
+                            preview.acceptPreview()
+                            // Clear the selection after accepting changes
+                            editor.selectionModel.removeSelection()
+                            ZestNotifications.showInfo(
+                                project,
+                                "Inline Chat",
+                                "Changes accepted"
+                            )
+                        } else {
+                            // Fallback to old behavior if no preview
+                            val newCode = inlineChatService.applyChanges()
+                            if (newCode != null) {
+                                // Ensure document modifications are done in a write action on EDT
+                                com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, "Apply Inline Chat Changes", null, Runnable {
+                                    val document = editor.document
+                                    val selectionModel = editor.selectionModel
+                                    
+                                    if (selectionModel.hasSelection()) {
+                                        val startOffset = selectionModel.selectionStart
+                                        val endOffset = selectionModel.selectionEnd
+                                        document.replaceString(startOffset, endOffset, newCode)
+                                        // Clear the selection after replacing
+                                        editor.selectionModel.removeSelection()
+                                    } else {
+                                        document.setText(newCode)
+                                    }
+                                })
+                                
+                                ZestNotifications.showInfo(
+                                    project,
+                                    "Inline Chat",
+                                    "Changes applied successfully"
+                                )
                             } else {
-                                document.setText(newCode)
+                                ZestNotifications.showError(
+                                    project,
+                                    "Inline Chat",
+                                    "No changes to apply"
+                                )
                             }
                         }
+                    }
+                    "discard" -> {
+                        // If we have an inline preview, hide it
+                        val preview = inlineChatService.editorPreview
+                        if (preview != null && preview.isPreviewActive()) {
+                            preview.hidePreview()
+                        }
+                        
+                        // Clear the selection after we're done processing
+                        editor.selectionModel.removeSelection()
                         
                         ZestNotifications.showInfo(
                             project,
                             "Inline Chat",
-                            "Changes applied successfully"
+                            "Changes discarded"
                         )
-                    } else {
-                        ZestNotifications.showError(
+                    }
+                    "cancel" -> {
+                        // If we have an inline preview, hide it
+                        val preview = inlineChatService.editorPreview
+                        if (preview != null && preview.isPreviewActive()) {
+                            preview.hidePreview()
+                        }
+                        
+                        // Clear the selection after we're done processing
+                        editor.selectionModel.removeSelection()
+                        
+                        // This is an explicit cancel action, so hide all UI elements immediately
+                        inlineChatService.floatingToolbar?.hide()
+                        
+                        ZestNotifications.showInfo(
                             project,
                             "Inline Chat",
-                            "No changes to apply"
+                            "Operation cancelled"
                         )
                     }
                 }
-            }
-            "discard" -> {
-                // If we have an inline preview, hide it
-                val preview = inlineChatService.editorPreview
-                if (preview != null && preview.isPreviewActive()) {
-                    preview.hidePreview()
-                }
                 
-                // Clear the selection after we're done processing
-                editor.selectionModel.removeSelection()
+                // Clear state and reset highlights
+                inlineChatService.clearState()
                 
-                ZestNotifications.showInfo(
-                    project,
-                    "Inline Chat",
-                    "Changes discarded"
-                )
-            }
-            "cancel" -> {
-                // If we have an inline preview, hide it
-                val preview = inlineChatService.editorPreview
-                if (preview != null && preview.isPreviewActive()) {
-                    preview.hidePreview()
-                }
-                
-                // Clear the selection after we're done processing
-                editor.selectionModel.removeSelection()
-                
-                // This is an explicit cancel action, so hide all UI elements immediately
-                inlineChatService.floatingToolbar?.hide()
-                
-                ZestNotifications.showInfo(
-                    project,
-                    "Inline Chat",
-                    "Operation cancelled"
-                )
-            }
-        }
-        
-        // Clear state and reset highlights
-        inlineChatService.clearState()
-        
-        // Use multiple clean-up mechanisms to ensure all highlights are removed
-        // All UI operations must be on EDT
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                // First cleanup pass
+                // Force clear all highlights (this will run on EDT from within the method)
                 inlineChatService.forceClearAllHighlights()
                 
-                // Sometimes, the highlighters need a second pass to be fully cleared
-                // Use a timer to delay the second cleanup - Timer callbacks run on EDT
-                javax.swing.Timer(300, { _ ->
-                    try {
-                        // Force another DaemonCodeAnalyzer restart
-                        com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-                        
-                        // Second cleanup pass
-                        inlineChatService.forceClearAllHighlights()
-                        
-                        // Force manual repaint
-                        editor.contentComponent.repaint()
-                        
-                        if (DEBUG_RESPONSE_HANDLING) {
-                            System.out.println("Second pass of highlight cleanup complete")
-                        }
-                    } catch (e: Exception) {
-                        if (DEBUG_RESPONSE_HANDLING) {
-                            System.out.println("Error in second cleanup pass: ${e.message}")
-                        }
-                    }
-                }).apply { 
-                    isRepeats = false
-                    start() 
-                }
-                
-                if (DEBUG_RESPONSE_HANDLING) {
-                    System.out.println("First pass of highlight cleanup complete")
-                }
+                result.complete(true)
             } catch (e: Exception) {
-                if (DEBUG_RESPONSE_HANDLING) {
-                    System.out.println("Error in first cleanup pass: ${e.message}")
-                }
+                ZestNotifications.showError(
+                    project,
+                    "Inline Chat Error",
+                    "Error resolving edit: ${e.message}"
+                )
+                result.complete(false)
             }
         }
-        
-        result.complete(true)
     } catch (e: Exception) {
+        // Handle any exceptions that might occur before we reach the invokeAndWait
         ZestNotifications.showError(
             project,
             "Inline Chat Error",

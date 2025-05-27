@@ -71,6 +71,7 @@
         <!-- Register project-level services -->
         <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>
         <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>
+        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>
         
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
@@ -112,6 +113,28 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="alt shift T"/>
+        </action>
+        
+        <!-- Test action for true inline preview -->
+        <action id="Zest.TestTrueInlinePreviewAction"
+                class="com.zps.zest.inlinechat.TestTrueInlinePreviewAction"
+                text="Test True Inline Preview (In Editor)" 
+                description="Test inline preview that replaces text directly in the editor"
+                icon="AllIcons.Actions.InlayRenameInNoCodeFiles">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt I"/>
+        </action>
+        
+        <!-- Test action for inline chat with preview -->
+        <action id="Zest.TestInlineChatWithPreviewAction"
+                class="com.zps.zest.inlinechat.TestInlineChatWithPreviewAction"
+                text="Test Inline Chat with Preview" 
+                description="Test the inline chat feature with proper preview before applying"
+                icon="AllIcons.Actions.Preview">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt shift P"/>
         </action>
         
         <!-- Test action for inline chat with fake LLM response -->

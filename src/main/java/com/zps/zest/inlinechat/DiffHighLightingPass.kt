@@ -372,7 +372,7 @@ enum class DiffSegmentType {
     INSERTED,
     DELETED,
     HEADER,
-    FOOTER,
+    FOOTER, 
     COMMENT
 }
 

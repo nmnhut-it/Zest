@@ -40,6 +40,9 @@ class InlineChatService(private val project: Project) : Disposable {
     
     // Keep track of original code to generate diff
     var originalCode: String? = null
+    
+    // Preview manager for inline preview
+    var editorPreview: InlineChatEditorPreview? = null
 
     val hasDiffAction: Boolean
         get() = inlineChatDiffActionState.any { it.value }
@@ -127,7 +130,7 @@ class InlineChatService(private val project: Project) : Disposable {
     /**
      * Generate diff segments by comparing original and new code using IntelliJ's diff API
      */
-    private fun generateDiffSegments(original: String, modified: String, selectionStartLine: Int = 0): MutableList<DiffSegment> {
+    fun generateDiffSegments(original: String, modified: String, selectionStartLine: Int = 0): MutableList<DiffSegment> {
         if (DEBUG_DIFF_SEGMENTS) {
             System.out.println("=== InlineChatService.generateDiffSegments ===")
             System.out.println("Original lines: ${original.split("\n").size}")
@@ -384,6 +387,7 @@ class InlineChatService(private val project: Project) : Disposable {
         inlineChatDiffActionState.clear()
         originalCode = null
         selectionStartLine = 0
+        editorPreview = null
     }
 
     override fun dispose() {

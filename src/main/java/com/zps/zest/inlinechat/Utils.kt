@@ -211,10 +211,32 @@ fun processInlineChatCommand(
                             )
                         }
                         
+                        // Show inline preview directly in the editor
+                        ApplicationManager.getApplication().invokeLater {
+                            val selectionModel = editor.selectionModel
+                            val startOffset = selectionModel.selectionStart
+                            val endOffset = selectionModel.selectionEnd
+                            
+                            // Create and show inline preview
+                            val preview = InlineChatEditorPreview(project, editor)
+                            inlineChatService.editorPreview = preview
+                            
+                            preview.showPreview(
+                                originalText,
+                                inlineChatService.extractedCode!!,
+                                startOffset,
+                                endOffset
+                            )
+                            
+                            if (DEBUG_RESPONSE_HANDLING) {
+                                System.out.println("Inline preview shown in editor")
+                            }
+                        }
+                        
                         ZestNotifications.showInfo(
                             project,
                             "Inline Chat",
-                            "Changes suggested! Review the highlighted code and accept or discard."
+                            "Preview shown in editor. Use Code Vision buttons to Accept or Reject."
                         )
                         
                         // Force editor refresh to show highlights
@@ -414,38 +436,53 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
         
         when (params.action) {
             "accept" -> {
-                // Apply the changes to the document
-                val newCode = inlineChatService.applyChanges()
-                if (newCode != null) {
-                    WriteAction.run<Throwable> {
-                        // Apply changes to the document
-                        val document = editor.document
-                        val selectionModel = editor.selectionModel
-                        
-                        if (selectionModel.hasSelection()) {
-                            val startOffset = selectionModel.selectionStart
-                            val endOffset = selectionModel.selectionEnd
-                            document.replaceString(startOffset, endOffset, newCode)
-                        } else {
-                            // If no selection, replace the entire document
-                            document.setText(newCode)
-                        }
-                    }
-                    
+                // If we have an inline preview, accept it
+                val preview = inlineChatService.editorPreview
+                if (preview != null && preview.isPreviewActive()) {
+                    preview.acceptPreview()
                     ZestNotifications.showInfo(
                         project,
                         "Inline Chat",
-                        "Changes applied successfully"
+                        "Changes accepted"
                     )
                 } else {
-                    ZestNotifications.showError(
-                        project,
-                        "Inline Chat",
-                        "No changes to apply"
-                    )
+                    // Fallback to old behavior if no preview
+                    val newCode = inlineChatService.applyChanges()
+                    if (newCode != null) {
+                        WriteAction.run<Throwable> {
+                            val document = editor.document
+                            val selectionModel = editor.selectionModel
+                            
+                            if (selectionModel.hasSelection()) {
+                                val startOffset = selectionModel.selectionStart
+                                val endOffset = selectionModel.selectionEnd
+                                document.replaceString(startOffset, endOffset, newCode)
+                            } else {
+                                document.setText(newCode)
+                            }
+                        }
+                        
+                        ZestNotifications.showInfo(
+                            project,
+                            "Inline Chat",
+                            "Changes applied successfully"
+                        )
+                    } else {
+                        ZestNotifications.showError(
+                            project,
+                            "Inline Chat",
+                            "No changes to apply"
+                        )
+                    }
                 }
             }
             "discard" -> {
+                // If we have an inline preview, hide it
+                val preview = inlineChatService.editorPreview
+                if (preview != null && preview.isPreviewActive()) {
+                    preview.hidePreview()
+                }
+                
                 ZestNotifications.showInfo(
                     project,
                     "Inline Chat",
@@ -453,6 +490,12 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 )
             }
             "cancel" -> {
+                // If we have an inline preview, hide it
+                val preview = inlineChatService.editorPreview
+                if (preview != null && preview.isPreviewActive()) {
+                    preview.hidePreview()
+                }
+                
                 ZestNotifications.showInfo(
                     project,
                     "Inline Chat",

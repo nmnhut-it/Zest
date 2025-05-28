@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Framework Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+        }
+        
+        .demo-section {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .demo-section h2 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        button:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .output {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        
+        .status.success {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .status.error {
+            background: #f44336;
+            color: white;
+        }
+        
+        .status.warning {
+            background: #FF9800;
+            color: white;
+        }
+        
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .agent-card {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 15px;
+            transition: all 0.3s;
+        }
+        
+        .agent-card:hover {
+            border-color: #4CAF50;
+            transform: translateY(-2px);
+        }
+        
+        .agent-card h3 {
+            color: #4CAF50;
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+        }
+        
+        .agent-card p {
+            color: #aaa;
+            font-size: 0.9em;
+            margin: 5px 0;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        
+        .code-block pre {
+            margin: 0;
+            color: #d4d4d4;
+        }
+        
+        .workflow-visualizer {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        
+        .workflow-step-icon {
+            width: 40px;
+            height: 40px;
+            background: #4CAF50;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .workflow-step-content {
+            flex: 1;
+        }
+        
+        .workflow-step-title {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .workflow-step-description {
+            color: #888;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #333;
+            border-radius: 50%;
+            border-top-color: #4CAF50;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Agent Framework Demo</h1>
+        <p class="subtitle">Powered by Google Agent-to-Agent SDK</p>
+        
+        <div class="demo-section">
+            <h2>Quick Start</h2>
+            <div class="button-group">
+                <button onclick="initializeFramework()">Initialize Framework</button>
+                <button onclick="createDefaultTeam()">Create Default Team</button>
+                <button onclick="showAgentStatus()">Show Agent Status</button>
+                <button onclick="runSimpleDemo()">Run Simple Demo</button>
+            </div>
+            <div id="quickstart-output" class="output"></div>
+        </div>
+        
+        <div class="demo-section">
+            <h2>Available Agent Roles</h2>
+            <div class="agent-grid" id="agent-roles-grid"></div>
+        </div>
+        
+        <div class="demo-section">
+            <h2>Complex Workflows</h2>
+            <div class="button-group">
+                <button onclick="runFullStackWorkflow()">Full Stack Development</button>
+                <button onclick="runCodeReviewWorkflow()">Code Review Pipeline</button>
+                <button onclick="runBugFixWorkflow()">Bug Fix Workflow</button>
+                <button onclick="runAPIDesignWorkflow()">API Design Workflow</button>
+            </div>
+            <div class="workflow-visualizer" id="workflow-visualizer" style="display: none;"></div>
+            <div id="workflow-output" class="output"></div>
+        </div>
+        
+        <div class="demo-section">
+            <h2>Google Agent Integration</h2>
+            <div class="button-group">
+                <button onclick="connectToGoogle()">Connect to Google Agents</button>
+                <button onclick="collaborateWithGoogle()">Collaborate with Google Agent</button>
+                <button onclick="importGoogleWorkflow()">Import Google Workflow</button>
+            </div>
+            <div id="google-output" class="output"></div>
+        </div>
+        
+        <div class="demo-section">
+            <h2>Live Code Generation</h2>
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px;">Describe what you want to build:</label>
+                <textarea id="code-description" style="width: 100%; height: 80px; background: #0a0a0a; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 10px; font-family: inherit;" placeholder="e.g., Create a React component for a user profile card with avatar, name, and social links"></textarea>
+            </div>
+            <div class="button-group">
+                <button onclick="generateCode('javascript')">Generate JavaScript</button>
+                <button onclick="generateCode('python')">Generate Python</button>
+                <button onclick="generateCode('java')">Generate Java</button>
+                <button onclick="generateWithReview()">Generate + Review</button>
+            </div>
+            <div id="generation-output" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let frameworkInitialized = false;
+        let defaultTeam = null;
+        
+        // Utility function to log output
+        function log(elementId, message, status = 'info') {
+            const output = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const statusClass = status === 'error' ? 'error' : status === 'success' ? 'success' : 'warning';
+            const statusBadge = status !== 'info' ? `<span class="status ${statusClass}">${status.toUpperCase()}</span>` : '';
+            
+            output.innerHTML += `[${timestamp}] ${statusBadge}${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        // Initialize the framework
+        async function initializeFramework() {
+            if (frameworkInitialized) {
+                log('quickstart-output', 'Framework already initialized', 'warning');
+                return;
+            }
+            
+            try {
+                log('quickstart-output', 'Initializing Agent Framework...');
+                
+                // Wait for framework to be loaded
+                if (!window.AgentFramework) {
+                    log('quickstart-output', 'Waiting for Agent Framework to load...');
+                    await new Promise(resolve => {
+                        const checkInterval = setInterval(() => {
+                            if (window.AgentFramework) {
+                                clearInterval(checkInterval);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                }
+                
+                // Display available roles
+                displayAgentRoles();
+                
+                frameworkInitialized = true;
+                log('quickstart-output', 'Agent Framework initialized successfully!', 'success');
+                
+                // Initialize UI
+                if (window.AgentUI) {
+                    window.AgentUI.initialize('agent-ui-container');
+                    log('quickstart-output', 'Agent UI initialized', 'success');
+                }
+                
+            } catch (error) {
+                log('quickstart-output', `Initialization failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display available agent roles
+        function displayAgentRoles() {
+            const grid = document.getElementById('agent-roles-grid');
+            grid.innerHTML = '';
+            
+            for (const [key, role] of Object.entries(window.AgentFramework.AgentRoles)) {
+                const card = document.createElement('div');
+                card.className = 'agent-card';
+                card.innerHTML = `
+                    <h3>${role.name}</h3>
+                    <p>${role.description}</p>
+                    <p style="font-size: 0.8em; color: #666;">Capabilities: ${role.capabilities.join(', ')}</p>
+                `;
+                grid.appendChild(card);
+            }
+        }
+        
+        // Create default team
+        async function createDefaultTeam() {
+            if (!frameworkInitialized) {
+                await initializeFramework();
+            }
+            
+            try {
+                log('quickstart-output', 'Creating default development team...');
+                
+                defaultTeam = await window.AgentFramework.createTeam({
+                    name: 'Default Development Team',
+                    agents: [
+                        { role: 'CODE_GENERATOR' },
+                        { role: 'CODE_REVIEWER' },
+                        { role: 'TESTING' },
+                        { role: 'DOCUMENTATION' },
+                        { role: 'SECURITY' }
+                    ]
+                });
+                
+                log('quickstart-output', `Team created with ${defaultTeam.agents.length} agents`, 'success');
+                
+                // List team members
+                defaultTeam.agents.forEach(agent => {
+                    log('quickstart-output', `  - ${agent.role.name} (${agent.id})`);
+                });
+                
+            } catch (error) {
+                log('quickstart-output', `Failed to create team: ${error.message}`, 'error');
+            }
+        }
+        
+        // Show agent status
+        async function showAgentStatus() {
+            if (!frameworkInitialized) {
+                log('quickstart-output', 'Framework not initialized', 'warning');
+                return;
+            }
+            
+            try {
+                const status = window.AgentFramework.AgentManager.getStatus();
+                
+                log('quickstart-output', '\n=== Agent Status ===');
+                log('quickstart-output', `Total Agents: ${status.agents.length}`);
+                log('quickstart-output', `Total Tasks: ${status.totalTasks}`);
+                log('quickstart-output', `Active Tasks: ${status.activeTasks}`);
+                
+                status.agents.forEach(agent => {
+                    log('quickstart-output', `\n${agent.role} (${agent.id})`);
+                    log('quickstart-output', `  State: ${agent.state}`);
+                    log('quickstart-output', `  Completed: ${agent.stats.tasksCompleted}`);
+                    log('quickstart-output', `  Failed: ${agent.stats.tasksFailed}`);
+                    log('quickstart-output', `  Queue: ${agent.queueLength}`);
+                });
+                
+            } catch (error) {
+                log('quickstart-output', `Failed to get status: ${error.message}`, 'error');
+            }
+        }
+        
+        // Run simple demo
+        async function runSimpleDemo() {
+            if (!defaultTeam) {
+                await createDefaultTeam();
+            }
+            
+            try {
+                log('quickstart-output', '\n=== Running Simple Demo ===');
+                
+                // Find code generator
+                const codeGenerator = defaultTeam.agents.find(a => a.role.id === 'code_generator');
+                
+                if (!codeGenerator) {
+                    throw new Error('Code generator not found in team');
+                }
+                
+                // Generate simple code
+                const taskId = codeGenerator.queueTask({
+                    type: 'generate',
+                    data: {
+                        type: 'function',
+                        language: 'javascript',
+                        specification: {
+                            name: 'calculateSum',
+                            description: 'Calculate the sum of an array of numbers',
+                            parameters: ['numbers: array'],
+                            returns: 'number'
+                        }
+                    },
+                    callback: (error, result) => {
+                        if (error) {
+                            log('quickstart-output', `Generation failed: ${error.message}`, 'error');
+                        } else {
+                            log('quickstart-output', 'Code generated successfully:', 'success');
+                            log('quickstart-output', result.code);
+                        }
+                    }
+                });
+                
+                log('quickstart-output', `Task queued with ID: ${taskId}`);
+                
+            } catch (error) {
+                log('quickstart-output', `Demo failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Run full stack workflow
+        async function runFullStackWorkflow() {
+            if (!defaultTeam) {
+                await createDefaultTeam();
+            }
+            
+            try {
+                log('workflow-output', '\n=== Full Stack Development Workflow ===');
+                visualizeWorkflow([
+                    { icon: '1', title: 'API Design', description: 'Design RESTful API endpoints' },
+                    { icon: '2', title: 'Backend Development', description: 'Implement server-side logic' },
+                    { icon: '3', title: 'Frontend Development', description: 'Create user interface' },
+                    { icon: '4', title: 'Testing', description: 'Write and run tests' },
+                    { icon: '5', title: 'Documentation', description: 'Generate API docs' }
+                ]);
+                
+                // Register workflow
+                window.AgentFramework.AgentManager.registerWorkflow('fullstack-workflow', {
+                    name: 'Full Stack Development',
+                    steps: [
+                        {
+                            name: 'Design API',
+                            requiredCapability: 'design_api',
+                            type: 'design_api',
+                            data: {
+                                resource: 'users',
+                                operations: ['create', 'read', 'update', 'delete'],
+                                authentication: 'JWT'
+                            }
+                        },
+                        {
+                            name: 'Generate Backend',
+                            requiredCapability: 'generate',
+                            type: 'generate',
+                            data: {
+                                type: 'express-api',
+                                language: 'javascript',
+                                specification: {
+                                    framework: 'express',
+                                    database: 'mongodb'
+                                }
+                            }
+                        },
+                        {
+                            name: 'Generate Frontend',
+                            requiredCapability: 'generate',
+                            type: 'generate',
+                            data: {
+                                type: 'react-app',
+                                language: 'javascript',
+                                specification: {
+                                    framework: 'react',
+                                    styling: 'tailwind'
+                                }
+                            }
+                        },
+                        {
+                            name: 'Create Tests',
+                            requiredCapability: 'create_tests',
+                            type: 'create_tests',
+                            data: {
+                                language: 'javascript',
+                                framework: 'jest',
+                                coverage: 80
+                            }
+                        }
+                    ]
+                });
+                
+                // Execute workflow
+                const coordinator = defaultTeam.coordinator;
+                coordinator.queueTask({
+                    type: 'orchestrate',
+                    data: {
+                        workflow: window.AgentFramework.AgentManager.workflows.get('fullstack-workflow'),
+                        data: {}
+                    },
+                    callback: (error, result) => {
+                        if (error) {
+                            log('workflow-output', `Workflow failed: ${error.message}`, 'error');
+                        } else {
+                            log('workflow-output', 'Workflow completed successfully!', 'success');
+                            log('workflow-output', `Summary: ${JSON.stringify(result.summary, null, 2)}`);
+                        }
+                    }
+                });
+                
+                log('workflow-output', 'Full stack workflow started...');
+                
+            } catch (error) {
+                log('workflow-output', `Workflow failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Visualize workflow
+        function visualizeWorkflow(steps) {
+            const visualizer = document.getElementById('workflow-visualizer');
+            visualizer.style.display = 'block';
+            visualizer.innerHTML = '<h3 style="color: #4CAF50; margin-top: 0;">Workflow Steps:</h3>';
+            
+            steps.forEach(step => {
+                visualizer.innerHTML += `
+                    <div class="workflow-step">
+                        <div class="workflow-step-icon">${step.icon}</div>
+                        <div class="workflow-step-content">
+                            <div class="workflow-step-title">${step.title}</div>
+                            <div class="workflow-step-description">${step.description}</div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // Generate code based on description
+        async function generateCode(language) {
+            if (!defaultTeam) {
+                await createDefaultTeam();
+            }
+            
+            const description = document.getElementById('code-description').value;
+            if (!description) {
+                log('generation-output', 'Please enter a description', 'warning');
+                return;
+            }
+            
+            try {
+                log('generation-output', `\n=== Generating ${language} code ===`);
+                log('generation-output', `Description: ${description}`);
+                
+                const codeGenerator = defaultTeam.agents.find(a => a.role.id === 'code_generator');
+                
+                codeGenerator.queueTask({
+                    type: 'generate',
+                    data: {
+                        type: 'custom',
+                        language: language,
+                        specification: {
+                            description: description
+                        }
+                    },
+                    callback: (error, result) => {
+                        if (error) {
+                            log('generation-output', `Generation failed: ${error.message}`, 'error');
+                        } else {
+                            log('generation-output', 'Code generated successfully!', 'success');
+                            log('generation-output', '```' + language);
+                            log('generation-output', result.code);
+                            log('generation-output', '```');
+                            
+                            // Send to IntelliJ
+                            if (window.intellijBridge) {
+                                window.intellijBridge.callIDE('insertCode', {
+                                    code: result.code,
+                                    language: language
+                                });
+                                log('generation-output', 'Code sent to IntelliJ', 'success');
+                            }
+                        }
+                    }
+                });
+                
+            } catch (error) {
+                log('generation-output', `Generation failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Generate with review
+        async function generateWithReview() {
+            const language = 'javascript';
+            await generateCode(language);
+            
+            // Wait a bit for generation to complete
+            setTimeout(() => {
+                const codeReviewer = defaultTeam.agents.find(a => a.role.id === 'code_reviewer');
+                
+                log('generation-output', '\n=== Running Code Review ===');
+                
+                codeReviewer.queueTask({
+                    type: 'review',
+                    data: {
+                        code: '// Generated code would be here',
+                        language: language,
+                        context: {}
+                    },
+                    callback: (error, result) => {
+                        if (error) {
+                            log('generation-output', `Review failed: ${error.message}`, 'error');
+                        } else {
+                            log('generation-output', `Review completed! Score: ${result.score}/100`, result.passed ? 'success' : 'warning');
+                            
+                            if (result.issues.length > 0) {
+                                log('generation-output', '\nIssues found:');
+                                result.issues.forEach(issue => {
+                                    log('generation-output', `  - [${issue.severity}] ${issue.message}`);
+                                });
+                            }
+                            
+                            if (result.suggestions.length > 0) {
+                                log('generation-output', '\nSuggestions:');
+                                result.suggestions.forEach(suggestion => {
+                                    log('generation-output', `  - ${suggestion}`);
+                                });
+                            }
+                        }
+                    }
+                });
+            }, 2000);
+        }
+        
+        // Connect to Google Agents
+        async function connectToGoogle() {
+            try {
+                log('google-output', 'Connecting to Google Agent service...');
+                
+                // Initialize Google integration
+                await window.GoogleAgentIntegration.initialize({
+                    apiKey: 'YOUR_GOOGLE_API_KEY', // Replace with actual key
+                    projectId: 'YOUR_PROJECT_ID'   // Replace with actual project ID
+                });
+                
+                log('google-output', 'Connected to Google Agent service!', 'success');
+                log('google-output', `Session ID: ${window.GoogleAgentIntegration.sessionId}`);
+                
+            } catch (error) {
+                log('google-output', `Connection failed: ${error.message}`, 'error');
+                log('google-output', 'Note: Please configure your Google API credentials');
+            }
+        }
+        
+        // Other workflow functions
+        async function runCodeReviewWorkflow() {
+            log('workflow-output', 'Code Review workflow not yet implemented', 'warning');
+        }
+        
+        async function runBugFixWorkflow() {
+            log('workflow-output', 'Bug Fix workflow not yet implemented', 'warning');
+        }
+        
+        async function runAPIDesignWorkflow() {
+            log('workflow-output', 'API Design workflow not yet implemented', 'warning');
+        }
+        
+        async function collaborateWithGoogle() {
+            log('google-output', 'Google collaboration not yet implemented', 'warning');
+        }
+        
+        async function importGoogleWorkflow() {
+            log('google-output', 'Google workflow import not yet implemented', 'warning');
+        }
+        
+        // Auto-initialize on load
+        window.addEventListener('load', () => {
+            setTimeout(initializeFramework, 1000);
+        });
+    </script>
+</body>
+</html>

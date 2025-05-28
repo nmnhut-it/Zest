@@ -458,6 +458,155 @@ public class CodeService {
     }
     
     /**
+     * Generates code based on the specification (for Agent Framework)
+     */
+    public String generateCode(JsonObject data) {
+        try {
+            String type = data.get("type").getAsString();
+            String language = data.get("language").getAsString();
+            JsonObject specification = data.get("specification").getAsJsonObject();
+            
+            LOG.info("Generating " + type + " code in " + language);
+            
+            // For demo purposes, generate simple code based on type
+            String generatedCode = "";
+            
+            if ("function".equals(type) && "javascript".equals(language)) {
+                String name = specification.has("name") ? specification.get("name").getAsString() : "myFunction";
+                String description = specification.has("description") ? specification.get("description").getAsString() : "";
+                
+                generatedCode = "/**\n * " + description + "\n */\n" +
+                               "function " + name + "(numbers) {\n" +
+                               "    return numbers.reduce((sum, num) => sum + num, 0);\n" +
+                               "}\n";
+            } else if ("class".equals(type)) {
+                String name = specification.has("name") ? specification.get("name").getAsString() : "MyClass";
+                generatedCode = generateClassCode(name, language);
+            } else {
+                // Default generation
+                generatedCode = "// Generated " + type + " in " + language + "\n" +
+                               "// Specification: " + specification.toString() + "\n";
+            }
+            
+            return generatedCode;
+            
+        } catch (Exception e) {
+            LOG.error("Error generating code", e);
+            return "// Error generating code: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * Reviews code and returns issues/suggestions (for Agent Framework)
+     */
+    public JsonObject reviewCode(JsonObject data) {
+        try {
+            String code = data.get("code").getAsString();
+            String language = data.get("language").getAsString();
+            
+            LOG.info("Reviewing " + language + " code");
+            
+            JsonObject result = new JsonObject();
+            com.google.gson.JsonArray issues = new com.google.gson.JsonArray();
+            com.google.gson.JsonArray suggestions = new com.google.gson.JsonArray();
+            
+            // Simple demo review logic
+            if ("javascript".equals(language)) {
+                if (code.contains("var ")) {
+                    JsonObject issue = new JsonObject();
+                    issue.addProperty("severity", "warning");
+                    issue.addProperty("message", "Use 'const' or 'let' instead of 'var'");
+                    issues.add(issue);
+                }
+                
+                if (!code.contains("'use strict'") && !code.contains("\"use strict\"")) {
+                    suggestions.add("Consider adding 'use strict' directive");
+                }
+            }
+            
+            result.addProperty("passed", issues.size() == 0);
+            result.add("issues", issues);
+            result.add("suggestions", suggestions);
+            result.addProperty("score", Math.max(0, 100 - (issues.size() * 10)));
+            
+            return result;
+            
+        } catch (Exception e) {
+            LOG.error("Error reviewing code", e);
+            JsonObject error = new JsonObject();
+            error.addProperty("error", e.getMessage());
+            return error;
+        }
+    }
+    
+    /**
+     * Generates test code (for Agent Framework)
+     */
+    public String generateTests(JsonObject data) {
+        try {
+            String language = data.get("language").getAsString();
+            String framework = data.has("framework") ? data.get("framework").getAsString() : "jest";
+            
+            LOG.info("Generating tests for " + language + " using " + framework);
+            
+            if ("javascript".equals(language) && "jest".equals(framework)) {
+                return "describe('calculateSum', () => {\n" +
+                       "    test('should return sum of numbers', () => {\n" +
+                       "        expect(calculateSum([1, 2, 3])).toBe(6);\n" +
+                       "    });\n" +
+                       "    \n" +
+                       "    test('should return 0 for empty array', () => {\n" +
+                       "        expect(calculateSum([])).toBe(0);\n" +
+                       "    });\n" +
+                       "});\n";
+            }
+            
+            return "// Generated tests for " + language + " using " + framework;
+            
+        } catch (Exception e) {
+            LOG.error("Error generating tests", e);
+            return "// Error generating tests: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * Helper method to generate class code in different languages
+     */
+    private String generateClassCode(String name, String language) {
+        switch (language) {
+            case "javascript":
+                return "class " + name + " {\n" +
+                       "    constructor() {\n" +
+                       "        // Initialize properties\n" +
+                       "    }\n" +
+                       "    \n" +
+                       "    // Add methods here\n" +
+                       "}\n";
+                       
+            case "python":
+                return "class " + name + ":\n" +
+                       "    def __init__(self):\n" +
+                       "        # Initialize properties\n" +
+                       "        pass\n" +
+                       "    \n" +
+                       "    # Add methods here\n";
+                       
+            case "java":
+                return "public class " + name + " {\n" +
+                       "    \n" +
+                       "    public " + name + "() {\n" +
+                       "        // Initialize properties\n" +
+                       "    }\n" +
+                       "    \n" +
+                       "    // Add methods here\n" +
+                       "}\n";
+                       
+            default:
+                return "// " + name + " class in " + language;
+        }
+    }
+    
+    /**
      * Disposes of any resources.
      */
     public void dispose() {

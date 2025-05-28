@@ -123,6 +123,19 @@ public class JavaScriptBridgeActions {
                 case "openFileDiffInIDE":
                     return gitService.openFileDiffInIDE(data);
                 
+                // Agent-related actions
+                case "agentAction":
+                    return handleAgentAction(data);
+                    
+                case "createAgent":
+                    return handleCreateAgent(data);
+                    
+                case "getAgentStatus":
+                    return handleGetAgentStatus(data);
+                    
+                case "executeWorkflow":
+                    return handleExecuteWorkflow(data);
+                
                 // Content update handling
                 case "contentUpdated":
                     return handleContentUpdated(data);
@@ -175,6 +188,138 @@ public class JavaScriptBridgeActions {
         JsonObject response = new JsonObject();
         response.addProperty("success", true);
         return gson.toJson(response);
+    }
+    
+    /**
+     * Handles agent-related actions from the Agent Framework
+     */
+    private String handleAgentAction(JsonObject data) {
+        try {
+            String agentId = data.get("agentId").getAsString();
+            String role = data.get("role").getAsString();
+            JsonObject payload = data.get("payload").getAsJsonObject();
+            
+            LOG.info("Agent action from " + role + " (ID: " + agentId + ")");
+            
+            // Process the agent action based on the payload
+            String action = payload.get("action").getAsString();
+            JsonObject actionData = payload.get("data").getAsJsonObject();
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            
+            // Route to appropriate service based on action type
+            switch (action) {
+                case "generate":
+                    // Use code service to generate code
+                    String generatedCode = codeService.generateCode(actionData);
+                    response.addProperty("code", generatedCode);
+                    break;
+                    
+                case "review":
+                    // Perform code review
+                    JsonObject reviewResult = codeService.reviewCode(actionData);
+                    response.add("result", reviewResult);
+                    break;
+                    
+                case "create_tests":
+                    // Generate tests
+                    String tests = codeService.generateTests(actionData);
+                    response.addProperty("tests", tests);
+                    break;
+                    
+                default:
+                    // Simulate processing for demo
+                    response.addProperty("message", "Processed " + action + " for " + role);
+                    break;
+            }
+            
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error handling agent action", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", e.getMessage());
+            return gson.toJson(errorResponse);
+        }
+    }
+    
+    /**
+     * Handles creating a new agent
+     */
+    private String handleCreateAgent(JsonObject data) {
+        try {
+            String role = data.get("role").getAsString();
+            JsonObject config = data.has("config") ? data.get("config").getAsJsonObject() : new JsonObject();
+            
+            LOG.info("Creating agent with role: " + role);
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("agentId", "agent_" + System.currentTimeMillis());
+            response.addProperty("message", "Agent created successfully");
+            
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error creating agent", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", e.getMessage());
+            return gson.toJson(errorResponse);
+        }
+    }
+    
+    /**
+     * Gets the status of all agents
+     */
+    private String handleGetAgentStatus(JsonObject data) {
+        try {
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            
+            // Return mock status for demo
+            JsonArray agents = new JsonArray();
+            response.add("agents", agents);
+            response.addProperty("totalTasks", 0);
+            response.addProperty("activeTasks", 0);
+            
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error getting agent status", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", e.getMessage());
+            return gson.toJson(errorResponse);
+        }
+    }
+    
+    /**
+     * Executes a workflow
+     */
+    private String handleExecuteWorkflow(JsonObject data) {
+        try {
+            String workflowId = data.get("workflowId").getAsString();
+            JsonObject workflowData = data.get("data").getAsJsonObject();
+            
+            LOG.info("Executing workflow: " + workflowId);
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("workflowId", workflowId);
+            response.addProperty("status", "started");
+            
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error executing workflow", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", e.getMessage());
+            return gson.toJson(errorResponse);
+        }
     }
     
     /**

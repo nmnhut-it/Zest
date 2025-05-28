@@ -196,7 +196,17 @@ public class JCEFBrowserManager {
             String gitUIScript = loadResourceAsString("/js/git-ui.js");
             cefBrowser.executeJavaScript(gitUIScript, frame.getURL(), 0);
             
-            LOG.info("JavaScript bridge initialized successfully with chunked messaging support and git integration");
+            // Load and inject the Agent Framework scripts
+            String agentFrameworkScript = loadResourceAsString("/js/agentFramework.js");
+            cefBrowser.executeJavaScript(agentFrameworkScript, frame.getURL(), 0);
+            
+            String agentUIScript = loadResourceAsString("/js/agentUI.js");
+            cefBrowser.executeJavaScript(agentUIScript, frame.getURL(), 0);
+            
+            String googleAgentIntegrationScript = loadResourceAsString("/js/googleAgentIntegration.js");
+            cefBrowser.executeJavaScript(googleAgentIntegrationScript, frame.getURL(), 0);
+            
+            LOG.info("JavaScript bridge initialized successfully with chunked messaging support, git integration, and Agent Framework");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
         }

@@ -375,6 +375,10 @@
                                     <input type="text" id="search-text" placeholder="Search text..." />
                                     <button class="agent-ui-btn" onclick="AgentUI.searchProject()">Search</button>
                                 </div>
+                                <div class="form-group" style="margin-top: 8px;">
+                                    <label style="font-size: 10px; color: #888;">File extensions (comma-separated):</label>
+                                    <input type="text" id="search-extensions" placeholder="e.g., .js,.java,.py,.cpp,.h" value=".js,.jsx,.ts,.tsx,.java,.py,.cpp,.h,.cs,.go,.rs,.php,.rb,.swift,.kt,.xml,.json,.yaml,.yml,.md,.txt,.html,.css,.scss,.sql,.sh,.bat,.ps1" style="font-size: 10px;" />
+                                </div>
                                 <div class="search-options">
                                     <label><input type="checkbox" id="search-case-sensitive"> Case sensitive</label>
                                     <label><input type="checkbox" id="search-whole-word"> Whole word</label>
@@ -431,6 +435,10 @@
                         <div class="research-section">
                             <h4>📁 Directory Tree</h4>
                             <div class="search-form">
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label style="font-size: 10px; color: #888;">File extensions to include (comma-separated):</label>
+                                    <input type="text" id="tree-extensions" placeholder="Leave empty for all files" value="" style="font-size: 10px;" />
+                                </div>
                                 <button class="agent-ui-btn" onclick="AgentUI.getDirectoryTree()" style="width: 100%;">Show Project Structure</button>
                             </div>
                             <div id="tree-results" class="search-results" style="display: none; margin-top: 10px;"></div>
@@ -807,6 +815,17 @@
         const wholeWord = this.container.querySelector('#search-whole-word').checked;
         const regex = this.container.querySelector('#search-regex').checked;
         
+        // Get file extensions from input
+        const extensionsInput = this.container.querySelector('#search-extensions').value;
+        let fileTypes = null;
+        if (extensionsInput && extensionsInput.trim()) {
+            // Split by comma and clean up each extension
+            fileTypes = extensionsInput.split(',')
+                .map(ext => ext.trim())
+                .filter(ext => ext) // Remove empty strings
+                .map(ext => ext.startsWith('.') ? ext : '.' + ext); // Ensure each starts with dot
+        }
+        
         const resultsDiv = this.container.querySelector('#search-results');
         resultsDiv.style.display = 'block';
         resultsDiv.innerHTML = '<div style="color: #fa0;">Searching...</div>';
@@ -828,7 +847,8 @@
                         wholeWord: wholeWord,
                         regex: regex,
                         contextLines: 2,
-                        excludePatterns: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**']
+                        excludePatterns: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
+                        fileTypes: fileTypes  // Pass the file extensions
                     }
                 },
                 callback: (error, result) => {
@@ -1026,6 +1046,17 @@
         resultsDiv.style.display = 'block';
         resultsDiv.innerHTML = '<div style="color: #fa0;">Loading project structure...</div>';
         
+        // Get file extensions from input
+        const extensionsInput = this.container.querySelector('#tree-extensions').value;
+        let fileTypes = null;
+        if (extensionsInput && extensionsInput.trim()) {
+            // Split by comma and clean up each extension
+            fileTypes = extensionsInput.split(',')
+                .map(ext => ext.trim())
+                .filter(ext => ext) // Remove empty strings
+                .map(ext => ext.startsWith('.') ? ext : '.' + ext); // Ensure each starts with dot
+        }
+        
         try {
             const agent = await this.getResearchAgent();
             // Always use "/" for project root - the Java code expects relative paths
@@ -1040,7 +1071,7 @@
                     options: {
                         maxDepth: 3,
                         excludePatterns: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
-                        fileTypes: ['.js', '.jsx', '.ts', '.tsx', '.java', '.py', '.json', '.xml', '.html', '.css']
+                        fileTypes: fileTypes || ['.js', '.jsx', '.ts', '.tsx', '.java', '.py', '.json', '.xml', '.html', '.css']
                     }
                 },
                 callback: (error, result) => {

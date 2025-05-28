@@ -307,12 +307,26 @@
             // Parse workflow and delegate to appropriate agents
             const workflowSteps = this.parseWorkflow(workflow);
             const results = [];
+            let previousResult = null;
             
             for (const step of workflowSteps) {
                 const agent = this.findBestAgent(step.requiredCapability);
                 if (agent) {
-                    const result = await this.delegateToAgent(agent, step);
+                    // Pass previous result data to the next step
+                    const stepData = { ...step };
+                    if (previousResult && previousResult.result) {
+                        // Merge previous result into step data
+                        stepData.data = {
+                            ...stepData.data,
+                            // Pass generated code to reviewer
+                            code: previousResult.result.code || previousResult.result,
+                            previousResult: previousResult.result
+                        };
+                    }
+                    
+                    const result = await this.delegateToAgent(agent, stepData);
                     results.push(result);
+                    previousResult = result;
                 }
             }
             
@@ -330,7 +344,7 @@
 
         findBestAgent(capability) {
             for (const [id, agent] of window.AgentFramework.agents) {
-                if (agent.role.capabilities.includes(capability)) {
+                if (agent.role.capabilities.indexOf(capability) !== -1) {
                     return agent;
                 }
             }
@@ -346,7 +360,11 @@
                     const memory = agent.memory.get(taskId);
                     if (memory) {
                         clearInterval(checkInterval);
-                        resolve(memory.result);
+                        resolve({
+                            taskId: taskId,
+                            agentId: agent.id,
+                            result: memory.result
+                        });
                     }
                 }, 100);
                 
@@ -433,13 +451,13 @@
         loadReviewRules() {
             return {
                 javascript: [
-                    { name: 'no-var', check: code => !code.includes('var '), message: 'Use const or let instead of var' },
-                    { name: 'semicolons', check: code => code.includes(';'), message: 'Missing semicolons' },
-                    { name: 'naming', check: code => /[a-z][A-Za-z]*/.test(code), message: 'Follow camelCase naming convention' }
+                    { name: 'no-var', check: code => code && code.indexOf('var ') === -1, message: 'Use const or let instead of var' },
+                    { name: 'semicolons', check: code => code && code.indexOf(';') !== -1, message: 'Missing semicolons' },
+                    { name: 'naming', check: code => code && /[a-z][A-Za-z]*/.test(code), message: 'Follow camelCase naming convention' }
                 ],
                 python: [
                     { name: 'pep8', check: code => true, message: 'Follow PEP8 style guide' },
-                    { name: 'type-hints', check: code => code.includes('->'), message: 'Consider adding type hints' }
+                    { name: 'type-hints', check: code => code && code.indexOf('->') !== -1, message: 'Consider adding type hints' }
                 ]
             };
         }
@@ -543,6 +561,11 @@
             this.eventBus.dispatchEvent(new CustomEvent('agentCreated', { 
                 detail: { agentId: agent.id, role: role.id } 
             }));
+            
+            // Notify UI to update
+            if (window.AgentUI && window.AgentUI.updateAgentsList) {
+                window.AgentUI.updateAgentsList();
+            }
             
             return agent;
         }

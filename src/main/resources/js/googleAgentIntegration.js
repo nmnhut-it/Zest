@@ -276,7 +276,7 @@
             // Execute tasks in parallel or sequence based on dependencies
             for (const subtask of session.task.subtasks) {
                 const agent = session.collaborators.find(a => 
-                    a.role.capabilities.includes(subtask.requiredCapability)
+                    a.role.capabilities.indexOf(subtask.requiredCapability) !== -1
                 );
                 
                 if (agent) {

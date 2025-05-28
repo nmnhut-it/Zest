@@ -495,7 +495,10 @@
                     requiredCapability: 'review',
                     type: 'review',
                     data: {
-                        language: 'javascript'
+                        language: 'javascript',
+                        context: {
+                            description: 'Review the generated UserService class'
+                        }
                     }
                 },
                 {
@@ -504,7 +507,8 @@
                     type: 'create_tests',
                     data: {
                         language: 'javascript',
-                        framework: 'jest'
+                        framework: 'jest',
+                        targetClass: 'UserService'
                     }
                 }
             ]
@@ -522,6 +526,7 @@
             
             if (!coordinator) {
                 coordinator = await window.AgentFramework.createAgent('COORDINATOR');
+                this.log('Created coordinator agent');
             }
             
             // Execute workflow
@@ -530,6 +535,15 @@
                 data: {
                     workflow: window.AgentFramework.AgentManager.workflows.get('demo-workflow'),
                     data: {}
+                },
+                callback: (error, result) => {
+                    if (error) {
+                        this.log(`Workflow failed: ${error.message}`, 'error');
+                    } else {
+                        this.log('Workflow completed successfully!', 'success');
+                        this.log(`Completed steps: ${result.results.length}`);
+                        this.log(`Summary: ${JSON.stringify(result.summary)}`);
+                    }
                 }
             });
             
@@ -547,7 +561,22 @@
         const timestamp = new Date().toLocaleTimeString();
         const line = document.createElement('div');
         line.className = 'console-line';
-        line.innerHTML = `<span class="console-timestamp">[${timestamp}]</span>${message}`;
+        
+        // Color code based on type
+        let color = '#0f0'; // default green
+        let prefix = '';
+        if (type === 'error') {
+            color = '#f44';
+            prefix = '[ERROR] ';
+        } else if (type === 'warning') {
+            color = '#fa0';
+            prefix = '[WARN] ';
+        } else if (type === 'success') {
+            color = '#4f4';
+            prefix = '[SUCCESS] ';
+        }
+        
+        line.innerHTML = `<span class="console-timestamp">[${timestamp}]</span><span style="color: ${color}">${prefix}${message}</span>`;
         consoleElement.appendChild(line);
         consoleElement.scrollTop = consoleElement.scrollHeight;
         

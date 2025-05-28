@@ -33,8 +33,8 @@
             // Initialize FileAPI instance
             this.fileAPI = new FileAPI({
                 maxFileSize: config.maxFileSize || 10 * 1024 * 1024,
-                excludePatterns: config.excludePatterns || undefined,
-                fileExtensions: config.fileExtensions || undefined
+                excludePatterns: config.excludePatterns,  // Don't set to undefined, let FileAPI use defaults
+                fileExtensions: config.fileExtensions     // Don't set to undefined, let FileAPI use defaults
             });
             
             // Cache for search results

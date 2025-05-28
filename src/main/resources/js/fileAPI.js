@@ -30,6 +30,28 @@
                 ...config
             };
             
+            // Ensure arrays are always arrays after spread operation
+            if (!Array.isArray(this.config.excludePatterns)) {
+                this.config.excludePatterns = [
+                    '.git/**',
+                    '**/node_modules/**',
+                    '**/dist/**',
+                    '**/build/**',
+                    '**/.idea/**',
+                    '**/coverage/**',
+                    '**/.next/**',
+                    '**/.nuxt/**',
+                    '**/vendor/**',
+                    '**/__pycache__/**',
+                    '**/*.pyc',
+                    '**/.DS_Store',
+                    '**/Thumbs.db'
+                ];
+            }
+            if (this.config.fileExtensions !== null && !Array.isArray(this.config.fileExtensions)) {
+                this.config.fileExtensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'];
+            }
+            
             // Cache for file listings to improve performance
             this.directoryCache = new Map();
             this.cacheTimeout = 60000; // 1 minute
@@ -54,6 +76,9 @@
             } = options;
 
             try {
+                // Ensure exclude is an array
+                const excludeArray = Array.isArray(exclude) ? exclude : [];
+                
                 // Check cache first
                 const cacheKey = `${dirPath}_${JSON.stringify(options)}`;
                 const cached = this.getFromCache(cacheKey);
@@ -62,7 +87,7 @@
                 // Call IntelliJ Bridge
                 const response = await window.intellijBridge.callIDE('listFiles', {
                     path: dirPath,
-                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    excludePatterns: [...this.config.excludePatterns, ...excludeArray],
                     extensions: extensions || this.config.fileExtensions,
                     maxDepth: maxDepth,
                     includeDirectories: includeDirectories
@@ -136,13 +161,16 @@
             } = options;
 
             try {
+                // Ensure exclude is an array
+                const excludeArray = Array.isArray(exclude) ? exclude : [];
+                
                 const response = await window.intellijBridge.callIDE('searchInFiles', {
                     path: dirPath,
                     searchText: searchText,
                     caseSensitive: caseSensitive,
                     wholeWord: wholeWord,
                     regex: regex,
-                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    excludePatterns: [...this.config.excludePatterns, ...excludeArray],
                     extensions: extensions || this.config.fileExtensions,
                     maxResults: maxResults,
                     contextLines: contextLines
@@ -177,10 +205,13 @@
             } = options;
 
             try {
+                // Ensure exclude is an array
+                const excludeArray = Array.isArray(exclude) ? exclude : [];
+                
                 const response = await window.intellijBridge.callIDE('findFunctions', {
                     path: dirPath,
                     functionName: functionName,
-                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    excludePatterns: [...this.config.excludePatterns, ...excludeArray],
                     includeArrow: includeArrow,
                     includeClass: includeClass,
                     includeExports: includeExports
@@ -209,10 +240,13 @@
             } = options;
 
             try {
+                // Ensure exclude is an array
+                const excludeArray = Array.isArray(exclude) ? exclude : [];
+                
                 const response = await window.intellijBridge.callIDE('getDirectoryTree', {
                     path: dirPath,
                     maxDepth: maxDepth,
-                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    excludePatterns: [...this.config.excludePatterns, ...excludeArray],
                     extensions: extensions
                 });
 

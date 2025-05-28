@@ -5,15 +5,32 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
+import org.cef.CefApp;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.callback.CefCallback;
+import org.cef.callback.CefSchemeHandlerFactory;
 import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefResourceHandler;
+import org.cef.misc.IntRef;
+import org.cef.misc.StringRef;
+import org.cef.network.CefRequest;
+import org.cef.network.CefResponse;
 
 import javax.swing.*;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+
+import org.cef.CefApp;
+import org.cef.callback.CefCallback;
+import org.cef.callback.CefSchemeHandlerFactory;
+import org.cef.handler.CefResourceHandler;
+import org.cef.misc.IntRef;
+import org.cef.misc.StringRef;
+import org.cef.network.CefRequest;
+import org.cef.network.CefResponse;
 
 import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 
@@ -44,10 +61,13 @@ public class JCEFBrowserManager {
             LOG.error("JCEF is not supported in this IDE environment");
             throw new UnsupportedOperationException("JCEF is not supported in this IDE environment");
         }
-
+    
         // Create browser with default settings
         browser = new JBCefBrowserBuilder().setOffScreenRendering(false).build();
         browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
+        
+        // Register custom scheme handler for resources before creating browser
+        registerResourceSchemeHandler();
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -76,6 +96,20 @@ public class JCEFBrowserManager {
 
         loadURL(url);
         LOG.info("JCEFBrowserManager initialized");
+    }
+    
+    /**
+     * Loads the Agent Framework demo page from resources
+     */
+    public void loadAgentDemo() {
+        loadHTMLFromResource("/html/agentDemo.html");
+    }
+    
+    /**
+     * Loads the resource test page
+     */
+    public void loadResourceTest() {
+        loadHTMLFromResource("/html/test.html");
     }
 
     /**
@@ -206,6 +240,10 @@ public class JCEFBrowserManager {
             String googleAgentIntegrationScript = loadResourceAsString("/js/googleAgentIntegration.js");
             cefBrowser.executeJavaScript(googleAgentIntegrationScript, frame.getURL(), 0);
             
+            // Load startup notification script
+            String agentStartupScript = loadResourceAsString("/js/agentStartup.js");
+            cefBrowser.executeJavaScript(agentStartupScript, frame.getURL(), 0);
+            
             LOG.info("JavaScript bridge initialized successfully with chunked messaging support, git integration, and Agent Framework");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
@@ -328,5 +366,136 @@ public class JCEFBrowserManager {
 
     public JavaScriptBridge getJavaScriptBridge() {
         return jsBridge;
+    }
+    
+    /**
+     * Registers a custom scheme handler for loading resources
+     */
+    private void registerResourceSchemeHandler() {
+        try {
+            CefApp.getInstance().registerSchemeHandlerFactory("jcef", "resource", new CefSchemeHandlerFactory() {
+                @Override
+                public CefResourceHandler create(CefBrowser browser, CefFrame frame, String schemeName, CefRequest request) {
+                    String url = request.getURL();
+                    LOG.info("Resource request: " + url);
+                    
+                    // Extract resource path from URL (jcef://resource/path/to/file)
+                    if (url.startsWith("jcef://resource/")) {
+                        String resourcePath = url.substring("jcef://resource".length());
+                        if (!resourcePath.startsWith("/")) {
+                            resourcePath = "/" + resourcePath;
+                        }
+                        return new ResourceHandler(resourcePath);
+                    }
+                    return null;
+                }
+            });
+            
+            LOG.info("Resource scheme handler registered for jcef://resource/");
+        } catch (Exception e) {
+            LOG.error("Failed to register resource scheme handler", e);
+        }
+    }
+    
+    /**
+     * Loads an HTML file from resources
+     * @param resourcePath Path to the HTML file in resources
+     */
+    public void loadHTMLFromResource(String resourcePath) {
+        if (!resourcePath.startsWith("/")) {
+            resourcePath = "/" + resourcePath;
+        }
+        
+        String url = "jcef://resource" + resourcePath;
+        LOG.info("Loading HTML from resource: " + url);
+        browser.loadURL(url);
+    }
+    
+    /**
+     * Custom resource handler for serving files from resources
+     */
+    private class ResourceHandler implements CefResourceHandler {
+        private final String resourcePath;
+        private byte[] data;
+        private int offset = 0;
+        private String mimeType = "text/html";
+        
+        public ResourceHandler(String resourcePath) {
+            this.resourcePath = resourcePath;
+            loadResource();
+        }
+        
+        private void loadResource() {
+            try {
+                try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+                    if (is != null) {
+                        data = is.readAllBytes();
+                        
+                        // Determine MIME type based on file extension
+                        if (resourcePath.endsWith(".js")) {
+                            mimeType = "application/javascript";
+                        } else if (resourcePath.endsWith(".css")) {
+                            mimeType = "text/css";
+                        } else if (resourcePath.endsWith(".html")) {
+                            mimeType = "text/html";
+                        } else if (resourcePath.endsWith(".json")) {
+                            mimeType = "application/json";
+                        } else if (resourcePath.endsWith(".png")) {
+                            mimeType = "image/png";
+                        } else if (resourcePath.endsWith(".jpg") || resourcePath.endsWith(".jpeg")) {
+                            mimeType = "image/jpeg";
+                        } else if (resourcePath.endsWith(".gif")) {
+                            mimeType = "image/gif";
+                        } else if (resourcePath.endsWith(".svg")) {
+                            mimeType = "image/svg+xml";
+                        }
+                        
+                        LOG.info("Loaded resource: " + resourcePath + " (" + data.length + " bytes, " + mimeType + ")");
+                    } else {
+                        LOG.error("Resource not found: " + resourcePath);
+                        data = ("Resource not found: " + resourcePath).getBytes(StandardCharsets.UTF_8);
+                        mimeType = "text/plain";
+                    }
+                }
+            } catch (IOException e) {
+                LOG.error("Failed to load resource: " + resourcePath, e);
+                data = ("Error loading resource: " + e.getMessage()).getBytes(StandardCharsets.UTF_8);
+                mimeType = "text/plain";
+            }
+        }
+        
+        @Override
+        public boolean processRequest(CefRequest request, CefCallback callback) {
+            callback.Continue();
+            return true;
+        }
+        
+        @Override
+        public void getResponseHeaders(CefResponse response, IntRef responseLength, StringRef redirectUrl) {
+            response.setStatus(data.length > 0 ? 200 : 404);
+            response.setMimeType(mimeType);
+            responseLength.set(data.length);
+            response.setHeaderByName("Access-Control-Allow-Origin", "*", true);
+        }
+        
+        @Override
+        public boolean readResponse(byte[] dataOut, int bytesToRead, IntRef bytesRead, CefCallback callback) {
+            if (offset >= data.length) {
+                bytesRead.set(0);
+                return false;
+            }
+            
+            int availableBytes = Math.min(bytesToRead, data.length - offset);
+            System.arraycopy(data, offset, dataOut, 0, availableBytes);
+            offset += availableBytes;
+            bytesRead.set(availableBytes);
+            
+            return offset < data.length;
+        }
+        
+        @Override
+        public void cancel() {
+            // Nothing to clean up
+        }
     }
 }

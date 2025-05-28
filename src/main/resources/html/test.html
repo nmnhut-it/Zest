@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Resource Loading Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .info {
+            background: #e8f4f8;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        code {
+            background: #333;
+            color: #fff;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="success">✓ Resource Loading Works!</h1>
+    
+    <div class="info">
+        <h2>Custom Scheme Handler Test</h2>
+        <p>This HTML file is being served from IntelliJ resources using the custom scheme handler.</p>
+        <p>URL: <code id="current-url"></code></p>
+        <p>Protocol: <code id="current-protocol"></code></p>
+    </div>
+    
+    <div class="info">
+        <h2>How to Use</h2>
+        <p>You can load resources using the following URL pattern:</p>
+        <code>jcef://resource/path/to/your/file</code>
+        
+        <h3>Examples:</h3>
+        <ul>
+            <li><a href="jcef://resource/html/agentDemo.html">Agent Framework Demo</a></li>
+            <li><a href="jcef://resource/js/agentFramework.js">View Agent Framework JS</a></li>
+        </ul>
+    </div>
+    
+    <div class="info">
+        <h2>Available Resources</h2>
+        <ul>
+            <li>/html/agentDemo.html - Agent Framework Demo</li>
+            <li>/html/test.html - This test page</li>
+            <li>/js/agentFramework.js - Core Agent Framework</li>
+            <li>/js/agentUI.js - Agent UI Components</li>
+            <li>/js/googleAgentIntegration.js - Google Integration</li>
+            <li>/js/intellijBridgeChunked.js - IntelliJ Bridge</li>
+        </ul>
+    </div>
+    
+    <script>
+        // Display current URL info
+        document.getElementById('current-url').textContent = window.location.href;
+        document.getElementById('current-protocol').textContent = window.location.protocol;
+        
+        // Test if we can access IntelliJ bridge
+        if (window.intellijBridge) {
+            console.log('✓ IntelliJ Bridge is available');
+        } else {
+            console.log('✗ IntelliJ Bridge not found - scripts may not be loaded yet');
+        }
+    </script>
+</body>
+</html>

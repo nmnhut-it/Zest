@@ -215,5 +215,14 @@
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        
+        <!-- Agent Framework Demo -->
+        <action id="Zest.ShowAgentFramework"
+                class="com.zps.zest.actions.ShowAgentFrameworkAction"
+                text="Show Agent Framework Demo"
+                description="Open the Agent Framework demo page in the browser">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ToggleDevTools"/>
+        </action>
     </actions>
 </idea-plugin>

@@ -543,13 +543,13 @@
      * Log to console
      */
     window.AgentUI.log = function(message, type = 'info') {
-        const console = this.container.querySelector('#agent-console');
+        const consoleElement = this.container.querySelector('#agent-console');
         const timestamp = new Date().toLocaleTimeString();
         const line = document.createElement('div');
         line.className = 'console-line';
         line.innerHTML = `<span class="console-timestamp">[${timestamp}]</span>${message}`;
-        console.appendChild(line);
-        console.scrollTop = console.scrollHeight;
+        consoleElement.appendChild(line);
+        consoleElement.scrollTop = consoleElement.scrollHeight;
         
         // Also log to browser console
         console.log(`[AgentUI] ${message}`);

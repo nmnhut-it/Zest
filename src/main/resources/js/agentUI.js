@@ -407,6 +407,28 @@
                         </div>
                         
                         <div class="research-section">
+                            <h4>🔗 Find References</h4>
+                            <div class="search-form">
+                                <div class="search-input-group">
+                                    <input type="text" id="reference-identifier" placeholder="Identifier to find references..." />
+                                    <button class="agent-ui-btn" onclick="AgentUI.findReferences()">Find</button>
+                                </div>
+                            </div>
+                            <div id="reference-results" class="search-results" style="display: none; margin-top: 10px;"></div>
+                        </div>
+                        
+                        <div class="research-section">
+                            <h4>📝 Extract Signatures</h4>
+                            <div class="search-form">
+                                <div class="search-input-group">
+                                    <input type="text" id="signatures-path" placeholder="Directory path (optional, default: /)" />
+                                    <button class="agent-ui-btn" onclick="AgentUI.extractSignatures()">Extract</button>
+                                </div>
+                            </div>
+                            <div id="signatures-results" class="search-results" style="display: none; margin-top: 10px;"></div>
+                        </div>
+                        
+                        <div class="research-section">
                             <h4>📁 Directory Tree</h4>
                             <div class="search-form">
                                 <button class="agent-ui-btn" onclick="AgentUI.getDirectoryTree()" style="width: 100%;">Show Project Structure</button>
@@ -791,7 +813,8 @@
         
         try {
             const agent = await this.getResearchAgent();
-            const projectPath = await this.getProjectDirectory();
+            // Always use "/" for project root - the Java code expects relative paths
+            const projectPath = "/";
             
             this.log(`Searching for "${searchText}" in project...`);
             
@@ -865,7 +888,8 @@
         
         try {
             const agent = await this.getResearchAgent();
-            const projectPath = await this.getProjectDirectory();
+            // Always use "/" for project root - the Java code expects relative paths
+            const projectPath = "/";
             
             this.log(`Finding function "${functionName}"...`);
             
@@ -935,7 +959,8 @@
         
         try {
             const agent = await this.getResearchAgent();
-            const projectPath = await this.getProjectDirectory();
+            // Always use "/" for project root - the Java code expects relative paths
+            const projectPath = "/";
             
             this.log(`Analyzing usage of "${functionName}"...`);
             
@@ -1003,7 +1028,8 @@
         
         try {
             const agent = await this.getResearchAgent();
-            const projectPath = await this.getProjectDirectory();
+            // Always use "/" for project root - the Java code expects relative paths
+            const projectPath = "/";
             
             this.log('Getting project structure...');
             
@@ -1061,6 +1087,175 @@
         };
         
         container.innerHTML = `<div style="font-family: monospace; white-space: pre;">${renderTree(tree)}</div>`;
+    };
+    
+    // Find references
+    window.AgentUI.findReferences = async function() {
+        const identifier = this.container.querySelector('#reference-identifier').value;
+        if (!identifier) {
+            alert('Please enter an identifier');
+            return;
+        }
+        
+        const resultsDiv = this.container.querySelector('#reference-results');
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = '<div style="color: #fa0;">Finding references...</div>';
+        
+        try {
+            const agent = await this.getResearchAgent();
+            // Always use "/" for project root - the Java code expects relative paths
+            const projectPath = "/";
+            
+            this.log(`Finding references to "${identifier}"...`);
+            
+            agent.queueTask({
+                type: 'find_references',
+                data: {
+                    identifier: identifier,
+                    folderPath: projectPath,
+                    options: {
+                        excludePatterns: ['**/node_modules/**', '**/.git/**']
+                    }
+                },
+                callback: (error, result) => {
+                    if (error) {
+                        resultsDiv.innerHTML = `<div style="color: #f44;">Error: ${error.message}</div>`;
+                        this.log(`Reference search failed: ${error.message}`, 'error');
+                    } else {
+                        this.displayReferenceResults(result, resultsDiv);
+                        this.log(`Found ${result.summary.totalReferences} references to "${identifier}"`, 'success');
+                    }
+                }
+            });
+            
+        } catch (error) {
+            resultsDiv.innerHTML = `<div style="color: #f44;">Error: ${error.message}</div>`;
+            this.log(`Reference search error: ${error.message}`, 'error');
+        }
+    };
+    
+    // Display reference results
+    window.AgentUI.displayReferenceResults = function(results, container) {
+        let html = `<div style="color: #4CAF50; margin-bottom: 10px;">Reference Summary:</div>`;
+        html += `<div style="margin-bottom: 10px;">`;
+        html += `<div>Total References: ${results.summary.totalReferences}</div>`;
+        html += `</div>`;
+        
+        // Display by type
+        html += `<div style="color: #4CAF50; margin: 10px 0;">References by Type:</div>`;
+        results.summary.byType.forEach(typeInfo => {
+            if (typeInfo.count > 0) {
+                html += `<div style="margin-left: 10px;">${typeInfo.type}: ${typeInfo.count}</div>`;
+            }
+        });
+        
+        // Display actual references
+        for (const [type, refs] of Object.entries(results.references)) {
+            if (refs.length > 0) {
+                html += `<div style="color: #4CAF50; margin: 15px 0;">${type.charAt(0).toUpperCase() + type.slice(1)}:</div>`;
+                refs.slice(0, 5).forEach(ref => {
+                    html += `<div class="search-result-file">`;
+                    html += `<div class="search-result-filename">${ref.file}</div>`;
+                    html += `<div class="search-result-match">`;
+                    html += `<span class="search-result-line-number">Line ${ref.line}:</span>`;
+                    html += `<span class="search-result-text">${this.escapeHtml(ref.text)}</span>`;
+                    html += `</div>`;
+                    html += `</div>`;
+                });
+                if (refs.length > 5) {
+                    html += `<div style="color: #666; font-size: 10px; margin-left: 10px;">...and ${refs.length - 5} more</div>`;
+                }
+            }
+        }
+        
+        container.innerHTML = html;
+    };
+    
+    // Extract signatures
+    window.AgentUI.extractSignatures = async function() {
+        const pathInput = this.container.querySelector('#signatures-path').value;
+        // Use "/" for project root if no path specified
+        const folderPath = pathInput || '/';
+        
+        const resultsDiv = this.container.querySelector('#signatures-results');
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = '<div style="color: #fa0;">Extracting function signatures...</div>';
+        
+        try {
+            const agent = await this.getResearchAgent();
+            
+            this.log(`Extracting signatures from ${folderPath}...`);
+            
+            agent.queueTask({
+                type: 'extract_signatures',
+                data: {
+                    folderPath: folderPath,
+                    options: {
+                        excludePatterns: ['**/node_modules/**', '**/.git/**']
+                    }
+                },
+                callback: (error, result) => {
+                    if (error) {
+                        resultsDiv.innerHTML = `<div style="color: #f44;">Error: ${error.message}</div>`;
+                        this.log(`Signature extraction failed: ${error.message}`, 'error');
+                    } else {
+                        this.displaySignatureResults(result, resultsDiv);
+                        this.log(`Extracted ${result.totalFunctions} functions from ${result.totalFiles} files`, 'success');
+                    }
+                }
+            });
+            
+        } catch (error) {
+            resultsDiv.innerHTML = `<div style="color: #f44;">Error: ${error.message}</div>`;
+            this.log(`Signature extraction error: ${error.message}`, 'error');
+        }
+    };
+    
+    // Display signature results
+    window.AgentUI.displaySignatureResults = function(results, container) {
+        let html = `<div style="color: #4CAF50; margin-bottom: 10px;">Signature Extraction Summary:</div>`;
+        html += `<div style="margin-bottom: 10px;">`;
+        html += `<div>Total Files: ${results.totalFiles}</div>`;
+        html += `<div>Total Functions: ${results.totalFunctions}</div>`;
+        html += `</div>`;
+        
+        // Display by type
+        html += `<div style="color: #4CAF50; margin: 10px 0;">Functions by Type:</div>`;
+        for (const [type, funcs] of Object.entries(results.byType)) {
+            if (funcs.length > 0) {
+                html += `<div style="margin: 10px 0;">`;
+                html += `<div style="color: #fa0;">${type} (${funcs.length}):</div>`;
+                funcs.slice(0, 5).forEach(func => {
+                    html += `<div class="search-result-match" style="margin-left: 10px;">`;
+                    html += `<span style="color: #4CAF50;">${func.name}</span> - `;
+                    html += `<span style="color: #666;">${func.file}:${func.line}</span><br>`;
+                    html += `<span style="font-family: monospace; font-size: 10px;">${this.escapeHtml(func.signature)}</span>`;
+                    html += `</div>`;
+                });
+                if (funcs.length > 5) {
+                    html += `<div style="color: #666; font-size: 10px; margin-left: 10px;">...and ${funcs.length - 5} more</div>`;
+                }
+                html += `</div>`;
+            }
+        }
+        
+        // Show function index
+        if (results.index && results.index.length > 0) {
+            html += `<div style="color: #4CAF50; margin: 15px 0;">Function Index (alphabetical):</div>`;
+            html += `<div style="max-height: 200px; overflow-y: auto; border: 1px solid #333; padding: 10px; margin-top: 5px;">`;
+            results.index.slice(0, 50).forEach(item => {
+                html += `<div style="margin: 2px 0;">`;
+                html += `<span style="color: #4CAF50;">${item.name}</span> `;
+                html += `<span style="color: #666; font-size: 10px;">(${item.type}) - ${item.file}:${item.line}</span>`;
+                html += `</div>`;
+            });
+            if (results.index.length > 50) {
+                html += `<div style="color: #666; font-size: 10px; margin-top: 10px;">...and ${results.index.length - 50} more functions</div>`;
+            }
+            html += `</div>`;
+        }
+        
+        container.innerHTML = html;
     };
     
     // Get file icon based on extension

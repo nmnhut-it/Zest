@@ -26,6 +26,11 @@ window.intellijBridge = {
   callIDE: function(action, data) {
     return new Promise((resolve, reject) => {
       try {
+        // Debug logging
+        console.log('CallIDE - Action:', action);
+        console.log('CallIDE - Data:', data);
+        console.log('CallIDE - Data JSON:', JSON.stringify(data));
+        
         // Create the request
         const request = JSON.stringify({
           action: action,
@@ -33,6 +38,7 @@ window.intellijBridge = {
         });
         
         console.log('Sending request to IDE:', action, 'Size:', request.length);
+        console.log('Full request:', request);
         
         // Check if message needs chunking
         if (request.length > this.config.maxChunkSize) {

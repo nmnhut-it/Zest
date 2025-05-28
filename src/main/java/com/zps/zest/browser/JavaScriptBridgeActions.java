@@ -1,9 +1,6 @@
 package com.zps.zest.browser;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -43,11 +40,22 @@ public class JavaScriptBridgeActions {
      */
     public String handleAction(String assembledMessage) {
         try {
+            LOG.info("Raw assembled message: " + assembledMessage);
             JsonObject request = JsonParser.parseString(assembledMessage).getAsJsonObject();
             String action = request.get("action").getAsString();
-            JsonObject data =   request.has("data") ? request.get("data").getAsJsonObject() : new JsonObject();
+            JsonObject data = request.has("data") ? request.get("data").getAsJsonObject() : new JsonObject();
             
             LOG.info("Handling action: " + action);
+            LOG.info("Data object: " + data.toString());
+            
+            // Debug: Check if searchText exists and what it contains
+            if (data.has("searchText")) {
+                JsonElement searchTextElement = data.get("searchText");
+                LOG.info("searchText element type: " + searchTextElement.getClass().getSimpleName());
+                LOG.info("searchText element: " + searchTextElement.toString());
+                String searchTextValue = searchTextElement.getAsString();
+                LOG.info("searchText value: '" + searchTextValue + "'");
+            }
             
             // Check if we're in agent mode for actions that require it
             WebBrowserPanel.BrowserMode currentMode = WebBrowserService.getInstance(project).getBrowserPanel().getCurrentMode();

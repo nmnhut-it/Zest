@@ -272,6 +272,17 @@
         </div>
         
         <div class="demo-section">
+            <h2>LLM Provider Integration</h2>
+            <div class="button-group">
+                <button onclick="testLLMProvider()">Test LLM Connection</button>
+                <button onclick="listAvailableModels()">List Models</button>
+                <button onclick="generateWithLLM()">Generate Code</button>
+                <button onclick="reviewWithLLM()">Review Code</button>
+            </div>
+            <div id="llm-output" class="output"></div>
+        </div>
+        
+        <div class="demo-section">
             <h2>Live Code Generation</h2>
             <div style="margin-bottom: 15px;">
                 <label style="display: block; margin-bottom: 5px;">Describe what you want to build:</label>
@@ -714,6 +725,108 @@
         
         async function importGoogleWorkflow() {
             log('google-output', 'Google workflow import not yet implemented', 'warning');
+        }
+        
+        // LLM Provider functions
+        async function testLLMProvider() {
+            try {
+                log('llm-output', 'Testing LLM Provider connection...');
+                
+                if (!window.LLMProvider) {
+                    throw new Error('LLM Provider not loaded');
+                }
+                
+                // Test with a simple prompt
+                const response = await window.LLMProvider.callAPI('Hello! Can you confirm the connection is working?', {
+                    maxTokens: 50
+                });
+                
+                log('llm-output', 'Connection successful!', 'success');
+                log('llm-output', `Response: ${response}`);
+                
+            } catch (error) {
+                log('llm-output', `Connection test failed: ${error.message}`, 'error');
+                log('llm-output', 'Make sure you are logged into OpenWebUI');
+            }
+        }
+        
+        async function listAvailableModels() {
+            try {
+                log('llm-output', 'Fetching available models...');
+                
+                const models = await window.LLMProvider.getAvailableModels();
+                
+                if (models.length > 0) {
+                    log('llm-output', `Found ${models.length} models:`, 'success');
+                    models.forEach(model => {
+                        log('llm-output', `  - ${model.id || model.name || model}`);
+                    });
+                } else {
+                    log('llm-output', 'No models found', 'warning');
+                }
+                
+            } catch (error) {
+                log('llm-output', `Failed to fetch models: ${error.message}`, 'error');
+            }
+        }
+        
+        async function generateWithLLM() {
+            const description = document.getElementById('code-description').value;
+            if (!description) {
+                log('llm-output', 'Please enter a description in the Live Code Generation section', 'warning');
+                return;
+            }
+            
+            try {
+                log('llm-output', '\n=== Generating Code with LLM ===');
+                log('llm-output', `Description: ${description}`);
+                
+                const code = await window.LLMProvider.generateCode(description, 'javascript');
+                
+                log('llm-output', 'Code generated successfully!', 'success');
+                log('llm-output', '```javascript');
+                log('llm-output', code);
+                log('llm-output', '```');
+                
+                // Send to IntelliJ
+                if (window.intellijBridge) {
+                    await window.intellijBridge.callIDE('insertCode', {
+                        code: code,
+                        language: 'javascript'
+                    });
+                    log('llm-output', 'Code sent to IntelliJ', 'success');
+                }
+                
+            } catch (error) {
+                log('llm-output', `Code generation failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function reviewWithLLM() {
+            try {
+                log('llm-output', '\n=== Code Review with LLM ===');
+                
+                // Sample code for review
+                const sampleCode = `
+function calculateTotal(items) {
+    var total = 0;
+    for (var i = 0; i < items.length; i++) {
+        total = total + items[i].price;
+    }
+    return total;
+}`;
+                
+                log('llm-output', 'Reviewing sample code...');
+                log('llm-output', '```javascript' + sampleCode + '\n```');
+                
+                const review = await window.LLMProvider.reviewCode(sampleCode, 'javascript');
+                
+                log('llm-output', 'Review completed!', 'success');
+                log('llm-output', review);
+                
+            } catch (error) {
+                log('llm-output', `Code review failed: ${error.message}`, 'error');
+            }
         }
         
         // Auto-initialize on load

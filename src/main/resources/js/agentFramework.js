@@ -431,8 +431,17 @@
         }
 
         async generateWithAI(prompt) {
-            // This would call the actual AI service
-            // For now, return a placeholder
+            // Use LLMProvider if available
+            if (window.LLMProvider) {
+                try {
+                    const generatedCode = await window.LLMProvider.generateCode(prompt);
+                    return generatedCode;
+                } catch (error) {
+                    console.error('LLM generation failed, using fallback:', error);
+                }
+            }
+            
+            // Fallback to placeholder
             return `// Generated code based on prompt:\n// ${prompt}\n\n// Implementation goes here`;
         }
 
@@ -496,7 +505,49 @@
         }
 
         async performAIReview(code, language) {
-            // Placeholder for AI review
+            // Use LLMProvider if available
+            if (window.LLMProvider) {
+                try {
+                    const reviewResult = await window.LLMProvider.reviewCode(code, language);
+                    
+                    // Parse the review result to extract issues and suggestions
+                    const issues = [];
+                    const suggestions = [];
+                    
+                    // Simple parsing - in production, you'd want more sophisticated parsing
+                    const lines = reviewResult.split('\n');
+                    let currentSection = null;
+                    
+                    for (const line of lines) {
+                        if (line.toLowerCase().includes('issue') || line.toLowerCase().includes('error') || line.toLowerCase().includes('bug')) {
+                            currentSection = 'issues';
+                        } else if (line.toLowerCase().includes('suggestion') || line.toLowerCase().includes('improvement')) {
+                            currentSection = 'suggestions';
+                        } else if (line.trim() && currentSection) {
+                            if (currentSection === 'issues' && line.trim().startsWith('-')) {
+                                issues.push({
+                                    severity: 'warning',
+                                    rule: 'ai-review',
+                                    message: line.trim().substring(1).trim()
+                                });
+                            } else if (currentSection === 'suggestions' && line.trim().startsWith('-')) {
+                                suggestions.push(line.trim().substring(1).trim());
+                            }
+                        }
+                    }
+                    
+                    // If no structured parsing worked, add the whole review as a suggestion
+                    if (issues.length === 0 && suggestions.length === 0) {
+                        suggestions.push(reviewResult);
+                    }
+                    
+                    return { issues, suggestions };
+                } catch (error) {
+                    console.error('LLM review failed, using fallback:', error);
+                }
+            }
+            
+            // Fallback placeholder
             return {
                 issues: [],
                 suggestions: ['Consider adding error handling', 'Add unit tests']

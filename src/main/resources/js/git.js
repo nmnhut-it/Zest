@@ -420,7 +420,7 @@ const GitModal = {
     },
 
     /**
-     * Generate commit message using OpenWebUI API
+     * Generate commit message using LLMProvider
      */
    generateCommitMessage: async function() {
        console.log('Generating commit message...');
@@ -457,11 +457,20 @@ const GitModal = {
            // Get diffs for selected files
            const diffs = await this.getFileDiffs(selectedFiles);
 
-           // Build prompt
-           const prompt = this.buildCommitPrompt(selectedFiles, diffs);
+           // Build a more structured diff summary
+           const diffSummary = this.buildDiffSummary(selectedFiles, diffs);
 
-           // Call OpenWebUI API
-           let commitMessage = await this.callOpenWebUIAPI(prompt);
+           // Use LLMProvider if available, otherwise fall back to direct API call
+           let commitMessage;
+           if (window.LLMProvider) {
+               console.log('Using LLMProvider for commit message generation');
+               commitMessage = await window.LLMProvider.generateCommitMessage(diffSummary);
+           } else {
+               console.log('LLMProvider not available, using direct API call');
+               const prompt = this.buildCommitPrompt(selectedFiles, diffs);
+               commitMessage = await this.callOpenWebUIAPI(prompt);
+           }
+           
            console.log("raw resp from commit msg", commitMessage);
 
            // Handle code blocks properly
@@ -629,6 +638,63 @@ const GitModal = {
  Please provide ONLY the commit message, no additional explanation.`;
 
      return prompt;
+ },
+
+ /**
+  * Build a structured diff summary for LLMProvider
+  * @param {Array} selectedFiles - Array of file objects with path and status
+  * @param {Object} diffs - Object with file paths as keys and diff content as values
+  * @return {String} - The formatted diff summary
+  */
+ buildDiffSummary: function(selectedFiles, diffs) {
+     let summary = "## Changes Summary\n\n";
+     
+     // Group files by status
+     const filesByStatus = {
+         'M': [], 'A': [], 'D': [], 'R': [], 'C': []
+     };
+     
+     selectedFiles.forEach(file => {
+         const status = file.status || 'M';
+         if (filesByStatus[status]) {
+             filesByStatus[status].push(file.path);
+         }
+     });
+     
+     const statusLabels = {
+         'M': 'Modified',
+         'A': 'Added',
+         'D': 'Deleted',
+         'R': 'Renamed',
+         'C': 'Copied'
+     };
+     
+     // Add file list by status
+     Object.entries(filesByStatus).forEach(([status, files]) => {
+         if (files.length > 0) {
+             summary += `${statusLabels[status]} files:\n`;
+             files.forEach(file => summary += `  - ${file}\n`);
+             summary += '\n';
+         }
+     });
+     
+     // Add diffs
+     summary += "## Detailed Changes\n\n";
+     Object.entries(diffs).forEach(([path, diff]) => {
+         summary += `### ${path}\n`;
+         // Truncate large diffs but keep meaningful content
+         const lines = diff.split('\n');
+         const maxLines = 100;
+         if (lines.length > maxLines) {
+             summary += lines.slice(0, maxLines).join('\n');
+             summary += `\n... (${lines.length - maxLines} more lines)\n`;
+         } else {
+             summary += diff;
+         }
+         summary += '\n\n';
+     });
+     
+     return summary;
  },
 
     /**

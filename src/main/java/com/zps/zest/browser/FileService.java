@@ -9,24 +9,34 @@ import com.intellij.diff.DiffManager;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.psi.*;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.searches.ReferencesSearch;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.ReplaceInFileTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Service for handling file operations from JavaScript bridge.
@@ -270,6 +280,535 @@ public class FileService {
             return false;
         }
     }
+    
+    /**
+     * Lists files in a directory recursively for the Research Agent
+     */
+    public String listFiles(JsonObject data) {
+        return ReadAction.compute(() -> {
+            try {
+                String path = data.has("path") ? data.get("path").getAsString() : "/";
+                JsonArray excludePatterns = data.has("excludePatterns") ? 
+                    data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ? 
+                    data.getAsJsonArray("extensions") : null;
+                int maxDepth = data.has("maxDepth") ? data.get("maxDepth").getAsInt() : 5;
+                
+                VirtualFile baseDir = getProjectFile(path);
+                if (baseDir == null || !baseDir.isDirectory()) {
+                    return createErrorResponse("Directory not found: " + path);
+                }
+                
+                Set<String> excludeSet = new HashSet<>();
+                excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
+                
+                Set<String> extensionSet = null;
+                if (extensions != null) {
+                    extensionSet = new HashSet<>();
+                    extensions.forEach(e -> extensionSet.add(e.getAsString()));
+                }
+                
+                JsonArray files = new JsonArray();
+                collectFiles(baseDir, project.getBasePath(), files, excludeSet, extensionSet, 0, maxDepth);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.add("files", files);
+                return gson.toJson(response);
+                
+            } catch (Exception e) {
+                LOG.error("Error listing files", e);
+                return createErrorResponse(e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Reads a file's content
+     */
+    public String readFile(JsonObject data) {
+        return ReadAction.compute(() -> {
+            try {
+                String path = data.get("path").getAsString();
+                String encoding = data.has("encoding") ? data.get("encoding").getAsString() : "UTF-8";
+                
+                VirtualFile file = getProjectFile(path);
+                if (file == null || file.isDirectory()) {
+                    return createErrorResponse("File not found: " + path);
+                }
+                
+                // Check file size
+                if (file.getLength() > MAX_FILE_SIZE) {
+                    return createErrorResponse("File too large: " + file.getLength() + " bytes");
+                }
+                
+                String content = new String(file.contentsToByteArray(), encoding);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.addProperty("content", content);
+                response.addProperty("path", path);
+                return gson.toJson(response);
+                
+            } catch (Exception e) {
+                LOG.error("Error reading file", e);
+                return createErrorResponse(e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Searches for text in files
+     */
+    public String searchInFiles(JsonObject data) {
+        return ReadAction.compute(() -> {
+            try {
+                String searchText = data.get("searchText").getAsString();
+                String path = data.has("path") ? data.get("path").getAsString() : "/";
+                boolean caseSensitive = data.has("caseSensitive") && data.get("caseSensitive").getAsBoolean();
+                boolean wholeWord = data.has("wholeWord") && data.get("wholeWord").getAsBoolean();
+                boolean regex = data.has("regex") && data.get("regex").getAsBoolean();
+                int contextLines = data.has("contextLines") ? data.get("contextLines").getAsInt() : 2;
+                int maxResults = data.has("maxResults") ? data.get("maxResults").getAsInt() : 1000;
+                
+                JsonArray excludePatterns = data.has("excludePatterns") ? 
+                    data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ? 
+                    data.getAsJsonArray("extensions") : null;
+                
+                VirtualFile baseDir = getProjectFile(path);
+                if (baseDir == null || !baseDir.isDirectory()) {
+                    return createErrorResponse("Directory not found: " + path);
+                }
+                
+                Set<String> excludeSet = new HashSet<>();
+                excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
+                
+                Set<String> extensionSet = null;
+                if (extensions != null) {
+                    extensionSet = new HashSet<>();
+                    extensions.forEach(e -> extensionSet.add(e.getAsString()));
+                }
+                
+                // Build search pattern
+                Pattern searchPattern;
+                if (regex) {
+                    searchPattern = Pattern.compile(searchText, caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
+                } else {
+                    String escapedText = Pattern.quote(searchText);
+                    if (wholeWord) {
+                        escapedText = "\\b" + escapedText + "\\b";
+                    }
+                    searchPattern = Pattern.compile(escapedText, caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
+                }
+                
+                JsonArray results = new JsonArray();
+                int[] totalMatches = {0};
+                searchInDirectory(baseDir, project.getBasePath(), searchPattern, results, 
+                    excludeSet, extensionSet, contextLines, maxResults, totalMatches);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.addProperty("totalMatches", totalMatches[0]);
+                response.add("results", results);
+                return gson.toJson(response);
+                
+            } catch (Exception e) {
+                LOG.error("Error searching in files", e);
+                return createErrorResponse(e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Finds JavaScript functions in files
+     */
+    public String findFunctions(JsonObject data) {
+        return ReadAction.compute(() -> {
+            try {
+                String functionName = data.has("functionName") ? data.get("functionName").getAsString() : null;
+                String path = data.has("path") ? data.get("path").getAsString() : "/";
+                
+                VirtualFile baseDir = getProjectFile(path);
+                if (baseDir == null || !baseDir.isDirectory()) {
+                    return createErrorResponse("Directory not found: " + path);
+                }
+                
+                JsonArray excludePatterns = data.has("excludePatterns") ? 
+                    data.getAsJsonArray("excludePatterns") : new JsonArray();
+                Set<String> excludeSet = new HashSet<>();
+                excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
+                
+                // JavaScript file extensions
+                Set<String> jsExtensions = Set.of(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs");
+                
+                JsonArray results = new JsonArray();
+                findFunctionsInDirectory(baseDir, project.getBasePath(), functionName, 
+                    results, excludeSet, jsExtensions);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.add("results", results);
+                return gson.toJson(response);
+                
+            } catch (Exception e) {
+                LOG.error("Error finding functions", e);
+                return createErrorResponse(e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Gets directory tree structure
+     */
+    public String getDirectoryTree(JsonObject data) {
+        return ReadAction.compute(() -> {
+            try {
+                String path = data.has("path") ? data.get("path").getAsString() : "/";
+                int maxDepth = data.has("maxDepth") ? data.get("maxDepth").getAsInt() : 3;
+                
+                JsonArray excludePatterns = data.has("excludePatterns") ? 
+                    data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ? 
+                    data.getAsJsonArray("extensions") : null;
+                
+                VirtualFile baseDir = getProjectFile(path);
+                if (baseDir == null) {
+                    return createErrorResponse("Directory not found: " + path);
+                }
+                
+                Set<String> excludeSet = new HashSet<>();
+                excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
+                
+                Set<String> extensionSet = null;
+                if (extensions != null) {
+                    extensionSet = new HashSet<>();
+                    extensions.forEach(e -> extensionSet.add(e.getAsString()));
+                }
+                
+                JsonObject tree = buildDirectoryTree(baseDir, excludeSet, extensionSet, 0, maxDepth);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.add("tree", tree);
+                return gson.toJson(response);
+                
+            } catch (Exception e) {
+                LOG.error("Error getting directory tree", e);
+                return createErrorResponse(e.getMessage());
+            }
+        });
+    }
+    
+    // Helper methods
+    
+    private VirtualFile getProjectFile(String path) {
+        if (path.equals("/") || path.isEmpty()) {
+            return project.getBaseDir();
+        }
+        
+        VirtualFile projectBase = project.getBaseDir();
+        if (projectBase == null) return null;
+        
+        // Remove leading slash if present
+        if (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        
+        return projectBase.findFileByRelativePath(path);
+    }
+    
+    private void collectFiles(VirtualFile dir, String projectBase, JsonArray results, 
+                            Set<String> excludePatterns, Set<String> extensions, 
+                            int currentDepth, int maxDepth) {
+        if (currentDepth > maxDepth) return;
+        
+        for (VirtualFile child : dir.getChildren()) {
+            String relativePath = getRelativePath(child, projectBase);
+            
+            // Check exclusions
+            if (shouldExclude(relativePath, excludePatterns)) continue;
+            
+            JsonObject fileInfo = new JsonObject();
+            fileInfo.addProperty("path", relativePath);
+            fileInfo.addProperty("name", child.getName());
+            fileInfo.addProperty("type", child.isDirectory() ? "directory" : "file");
+            
+            if (child.isDirectory()) {
+                results.add(fileInfo);
+                collectFiles(child, projectBase, results, excludePatterns, extensions, 
+                    currentDepth + 1, maxDepth);
+            } else if (extensions == null || hasValidExtension(child.getName(), extensions)) {
+                results.add(fileInfo);
+            }
+        }
+    }
+    
+    private void searchInDirectory(VirtualFile dir, String projectBase, Pattern searchPattern,
+                                 JsonArray results, Set<String> excludePatterns, 
+                                 Set<String> extensions, int contextLines, int maxResults,
+                                 int[] totalMatches) {
+        if (totalMatches[0] >= maxResults) return;
+        
+        for (VirtualFile child : dir.getChildren()) {
+            if (totalMatches[0] >= maxResults) return;
+            
+            String relativePath = getRelativePath(child, projectBase);
+            if (shouldExclude(relativePath, excludePatterns)) continue;
+            
+            if (child.isDirectory()) {
+                searchInDirectory(child, projectBase, searchPattern, results, excludePatterns,
+                    extensions, contextLines, maxResults, totalMatches);
+            } else if (extensions == null || hasValidExtension(child.getName(), extensions)) {
+                searchInFile(child, relativePath, searchPattern, results, contextLines, 
+                    maxResults, totalMatches);
+            }
+        }
+    }
+    
+    private void searchInFile(VirtualFile file, String relativePath, Pattern searchPattern,
+                            JsonArray results, int contextLines, int maxResults, int[] totalMatches) {
+        try {
+            if (file.getLength() > MAX_FILE_SIZE) return;
+            
+            String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
+            String[] lines = content.split("\n");
+            
+            JsonArray matches = new JsonArray();
+            
+            for (int i = 0; i < lines.length; i++) {
+                if (totalMatches[0] >= maxResults) break;
+                
+                Matcher matcher = searchPattern.matcher(lines[i]);
+                if (matcher.find()) {
+                    totalMatches[0]++;
+                    
+                    JsonObject match = new JsonObject();
+                    match.addProperty("line", i + 1);
+                    match.addProperty("column", matcher.start() + 1);
+                    match.addProperty("text", lines[i].trim());
+                    
+                    // Add context
+                    JsonObject context = new JsonObject();
+                    JsonArray before = new JsonArray();
+                    JsonArray after = new JsonArray();
+                    
+                    for (int j = Math.max(0, i - contextLines); j < i; j++) {
+                        before.add(lines[j]);
+                    }
+                    for (int j = i + 1; j < Math.min(lines.length, i + contextLines + 1); j++) {
+                        after.add(lines[j]);
+                    }
+                    
+                    context.add("before", before);
+                    context.addProperty("current", lines[i]);
+                    context.add("after", after);
+                    match.add("context", context);
+                    
+                    matches.add(match);
+                }
+            }
+            
+            if (matches.size() > 0) {
+                JsonObject fileResult = new JsonObject();
+                fileResult.addProperty("file", relativePath);
+                fileResult.add("matches", matches);
+                results.add(fileResult);
+            }
+            
+        } catch (Exception e) {
+            LOG.warn("Error searching in file: " + relativePath, e);
+        }
+    }
+    
+    private void findFunctionsInDirectory(VirtualFile dir, String projectBase, String functionName,
+                                        JsonArray results, Set<String> excludePatterns,
+                                        Set<String> extensions) {
+        for (VirtualFile child : dir.getChildren()) {
+            String relativePath = getRelativePath(child, projectBase);
+            if (shouldExclude(relativePath, excludePatterns)) continue;
+            
+            if (child.isDirectory()) {
+                findFunctionsInDirectory(child, projectBase, functionName, results, 
+                    excludePatterns, extensions);
+            } else if (hasValidExtension(child.getName(), extensions)) {
+                findFunctionsInFile(child, relativePath, functionName, results);
+            }
+        }
+    }
+    
+    private void findFunctionsInFile(VirtualFile file, String relativePath, String targetName,
+                                   JsonArray results) {
+        try {
+            if (file.getLength() > MAX_FILE_SIZE) return;
+            
+            String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
+            
+            // Function patterns
+            List<Pattern> patterns = Arrays.asList(
+                Pattern.compile("function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"),
+                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)\\s*=>"),
+                Pattern.compile("(?:async\\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
+                Pattern.compile("export\\s+(?:default\\s+)?(?:async\\s+)?function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)")
+            );
+            
+            JsonArray functions = new JsonArray();
+            String[] lines = content.split("\n");
+            
+            for (Pattern pattern : patterns) {
+                Matcher matcher = pattern.matcher(content);
+                while (matcher.find()) {
+                    String funcName = matcher.group(1);
+                    
+                    if (targetName == null || funcName.equals(targetName)) {
+                        int position = matcher.start();
+                        int lineNumber = getLineNumber(content, position);
+                        
+                        JsonObject func = new JsonObject();
+                        func.addProperty("name", funcName);
+                        func.addProperty("line", lineNumber);
+                        func.addProperty("signature", extractSignature(content, position));
+                        functions.add(func);
+                    }
+                }
+            }
+            
+            if (functions.size() > 0) {
+                JsonObject fileResult = new JsonObject();
+                fileResult.addProperty("file", relativePath);
+                fileResult.add("functions", functions);
+                results.add(fileResult);
+            }
+            
+        } catch (Exception e) {
+            LOG.warn("Error finding functions in file: " + relativePath, e);
+        }
+    }
+    
+    private JsonObject buildDirectoryTree(VirtualFile file, Set<String> excludePatterns,
+                                        Set<String> extensions, int currentDepth, int maxDepth) {
+        JsonObject node = new JsonObject();
+        node.addProperty("name", file.getName());
+        node.addProperty("type", file.isDirectory() ? "directory" : "file");
+        node.addProperty("path", getRelativePath(file, project.getBasePath()));
+        
+        if (file.isDirectory() && currentDepth < maxDepth) {
+            JsonArray children = new JsonArray();
+            
+            for (VirtualFile child : file.getChildren()) {
+                String relativePath = getRelativePath(child, project.getBasePath());
+                if (shouldExclude(relativePath, excludePatterns)) continue;
+                
+                if (child.isDirectory() || extensions == null || 
+                    hasValidExtension(child.getName(), extensions)) {
+                    children.add(buildDirectoryTree(child, excludePatterns, extensions, 
+                        currentDepth + 1, maxDepth));
+                }
+            }
+            
+            node.add("children", children);
+        }
+        
+        return node;
+    }
+    
+    private String getRelativePath(VirtualFile file, String basePath) {
+        String fullPath = file.getPath();
+        if (basePath != null && fullPath.startsWith(basePath)) {
+            String relative = fullPath.substring(basePath.length());
+            if (relative.startsWith("/")) {
+                relative = relative.substring(1);
+            }
+            return relative;
+        }
+        return file.getName();
+    }
+    
+    private boolean shouldExclude(String path, Set<String> excludePatterns) {
+        // Check default excludes
+        for (String exclude : DEFAULT_EXCLUDE_DIRS) {
+            if (path.contains("/" + exclude + "/") || path.endsWith("/" + exclude)) {
+                return true;
+            }
+        }
+        
+        // Check custom excludes
+        for (String pattern : excludePatterns) {
+            if (matchesPattern(path, pattern)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    private boolean matchesPattern(String path, String pattern) {
+        // Simple glob pattern matching
+        String regex = pattern.replace("**", ".*").replace("*", "[^/]*");
+        return path.matches(regex);
+    }
+    
+    private boolean hasValidExtension(String filename, Set<String> extensions) {
+        String ext = "";
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot > 0) {
+            ext = filename.substring(lastDot);
+        }
+        return extensions.contains(ext);
+    }
+    
+    private int getLineNumber(String content, int position) {
+        int line = 1;
+        for (int i = 0; i < position && i < content.length(); i++) {
+            if (content.charAt(i) == '\n') {
+                line++;
+            }
+        }
+        return line;
+    }
+    
+    private String extractSignature(String content, int startPos) {
+        int endPos = startPos;
+        int braceCount = 0;
+        boolean foundFirstBrace = false;
+        
+        for (int i = startPos; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '{') {
+                if (!foundFirstBrace) {
+                    foundFirstBrace = true;
+                    endPos = i;
+                }
+                braceCount++;
+            } else if (c == '}' && foundFirstBrace) {
+                braceCount--;
+                if (braceCount == 0) {
+                    break;
+                }
+            } else if (c == '\n' && !foundFirstBrace) {
+                endPos = i;
+                break;
+            }
+        }
+        
+        return content.substring(startPos, endPos).trim();
+    }
+    
+    private String createErrorResponse(String message) {
+        JsonObject response = new JsonObject();
+        response.addProperty("success", false);
+        response.addProperty("error", message);
+        return gson.toJson(response);
+    }
+    
+    // Common exclude patterns
+    private static final Set<String> DEFAULT_EXCLUDE_DIRS = Set.of(
+        ".git", ".idea", ".vscode", "node_modules", "dist", "build", 
+        "target", "out", ".gradle", "__pycache__", ".pytest_cache"
+    );
+    
+    // File size limit (10MB)
+    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024;
     
     /**
      * Disposes of any resources.

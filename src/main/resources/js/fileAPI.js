@@ -1,585 +1,291 @@
 /**
  * File API for Research Agent
- * Provides file system operations for the research agent with security and performance optimizations
+ * Provides file system operations for the research agent through IntelliJ Bridge
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const { minimatch } = require('minimatch');
-
-class FileAPI {
-    constructor(config = {}) {
-        this.config = {
-            maxFileSize: 10 * 1024 * 1024, // 10MB default
-            encoding: 'utf8',
-            excludePatterns: [
-                '.git/**',
-                '**/node_modules/**',
-                '**/dist/**',
-                '**/build/**',
-                '**/.idea/**',
-                '**/coverage/**',
-                '**/.next/**',
-                '**/.nuxt/**',
-                '**/vendor/**',
-                '**/__pycache__/**',
-                '**/*.pyc',
-                '**/.DS_Store',
-                '**/Thumbs.db'
-            ],
-            fileExtensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'],
-            ...config
-        };
-        
-        // Cache for file listings to improve performance
-        this.directoryCache = new Map();
-        this.cacheTimeout = 60000; // 1 minute
-    }
-
-    /**
-     * Normalize path for consistent handling
-     */
-    normalizePath(filePath) {
-        return path.normalize(filePath).replace(/\\/g, '/');
-    }
-
-    /**
-     * Check if a path should be excluded based on patterns
-     */
-    isExcluded(filePath, additionalExcludes = []) {
-        const normalizedPath = this.normalizePath(filePath);
-        const allExcludes = [...this.config.excludePatterns, ...additionalExcludes];
-        
-        return allExcludes.some(pattern => {
-            return minimatch(normalizedPath, pattern, { dot: true });
-        });
-    }
-
-    /**
-     * Check if file has valid extension
-     */
-    hasValidExtension(filePath, extensions = null) {
-        const validExtensions = extensions || this.config.fileExtensions;
-        if (!validExtensions || validExtensions.length === 0) return true;
-        
-        const ext = path.extname(filePath).toLowerCase();
-        return validExtensions.includes(ext);
-    }
-
-    /**
-     * List files recursively with filtering
-     */
-    async listFilesRecursive(dirPath, options = {}) {
-        const {
-            exclude = [],
-            extensions = null,
-            maxDepth = Infinity,
-            includeDirectories = false,
-            currentDepth = 0
-        } = options;
-
-        const results = [];
-        
-        try {
-            // Check cache first
-            const cacheKey = `${dirPath}_${JSON.stringify(options)}`;
-            const cached = this.getFromCache(cacheKey);
-            if (cached) return cached;
-
-            const entries = await fs.readdir(dirPath, { withFileTypes: true });
+(function() {
+    'use strict';
+    
+    class FileAPI {
+        constructor(config = {}) {
+            this.config = {
+                maxFileSize: 10 * 1024 * 1024, // 10MB default
+                encoding: 'utf8',
+                excludePatterns: [
+                    '.git/**',
+                    '**/node_modules/**',
+                    '**/dist/**',
+                    '**/build/**',
+                    '**/.idea/**',
+                    '**/coverage/**',
+                    '**/.next/**',
+                    '**/.nuxt/**',
+                    '**/vendor/**',
+                    '**/__pycache__/**',
+                    '**/*.pyc',
+                    '**/.DS_Store',
+                    '**/Thumbs.db'
+                ],
+                fileExtensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'],
+                ...config
+            };
             
-            for (const entry of entries) {
-                const fullPath = path.join(dirPath, entry.name);
-                const normalizedPath = this.normalizePath(fullPath);
-                
-                // Skip if excluded
-                if (this.isExcluded(normalizedPath, exclude)) {
-                    continue;
-                }
-                
-                if (entry.isDirectory()) {
-                    if (includeDirectories) {
-                        results.push({
-                            path: normalizedPath,
-                            type: 'directory',
-                            name: entry.name
-                        });
-                    }
-                    
-                    // Recurse if within depth limit
-                    if (currentDepth < maxDepth) {
-                        const subFiles = await this.listFilesRecursive(fullPath, {
-                            ...options,
-                            currentDepth: currentDepth + 1
-                        });
-                        results.push(...subFiles);
-                    }
-                } else if (entry.isFile()) {
-                    // Check extension
-                    if (this.hasValidExtension(fullPath, extensions)) {
-                        results.push({
-                            path: normalizedPath,
-                            type: 'file',
-                            name: entry.name
-                        });
-                    }
-                }
-            }
-            
-            // Cache results
-            this.setCache(cacheKey, results);
-            
-            return results;
-            
-        } catch (error) {
-            console.error(`Error listing files in ${dirPath}:`, error);
-            throw error;
+            // Cache for file listings to improve performance
+            this.directoryCache = new Map();
+            this.cacheTimeout = 60000; // 1 minute
         }
-    }
 
-    /**
-     * Read file with size check
-     */
-    async readFile(filePath, encoding = null) {
-        try {
-            const stats = await fs.stat(filePath);
-            
-            // Check file size
-            if (stats.size > this.config.maxFileSize) {
-                throw new Error(`File too large: ${stats.size} bytes (max: ${this.config.maxFileSize})`);
-            }
-            
-            const content = await fs.readFile(filePath, encoding || this.config.encoding);
-            return content;
-            
-        } catch (error) {
-            console.error(`Error reading file ${filePath}:`, error);
-            throw error;
+        /**
+         * Normalize path for consistent handling
+         */
+        normalizePath(filePath) {
+            return filePath.replace(/\\/g, '/');
         }
-    }
 
-    /**
-     * Read multiple files in parallel
-     */
-    async readMultipleFiles(filePaths, encoding = null) {
-        const results = await Promise.allSettled(
-            filePaths.map(filePath => this.readFile(filePath, encoding))
-        );
-        
-        return results.map((result, index) => ({
-            path: filePaths[index],
-            status: result.status,
-            content: result.status === 'fulfilled' ? result.value : null,
-            error: result.status === 'rejected' ? result.reason.message : null
-        }));
-    }
+        /**
+         * List files recursively with filtering
+         */
+        async listFilesRecursive(dirPath, options = {}) {
+            const {
+                exclude = [],
+                extensions = null,
+                maxDepth = 5,
+                includeDirectories = false
+            } = options;
 
-    /**
-     * Search for text in files
-     */
-    async searchInFiles(dirPath, searchText, options = {}) {
-        const {
-            caseSensitive = false,
-            wholeWord = false,
-            regex = false,
-            exclude = [],
-            extensions = null,
-            maxResults = 1000,
-            contextLines = 3
-        } = options;
-
-        const results = [];
-        let totalMatches = 0;
-        
-        // Build search pattern
-        let searchPattern;
-        if (regex) {
-            searchPattern = new RegExp(searchText, caseSensitive ? 'g' : 'gi');
-        } else {
-            const escapedText = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = wholeWord ? `\\b${escapedText}\\b` : escapedText;
-            searchPattern = new RegExp(pattern, caseSensitive ? 'g' : 'gi');
-        }
-        
-        // Get all files
-        const files = await this.listFilesRecursive(dirPath, {
-            exclude,
-            extensions
-        });
-        
-        // Search each file
-        for (const file of files) {
-            if (file.type !== 'file') continue;
-            
             try {
-                const content = await this.readFile(file.path);
-                const lines = content.split('\n');
-                const fileMatches = [];
-                
-                lines.forEach((line, lineIndex) => {
-                    const matches = Array.from(line.matchAll(searchPattern));
-                    
-                    if (matches.length > 0) {
-                        fileMatches.push({
-                            line: lineIndex + 1,
-                            column: matches[0].index + 1,
-                            text: line.trim(),
-                            matches: matches.map(m => ({
-                                text: m[0],
-                                index: m.index
-                            })),
-                            context: this.getContext(lines, lineIndex, contextLines)
-                        });
-                        
-                        totalMatches += matches.length;
-                    }
+                // Check cache first
+                const cacheKey = `${dirPath}_${JSON.stringify(options)}`;
+                const cached = this.getFromCache(cacheKey);
+                if (cached) return cached;
+
+                // Call IntelliJ Bridge
+                const response = await window.intellijBridge.callIDE('listFiles', {
+                    path: dirPath,
+                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    extensions: extensions || this.config.fileExtensions,
+                    maxDepth: maxDepth,
+                    includeDirectories: includeDirectories
                 });
-                
-                if (fileMatches.length > 0) {
-                    results.push({
-                        file: file.path,
-                        matches: fileMatches
-                    });
-                    
-                    if (totalMatches >= maxResults) {
-                        break;
-                    }
+
+                if (response.success) {
+                    const files = response.files || [];
+                    // Cache results
+                    this.setCache(cacheKey, files);
+                    return files;
+                } else {
+                    throw new Error(response.error || 'Failed to list files');
                 }
                 
             } catch (error) {
-                // Skip files that can't be read
-                console.warn(`Skipping file ${file.path}: ${error.message}`);
+                console.error(`Error listing files in ${dirPath}:`, error);
+                throw error;
             }
         }
-        
-        return {
-            query: searchText,
-            options,
-            totalMatches,
-            results
-        };
-    }
 
-    /**
-     * Find JavaScript functions
-     */
-    async findFunctions(dirPath, functionName = null, options = {}) {
-        const {
-            exclude = [],
-            includeArrow = true,
-            includeClass = true,
-            includeExports = true
-        } = options;
+        /**
+         * Read file with size check
+         */
+        async readFile(filePath, encoding = null) {
+            try {
+                const response = await window.intellijBridge.callIDE('readFile', {
+                    path: filePath,
+                    encoding: encoding || this.config.encoding
+                });
 
-        const patterns = [
-            // Traditional function declaration
-            /function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)/g,
-            // Async function
-            /async\s+function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)/g
-        ];
-
-        if (includeArrow) {
-            // Arrow functions assigned to variables
-            patterns.push(
-                /(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/g,
-                /(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?[a-zA-Z_$][a-zA-Z0-9_$]*\s*=>/g
-            );
+                if (response.success) {
+                    return response.content;
+                } else {
+                    throw new Error(response.error || 'Failed to read file');
+                }
+                
+            } catch (error) {
+                console.error(`Error reading file ${filePath}:`, error);
+                throw error;
+            }
         }
 
-        if (includeClass) {
-            // Class methods
-            patterns.push(
-                /(?:async\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)\s*{/g,
-                /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/g
+        /**
+         * Read multiple files in parallel
+         */
+        async readMultipleFiles(filePaths, encoding = null) {
+            const results = await Promise.allSettled(
+                filePaths.map(filePath => this.readFile(filePath, encoding))
             );
+            
+            return results.map((result, index) => ({
+                path: filePaths[index],
+                status: result.status,
+                content: result.status === 'fulfilled' ? result.value : null,
+                error: result.status === 'rejected' ? result.reason.message : null
+            }));
         }
 
-        if (includeExports) {
-            // Exported functions
-            patterns.push(
-                /export\s+(?:default\s+)?(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g,
-                /export\s+(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?\(/g
-            );
-        }
-
-        const results = [];
-        const files = await this.listFilesRecursive(dirPath, {
-            exclude,
-            extensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
-        });
-
-        for (const file of files) {
-            if (file.type !== 'file') continue;
+        /**
+         * Search for text in files
+         */
+        async searchInFiles(dirPath, searchText, options = {}) {
+            const {
+                caseSensitive = false,
+                wholeWord = false,
+                regex = false,
+                exclude = [],
+                extensions = null,
+                maxResults = 1000,
+                contextLines = 3
+            } = options;
 
             try {
-                const content = await this.readFile(file.path);
-                const functions = this.extractFunctions(content, patterns, functionName);
-                
-                if (functions.length > 0) {
-                    results.push({
-                        file: file.path,
-                        functions
-                    });
-                }
-            } catch (error) {
-                console.warn(`Error processing ${file.path}: ${error.message}`);
-            }
-        }
-
-        return results;
-    }
-
-    /**
-     * Extract functions from content
-     */
-    extractFunctions(content, patterns, targetName = null) {
-        const functions = [];
-        const lines = content.split('\n');
-        const foundFunctions = new Set();
-
-        for (const pattern of patterns) {
-            pattern.lastIndex = 0;
-            let match;
-
-            while ((match = pattern.exec(content)) !== null) {
-                const funcName = match[1];
-                
-                // Skip if already found or doesn't match target
-                if (foundFunctions.has(funcName)) continue;
-                if (targetName && funcName !== targetName) continue;
-
-                foundFunctions.add(funcName);
-                
-                const position = match.index;
-                const lineNumber = content.substring(0, position).split('\n').length;
-                
-                // Extract function body
-                const { body, endLine } = this.extractFunctionBody(content, position);
-                
-                functions.push({
-                    name: funcName,
-                    line: lineNumber,
-                    endLine,
-                    signature: this.extractSignature(body),
-                    body: body.substring(0, 500) + (body.length > 500 ? '...' : ''),
-                    fullMatch: match[0]
+                const response = await window.intellijBridge.callIDE('searchInFiles', {
+                    path: dirPath,
+                    searchText: searchText,
+                    caseSensitive: caseSensitive,
+                    wholeWord: wholeWord,
+                    regex: regex,
+                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    extensions: extensions || this.config.fileExtensions,
+                    maxResults: maxResults,
+                    contextLines: contextLines
                 });
-            }
-        }
 
-        return functions;
-    }
-
-    /**
-     * Extract function body starting from position
-     */
-    extractFunctionBody(content, startPos) {
-        let braceCount = 0;
-        let inString = false;
-        let stringChar = '';
-        let escaped = false;
-        let foundFirstBrace = false;
-        let endPos = startPos;
-
-        for (let i = startPos; i < content.length; i++) {
-            const char = content[i];
-
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-
-            if (char === '\\') {
-                escaped = true;
-                continue;
-            }
-
-            if (inString) {
-                if (char === stringChar) {
-                    inString = false;
+                if (response.success) {
+                    return {
+                        query: searchText,
+                        options,
+                        totalMatches: response.totalMatches || 0,
+                        results: response.results || []
+                    };
+                } else {
+                    throw new Error(response.error || 'Search failed');
                 }
-            } else {
-                if (char === '"' || char === "'" || char === '`') {
-                    inString = true;
-                    stringChar = char;
-                } else if (char === '{') {
-                    foundFirstBrace = true;
-                    braceCount++;
-                } else if (char === '}' && foundFirstBrace) {
-                    braceCount--;
-                    if (braceCount === 0) {
-                        endPos = i + 1;
-                        break;
-                    }
+                
+            } catch (error) {
+                console.error('Search failed:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Find JavaScript functions
+         */
+        async findFunctions(dirPath, functionName = null, options = {}) {
+            const {
+                exclude = [],
+                includeArrow = true,
+                includeClass = true,
+                includeExports = true
+            } = options;
+
+            try {
+                const response = await window.intellijBridge.callIDE('findFunctions', {
+                    path: dirPath,
+                    functionName: functionName,
+                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    includeArrow: includeArrow,
+                    includeClass: includeClass,
+                    includeExports: includeExports
+                });
+
+                if (response.success) {
+                    return response.results || [];
+                } else {
+                    throw new Error(response.error || 'Failed to find functions');
                 }
+                
+            } catch (error) {
+                console.error('Error finding functions:', error);
+                throw error;
             }
         }
 
-        const body = content.substring(startPos, endPos);
-        const endLine = content.substring(0, endPos).split('\n').length;
-        
-        return { body, endLine };
-    }
+        /**
+         * Get directory tree structure
+         */
+        async getDirectoryTree(dirPath, options = {}) {
+            const {
+                maxDepth = 5,
+                exclude = [],
+                extensions = null
+            } = options;
 
-    /**
-     * Extract function signature
-     */
-    extractSignature(functionBody) {
-        const lines = functionBody.split('\n');
-        let signature = '';
-        
-        for (const line of lines) {
-            signature += line + ' ';
-            if (line.includes('{')) {
-                break;
+            try {
+                const response = await window.intellijBridge.callIDE('getDirectoryTree', {
+                    path: dirPath,
+                    maxDepth: maxDepth,
+                    excludePatterns: [...this.config.excludePatterns, ...exclude],
+                    extensions: extensions
+                });
+
+                if (response.success) {
+                    return response.tree;
+                } else {
+                    throw new Error(response.error || 'Failed to get directory tree');
+                }
+                
+            } catch (error) {
+                console.error(`Error getting directory tree for ${dirPath}:`, error);
+                throw error;
             }
         }
-        
-        return signature.trim().replace(/\s+/g, ' ');
-    }
 
-    /**
-     * Get context lines
-     */
-    getContext(lines, lineIndex, contextSize = 3) {
-        return {
-            before: lines.slice(Math.max(0, lineIndex - contextSize), lineIndex),
-            current: lines[lineIndex],
-            after: lines.slice(lineIndex + 1, Math.min(lines.length, lineIndex + contextSize + 1))
-        };
-    }
-
-    /**
-     * Get directory tree structure
-     */
-    async getDirectoryTree(dirPath, options = {}) {
-        const {
-            maxDepth = 5,
-            exclude = [],
-            extensions = null,
-            currentDepth = 0
-        } = options;
-
-        const name = path.basename(dirPath);
-        const normalizedPath = this.normalizePath(dirPath);
-        
-        if (this.isExcluded(normalizedPath, exclude)) {
+        /**
+         * Cache management
+         */
+        getFromCache(key) {
+            const cached = this.directoryCache.get(key);
+            if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+                return cached.data;
+            }
+            this.directoryCache.delete(key);
             return null;
         }
 
-        try {
-            const stats = await fs.stat(dirPath);
+        setCache(key, data) {
+            this.directoryCache.set(key, {
+                data,
+                timestamp: Date.now()
+            });
             
-            if (!stats.isDirectory()) {
-                if (this.hasValidExtension(dirPath, extensions)) {
-                    return {
-                        name,
-                        type: 'file',
-                        path: normalizedPath
-                    };
-                }
-                return null;
+            // Limit cache size
+            if (this.directoryCache.size > 100) {
+                const firstKey = this.directoryCache.keys().next().value;
+                this.directoryCache.delete(firstKey);
             }
+        }
 
-            if (currentDepth >= maxDepth) {
+        clearCache() {
+            this.directoryCache.clear();
+        }
+
+        /**
+         * Get file stats
+         */
+        async getFileStats(filePath) {
+            try {
+                // For now, we'll return basic info from readFile
+                // Could be extended with a dedicated stats endpoint
+                await this.readFile(filePath);
                 return {
-                    name,
-                    type: 'directory',
-                    path: normalizedPath,
-                    children: []
+                    exists: true,
+                    isFile: true,
+                    isDirectory: false
+                };
+            } catch (error) {
+                return {
+                    exists: false,
+                    error: error.message
                 };
             }
-
-            const entries = await fs.readdir(dirPath, { withFileTypes: true });
-            const children = [];
-
-            for (const entry of entries) {
-                const childPath = path.join(dirPath, entry.name);
-                const child = await this.getDirectoryTree(childPath, {
-                    ...options,
-                    currentDepth: currentDepth + 1
-                });
-                
-                if (child) {
-                    children.push(child);
-                }
-            }
-
-            return {
-                name,
-                type: 'directory',
-                path: normalizedPath,
-                children: children.sort((a, b) => {
-                    // Directories first, then files
-                    if (a.type !== b.type) {
-                        return a.type === 'directory' ? -1 : 1;
-                    }
-                    return a.name.localeCompare(b.name);
-                })
-            };
-
-        } catch (error) {
-            console.error(`Error processing ${dirPath}:`, error);
-            return null;
         }
     }
 
-    /**
-     * Cache management
-     */
-    getFromCache(key) {
-        const cached = this.directoryCache.get(key);
-        if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
-            return cached.data;
-        }
-        this.directoryCache.delete(key);
-        return null;
+    // Export for browser/ES modules
+    if (typeof window !== 'undefined') {
+        window.FileAPI = FileAPI;
     }
 
-    setCache(key, data) {
-        this.directoryCache.set(key, {
-            data,
-            timestamp: Date.now()
-        });
-        
-        // Limit cache size
-        if (this.directoryCache.size > 100) {
-            const firstKey = this.directoryCache.keys().next().value;
-            this.directoryCache.delete(firstKey);
-        }
+    // Export for Node.js (if needed for testing)
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = FileAPI;
     }
-
-    clearCache() {
-        this.directoryCache.clear();
-    }
-
-    /**
-     * Get file stats
-     */
-    async getFileStats(filePath) {
-        try {
-            const stats = await fs.stat(filePath);
-            return {
-                size: stats.size,
-                created: stats.birthtime,
-                modified: stats.mtime,
-                accessed: stats.atime,
-                isDirectory: stats.isDirectory(),
-                isFile: stats.isFile(),
-                permissions: stats.mode.toString(8).slice(-3)
-            };
-        } catch (error) {
-            throw new Error(`Cannot access file: ${error.message}`);
-        }
-    }
-}
-
-// Export for Node.js
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = FileAPI;
-}
-
-// Export for browser/ES modules
-if (typeof window !== 'undefined') {
-    window.FileAPI = FileAPI;
-}
+})();

@@ -104,6 +104,22 @@ public class JavaScriptBridgeActions {
                     projectPathResponse.addProperty("path", project.getBasePath());
                     return gson.toJson(projectPathResponse);
                     
+                // File operations for Research Agent
+                case "listFiles":
+                    return fileService.listFiles(data);
+                    
+                case "readFile":
+                    return fileService.readFile(data);
+                    
+                case "searchInFiles":
+                    return fileService.searchInFiles(data);
+                    
+                case "findFunctions":
+                    return fileService.findFunctions(data);
+                    
+                case "getDirectoryTree":
+                    return fileService.getDirectoryTree(data);
+                    
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);

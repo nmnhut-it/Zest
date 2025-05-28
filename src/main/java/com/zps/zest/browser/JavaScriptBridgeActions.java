@@ -97,6 +97,13 @@ public class JavaScriptBridgeActions {
                 // Project info (synchronous)
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
+                    
+                case "getProjectPath":
+                    JsonObject projectPathResponse = new JsonObject();
+                    projectPathResponse.addProperty("success", true);
+                    projectPathResponse.addProperty("path", project.getBasePath());
+                    return gson.toJson(projectPathResponse);
+                    
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);

@@ -1,0 +1,13 @@
+/* Test CSS file for JCEF resource loading */
+.test-css-loaded {
+    background: #4CAF50;
+    color: white;
+    padding: 10px;
+    border-radius: 4px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.test-css-loaded::after {
+    content: " ✅ CSS loaded successfully!";
+}

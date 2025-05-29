@@ -10,9 +10,13 @@ import com.zps.zest.browser.WebBrowserPanel;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Action to show the Workflow Builder in the browser panel
+ * Test action to verify JCEF browser resource loading and functionality
  */
-public class ShowWorkflowBuilderAction extends AnAction {
+public class TestJCEFResourceAction extends AnAction {
+    
+    public TestJCEFResourceAction() {
+        super("Test JCEF Browser", "Run comprehensive JCEF browser tests", null);
+    }
     
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -24,11 +28,11 @@ public class ShowWorkflowBuilderAction extends AnAction {
         WebBrowserPanel browserPanel = browserService.getBrowserPanel();
         
         if (browserPanel != null && browserPanel.getBrowserManager() != null) {
-            // Switch to Agent mode
+            // Switch to Agent mode for testing (ensures all scripts are loaded)
             browserPanel.switchToAgentMode();
             
-            // Load the workflow builder page
-            browserPanel.getBrowserManager().loadWorkflowBuilder();
+            // Load the comprehensive test page
+            browserPanel.getBrowserManager().loadJCEFTest();
             
             // Open the tool window
             ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");

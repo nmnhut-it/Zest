@@ -1,203 +1,140 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Workflow Builder</title>
+    <title>Workflow Builder</title>
     <style>
-        body, html {
+        body {
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
+            width: 100vw;
+            height: 100vh;
             overflow: hidden;
             background: #1a1a1a;
             color: #fff;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
-        
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+        #workflow-builder {
+            width: 100%;
             height: 100%;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             text-align: center;
-            padding: 20px;
-        }
-        
-        h1 {
             color: #4CAF50;
-            margin-bottom: 20px;
         }
-        
-        .instructions {
-            max-width: 600px;
-            line-height: 1.6;
-            margin-bottom: 30px;
-            color: #ccc;
-        }
-        
-        .button-group {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        
-        button {
-            background: #4CAF50;
+        #error {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: #f44336;
             color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        button:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        .secondary {
-            background: #333;
-            border: 2px solid #4CAF50;
-        }
-        
-        .secondary:hover {
-            background: #444;
-        }
-        
-        .code-block {
-            background: #2a2a2a;
-            border: 1px solid #444;
+            padding: 10px;
             border-radius: 4px;
-            padding: 15px;
-            margin: 20px 0;
-            text-align: left;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 13px;
-            max-width: 600px;
-        }
-        
-        .icon {
-            font-size: 20px;
-        }
-        
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            max-width: 800px;
-            margin: 30px auto;
-        }
-        
-        .feature {
-            background: #2a2a2a;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .feature-icon {
-            font-size: 32px;
-            margin-bottom: 10px;
-        }
-        
-        .feature h3 {
-            color: #4CAF50;
-            margin: 10px 0;
-        }
-        
-        .feature p {
-            color: #aaa;
-            font-size: 14px;
-            margin: 0;
+            display: none;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔧 Agent Workflow Builder</h1>
-        
-        <div class="instructions">
-            <p>The Workflow Builder requires the Agent Framework to be loaded first.</p>
-            <p>Please access it through the Agent Demo page where all required components are available.</p>
-        </div>
-        
-        <div class="button-group">
-            <button onclick="loadAgentDemo()">
-                <span class="icon">🤖</span>
-                Go to Agent Demo
-            </button>
-            <button onclick="showInstructions()" class="secondary">
-                <span class="icon">📖</span>
-                View Instructions
-            </button>
-        </div>
-        
-        <div id="instructions-detail" style="display: none;">
-            <div class="code-block">
-                <strong>To use the Workflow Builder:</strong><br><br>
-                1. Click "Go to Agent Demo" above<br>
-                2. In the Agent Demo, click "Load Example Workflow"<br>
-                3. Then click "Open Workflow Builder"<br><br>
-                <strong>Alternative:</strong><br>
-                Navigate to: jcef://resource/html/agentDemo.html
-            </div>
-        </div>
-        
-        <div class="features">
-            <div class="feature">
-                <div class="feature-icon">🎯</div>
-                <h3>Visual Design</h3>
-                <p>Drag and drop agents to create workflows</p>
-            </div>
-            <div class="feature">
-                <div class="feature-icon">⚡</div>
-                <h3>Parallel Execution</h3>
-                <p>Run multiple agents simultaneously</p>
-            </div>
-            <div class="feature">
-                <div class="feature-icon">🔀</div>
-                <h3>Data Flow</h3>
-                <p>Connect agents to pass data between them</p>
-            </div>
-            <div class="feature">
-                <div class="feature-icon">💾</div>
-                <h3>Save & Share</h3>
-                <p>Export workflows as JSON files</p>
-            </div>
-        </div>
+    <!-- Loading indicator -->
+    <div id="loading">
+        <h2>Loading Workflow Builder...</h2>
+        <p>Initializing components...</p>
     </div>
     
+    <!-- Error display -->
+    <div id="error"></div>
+    
+    <!-- Container for workflow builder -->
+    <div id="workflow-builder" style="display: none;"></div>
+    
+    <!-- Initialize after all scripts are loaded -->
     <script>
-        function loadAgentDemo() {
-            window.location.href = 'jcef://resource/html/agentDemo.html';
+        function showError(message) {
+            console.error(message);
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').textContent = message;
+            document.getElementById('loading').style.display = 'none';
         }
         
-        function showInstructions() {
-            const details = document.getElementById('instructions-detail');
-            details.style.display = details.style.display === 'none' ? 'block' : 'none';
+        function checkDependencies() {
+            console.log('Checking dependencies...');
+            
+            if (!window.AgentFramework) {
+                showError('AgentFramework not loaded! Please ensure Agent Framework is initialized.');
+                return false;
+            }
+            
+            if (!window.AgentFramework.AgentRoles) {
+                showError('AgentFramework.AgentRoles not found!');
+                return false;
+            }
+            
+            if (!window.WorkflowEngine) {
+                showError('WorkflowEngine not loaded! Please ensure Workflow Engine is initialized.');
+                return false;
+            }
+            
+            if (!window.WorkflowBuilder) {
+                showError('WorkflowBuilder not loaded! Please ensure Workflow Builder script is loaded.');
+                return false;
+            }
+            
+            return true;
         }
         
-        // Check if we have the required components
-        if (window.WorkflowBuilder && window.WorkflowEngine && window.AgentFramework) {
-            // If somehow the scripts are loaded, redirect to agent demo
-            console.log('Required components detected, redirecting to Agent Demo...');
-            loadAgentDemo();
+        function initializeWorkflowBuilder() {
+            console.log('Initializing Workflow Builder...');
+            
+            try {
+                // Hide loading, show container
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('workflow-builder').style.display = 'block';
+                
+                // Initialize the workflow builder
+                window.WorkflowBuilder.initialize('workflow-builder');
+                console.log('Workflow Builder initialized successfully');
+                
+            } catch (error) {
+                showError('Failed to initialize Workflow Builder: ' + error.message);
+                console.error('Initialization error:', error);
+            }
         }
+        
+        // Wait for all dependencies to load
+        let checkCount = 0;
+        const maxChecks = 50; // 5 seconds maximum wait
+        
+        function waitForDependencies() {
+            checkCount++;
+            
+            if (checkDependencies()) {
+                initializeWorkflowBuilder();
+            } else if (checkCount < maxChecks) {
+                // Try again in 100ms
+                setTimeout(waitForDependencies, 100);
+            } else {
+                showError('Timeout waiting for dependencies. Please check console for errors.');
+            }
+        }
+        
+        // Start checking after a small delay to ensure scripts are injected
+        window.addEventListener('load', function() {
+            console.log('Page loaded, starting dependency check...');
+            setTimeout(waitForDependencies, 500);
+        });
+        
+        // Also listen for a custom event in case scripts load later
+        window.addEventListener('agentFrameworkReady', function() {
+            console.log('Agent Framework ready event received');
+            if (checkDependencies() && !window.WorkflowBuilder.initialized) {
+                initializeWorkflowBuilder();
+            }
+        });
     </script>
 </body>
 </html>

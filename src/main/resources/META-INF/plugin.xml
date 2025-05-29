@@ -233,5 +233,13 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.ShowAgentFramework"/>
             <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ShowAgentFramework"/>
         </action>
+        
+        <!-- JCEF Test Action -->
+        <action id="Zest.TestJCEFBrowser"
+                class="com.zps.zest.actions.TestJCEFResourceAction"
+                text="Test JCEF Browser"
+                description="Run comprehensive tests on JCEF browser functionality">
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ShowWorkflowBuilder"/>
+        </action>
     </actions>
 </idea-plugin>

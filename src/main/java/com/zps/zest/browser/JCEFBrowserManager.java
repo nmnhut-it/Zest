@@ -111,6 +111,20 @@ public class JCEFBrowserManager {
     public void loadResourceTest() {
         loadHTMLFromResource("/html/test.html");
     }
+    
+    /**
+     * Loads the Workflow Builder page from resources
+     */
+    public void loadWorkflowBuilder() {
+        loadHTMLFromResource("/html/workflowBuilder.html");
+    }
+    
+    /**
+     * Loads the JCEF test page from resources
+     */
+    public void loadJCEFTest() {
+        loadHTMLFromResource("/html/jcefTest.html");
+    }
 
     /**
      * Gets the browser component that can be added to a Swing container.

@@ -16,13 +16,19 @@
         isConnecting: false,
         connectingFrom: null,
         scale: 1,
-        offset: { x: 0, y: 0 }
+        offset: { x: 0, y: 0 },
+        initialized: false
     };
 
     /**
      * Initialize the workflow builder
      */
     WorkflowBuilder.initialize = function(containerId) {
+        if (this.initialized) {
+            console.log('WorkflowBuilder already initialized');
+            return;
+        }
+        
         this.container = document.getElementById(containerId);
         if (!this.container) {
             this.container = document.createElement('div');
@@ -33,6 +39,7 @@
         this.createUI();
         this.currentWorkflow = WorkflowEngine.createWorkflow('New Workflow');
         this.render();
+        this.initialized = true;
     };
 
     /**

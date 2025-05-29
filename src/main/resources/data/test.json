@@ -1,0 +1,14 @@
+{
+  "test": "success",
+  "message": "JSON loading is working!",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "features": [
+    "Resource loading",
+    "JSON parsing",
+    "Custom scheme handler"
+  ],
+  "metadata": {
+    "version": "1.0",
+    "type": "test-data"
+  }
+}

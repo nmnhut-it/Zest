@@ -734,5 +734,10 @@
     };
 
     console.log('Agent Framework initialized');
+    
+    // Dispatch event to notify that framework is ready
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('agentFrameworkReady'));
+    }
 
 })();

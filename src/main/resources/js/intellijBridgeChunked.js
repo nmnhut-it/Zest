@@ -305,6 +305,7 @@ setInterval(() => {
      * Get auth token from cookie
      */
    function _getAuthTokenFromCookie () {
+   try{
         // OpenWebUI typically stores the token in a cookie named 'token' or similar
         const cookies = document.cookie.split(';');
         for (const cookie of cookies) {
@@ -319,7 +320,8 @@ setInterval(() => {
         if (localToken) {
             return localToken;
         }
-
+}
+catch (excpt){console.log("Cannot get auth token from web")}
         return null;
     }
   function checkAndSendAuthCookie() {

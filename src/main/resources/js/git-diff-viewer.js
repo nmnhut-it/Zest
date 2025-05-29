@@ -5,7 +5,7 @@
  * git services via the JavaScript bridge.
  */
 
-const GitDiffViewer = {
+var GitDiffViewer = GitDiffViewer ||  {
     /**
      * Initialize the Git Diff Viewer
      * @param {boolean} isDark - Whether to use dark theme

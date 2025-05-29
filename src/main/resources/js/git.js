@@ -6,7 +6,7 @@
  */
 
 // Git file status parsing and utilities
-const GitUtils = {
+var GitUtils = GitUtils ||  {
     /**
      * Enhanced robust file parsing
      * Handles multiple git output formats including porcelain, name-status, and short formats
@@ -176,7 +176,7 @@ const GitUtils = {
 };
 
 // Git modal operations
-const GitModal = {
+var GitModal = GitModal ||  {
     /**
      * Show file selection modal with changed files
      */
@@ -913,7 +913,7 @@ const GitModal = {
 };
 
 // Status message functionality
-const GitStatus = {
+var GitStatus = GitStatus ||  {
     /**
      * Show status message
      */

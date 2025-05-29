@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>JCEF Resource Loading Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .test-section {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-result {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-result.success {
+            background: #2e7d32;
+            border: 1px solid #4CAF50;
+        }
+        .test-result.error {
+            background: #c62828;
+            border: 1px solid #f44336;
+        }
+        .test-result.warning {
+            background: #f57c00;
+            border: 1px solid #FF9800;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: center;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-indicator.loaded { background: #4CAF50; }
+        .status-indicator.missing { background: #f44336; }
+        .status-indicator.partial { background: #FF9800; }
+        code {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+        .resource-list {
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 JCEF Resource Loading Test</h1>
+        
+        <div class="test-section">
+            <h2>Resource Loading Status</h2>
+            <p>Testing whether resources are properly loaded via <code>jcef://resource/</code> scheme:</p>
+            <div id="resource-status"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Agent Framework Dependencies</h2>
+            <p>Checking if all Agent Framework components are available:</p>
+            <div id="framework-status"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>JavaScript Console</h2>
+            <div id="console-output" class="resource-list"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Actions</h2>
+            <button onclick="testResourceAccess()" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-right: 10px;">Test Resource Access</button>
+            <button onclick="testAgentFramework()" style="background: #2196F3; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-right: 10px;">Test Agent Framework</button>
+            <button onclick="clearConsole()" style="background: #666; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Clear Console</button>
+        </div>
+    </div>
+
+    <script>
+        let consoleMessages = [];
+        
+        // Override console methods to capture output
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            logToPage('log', args.join(' '));
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            logToPage('error', args.join(' '));
+        };
+        
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            logToPage('warn', args.join(' '));
+        };
+        
+        function logToPage(level, message) {
+            const timestamp = new Date().toLocaleTimeString();
+            consoleMessages.push({
+                level: level,
+                message: message,
+                timestamp: timestamp
+            });
+            updateConsoleDisplay();
+        }
+        
+        function updateConsoleDisplay() {
+            const consoleOutput = document.getElementById('console-output');
+            consoleOutput.innerHTML = consoleMessages.map(msg => {
+                const levelColors = {
+                    log: '#4CAF50',
+                    error: '#f44336',
+                    warn: '#FF9800'
+                };
+                return `<div style="color: ${levelColors[msg.level] || '#e0e0e0'};">[${msg.timestamp}] ${msg.level.toUpperCase()}: ${msg.message}</div>`;
+            }).join('');
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        function clearConsole() {
+            consoleMessages = [];
+            updateConsoleDisplay();
+        }
+        
+        function testResourceAccess() {
+            console.log('Testing resource access...');
+            
+            const resources = [
+                'jcef://resource/js/agentFramework.js',
+                'jcef://resource/js/workflowEngine.js',
+                'jcef://resource/js/workflowBuilder.js',
+                'jcef://resource/js/agentUI.js',
+                'jcef://resource/js/LLMProvider.js',
+                'jcef://resource/html/agentDemo.html',
+                'jcef://resource/html/workflowBuilder.html'
+            ];
+            
+            const statusDiv = document.getElementById('resource-status');
+            statusDiv.innerHTML = '<p>Testing resource accessibility...</p>';
+            
+            let results = [];
+            let completed = 0;
+            
+            resources.forEach(url => {
+                fetch(url)
+                    .then(response => {
+                        results.push({
+                            url: url,
+                            status: response.ok ? 'loaded' : 'error',
+                            statusCode: response.status
+                        });
+                        console.log(`Resource ${url}: ${response.ok ? 'OK' : 'FAILED'} (${response.status})`);
+                    })
+                    .catch(error => {
+                        results.push({
+                            url: url,
+                            status: 'error',
+                            error: error.message
+                        });
+                        console.error(`Resource ${url}: ERROR - ${error.message}`);
+                    })
+                    .finally(() => {
+                        completed++;
+                        if (completed === resources.length) {
+                            displayResourceResults(results);
+                        }
+                    });
+            });
+        }
+        
+        function displayResourceResults(results) {
+            const statusDiv = document.getElementById('resource-status');
+            let html = '<div class="status-grid">';
+            
+            results.forEach(result => {
+                const indicatorClass = result.status === 'loaded' ? 'loaded' : 'missing';
+                const resourceName = result.url.replace('jcef://resource/', '');
+                html += `
+                    <div>${resourceName}</div>
+                    <div><span class="status-indicator ${indicatorClass}"></span> ${result.status}</div>
+                `;
+            });
+            
+            html += '</div>';
+            statusDiv.innerHTML = html;
+        }
+        
+        function testAgentFramework() {
+            console.log('Testing Agent Framework components...');
+            
+            const components = [
+                'AgentFramework',
+                'AgentFramework.AgentRoles',
+                'AgentFramework.AgentManager',
+                'WorkflowEngine',
+                'WorkflowBuilder',
+                'LLMProvider',
+                'AgentUI',
+                'FileAPI',
+                'ResearchAgent'
+            ];
+            
+            const statusDiv = document.getElementById('framework-status');
+            let html = '<div class="status-grid">';
+            
+            components.forEach(component => {
+                const exists = checkNestedProperty(window, component);
+                const indicatorClass = exists ? 'loaded' : 'missing';
+                html += `
+                    <div>window.${component}</div>
+                    <div><span class="status-indicator ${indicatorClass}"></span> ${exists ? 'Available' : 'Missing'}</div>
+                `;
+                console.log(`${component}: ${exists ? 'Available' : 'Missing'}`);
+            });
+            
+            html += '</div>';
+            statusDiv.innerHTML = html;
+        }
+        
+        function checkNestedProperty(obj, path) {
+            const parts = path.split('.');
+            let current = obj;
+            
+            for (let part of parts) {
+                if (current && typeof current === 'object' && part in current) {
+                    current = current[part];
+                } else {
+                    return false;
+                }
+            }
+            
+            return current !== undefined;
+        }
+        
+        // Initial tests
+        window.addEventListener('load', function() {
+            console.log('JCEF Resource Test page loaded');
+            console.log(`Protocol: ${window.location.protocol}`);
+            console.log(`Host: ${window.location.host}`);
+            console.log(`URL: ${window.location.href}`);
+            
+            // Auto-run tests after a short delay
+            setTimeout(() => {
+                testResourceAccess();
+                setTimeout(testAgentFramework, 2000);
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

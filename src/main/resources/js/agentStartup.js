@@ -14,8 +14,7 @@
         console.log('%cThe Agent Framework is now available in this browser session.', 'color: #888;');
         console.log('\n%cQuick Start:', 'color: #4CAF50; font-weight: bold;');
         console.log('1. Use the menu: Right-click → Zest → Show Agent Framework Demo');
-        console.log('2. Or navigate to: jcef://resource/html/agentDemo.html');
-        console.log('3. Or run in console: window.AgentFramework.createAgent("CODE_GENERATOR")');
+        console.log('2. Or run in console: window.AgentFramework.createAgent("CODE_GENERATOR")');
         console.log('\n%cAvailable Agent Roles:', 'color: #4CAF50; font-weight: bold;');
         
         if (window.AgentFramework && window.AgentFramework.AgentRoles) {

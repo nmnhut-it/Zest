@@ -4,11 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Framework Demo</title>
-    <!-- Load scripts from resources using relative paths -->
+    
+    <!-- Load Agent Framework dependencies from local resources -->
+    <script src="jcef://resource/js/agentFramework.js"></script>
+    <script src="jcef://resource/js/workflowEngine.js"></script>
+    <script src="jcef://resource/js/workflowBuilder.js"></script>
+    <script src="jcef://resource/js/agentUI.js"></script>
+    <script src="jcef://resource/js/LLMProvider.js"></script>
+    <script src="jcef://resource/js/fileAPI.js"></script>
+    <script src="jcef://resource/js/researchAgentIntegrated.js"></script>
+    <script src="jcef://resource/js/googleAgentIntegration.js"></script>
+    <script src="jcef://resource/js/agentStartup.js"></script>
+    
     <script>
         // Check if we're running in JCEF with resource support
         if (window.location.protocol === 'jcef:') {
             console.log('Running in JCEF with resource support');
+            console.log('Loading Agent Framework from local resources...');
         }
     </script>
     <style>

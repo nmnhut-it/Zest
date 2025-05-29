@@ -3,6 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <title>Workflow Builder</title>
+    
+    <!-- Load Agent Framework dependencies from local resources -->
+    <script src="jcef://resource/js/agentFramework.js"></script>
+    <script src="jcef://resource/js/workflowEngine.js"></script>
+    <script src="jcef://resource/js/workflowBuilder.js"></script>
+    <script src="jcef://resource/js/agentUI.js"></script>
+    <script src="jcef://resource/js/LLMProvider.js"></script>
+    <script src="jcef://resource/js/fileAPI.js"></script>
+    <script src="jcef://resource/js/researchAgentIntegrated.js"></script>
+    <script src="jcef://resource/js/googleAgentIntegration.js"></script>
+    
     <style>
         body {
             margin: 0;
@@ -37,13 +48,28 @@
             border-radius: 4px;
             display: none;
         }
+        .loading-spinner {
+            border: 3px solid #333;
+            border-radius: 50%;
+            border-top: 3px solid #4CAF50;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
     <!-- Loading indicator -->
     <div id="loading">
+        <div class="loading-spinner"></div>
         <h2>Loading Workflow Builder...</h2>
-        <p>Initializing components...</p>
+        <p>Initializing Agent Framework components...</p>
+        <div id="loading-progress"></div>
     </div>
     
     <!-- Error display -->
@@ -54,41 +80,67 @@
     
     <!-- Initialize after all scripts are loaded -->
     <script>
+        // Debug mode flag
+        const JCEF_DEBUG = true; // Set to false to disable JS debug logs
+        
+        function debugLog(message, ...args) {
+            if (JCEF_DEBUG) {
+                console.log(`[JCEF DEBUG] ${message}`, ...args);
+            }
+        }
+        
+        function updateProgress(message) {
+            const progressEl = document.getElementById('loading-progress');
+            if (progressEl) {
+                progressEl.textContent = message;
+            }
+            debugLog('Progress: %s', message);
+        }
+        
         function showError(message) {
             console.error(message);
             document.getElementById('error').style.display = 'block';
             document.getElementById('error').textContent = message;
             document.getElementById('loading').style.display = 'none';
+            debugLog('Error shown: %s', message);
         }
         
         function checkDependencies() {
-            console.log('Checking dependencies...');
+            debugLog('Checking dependencies...');
+            updateProgress('Checking dependencies...');
             
             if (!window.AgentFramework) {
                 showError('AgentFramework not loaded! Please ensure Agent Framework is initialized.');
                 return false;
             }
+            debugLog('✓ AgentFramework found');
             
             if (!window.AgentFramework.AgentRoles) {
                 showError('AgentFramework.AgentRoles not found!');
                 return false;
             }
+            debugLog('✓ AgentFramework.AgentRoles found with %d roles', 
+                Object.keys(window.AgentFramework.AgentRoles).length);
             
             if (!window.WorkflowEngine) {
                 showError('WorkflowEngine not loaded! Please ensure Workflow Engine is initialized.');
                 return false;
             }
+            debugLog('✓ WorkflowEngine found');
             
             if (!window.WorkflowBuilder) {
                 showError('WorkflowBuilder not loaded! Please ensure Workflow Builder script is loaded.');
                 return false;
             }
+            debugLog('✓ WorkflowBuilder found');
             
+            debugLog('All dependencies loaded successfully');
             return true;
         }
         
         function initializeWorkflowBuilder() {
-            console.log('Initializing Workflow Builder...');
+            debugLog('Initializing Workflow Builder...');
+            updateProgress('Initializing Workflow Builder...');
             
             try {
                 // Hide loading, show container
@@ -97,11 +149,20 @@
                 
                 // Initialize the workflow builder
                 window.WorkflowBuilder.initialize('workflow-builder');
-                console.log('Workflow Builder initialized successfully');
+                debugLog('Workflow Builder initialized successfully');
+                
+                // Log available agent roles
+                if (JCEF_DEBUG && window.AgentFramework && window.AgentFramework.AgentRoles) {
+                    debugLog('Available Agent Roles:');
+                    Object.entries(window.AgentFramework.AgentRoles).forEach(([key, role]) => {
+                        debugLog('  - %s: %s', key, role.name);
+                    });
+                }
                 
             } catch (error) {
                 showError('Failed to initialize Workflow Builder: ' + error.message);
                 console.error('Initialization error:', error);
+                debugLog('Initialization failed with error:', error);
             }
         }
         
@@ -111,6 +172,8 @@
         
         function waitForDependencies() {
             checkCount++;
+            debugLog('Dependency check attempt %d/%d', checkCount, maxChecks);
+            updateProgress(`Checking dependencies (${checkCount}/${maxChecks})...`);
             
             if (checkDependencies()) {
                 initializeWorkflowBuilder();
@@ -119,22 +182,71 @@
                 setTimeout(waitForDependencies, 100);
             } else {
                 showError('Timeout waiting for dependencies. Please check console for errors.');
+                debugLog('Timeout reached after %d attempts', checkCount);
             }
         }
         
-        // Start checking after a small delay to ensure scripts are injected
+        // Start checking after a small delay to ensure scripts are loaded
         window.addEventListener('load', function() {
-            console.log('Page loaded, starting dependency check...');
+            debugLog('=== Workflow Builder Page Loaded ===');
+            debugLog('Page URL: %s', window.location.href);
+            debugLog('User Agent: %s', navigator.userAgent);
+            console.log('Starting dependency check...');
+            updateProgress('Page loaded, starting initialization...');
             setTimeout(waitForDependencies, 500);
         });
         
         // Also listen for a custom event in case scripts load later
         window.addEventListener('agentFrameworkReady', function() {
-            console.log('Agent Framework ready event received');
+            debugLog('Agent Framework ready event received');
             if (checkDependencies() && !window.WorkflowBuilder.initialized) {
                 initializeWorkflowBuilder();
             }
         });
+        
+        // Debug: Log all global objects
+        if (JCEF_DEBUG) {
+            setTimeout(() => {
+                debugLog('=== Global Objects Check ===');
+                const globalChecks = [
+                    'intellijBridge',
+                    'AgentFramework',
+                    'WorkflowEngine',
+                    'WorkflowBuilder',
+                    'LLMProvider',
+                    'ResearchAgent',
+                    'FileAPI',
+                    'AgentUI'
+                ];
+                
+                globalChecks.forEach(objName => {
+                    debugLog('%s: %s', objName, window[objName] ? '✓ Loaded' : '✗ Missing');
+                });
+                debugLog('=========================');
+                
+                // Test resource loading
+                debugLog('=== Resource Loading Test ===');
+                debugLog('Current URL: %s', window.location.href);
+                debugLog('Protocol: %s', window.location.protocol);
+                debugLog('Host: %s', window.location.host);
+                
+                // Test if we can access other resources
+                const testResources = [
+                    'jcef://resource/js/agentFramework.js',
+                    'jcef://resource/html/agentDemo.html'
+                ];
+                
+                testResources.forEach(url => {
+                    fetch(url)
+                        .then(response => {
+                            debugLog('Resource %s: %s (%d)', url, response.ok ? 'OK' : 'FAILED', response.status);
+                        })
+                        .catch(error => {
+                            debugLog('Resource %s: ERROR - %s', url, error.message);
+                        });
+                });
+            }, 1000);
+        }
     </script>
 </body>
 </html>

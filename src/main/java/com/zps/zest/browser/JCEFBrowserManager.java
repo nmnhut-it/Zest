@@ -1,36 +1,22 @@
 package com.zps.zest.browser;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.ui.jcef.*;
+import com.intellij.ui.jcef.*; 
 import com.zps.zest.ConfigurationManager;
-import org.cef.CefApp;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
-import org.cef.callback.CefCallback;
-import org.cef.callback.CefSchemeHandlerFactory;
 import org.cef.handler.CefLoadHandlerAdapter;
-import org.cef.handler.CefResourceHandler;
-import org.cef.misc.IntRef;
-import org.cef.misc.StringRef;
-import org.cef.network.CefRequest;
-import org.cef.network.CefResponse;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-
-import org.cef.CefApp;
-import org.cef.callback.CefCallback;
-import org.cef.callback.CefSchemeHandlerFactory;
-import org.cef.handler.CefResourceHandler;
-import org.cef.misc.IntRef;
-import org.cef.misc.StringRef;
-import org.cef.network.CefRequest;
-import org.cef.network.CefResponse;
+import java.util.HashMap;
 
 import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 
@@ -38,7 +24,7 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  * Manages the JCEF browser instance and provides a simplified API for browser interactions.
  */
 @SuppressWarnings("removal")
-public class JCEFBrowserManager {
+public class JCEFBrowserManager implements Disposable {
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
 
     private final JBCefBrowser browser;
@@ -61,13 +47,13 @@ public class JCEFBrowserManager {
             LOG.error("JCEF is not supported in this IDE environment");
             throw new UnsupportedOperationException("JCEF is not supported in this IDE environment");
         }
-    
+
         // Create browser with default settings
         browser = new JBCefBrowserBuilder().setOffScreenRendering(false).build();
         browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
-        
-        // Register custom scheme handler for resources before creating browser
-        registerResourceSchemeHandler();
+
+        // No longer using custom scheme handler - loading resources directly
+        // registerResourceSchemeHandler();
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -97,28 +83,28 @@ public class JCEFBrowserManager {
         loadURL(url);
         LOG.info("JCEFBrowserManager initialized");
     }
-    
+
     /**
      * Loads the Agent Framework demo page from resources
      */
     public void loadAgentDemo() {
         loadHTMLFromResource("/html/agentDemo.html");
     }
-    
+
     /**
      * Loads the resource test page
      */
     public void loadResourceTest() {
-        loadHTMLFromResource("/html/test.html");
+        loadHTMLFromResource("/html/resourceTest.html");
     }
-    
+
     /**
      * Loads the Workflow Builder page from resources
      */
     public void loadWorkflowBuilder() {
         loadHTMLFromResource("/html/workflowBuilder.html");
     }
-    
+
     /**
      * Loads the JCEF test page from resources
      */
@@ -197,7 +183,7 @@ public class JCEFBrowserManager {
 
             // Load the bridge script template
             String bridgeScript = loadResourceAsString("/js/intellijBridgeChunked.js");
-            
+
             // Replace the placeholder with the actual JBCefJSQuery.inject call for single messages
             String jsQueryInject = jsQuery.inject("request",
                     "function(response) { " +
@@ -209,10 +195,10 @@ public class JCEFBrowserManager {
                             "  console.error('Received error from IDE:', errorCode, errorMessage); " +
                             "  reject({code: errorCode, message: errorMessage}); " +
                             "}");
-            
+
             // Replace the placeholder with the actual JBCefJSQuery inject code for single messages
             bridgeScript = bridgeScript.replace("[[JBCEF_QUERY_INJECT]]", jsQueryInject);
-            
+
             // For chunked messages, we use the same query handler but with chunk data
             String chunkQueryInject = jsQuery.inject("chunkRequest",
                     "function(response) { " +
@@ -228,56 +214,56 @@ public class JCEFBrowserManager {
 
             // Inject the bridge script
             cefBrowser.executeJavaScript(bridgeScript, frame.getURL(), 0);
-            
+
             // Load and inject the response parser script
             String responseParserScript = loadResourceAsString("/js/responseParser.js");
             cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
-            
+
             // Load and inject the code extractor script
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
-            
+
             // Load and inject the git integration scripts
             String gitScript = loadResourceAsString("/js/git.js");
             cefBrowser.executeJavaScript(gitScript, frame.getURL(), 0);
-            
+
             String gitUIScript = loadResourceAsString("/js/git-ui.js");
             cefBrowser.executeJavaScript(gitUIScript, frame.getURL(), 0);
-            
+
             // Load and inject the LLM Provider script
             String llmProviderScript = loadResourceAsString("/js/LLMProvider.js");
             cefBrowser.executeJavaScript(llmProviderScript, frame.getURL(), 0);
-            
+
             // Load and inject the Agent Framework scripts
             String agentFrameworkScript = loadResourceAsString("/js/agentFramework.js");
             cefBrowser.executeJavaScript(agentFrameworkScript, frame.getURL(), 0);
-            
+
             // Load and inject the File API script
             String fileAPIScript = loadResourceAsString("/js/fileAPI.js");
             cefBrowser.executeJavaScript(fileAPIScript, frame.getURL(), 0);
-            
+
             // Load and inject the Research Agent script
             String researchAgentScript = loadResourceAsString("/js/researchAgentIntegrated.js");
             cefBrowser.executeJavaScript(researchAgentScript, frame.getURL(), 0);
-            
+
             // Load and inject the Workflow Engine script
             String workflowEngineScript = loadResourceAsString("/js/workflowEngine.js");
             cefBrowser.executeJavaScript(workflowEngineScript, frame.getURL(), 0);
-            
+
             // Load and inject the Workflow Builder script
             String workflowBuilderScript = loadResourceAsString("/js/workflowBuilder.js");
             cefBrowser.executeJavaScript(workflowBuilderScript, frame.getURL(), 0);
-            
+
             String agentUIScript = loadResourceAsString("/js/agentUI.js");
             cefBrowser.executeJavaScript(agentUIScript, frame.getURL(), 0);
-            
+
             String googleAgentIntegrationScript = loadResourceAsString("/js/googleAgentIntegration.js");
             cefBrowser.executeJavaScript(googleAgentIntegrationScript, frame.getURL(), 0);
-            
+
             // Load startup notification script
             String agentStartupScript = loadResourceAsString("/js/agentStartup.js");
             cefBrowser.executeJavaScript(agentStartupScript, frame.getURL(), 0);
-            
+
             LOG.info("JavaScript bridge initialized successfully with chunked messaging support, git integration, LLM Provider, Agent Framework, and Research Agent");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
@@ -354,7 +340,8 @@ public class JCEFBrowserManager {
         LOG.info("JCEFBrowserManager disposed");
     }
 
-    String  interceptorScript;
+    String interceptorScript;
+
     public void addNetworkMonitorAndRequestModifier() {
         try {
             // Ensure DevTools is enabled
@@ -385,6 +372,7 @@ public class JCEFBrowserManager {
 
     /**
      * Helper method to load a resource file as a string
+     *
      * @param path Path to the resource
      * @return The content of the resource as a string
      * @throws IOException If the resource cannot be read
@@ -401,135 +389,285 @@ public class JCEFBrowserManager {
     public JavaScriptBridge getJavaScriptBridge() {
         return jsBridge;
     }
-    
-    /**
-     * Registers a custom scheme handler for loading resources
-     */
+
+    /*
+    // Commented out - no longer using custom protocol
     private void registerResourceSchemeHandler() {
         try {
-            CefApp.getInstance().registerSchemeHandlerFactory("jcef", "resource", new CefSchemeHandlerFactory() {
-                @Override
-                public CefResourceHandler create(CefBrowser browser, CefFrame frame, String schemeName, CefRequest request) {
-                    String url = request.getURL();
-                    LOG.info("Resource request: " + url);
-                    
-                    // Extract resource path from URL (jcef://resource/path/to/file)
-                    if (url.startsWith("jcef://resource/")) {
-                        String resourcePath = url.substring("jcef://resource".length());
-                        if (!resourcePath.startsWith("/")) {
-                            resourcePath = "/" + resourcePath;
-                        }
-                        return new ResourceHandler(resourcePath);
-                    }
-                    return null;
-                }
+            // Use JBCefLocalRequestHandler for more reliable resource handling
+            JBCefLocalRequestHandler localRequestHandler =
+                    new JBCefLocalRequestHandler("jcef", "resource");
+
+            // Register HTML resources
+            localRequestHandler.addResource("/html/workflowBuilder.html", () -> {
+                InputStream stream = getClass().getResourceAsStream("/html/workflowBuilder.html");
+                return stream != null ? htmlResourceHandler(stream) : null;
             });
-            
-            LOG.info("Resource scheme handler registered for jcef://resource/");
+
+            localRequestHandler.addResource("/html/agentDemo.html", () -> {
+                InputStream stream = getClass().getResourceAsStream("/html/agentDemo.html");
+                return stream != null ? htmlResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/html/test.html", () -> {
+                InputStream stream = getClass().getResourceAsStream("/html/test.html");
+                return stream != null ? htmlResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/html/jcefTest.html", () -> {
+                InputStream stream = getClass().getResourceAsStream("/html/jcefTest.html");
+                return stream != null ? htmlResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/html/resourceTest.html", () -> {
+                InputStream stream = getClass().getResourceAsStream("/html/resourceTest.html");
+                return stream != null ? htmlResourceHandler(stream) : null;
+            });
+
+            // Register JavaScript resources
+            localRequestHandler.addResource("/js/agentFramework.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/agentFramework.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/workflowEngine.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/workflowEngine.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/workflowBuilder.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/workflowBuilder.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/agentUI.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/agentUI.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/agentStartup.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/agentStartup.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/LLMProvider.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/LLMProvider.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/fileAPI.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/fileAPI.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/researchAgentIntegrated.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/researchAgentIntegrated.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            localRequestHandler.addResource("/js/googleAgentIntegration.js", () -> {
+                InputStream stream = getClass().getResourceAsStream("/js/googleAgentIntegration.js");
+                return stream != null ? javascriptResourceHandler(stream) : null;
+            });
+
+            // Register CSS resources
+            localRequestHandler.addResource("/css/test.css", () -> {
+                InputStream stream = getClass().getResourceAsStream("/css/test.css");
+                return stream != null ? cssResourceHandler(stream) : null;
+            });
+
+            // Add the request handler to the browser client before creating the browser
+            browser.getJBCefClient().addRequestHandler(localRequestHandler, browser.getCefBrowser());
+
+            LOG.info("Local request handler registered for jcef://resource/ with JBCefLocalRequestHandler pattern");
         } catch (Exception e) {
-            LOG.error("Failed to register resource scheme handler", e);
+            LOG.error("Failed to register local request handler", e);
         }
     }
-    
+
+    private @NotNull JBCefStreamResourceHandler cssResourceHandler(InputStream stream) {
+        return new JBCefStreamResourceHandler(stream, "text/css", this, new HashMap<>());
+    }
+
+    private @NotNull JBCefStreamResourceHandler javascriptResourceHandler(InputStream stream) {
+        return new JBCefStreamResourceHandler(stream, "application/javascript", this, new HashMap<>());
+    }
+
+    private @NotNull JBCefStreamResourceHandler htmlResourceHandler(InputStream stream) {
+        return new JBCefStreamResourceHandler(stream, "text/html", this, new HashMap<>());
+    }
+    */
+
     /**
      * Loads an HTML file from resources
+     *
      * @param resourcePath Path to the HTML file in resources
      */
     public void loadHTMLFromResource(String resourcePath) {
         if (!resourcePath.startsWith("/")) {
             resourcePath = "/" + resourcePath;
         }
-        
-        String url = "jcef://resource" + resourcePath;
-        LOG.info("Loading HTML from resource: " + url);
-        browser.loadURL(url);
+
+        try {
+            String htmlContent = loadResourceAsString(resourcePath);
+            
+            // Replace any jcef://resource references with inline content or data URLs
+            htmlContent = processResourceReferences(htmlContent);
+            
+            // Use loadHTML to load the content directly
+            browser.loadHTML(htmlContent);
+            LOG.info("Loaded HTML from resource: " + resourcePath);
+        } catch (IOException e) {
+            LOG.error("Failed to load HTML resource: " + resourcePath, e);
+            browser.loadHTML("<html><body><h1>Error loading resource</h1><p>" + e.getMessage() + "</p></body></html>");
+        }
     }
     
     /**
-     * Custom resource handler for serving files from resources
+     * Processes resource references in HTML content to replace jcef:// URLs
      */
-    private class ResourceHandler implements CefResourceHandler {
-        private final String resourcePath;
-        private byte[] data;
-        private int offset = 0;
-        private String mimeType = "text/html";
-        
-        public ResourceHandler(String resourcePath) {
-            this.resourcePath = resourcePath;
-            loadResource();
-        }
-        
-        private void loadResource() {
-            try {
-                try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
-                    if (is != null) {
-                        data = is.readAllBytes();
-                        
-                        // Determine MIME type based on file extension
-                        if (resourcePath.endsWith(".js")) {
-                            mimeType = "application/javascript";
-                        } else if (resourcePath.endsWith(".css")) {
-                            mimeType = "text/css";
-                        } else if (resourcePath.endsWith(".html")) {
-                            mimeType = "text/html";
-                        } else if (resourcePath.endsWith(".json")) {
-                            mimeType = "application/json";
-                        } else if (resourcePath.endsWith(".png")) {
-                            mimeType = "image/png";
-                        } else if (resourcePath.endsWith(".jpg") || resourcePath.endsWith(".jpeg")) {
-                            mimeType = "image/jpeg";
-                        } else if (resourcePath.endsWith(".gif")) {
-                            mimeType = "image/gif";
-                        } else if (resourcePath.endsWith(".svg")) {
-                            mimeType = "image/svg+xml";
-                        }
-                        
-                        LOG.info("Loaded resource: " + resourcePath + " (" + data.length + " bytes, " + mimeType + ")");
-                    } else {
-                        LOG.error("Resource not found: " + resourcePath);
-                        data = ("Resource not found: " + resourcePath).getBytes(StandardCharsets.UTF_8);
-                        mimeType = "text/plain";
-                    }
+    private String processResourceReferences(String htmlContent) {
+        try {
+            // Process script tags
+            java.util.regex.Pattern scriptPattern = java.util.regex.Pattern.compile(
+                "<script\\s+src=\"jcef://resource(/[^\"]+)\"", 
+                java.util.regex.Pattern.CASE_INSENSITIVE
+            );
+            java.util.regex.Matcher scriptMatcher = scriptPattern.matcher(htmlContent);
+            StringBuffer scriptResult = new StringBuffer();
+            
+            while (scriptMatcher.find()) {
+                String resourcePath = scriptMatcher.group(1);
+                try {
+                    String content = loadResourceAsString(resourcePath);
+                    // Instead of data URL, inject the script directly
+                    scriptMatcher.appendReplacement(scriptResult, 
+                        "<script>\n" + content + "\n</script>\n<!-- Originally from: " + resourcePath + " -->");
+                } catch (IOException e) {
+                    LOG.warn("Failed to load script resource: " + resourcePath, e);
+                    scriptMatcher.appendReplacement(scriptResult, 
+                        "<script>\nconsole.error('Failed to load resource: " + resourcePath + "');\n</script>");
                 }
+            }
+            scriptMatcher.appendTail(scriptResult);
+            htmlContent = scriptResult.toString();
+            
+            // Process CSS link tags
+            java.util.regex.Pattern cssPattern = java.util.regex.Pattern.compile(
+                "<link\\s+([^>]*?)href=\"jcef://resource(/[^\"]+)\"([^>]*)>",
+                java.util.regex.Pattern.CASE_INSENSITIVE
+            );
+            java.util.regex.Matcher cssMatcher = cssPattern.matcher(htmlContent);
+            StringBuffer cssResult = new StringBuffer();
+            
+            while (cssMatcher.find()) {
+                String attributes = cssMatcher.group(1);
+                String resourcePath = cssMatcher.group(2);
+                String endAttributes = cssMatcher.group(3);
+                try {
+                    String content = loadResourceAsString(resourcePath);
+                    // Inject CSS directly as style tag
+                    cssMatcher.appendReplacement(cssResult,
+                        "<style>\n" + content + "\n</style>\n<!-- Originally from: " + resourcePath + " -->");
+                } catch (IOException e) {
+                    LOG.warn("Failed to load CSS resource: " + resourcePath, e);
+                    cssMatcher.appendReplacement(cssResult, 
+                        "<style>\n/* Failed to load resource: " + resourcePath + " */\n</style>");
+                }
+            }
+            cssMatcher.appendTail(cssResult);
+            htmlContent = cssResult.toString();
+            
+            // Process fetch() calls in JavaScript - inject resource content as variables
+            if (htmlContent.contains("fetch") && htmlContent.contains("jcef://resource")) {
+                htmlContent = injectResourcesAsVariables(htmlContent);
+            }
+            
+            return htmlContent;
+        } catch (Exception e) {
+            LOG.error("Error processing resource references", e);
+            return htmlContent;
+        }
+    }
+    
+    /**
+     * Injects resources as JavaScript variables for dynamic loading
+     */
+    private String injectResourcesAsVariables(String htmlContent) {
+        StringBuilder resourceScript = new StringBuilder();
+        resourceScript.append("<script>\n");
+        resourceScript.append("// Injected resources for dynamic loading\n");
+        resourceScript.append("window.__INJECTED_RESOURCES__ = {};\n");
+        
+        // List of resources that might be dynamically loaded
+        String[] dynamicResources = {
+            "/js/agentFramework.js",
+            "/js/workflowEngine.js", 
+            "/js/workflowBuilder.js",
+            "/js/agentUI.js",
+            "/js/LLMProvider.js",
+            "/js/fileAPI.js",
+            "/js/researchAgentIntegrated.js",
+            "/js/googleAgentIntegration.js",
+            "/html/agentDemo.html",
+            "/html/workflowBuilder.html"
+        };
+        
+        for (String resource : dynamicResources) {
+            try {
+                String content = loadResourceAsString(resource);
+                // Escape the content for JavaScript
+                String escaped = content.replace("\\", "\\\\")
+                                       .replace("\n", "\\n")
+                                       .replace("\r", "\\r")
+                                       .replace("\"", "\\\"")
+                                       .replace("'", "\\'");
+                resourceScript.append("window.__INJECTED_RESOURCES__['").append(resource).append("'] = '").append(escaped).append("';\n");
             } catch (IOException e) {
-                LOG.error("Failed to load resource: " + resourcePath, e);
-                data = ("Error loading resource: " + e.getMessage()).getBytes(StandardCharsets.UTF_8);
-                mimeType = "text/plain";
+                LOG.warn("Failed to inject resource: " + resource, e);
             }
         }
         
-        @Override
-        public boolean processRequest(CefRequest request, CefCallback callback) {
-            callback.Continue();
-            return true;
-        }
+        // Override fetch to handle jcef:// URLs
+        resourceScript.append("\n// Override fetch for jcef:// URLs\n");
+        resourceScript.append("(function() {\n");
+        resourceScript.append("  const originalFetch = window.fetch;\n");
+        resourceScript.append("  window.fetch = function(url, ...args) {\n");
+        resourceScript.append("    if (typeof url === 'string' && url.startsWith('jcef://resource/')) {\n");
+        resourceScript.append("      const resourcePath = url.replace('jcef://resource', '');\n");
+        resourceScript.append("      const content = window.__INJECTED_RESOURCES__[resourcePath];\n");
+        resourceScript.append("      if (content !== undefined) {\n");
+        resourceScript.append("        return Promise.resolve(new Response(content, {\n");
+        resourceScript.append("          status: 200,\n");
+        resourceScript.append("          statusText: 'OK',\n");
+        resourceScript.append("          headers: new Headers({\n");
+        resourceScript.append("            'Content-Type': resourcePath.endsWith('.js') ? 'application/javascript' :\n");
+        resourceScript.append("                           resourcePath.endsWith('.css') ? 'text/css' :\n");
+        resourceScript.append("                           resourcePath.endsWith('.html') ? 'text/html' : 'text/plain'\n");
+        resourceScript.append("          })\n");
+        resourceScript.append("        }));\n");
+        resourceScript.append("      } else {\n");
+        resourceScript.append("        return Promise.reject(new Error('Resource not found: ' + resourcePath));\n");
+        resourceScript.append("      }\n");
+        resourceScript.append("    }\n");
+        resourceScript.append("    return originalFetch(url, ...args);\n");
+        resourceScript.append("  };\n");
+        resourceScript.append("})();\n");
+        resourceScript.append("</script>\n");
         
-        @Override
-        public void getResponseHeaders(CefResponse response, IntRef responseLength, StringRef redirectUrl) {
-            response.setStatus(data.length > 0 ? 200 : 404);
-            response.setMimeType(mimeType);
-            responseLength.set(data.length);
-            response.setHeaderByName("Access-Control-Allow-Origin", "*", true);
-        }
-        
-        @Override
-        public boolean readResponse(byte[] dataOut, int bytesToRead, IntRef bytesRead, CefCallback callback) {
-            if (offset >= data.length) {
-                bytesRead.set(0);
-                return false;
+        // Inject at the beginning of the body or head
+        int bodyIndex = htmlContent.indexOf("<body");
+        if (bodyIndex != -1) {
+            int bodyEndIndex = htmlContent.indexOf(">", bodyIndex) + 1;
+            return htmlContent.substring(0, bodyEndIndex) + "\n" + resourceScript.toString() + htmlContent.substring(bodyEndIndex);
+        } else {
+            // Fallback: inject before closing head tag
+            int headCloseIndex = htmlContent.indexOf("</head>");
+            if (headCloseIndex != -1) {
+                return htmlContent.substring(0, headCloseIndex) + resourceScript.toString() + htmlContent.substring(headCloseIndex);
             }
-            
-            int availableBytes = Math.min(bytesToRead, data.length - offset);
-            System.arraycopy(data, offset, dataOut, 0, availableBytes);
-            offset += availableBytes;
-            bytesRead.set(availableBytes);
-            
-            return offset < data.length;
         }
         
-        @Override
-        public void cancel() {
-            // Nothing to clean up
-        }
+        return htmlContent;
     }
 }

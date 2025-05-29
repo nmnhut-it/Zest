@@ -48,7 +48,7 @@ public class JCEFBrowserTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testResourceSchemeHandler() {
+    public void testResourceLoading() {
         if (!JBCefApp.isSupported()) {
             System.out.println("Skipping test - JCEF not supported");
             return;
@@ -64,10 +64,9 @@ public class JCEFBrowserTest extends BasePlatformTestCase {
             // Give it time to load
             Thread.sleep(1000);
             
-            // The URL should start with our custom scheme
+            // The content should be loaded directly via loadHTML
             String currentUrl = manager.getBrowser().getCefBrowser().getURL();
-            assertTrue("URL should use custom scheme", 
-                currentUrl.startsWith("jcef://resource/"));
+            assertNotNull("URL should not be null", currentUrl);
             
             manager.dispose();
         } catch (Exception e) {

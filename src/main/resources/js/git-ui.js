@@ -5,7 +5,7 @@
  * modal templates, file item creation, and visual components.
  */
 
-const GitUI = {
+var GitUI = GitUI ||  {
     /**
      * Create the main modal HTML template with horizontal split layout
      */

@@ -125,9 +125,8 @@ public final class WebBrowserService {
      * @param resourcePath The path to the resource (e.g., "/html/workflowBuilder.html")
      */
     public void loadResource(String resourcePath) {
-        if (browserPanel != null) {
-            String url = "jcef://resource" + resourcePath;
-            browserPanel.loadUrl(url);
+        if (browserPanel != null && browserPanel.getBrowserManager() != null) {
+            browserPanel.getBrowserManager().loadHTMLFromResource(resourcePath);
         } else {
             LOG.warn("Cannot load resource, browser panel not registered");
         }

@@ -241,5 +241,13 @@
                 description="Run comprehensive tests on JCEF browser functionality">
             <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ShowWorkflowBuilder"/>
         </action>
+        
+        <!-- Test Resource Loading -->
+        <action id="Zest.TestResourceLoading"
+                class="com.zps.zest.actions.TestResourceLoadingAction"
+                text="Test JCEF Resource Loading"
+                description="Test the JCEF resource loading functionality with JBCefLocalRequestHandler">
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.TestJCEFBrowser"/>
+        </action>
     </actions>
 </idea-plugin>

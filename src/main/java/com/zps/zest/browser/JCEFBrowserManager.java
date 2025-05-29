@@ -530,53 +530,45 @@ public class JCEFBrowserManager implements Disposable {
         try {
             // Process script tags
             java.util.regex.Pattern scriptPattern = java.util.regex.Pattern.compile(
-                "<script\\s+src=\"jcef://resource(/[^\"]+)\"", 
+                "<script\\s+src=\"jcef://resource(/[^\"]+)\"[^>]*>", 
                 java.util.regex.Pattern.CASE_INSENSITIVE
             );
             java.util.regex.Matcher scriptMatcher = scriptPattern.matcher(htmlContent);
-            StringBuffer scriptResult = new StringBuffer();
             
             while (scriptMatcher.find()) {
+                String fullMatch = scriptMatcher.group(0);
                 String resourcePath = scriptMatcher.group(1);
                 try {
                     String content = loadResourceAsString(resourcePath);
-                    // Instead of data URL, inject the script directly
-                    scriptMatcher.appendReplacement(scriptResult, 
-                        "<script>\n" + content + "\n</script>\n<!-- Originally from: " + resourcePath + " -->");
+                    String replacement = "<script>\n" + content + "\n</script>\n<!-- Originally from: " + resourcePath + " -->";
+                    htmlContent = htmlContent.replace(fullMatch, replacement);
                 } catch (IOException e) {
                     LOG.warn("Failed to load script resource: " + resourcePath, e);
-                    scriptMatcher.appendReplacement(scriptResult, 
-                        "<script>\nconsole.error('Failed to load resource: " + resourcePath + "');\n</script>");
+                    String replacement = "<script>\nconsole.error('Failed to load resource: " + resourcePath + "');\n</script>";
+                    htmlContent = htmlContent.replace(fullMatch, replacement);
                 }
             }
-            scriptMatcher.appendTail(scriptResult);
-            htmlContent = scriptResult.toString();
             
             // Process CSS link tags
             java.util.regex.Pattern cssPattern = java.util.regex.Pattern.compile(
-                "<link\\s+([^>]*?)href=\"jcef://resource(/[^\"]+)\"([^>]*)>",
+                "<link\\s+[^>]*?href=\"jcef://resource(/[^\"]+)\"[^>]*>",
                 java.util.regex.Pattern.CASE_INSENSITIVE
             );
             java.util.regex.Matcher cssMatcher = cssPattern.matcher(htmlContent);
-            StringBuffer cssResult = new StringBuffer();
             
             while (cssMatcher.find()) {
-                String attributes = cssMatcher.group(1);
-                String resourcePath = cssMatcher.group(2);
-                String endAttributes = cssMatcher.group(3);
+                String fullMatch = cssMatcher.group(0);
+                String resourcePath = cssMatcher.group(1);
                 try {
                     String content = loadResourceAsString(resourcePath);
-                    // Inject CSS directly as style tag
-                    cssMatcher.appendReplacement(cssResult,
-                        "<style>\n" + content + "\n</style>\n<!-- Originally from: " + resourcePath + " -->");
+                    String replacement = "<style>\n" + content + "\n</style>\n<!-- Originally from: " + resourcePath + " -->";
+                    htmlContent = htmlContent.replace(fullMatch, replacement);
                 } catch (IOException e) {
                     LOG.warn("Failed to load CSS resource: " + resourcePath, e);
-                    cssMatcher.appendReplacement(cssResult, 
-                        "<style>\n/* Failed to load resource: " + resourcePath + " */\n</style>");
+                    String replacement = "<style>\n/* Failed to load resource: " + resourcePath + " */\n</style>";
+                    htmlContent = htmlContent.replace(fullMatch, replacement);
                 }
             }
-            cssMatcher.appendTail(cssResult);
-            htmlContent = cssResult.toString();
             
             // Process fetch() calls in JavaScript - inject resource content as variables
             if (htmlContent.contains("fetch") && htmlContent.contains("jcef://resource")) {
@@ -601,6 +593,7 @@ public class JCEFBrowserManager implements Disposable {
         
         // List of resources that might be dynamically loaded
         String[] dynamicResources = {
+            // JavaScript files
             "/js/agentFramework.js",
             "/js/workflowEngine.js", 
             "/js/workflowBuilder.js",
@@ -609,50 +602,100 @@ public class JCEFBrowserManager implements Disposable {
             "/js/fileAPI.js",
             "/js/researchAgentIntegrated.js",
             "/js/googleAgentIntegration.js",
+            "/js/test.js",
+            "/js/codeExtractor.js",
+            "/js/responseParser.js",
+            "/js/git.js",
+            "/js/git-ui.js",
+            "/js/intellijBridge.js",
+            "/js/intellijBridgeChunked.js",
+            "/js/interceptor.js",
+            "/js/agentStartup.js",
+            
+            // HTML files
             "/html/agentDemo.html",
-            "/html/workflowBuilder.html"
+            "/html/workflowBuilder.html",
+            "/html/test.html",
+            "/html/jcefTest.html",
+            "/html/resourceTest.html",
+            
+            // CSS files
+            "/css/test.css",
+            
+            // Data files
+            "/data/test.json"
         };
         
         for (String resource : dynamicResources) {
             try {
                 String content = loadResourceAsString(resource);
-                // Escape the content for JavaScript
-                String escaped = content.replace("\\", "\\\\")
-                                       .replace("\n", "\\n")
-                                       .replace("\r", "\\r")
-                                       .replace("\"", "\\\"")
-                                       .replace("'", "\\'");
-                resourceScript.append("window.__INJECTED_RESOURCES__['").append(resource).append("'] = '").append(escaped).append("';\n");
+                // Convert to base64 to avoid escaping issues
+                String base64Content = java.util.Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8));
+                resourceScript.append("window.__INJECTED_RESOURCES__['").append(resource).append("'] = atob('").append(base64Content).append("');\n");
             } catch (IOException e) {
-                LOG.warn("Failed to inject resource: " + resource, e);
+                // Resource might not exist, that's okay
+                LOG.debug("Resource not found (this may be expected): " + resource);
             }
         }
         
+        // Add a helper to list available resources
+        resourceScript.append("\n// Helper to list available resources\n");
+        resourceScript.append("window.__LIST_RESOURCES__ = function() {\n");
+        resourceScript.append("  return Object.keys(window.__INJECTED_RESOURCES__);\n");
+        resourceScript.append("};\n");
+        
         // Override fetch to handle jcef:// URLs
         resourceScript.append("\n// Override fetch for jcef:// URLs\n");
-        resourceScript.append("(function() {\n");
-        resourceScript.append("  const originalFetch = window.fetch;\n");
-        resourceScript.append("  window.fetch = function(url, ...args) {\n");
-        resourceScript.append("    if (typeof url === 'string' && url.startsWith('jcef://resource/')) {\n");
-        resourceScript.append("      const resourcePath = url.replace('jcef://resource', '');\n");
-        resourceScript.append("      const content = window.__INJECTED_RESOURCES__[resourcePath];\n");
-        resourceScript.append("      if (content !== undefined) {\n");
-        resourceScript.append("        return Promise.resolve(new Response(content, {\n");
-        resourceScript.append("          status: 200,\n");
-        resourceScript.append("          statusText: 'OK',\n");
-        resourceScript.append("          headers: new Headers({\n");
-        resourceScript.append("            'Content-Type': resourcePath.endsWith('.js') ? 'application/javascript' :\n");
-        resourceScript.append("                           resourcePath.endsWith('.css') ? 'text/css' :\n");
-        resourceScript.append("                           resourcePath.endsWith('.html') ? 'text/html' : 'text/plain'\n");
-        resourceScript.append("          })\n");
-        resourceScript.append("        }));\n");
-        resourceScript.append("      } else {\n");
-        resourceScript.append("        return Promise.reject(new Error('Resource not found: ' + resourcePath));\n");
-        resourceScript.append("      }\n");
-        resourceScript.append("    }\n");
-        resourceScript.append("    return originalFetch(url, ...args);\n");
-        resourceScript.append("  };\n");
-        resourceScript.append("})();\n");
+        resourceScript.append("""
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = function(url, ...args) {
+    if (typeof url === 'string' && url.startsWith('jcef://resource/')) {
+      const resourcePath = url.replace('jcef://resource', '');
+      const content = window.__INJECTED_RESOURCES__[resourcePath];
+      if (content !== undefined) {
+        return Promise.resolve(new Response(content, {
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({
+            'Content-Type': resourcePath.endsWith('.js') ? 'application/javascript' :
+                           resourcePath.endsWith('.css') ? 'text/css' :
+                           resourcePath.endsWith('.html') ? 'text/html' :
+                           resourcePath.endsWith('.json') ? 'application/json' : 'text/plain'
+          })
+        }));
+      } else {
+        console.warn('Resource not found:', resourcePath);
+        console.log('Available resources:', Object.keys(window.__INJECTED_RESOURCES__));
+        return Promise.resolve(new Response('Resource not found: ' + resourcePath, {
+          status: 404,
+          statusText: 'Not Found'
+        }));
+      }
+    }
+    return originalFetch(url, ...args);
+  };
+  
+  // Also override XMLHttpRequest for compatibility
+  const originalXHROpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...args) {
+    if (typeof url === 'string' && url.startsWith('jcef://resource/')) {
+      const resourcePath = url.replace('jcef://resource', '');
+      const content = window.__INJECTED_RESOURCES__[resourcePath];
+      if (content !== undefined) {
+        // Convert to data URL for XHR
+        const mimeType = resourcePath.endsWith('.js') ? 'application/javascript' :
+                        resourcePath.endsWith('.css') ? 'text/css' :
+                        resourcePath.endsWith('.html') ? 'text/html' :
+                        resourcePath.endsWith('.json') ? 'application/json' : 'text/plain';
+        const dataUrl = 'data:' + mimeType + ';base64,' + btoa(content);
+        return originalXHROpen.call(this, method, dataUrl, ...args);
+      }
+    }
+    return originalXHROpen.call(this, method, url, ...args);
+  };
+})();
+""");
         resourceScript.append("</script>\n");
         
         // Inject at the beginning of the body or head

@@ -283,6 +283,17 @@
         </div>
         
         <div class="demo-section">
+            <h2>Visual Workflow Builder</h2>
+            <p>Create complex agent workflows with a drag-and-drop interface!</p>
+            <div class="button-group">
+                <button onclick="openWorkflowBuilder()">🔧 Open Workflow Builder</button>
+                <button onclick="loadExampleWorkflow()">📁 Load Example Workflow</button>
+                <button onclick="showWorkflowTutorial()">📖 Tutorial</button>
+            </div>
+            <div id="workflow-builder-output" class="output"></div>
+        </div>
+        
+        <div class="demo-section">
             <h2>Live Code Generation</h2>
             <div style="margin-bottom: 15px;">
                 <label style="display: block; margin-bottom: 5px;">Describe what you want to build:</label>
@@ -827,6 +838,188 @@ function calculateTotal(items) {
             } catch (error) {
                 log('llm-output', `Code review failed: ${error.message}`, 'error');
             }
+        }
+        
+        // Workflow Builder functions
+        function openWorkflowBuilder() {
+            // Create a new window for the workflow builder
+            const builderWindow = window.open('', 'WorkflowBuilder', 'width=1200,height=800');
+            
+            // Initialize the workflow builder in the new window
+            builderWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Agent Workflow Builder</title>
+                </head>
+                <body>
+                    <div id="workflow-builder"></div>
+                    <script>
+                        // Copy necessary objects from parent window
+                        window.AgentFramework = window.opener.AgentFramework;
+                        window.WorkflowEngine = window.opener.WorkflowEngine;
+                        window.WorkflowBuilder = window.opener.WorkflowBuilder;
+                        window.intellijBridge = window.opener.intellijBridge;
+                        window.LLMProvider = window.opener.LLMProvider;
+                        
+                        // Initialize the builder
+                        window.onload = function() {
+                            WorkflowBuilder.initialize('workflow-builder');
+                            
+                            // Load example workflow if available
+                            if (window.opener.exampleWorkflow) {
+                                setTimeout(() => {
+                                    WorkflowBuilder.loadWorkflow(window.opener.exampleWorkflow.toJSON());
+                                }, 500);
+                            }
+                        };
+                    </script>
+                </body>
+                </html>
+            `);
+            
+            log('workflow-builder-output', 'Workflow Builder opened in new window', 'success');
+        }
+        
+        async function loadExampleWorkflow() {
+            if (!frameworkInitialized) {
+                await initializeFramework();
+            }
+            
+            try {
+                log('workflow-builder-output', 'Loading example workflow...');
+                
+                // Create example workflow
+                const workflow = WorkflowEngine.createWorkflow('Code Review Pipeline');
+                
+                // Add nodes
+                const input = workflow.addNode(WorkflowEngine.createInputNode()
+                    .setPosition(100, 150)
+                    .configure({ 
+                        source: 'value',
+                        value: 'Create a function to validate email addresses' 
+                    }));
+                
+                // These two will run in parallel
+                const generator = workflow.addNode(WorkflowEngine.createAgentNode(window.AgentFramework.AgentRoles.CODE_GENERATOR)
+                    .setPosition(300, 50)
+                    .configure({ 
+                        taskType: 'generate',
+                        prompt: 'Generate a JavaScript function based on this description',
+                        language: 'javascript'
+                    }));
+                
+                const tester = workflow.addNode(WorkflowEngine.createAgentNode(window.AgentFramework.AgentRoles.TESTING)
+                    .setPosition(300, 250)
+                    .configure({ 
+                        taskType: 'generate',
+                        prompt: 'Create test cases for a function that validates email addresses',
+                        language: 'javascript'
+                    }));
+                
+                // This waits for generator to complete
+                const reviewer = workflow.addNode(WorkflowEngine.createAgentNode(window.AgentFramework.AgentRoles.CODE_REVIEWER)
+                    .setPosition(500, 50)
+                    .configure({ 
+                        taskType: 'review',
+                        language: 'javascript'
+                    }));
+                
+                // Composer waits for all three
+                const composer = workflow.addNode(WorkflowEngine.createComposerNode()
+                    .setPosition(700, 150)
+                    .configure({
+                        composerFunction: `
+// Combine all results into a final package
+const result = {
+    description: inputs.description || "Email validation function",
+    implementation: inputs.generated?.code || inputs.generated,
+    tests: inputs.tests?.code || inputs.tests,
+    review: inputs.review
+};
+
+// Add metadata
+result.metadata = {
+    passed: inputs.review?.passed || false,
+    score: inputs.review?.score || 0,
+    timestamp: new Date().toISOString()
+};
+
+return result;`
+                    }));
+                
+                const output = workflow.addNode(WorkflowEngine.createOutputNode()
+                    .setPosition(900, 150)
+                    .configure({ name: 'finalResult' }));
+                
+                // Connect nodes
+                // Input goes to all three agents
+                workflow.connect(input.id, 'output', generator.id, 'data');
+                workflow.connect(input.id, 'output', tester.id, 'data');
+                workflow.connect(input.id, 'output', composer.id, 'description');
+                
+                // Generator output goes to reviewer and composer
+                workflow.connect(generator.id, 'output', reviewer.id, 'data');
+                workflow.connect(generator.id, 'output', composer.id, 'generated');
+                
+                // Tester and reviewer outputs go to composer
+                workflow.connect(tester.id, 'output', composer.id, 'tests');
+                workflow.connect(reviewer.id, 'output', composer.id, 'review');
+                
+                // Composer to output
+                workflow.connect(composer.id, 'output', output.id, 'value');
+                
+                log('workflow-builder-output', 'Example workflow created!', 'success');
+                log('workflow-builder-output', `Workflow: ${workflow.name}`);
+                log('workflow-builder-output', `Nodes: ${workflow.nodes.size}`);
+                log('workflow-builder-output', `Connections: ${workflow.connections.length}`);
+                log('workflow-builder-output', '');
+                log('workflow-builder-output', 'This workflow demonstrates:');
+                log('workflow-builder-output', '- Parallel execution (Generator and Tester run simultaneously)');
+                log('workflow-builder-output', '- Sequential dependencies (Reviewer waits for Generator)');
+                log('workflow-builder-output', '- Result composition (Composer combines all outputs)');
+                log('workflow-builder-output', '');
+                log('workflow-builder-output', 'Click "Open Workflow Builder" to visualize and run it!');
+                
+                // Save it for the builder
+                window.exampleWorkflow = workflow;
+                
+            } catch (error) {
+                log('workflow-builder-output', `Failed to load example: ${error.message}`, 'error');
+            }
+        }
+        
+        function showWorkflowTutorial() {
+            log('workflow-builder-output', '\n=== Workflow Builder Tutorial ===', 'success');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', '1. CREATING WORKFLOWS:');
+            log('workflow-builder-output', '   - Drag agents from the left palette onto the canvas');
+            log('workflow-builder-output', '   - Use Input nodes to provide data to your workflow');
+            log('workflow-builder-output', '   - Use Output nodes to capture results');
+            log('workflow-builder-output', '   - Use Composer nodes to combine outputs from multiple agents');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', '2. CONNECTING NODES:');
+            log('workflow-builder-output', '   - Click and drag from an output port (right side) to an input port (left side)');
+            log('workflow-builder-output', '   - Agents can run in parallel if they have no dependencies');
+            log('workflow-builder-output', '   - Data flows from left to right through connections');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', '3. CONFIGURING NODES:');
+            log('workflow-builder-output', '   - Click a node to select it');
+            log('workflow-builder-output', '   - Use the Properties panel on the right to configure:');
+            log('workflow-builder-output', '     • Agent prompts and parameters');
+            log('workflow-builder-output', '     • Composer functions (JavaScript)');
+            log('workflow-builder-output', '     • Input values or context keys');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', '4. RUNNING WORKFLOWS:');
+            log('workflow-builder-output', '   - Click the Run button to execute');
+            log('workflow-builder-output', '   - Nodes will light up as they process');
+            log('workflow-builder-output', '   - Results appear in Output nodes');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', '5. SAVING/LOADING:');
+            log('workflow-builder-output', '   - Save workflows as JSON files');
+            log('workflow-builder-output', '   - Load and share workflows with your team');
+            log('workflow-builder-output', '');
+            log('workflow-builder-output', 'Happy workflow building! 🚀');
         }
         
         // Auto-initialize on load

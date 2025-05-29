@@ -224,5 +224,14 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
             <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ToggleDevTools"/>
         </action>
+        
+        <!-- Workflow Builder -->
+        <action id="Zest.ShowWorkflowBuilder"
+                class="com.zps.zest.actions.ShowWorkflowBuilderAction"
+                text="Show Workflow Builder"
+                description="Open the visual workflow builder for creating agent workflows">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.ShowAgentFramework"/>
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ShowAgentFramework"/>
+        </action>
     </actions>
 </idea-plugin>

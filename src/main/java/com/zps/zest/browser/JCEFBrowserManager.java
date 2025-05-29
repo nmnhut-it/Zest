@@ -246,6 +246,14 @@ public class JCEFBrowserManager {
             String researchAgentScript = loadResourceAsString("/js/researchAgentIntegrated.js");
             cefBrowser.executeJavaScript(researchAgentScript, frame.getURL(), 0);
             
+            // Load and inject the Workflow Engine script
+            String workflowEngineScript = loadResourceAsString("/js/workflowEngine.js");
+            cefBrowser.executeJavaScript(workflowEngineScript, frame.getURL(), 0);
+            
+            // Load and inject the Workflow Builder script
+            String workflowBuilderScript = loadResourceAsString("/js/workflowBuilder.js");
+            cefBrowser.executeJavaScript(workflowBuilderScript, frame.getURL(), 0);
+            
             String agentUIScript = loadResourceAsString("/js/agentUI.js");
             cefBrowser.executeJavaScript(agentUIScript, frame.getURL(), 0);
             

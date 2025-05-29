@@ -108,4 +108,28 @@ public final class WebBrowserService {
         
         return false;
     }
+    
+    /**
+     * Shows the browser panel (opens the tool window).
+     */
+    public void showBrowserPanel() {
+        if (browserPanel != null) {
+            browserPanel.showToolWindow();
+        } else {
+            LOG.warn("Cannot show browser panel, not registered");
+        }
+    }
+    
+    /**
+     * Loads a resource from the plugin's resources.
+     * @param resourcePath The path to the resource (e.g., "/html/workflowBuilder.html")
+     */
+    public void loadResource(String resourcePath) {
+        if (browserPanel != null) {
+            String url = "jcef://resource" + resourcePath;
+            browserPanel.loadUrl(url);
+        } else {
+            LOG.warn("Cannot load resource, browser panel not registered");
+        }
+    }
 }

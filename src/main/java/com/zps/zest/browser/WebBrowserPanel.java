@@ -8,6 +8,8 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.ToolWindow;
+import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
@@ -252,7 +254,7 @@ public class WebBrowserPanel {
      */
     public void loadUrl(String url) {
         // Add http:// if no protocol specified
-        if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
+        if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://") && !url.startsWith("jcef://")) {
             url = "https://" + url;
         }
 
@@ -294,6 +296,17 @@ public class WebBrowserPanel {
         return browserManager.toggleDevTools();
     }
 
+    /**
+     * Shows the tool window containing this browser panel.
+     */
+    public void showToolWindow() {
+        ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
+        ToolWindow toolWindow = toolWindowManager.getToolWindow("ZPS Chat");
+        if (toolWindow != null) {
+            toolWindow.show();
+        }
+    }
+    
     /**
      * Gets the component for this panel.
      */

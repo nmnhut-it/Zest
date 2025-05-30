@@ -11,7 +11,9 @@ import com.intellij.psi.PsiFile;
 import com.zps.zest.browser.utils.StringMatchingUtils;
 import com.zps.zest.browser.utils.CodeExtractionUtils;
 import com.zps.zest.browser.utils.FunctionExtractionUtils;
+import com.zps.zest.browser.utils.UnstagedChangesUtils;
 import org.jetbrains.annotations.NotNull;
+import java.util.ArrayList;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -80,17 +82,23 @@ public class AgentModeContextEnhancer {
                             JsonArray gitResults = searchGitHistory(keywords);
                             LOG.info("Git search completed, found " + gitResults.size() + " results");
 
-                            // 2. Then search the project for relevant code
+                            // 2. Search for unstaged changes
+                            LOG.info("Starting unstaged changes search...");
+                            JsonArray unstagedResults = searchUnstagedChanges(keywords);
+                            LOG.info("Unstaged changes search completed, found " + unstagedResults.size() + " results");
+
+                            // 3. Then search the project for relevant code
                             LOG.info("Starting project code search...");
                             JsonArray projectResults = searchProject(keywords);
                             LOG.info("Project search completed, found " + projectResults.size() + " results");
 
-                            // 3. Combine and format results
+                            // 4. Combine and format results
                             JsonObject enhancedContext = new JsonObject();
                             enhancedContext.addProperty("userQuery", userQuery);
                             enhancedContext.addProperty("currentFile", currentFileContext);
                             enhancedContext.add("keywords", GSON.toJsonTree(keywords));
                             enhancedContext.add("recentChanges", gitResults);
+                            enhancedContext.add("unstagedChanges", unstagedResults);
                             enhancedContext.add("relatedCode", projectResults);
 
                             long duration = System.currentTimeMillis() - startTime;
@@ -105,6 +113,132 @@ public class AgentModeContextEnhancer {
                         }
                     });
                 });
+    }
+
+    /**
+     * Searches for unstaged changes that match the keywords.
+     * This method now includes full function implementations for changed code.
+     */
+    private JsonArray searchUnstagedChanges(List<String> keywords) {
+        LOG.info("Searching unstaged changes with keywords: " + keywords);
+        JsonArray results = new JsonArray();
+
+        try {
+            // Check cache first for all unstaged changes
+            String cacheKey = "unstaged_all";
+            CachedResult cached = resultCache.get(cacheKey);
+
+            JsonObject unstagedData;
+            if (cached != null && !cached.isExpired()) {
+                LOG.info("Unstaged changes cache hit");
+                unstagedData = GSON.fromJson(cached.result, JsonObject.class);
+            } else {
+                LOG.info("Fetching unstaged changes from git");
+
+                // Get unstaged changes
+                String unstagedResult = gitService.getUnstagedChanges(new JsonObject());
+                unstagedData = GSON.fromJson(unstagedResult, JsonObject.class);
+
+                // Cache the raw unstaged data
+                if (unstagedData.get("success").getAsBoolean()) {
+                    resultCache.put(cacheKey, new CachedResult(GSON.toJson(unstagedData)));
+                    LOG.info("Cached unstaged changes data");
+                }
+            }
+
+            if (unstagedData.get("success").getAsBoolean() && unstagedData.has("changes")) {
+                JsonArray changes = unstagedData.getAsJsonArray("changes");
+                LOG.info("Found " + changes.size() + " unstaged files");
+
+                // Process each changed file
+                for (int i = 0; i < changes.size(); i++) {
+                    JsonObject change = changes.get(i).getAsJsonObject();
+                    String filePath = change.get("file").getAsString();
+                    String status = change.get("status").getAsString();
+
+                    // Skip deleted files
+                    if ("D".equals(status)) {
+                        continue;
+                    }
+
+                    // Check if this file matches any keyword
+                    boolean fileMatches = false;
+                    String matchedKeyword = null;
+
+                    for (String keyword : keywords) {
+                        if (filePath.toLowerCase().contains(keyword.toLowerCase())) {
+                            fileMatches = true;
+                            matchedKeyword = keyword;
+                            break;
+                        }
+                    }
+
+                    // Always analyze if we have keywords or if file matches
+                    if (fileMatches || UnstagedChangesUtils.needsContentAnalysis(keywords)) {
+                        // Get the diff for this file
+                        String diffCacheKey = "unstaged_diff_" + filePath;
+                        CachedResult diffCached = resultCache.get(diffCacheKey);
+
+                        String diff;
+                        if (diffCached != null && !diffCached.isExpired()) {
+                            diff = diffCached.result;
+                        } else {
+                            JsonObject diffRequest = new JsonObject();
+                            diffRequest.addProperty("filePath", filePath);
+                            String diffResult = gitService.getDiffForFile(diffRequest);
+                            JsonObject diffData = GSON.fromJson(diffResult, JsonObject.class);
+
+                            if (diffData.get("success").getAsBoolean() && diffData.has("diff")) {
+                                diff = diffData.get("diff").getAsString();
+                                resultCache.put(diffCacheKey, new CachedResult(diff));
+                            } else {
+                                LOG.warn("Could not get diff for file: " + filePath);
+                                continue;
+                            }
+                        }
+
+                        // Analyze the file using the utility
+                        JsonObject fileAnalysis = UnstagedChangesUtils.analyzeUnstagedFile(
+                                project, filePath, diff, keywords
+                        );
+
+                        if (fileAnalysis != null && fileAnalysis.has("changedFunctions")) {
+                            JsonArray changedFunctions = fileAnalysis.getAsJsonArray("changedFunctions");
+                            if (changedFunctions.size() > 0) {
+                                JsonObject result = new JsonObject();
+                                result.addProperty("keyword", matchedKeyword != null ? matchedKeyword :
+                                        (keywords.isEmpty() ? "all" : keywords.get(0)));
+                                result.addProperty("file", filePath);
+                                result.addProperty("status", status);
+                                result.add("analysis", fileAnalysis);
+
+                                // Add line statistics if available
+                                if (change.has("linesAdded")) {
+                                    result.addProperty("linesAdded", change.get("linesAdded").getAsInt());
+                                }
+                                if (change.has("linesDeleted")) {
+                                    result.addProperty("linesDeleted", change.get("linesDeleted").getAsInt());
+                                }
+
+                                results.add(result);
+                            }
+                        }
+                    }
+
+                    // Limit results
+                    if (results.size() >= 3) {
+                        LOG.info("Reached unstaged result limit (3), stopping search");
+                        break;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            LOG.warn("Error searching unstaged changes", e);
+        }
+
+        LOG.info("Unstaged changes search completed with " + results.size() + " results");
+        return results;
     }
 
     /**

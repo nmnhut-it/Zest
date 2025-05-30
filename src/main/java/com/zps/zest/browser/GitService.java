@@ -30,6 +30,8 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class GitService {
 
@@ -722,5 +724,133 @@ public class GitService {
         LOG.info("Disposing GitService for project: " + project.getName());
         // Don't clear all contexts, just log
         LOG.info("Active contexts remaining: " + GLOBAL_CONTEXTS.size());
+    }
+    /**
+     * Gets unstaged changes for the Agent Mode context enhancer.
+     * Returns a list of files with unstaged modifications.
+     */
+    public String getUnstagedChanges(JsonObject data) {
+        LOG.info("=== getUnstagedChanges called ===");
+
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                LOG.error("Project path is null");
+                return createErrorResponse("Project path not found");
+            }
+
+            // Get unstaged changes using git status
+            // --porcelain gives us machine-readable output
+            // Format: XY filename where X=staged status, Y=unstaged status
+            String command = "git status --porcelain";
+
+            LOG.info("Executing git command: " + command);
+            String result = executeGitCommand(projectPath, command);
+            LOG.info("Git status result length: " + result.length());
+
+            JsonArray changes = new JsonArray();
+            if (!result.trim().isEmpty()) {
+                String[] lines = result.split("\n");
+                LOG.info("Found " + lines.length + " changed files");
+
+                Pattern statusPattern = Pattern.compile("^(.)(.) (.+)$");
+
+                for (String line : lines) {
+                    if (line.trim().isEmpty()) continue;
+
+                    Matcher matcher = statusPattern.matcher(line);
+                    if (matcher.matches()) {
+                        String stagedStatus = matcher.group(1);
+                        String unstagedStatus = matcher.group(2);
+                        String filePath = matcher.group(3);
+
+                        // We're interested in files with unstaged changes
+                        // ' ' means no change, '?' means untracked
+                        if (!unstagedStatus.equals(" ")) {
+                            JsonObject change = new JsonObject();
+                            change.addProperty("file", filePath);
+                            change.addProperty("status", unstagedStatus.equals("?") ? "A" : unstagedStatus);
+                            change.addProperty("staged", !stagedStatus.equals(" ") && !stagedStatus.equals("?"));
+
+                            // Get line statistics if file is modified
+                            if (unstagedStatus.equals("M")) {
+                                try {
+                                    String diffStat = executeGitCommand(projectPath,
+                                            "git diff --numstat -- \"" + filePath + "\"");
+                                    if (!diffStat.trim().isEmpty()) {
+                                        String[] statParts = diffStat.trim().split("\t");
+                                        if (statParts.length >= 2) {
+                                            change.addProperty("linesAdded", Integer.parseInt(statParts[0]));
+                                            change.addProperty("linesDeleted", Integer.parseInt(statParts[1]));
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    LOG.warn("Failed to get diff stats for " + filePath, e);
+                                }
+                            }
+
+                            changes.add(change);
+                            LOG.info("  Unstaged change: " + filePath + " (status: " + unstagedStatus + ")");
+                        }
+                    }
+                }
+            } else {
+                LOG.info("No unstaged changes found");
+            }
+
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("changes", changes);
+            response.addProperty("count", changes.size());
+
+            LOG.info("Returning " + changes.size() + " unstaged changes");
+            return gson.toJson(response);
+
+        } catch (Exception e) {
+            LOG.error("Error getting unstaged changes", e);
+            return createErrorResponse("Failed to get unstaged changes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gets the diff for a specific file.
+     * This is an alias for getFileDiff but with a simpler signature for the context enhancer.
+     */
+    public String getDiffForFile(JsonObject data) {
+        LOG.info("=== getDiffForFile called ===");
+
+        try {
+            String filePath = data.get("filePath").getAsString();
+
+            // Determine file status if not provided
+            String status = "M"; // Default to modified
+            if (!data.has("status")) {
+                // Try to determine status from git
+                String projectPath = project.getBasePath();
+                if (projectPath != null) {
+                    String statusResult = executeGitCommand(projectPath,
+                            "git status --porcelain -- \"" + filePath + "\"");
+                    if (!statusResult.trim().isEmpty()) {
+                        // Parse status from result
+                        Pattern statusPattern = Pattern.compile("^(.)(.) .+$");
+                        Matcher matcher = statusPattern.matcher(statusResult.trim());
+                        if (matcher.matches()) {
+                            String unstagedStatus = matcher.group(2);
+                            if (!unstagedStatus.equals(" ")) {
+                                status = unstagedStatus.equals("?") ? "A" : unstagedStatus;
+                            }
+                        }
+                    }
+                }
+                data.addProperty("status", status);
+            }
+
+            // Delegate to existing getFileDiff method
+            return getFileDiff(data);
+
+        } catch (Exception e) {
+            LOG.error("Error getting file diff", e);
+            return createErrorResponse("Failed to get file diff: " + e.getMessage());
+        }
     }
 }

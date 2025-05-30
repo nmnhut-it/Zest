@@ -50,7 +50,7 @@
             console.log('WorkflowBuilder already initialized');
             return;
         }
-
+        
         this.container = document.getElementById(containerId);
         if (!this.container) {
             this.container = document.createElement('div');
@@ -62,10 +62,10 @@
         this.currentWorkflow = WorkflowEngine.createWorkflow('New Workflow');
         this.render();
         this.initialized = true;
-
+        
         // Enable auto-save
         this.enableAutoSave();
-
+        
         // Show welcome message
         this.showWelcomeMessage();
     };
@@ -120,7 +120,7 @@
                         position: relative;
                         overflow: hidden;
                         background: #0d1117;
-                        background-image:
+                        background-image: 
                             radial-gradient(circle at 1px 1px, #30363d 1px, transparent 1px);
                         background-size: 20px 20px;
                     }
@@ -566,7 +566,7 @@
                         <div class="sidebar-title">🚀 Agent Nodes</div>
                         <div class="node-palette" id="agent-palette"></div>
                     </div>
-
+                    
                     <div class="sidebar-section">
                         <div class="sidebar-title">🔧 Utility Nodes</div>
                         <div class="node-palette">
@@ -593,7 +593,7 @@
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="sidebar-section properties-panel">
                         <div class="sidebar-title">⚙️ Properties</div>
                         <div id="properties-content">
@@ -630,11 +630,11 @@
                         <div class="toolbar-separator"></div>
                         <span id="workflow-status"><span class="status-indicator status-idle"></span>Idle</span>
                     </div>
-
+                    
                     <div class="workflow-canvas-container" id="canvas-container">
                         <svg class="workflow-canvas" id="workflow-canvas">
                             <defs>
-                                <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                                <marker id="arrowhead" markerWidth="10" markerHeight="7" 
                                  refX="9" refY="3.5" orient="auto" fill="#30363d">
                                     <polygon points="0 0, 10 3.5, 0 7" />
                                 </marker>
@@ -660,7 +660,7 @@
      */
     WorkflowBuilder.initializeAgentPalette = function() {
         const palette = document.getElementById('agent-palette');
-
+        
         // Add simplified agent roles to palette
         for (const [key, agent] of Object.entries(SIMPLIFIED_AGENTS)) {
             const item = document.createElement('div');
@@ -668,7 +668,7 @@
             item.dataset.nodeType = 'agent';
             item.dataset.agentRole = key;
             item.draggable = true;
-
+            
             item.innerHTML = `
                 <span class="palette-item-icon">${agent.icon}</span>
                 <div class="palette-item-info">
@@ -676,7 +676,7 @@
                     <div class="palette-item-desc">${agent.description}</div>
                 </div>
             `;
-
+            
             palette.appendChild(item);
         }
     };
@@ -687,18 +687,18 @@
     WorkflowBuilder.initializeEventHandlers = function() {
         const container = document.getElementById('canvas-container');
         const nodesLayer = document.getElementById('nodes-layer');
-
+        
         // Enhanced palette drag and drop
         document.querySelectorAll('.palette-item').forEach(item => {
             item.addEventListener('dragstart', (e) => {
                 e.dataTransfer.effectAllowed = 'copy';
                 e.dataTransfer.setData('nodeType', item.dataset.nodeType);
                 e.dataTransfer.setData('agentRole', item.dataset.agentRole || '');
-
+                
                 // Visual feedback
                 item.classList.add('dragging');
                 this.draggedElement = item;
-
+                
                 // Create custom drag image
                 const dragImage = item.cloneNode(true);
                 dragImage.style.position = 'absolute';
@@ -707,55 +707,55 @@
                 e.dataTransfer.setDragImage(dragImage, e.offsetX, e.offsetY);
                 setTimeout(() => document.body.removeChild(dragImage), 0);
             });
-
+            
             item.addEventListener('dragend', (e) => {
                 item.classList.remove('dragging');
                 this.draggedElement = null;
             });
         });
-
+        
         // Canvas drag over with drop zone
         container.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
-
+            
             // Show drop zone
             const rect = container.getBoundingClientRect();
             const x = e.clientX - rect.left - 90;
             const y = e.clientY - rect.top - 40;
-
+            
             this.dropZone.style.left = x + 'px';
             this.dropZone.style.top = y + 'px';
             this.dropZone.style.width = '180px';
             this.dropZone.style.height = '80px';
             this.dropZone.classList.add('active');
         });
-
+        
         container.addEventListener('dragleave', (e) => {
             if (e.target === container) {
                 this.dropZone.classList.remove('active');
             }
         });
-
+        
         // Canvas drop with animation
         container.addEventListener('drop', (e) => {
             e.preventDefault();
-
+            
             this.dropZone.classList.remove('active');
-
+            
             const nodeType = e.dataTransfer.getData('nodeType');
             const agentRole = e.dataTransfer.getData('agentRole');
-
+            
             const rect = container.getBoundingClientRect();
             const x = e.clientX - rect.left - 90;
             const y = e.clientY - rect.top - 40;
-
+            
             this.addNode(nodeType, x, y, agentRole);
-
+            
             // Show success feedback
             this.showToast('Node added successfully', 'success');
         });
-
+        
         // Node selection with multi-select support
         nodesLayer.addEventListener('click', (e) => {
             const node = e.target.closest('.workflow-node');
@@ -770,7 +770,7 @@
                 }
             }
         });
-
+        
         // Enhanced port connections
         nodesLayer.addEventListener('mousedown', (e) => {
             if (e.target.classList.contains('node-port') && e.target.classList.contains('output')) {
@@ -778,26 +778,26 @@
                 this.startConnection(e.target);
             }
         });
-
+        
         container.addEventListener('mousemove', (e) => {
             if (this.isConnecting && this.connectingFrom) {
                 this.updateTempConnection(e);
             }
         });
-
+        
         container.addEventListener('mouseup', (e) => {
             if (this.isConnecting) {
                 this.endConnection(e);
             }
         });
-
+        
         // Connection selection
         this.canvas.addEventListener('click', (e) => {
             if (e.target.classList.contains('connection-path')) {
                 this.selectConnection(e.target.dataset.connectionId);
             }
         });
-
+        
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             // Delete selected items
@@ -808,30 +808,30 @@
                     this.deleteConnection(this.selectedConnection);
                 }
             }
-
+            
             // Ctrl+S to save
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 e.preventDefault();
                 this.saveWorkflow();
             }
-
+            
             // Ctrl+O to open
             if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
                 e.preventDefault();
                 this.loadWorkflowDialog();
             }
-
+            
             // Ctrl+A to select all
             if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
                 e.preventDefault();
                 document.querySelectorAll('.workflow-node').forEach(n => n.classList.add('selected'));
             }
         });
-
+        
         // Canvas panning
         let isPanning = false;
         let panStart = { x: 0, y: 0 };
-
+        
         this.canvas.addEventListener('mousedown', (e) => {
             if (e.target === this.canvas || e.target.parentElement === this.canvas) {
                 isPanning = true;
@@ -839,25 +839,25 @@
                 this.canvas.classList.add('dragging');
             }
         });
-
+        
         document.addEventListener('mousemove', (e) => {
             if (isPanning) {
                 const dx = e.clientX - panStart.x;
                 const dy = e.clientY - panStart.y;
-
+                
                 // Pan the canvas
                 const transform = this.canvas.style.transform || '';
                 const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
                 const currentX = match ? parseFloat(match[1]) : 0;
                 const currentY = match ? parseFloat(match[2]) : 0;
-
+                
                 this.canvas.style.transform = `translate(${currentX + dx}px, ${currentY + dy}px)`;
                 document.getElementById('nodes-layer').style.transform = `translate(${currentX + dx}px, ${currentY + dy}px)`;
-
+                
                 panStart = { x: e.clientX, y: e.clientY };
             }
         });
-
+        
         document.addEventListener('mouseup', () => {
             if (isPanning) {
                 isPanning = false;
@@ -871,12 +871,12 @@
      */
     WorkflowBuilder.addNode = function(type, x, y, agentRole) {
         let node;
-
+        
         switch (type) {
             case 'agent':
                 const agentInfo = SIMPLIFIED_AGENTS[agentRole];
                 if (!agentInfo) return;
-
+                
                 // Map to actual agent role from framework
                 let frameworkRole;
                 if (agentRole === 'CODE_GENERATOR') {
@@ -888,7 +888,7 @@
                         capabilities: ['search_text', 'find_syntax', 'analyze_usage', 'find_references']
                     };
                 }
-
+                
                 node = WorkflowEngine.createAgentNode(frameworkRole);
                 node.icon = agentInfo.icon;
                 break;
@@ -907,12 +907,12 @@
             default:
                 return;
         }
-
+        
         node.setPosition(x, y);
         this.currentWorkflow.addNode(node);
         this.renderNode(node);
         this.selectNode(node.id);
-
+        
         // Animate node appearance
         const nodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
         if (nodeEl) {
@@ -924,122 +924,6 @@
                 nodeEl.style.opacity = '1';
             }, 10);
         }
-
-        return node;
-    };
-
-    /**
-     * Select a node
-     */
-    WorkflowBuilder.selectNode = function(nodeId) {
-        // Clear previous selection
-        document.querySelectorAll('.workflow-node').forEach(n => n.classList.remove('selected'));
-        document.querySelectorAll('.connection-path').forEach(c => c.classList.remove('selected'));
-
-        // Select new node
-        const nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
-        if (nodeEl) {
-            nodeEl.classList.add('selected');
-            this.selectedNode = nodeId;
-            this.selectedConnection = null;
-            this.showNodeProperties(nodeId);
-        }
-    };
-
-    /**
-     * Select a connection
-     */
-    WorkflowBuilder.selectConnection = function(connectionId) {
-        // Clear previous selection
-        document.querySelectorAll('.workflow-node').forEach(n => n.classList.remove('selected'));
-        document.querySelectorAll('.connection-path').forEach(c => c.classList.remove('selected'));
-
-        // Select new connection
-        const connEl = document.querySelector(`[data-connection-id="${connectionId}"]`);
-        if (connEl) {
-            connEl.classList.add('selected');
-            this.selectedConnection = connectionId;
-            this.selectedNode = null;
-        }
-    };
-
-    /**
-     * Update temporary connection line while dragging
-     */
-    WorkflowBuilder.updateTempConnection = function(e) {
-        const tempPath = document.getElementById('temp-connection');
-        if (!tempPath || !this.connectingFrom) return;
-
-        const fromRect = this.connectingFrom.getBoundingClientRect();
-        const containerRect = document.getElementById('canvas-container').getBoundingClientRect();
-
-        const fromX = fromRect.left + fromRect.width / 2 - containerRect.left;
-        const fromY = fromRect.top + fromRect.height / 2 - containerRect.top;
-        const toX = e.clientX - containerRect.left;
-        const toY = e.clientY - containerRect.top;
-
-        const path = this.createConnectionPath(fromX, fromY, toX, toY);
-        tempPath.setAttribute('d', path);
-    };
-
-    /**
-     * Update all connections
-     */
-    WorkflowBuilder.updateConnections = function() {
-        this.currentWorkflow.connections.forEach(conn => {
-            const pathEl = document.querySelector(`[data-connection-id="${conn.id}"]`);
-            if (pathEl) {
-                const path = this.calculateConnectionPath(conn);
-                pathEl.setAttribute('d', path);
-            }
-        });
-    };
-
-    /**
-     * Create bezier curve path for connections
-     */
-    WorkflowBuilder.createConnectionPath = function(x1, y1, x2, y2) {
-        const dx = Math.abs(x2 - x1);
-        const cp1x = x1 + dx * 0.5;
-        const cp2x = x2 - dx * 0.5;
-        return `M${x1},${y1} C${cp1x},${y1} ${cp2x},${y2} ${x2},${y2}`;
-    };
-
-    /**
-     * Calculate connection path from actual nodes
-     */
-    WorkflowBuilder.calculateConnectionPath = function(connection) {
-        const fromPort = document.querySelector(`[data-node-id="${connection.from.nodeId}"][data-port-name="${connection.from.port}"][data-port-type="output"]`);
-        const toPort = document.querySelector(`[data-node-id="${connection.to.nodeId}"][data-port-name="${connection.to.port}"][data-port-type="input"]`);
-
-        if (!fromPort || !toPort) return '';
-
-        const containerRect = document.getElementById('canvas-container').getBoundingClientRect();
-        const fromRect = fromPort.getBoundingClientRect();
-        const toRect = toPort.getBoundingClientRect();
-
-        const fromX = fromRect.left + fromRect.width / 2 - containerRect.left;
-        const fromY = fromRect.top + fromRect.height / 2 - containerRect.top;
-        const toX = toRect.left + toRect.width / 2 - containerRect.left;
-        const toY = toRect.top + toRect.height / 2 - containerRect.top;
-
-        return this.createConnectionPath(fromX, fromY, toX, toY);
-    };
-
-    /**
-     * Render a connection
-     */
-    WorkflowBuilder.renderConnection = function(connection) {
-        const svg = document.getElementById('connections-layer');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.classList.add('connection-path');
-        path.dataset.connectionId = connection.id;
-        path.setAttribute('marker-end', 'url(#arrowhead)');
-
-        const pathData = this.calculateConnectionPath(connection);
-        path.setAttribute('d', pathData);
-
-        svg.appendChild(path);
     };
 
     /**
@@ -1047,16 +931,16 @@
      */
     WorkflowBuilder.renderNode = function(node) {
         const nodesLayer = document.getElementById('nodes-layer');
-
+        
         const nodeEl = document.createElement('div');
         nodeEl.className = 'workflow-node';
         nodeEl.dataset.nodeId = node.id;
         nodeEl.style.left = node.position.x + 'px';
         nodeEl.style.top = node.position.y + 'px';
-
+        
         // Node content
         const icon = node.icon || '📦';
-
+        
         nodeEl.innerHTML = `
             <div class="node-header">
                 <span class="node-icon">${icon}</span>
@@ -1065,13 +949,13 @@
             <div class="node-type">${node.type}</div>
             <div class="node-ports" id="ports-${node.id}"></div>
         `;
-
+        
         // Add ports
         this.renderPorts(node, nodeEl.querySelector('.node-ports'));
-
+        
         // Make draggable
         this.makeDraggable(nodeEl);
-
+        
         nodesLayer.appendChild(nodeEl);
     };
 
@@ -1080,7 +964,7 @@
      */
     WorkflowBuilder.renderPorts = function(node, container) {
         let topOffset = 40;
-
+        
         // Input ports
         const inputs = node.getRequiredInputs();
         inputs.forEach((input, index) => {
@@ -1093,7 +977,7 @@
             port.title = input;
             container.appendChild(port);
         });
-
+        
         // Output ports
         const outputs = node.getOutputPorts();
         outputs.forEach((output, index) => {
@@ -1114,49 +998,49 @@
     WorkflowBuilder.makeDraggable = function(element) {
         let startX, startY, initialX, initialY;
         let isDragging = false;
-
+        
         const onMouseDown = (e) => {
             if (e.target.classList.contains('node-port')) return;
-
+            
             e.preventDefault();
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
             initialX = element.offsetLeft;
             initialY = element.offsetTop;
-
+            
             element.classList.add('dragging');
-
+            
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
         };
-
+        
         const onMouseMove = (e) => {
             if (!isDragging) return;
-
+            
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-
+            
             element.style.left = (initialX + dx) + 'px';
             element.style.top = (initialY + dy) + 'px';
-
+            
             // Update node position
             const node = this.currentWorkflow.nodes.get(element.dataset.nodeId);
             if (node) {
                 node.setPosition(initialX + dx, initialY + dy);
             }
-
+            
             // Update connections smoothly
             this.updateConnections();
         };
-
+        
         const onMouseUp = () => {
             isDragging = false;
             element.classList.remove('dragging');
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
         };
-
+        
         element.addEventListener('mousedown', onMouseDown);
     };
 
@@ -1166,10 +1050,10 @@
     WorkflowBuilder.startConnection = function(portElement) {
         this.isConnecting = true;
         this.connectingFrom = portElement;
-
+        
         // Visual feedback
         portElement.classList.add('connecting');
-
+        
         // Create temp connection line
         const svg = document.getElementById('connections-layer');
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1183,57 +1067,57 @@
      */
     WorkflowBuilder.endConnection = function(e) {
         this.isConnecting = false;
-
+        
         // Remove visual feedback
         if (this.connectingFrom) {
             this.connectingFrom.classList.remove('connecting');
         }
-
+        
         // Remove temp connection
         const tempPath = document.getElementById('temp-connection');
         if (tempPath) tempPath.remove();
-
+        
         // Check if we're over an input port
         const target = document.elementFromPoint(e.clientX, e.clientY);
         if (target && target.classList.contains('node-port') && target.classList.contains('input')) {
             // Validate connection
             const fromNodeId = this.connectingFrom.dataset.nodeId;
             const toNodeId = target.dataset.nodeId;
-
+            
             if (fromNodeId === toNodeId) {
                 this.showToast('Cannot connect node to itself', 'error');
                 return;
             }
-
+            
             // Check if connection already exists
-            const existingConnection = this.currentWorkflow.connections.find(c =>
-                c.from.nodeId === fromNodeId &&
+            const existingConnection = this.currentWorkflow.connections.find(c => 
+                c.from.nodeId === fromNodeId && 
                 c.to.nodeId === toNodeId
             );
-
+            
             if (existingConnection) {
                 this.showToast('Connection already exists', 'error');
                 return;
             }
-
+            
             // Create connection
             const fromPort = this.connectingFrom.dataset.portName;
             const toPort = target.dataset.portName;
-
+            
             try {
                 const connection = this.currentWorkflow.connect(fromNodeId, fromPort, toNodeId, toPort);
                 this.renderConnection(connection);
-
+                
                 // Mark ports as connected
                 this.connectingFrom.classList.add('connected');
                 target.classList.add('connected');
-
+                
                 this.showToast('Connection created', 'success');
             } catch (error) {
                 this.showToast('Failed to create connection: ' + error.message, 'error');
             }
         }
-
+        
         this.connectingFrom = null;
     };
 
@@ -1243,20 +1127,20 @@
     WorkflowBuilder.showNodeProperties = function(nodeId) {
         const node = this.currentWorkflow.nodes.get(nodeId);
         if (!node) return;
-
+        
         const container = document.getElementById('properties-content');
-
+        
         let html = `
             <div class="property-group">
                 <div class="property-label">Name</div>
                 <input type="text" class="property-input" id="prop-name" value="${node.name}" />
             </div>
         `;
-
+        
         // Node-specific properties
         if (node.type === 'agent') {
             const agentInfo = Object.values(SIMPLIFIED_AGENTS).find(a => a.id === node.config.role.id);
-
+            
             html += `
                 <div class="property-group">
                     <div class="property-label">Agent Type</div>
@@ -1325,16 +1209,16 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
                 </div>
             `;
         }
-
+        
         container.innerHTML = html;
-
+        
         // Add change listeners with auto-save
         container.querySelectorAll('.property-input').forEach(input => {
             input.addEventListener('change', () => {
                 this.updateNodeProperties(nodeId);
                 this.triggerAutoSave();
             });
-
+            
             // Live update for text inputs
             if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
                 input.addEventListener('input', debounce(() => {
@@ -1346,277 +1230,22 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
     };
 
     /**
-     * Update node properties from form
+     * Show toast notification
      */
-    WorkflowBuilder.updateNodeProperties = function(nodeId) {
-        const node = this.currentWorkflow.nodes.get(nodeId);
-        if (!node) return;
-
-        // Update name
-        const nameInput = document.getElementById('prop-name');
-        if (nameInput) {
-            node.name = nameInput.value;
-            const nodeEl = document.querySelector(`[data-node-id="${nodeId}"] .node-header span:last-child`);
-            if (nodeEl) nodeEl.textContent = node.name;
-        }
-
-        // Update node-specific properties
-        if (node.type === 'agent') {
-            const taskTypeInput = document.getElementById('prop-taskType');
-            const promptInput = document.getElementById('prop-prompt');
-            if (taskTypeInput) node.config.taskType = taskTypeInput.value;
-            if (promptInput) node.config.prompt = promptInput.value;
-        } else if (node.type === 'composer') {
-            const funcInput = document.getElementById('prop-composerFunction');
-            if (funcInput) node.config.composerFunction = funcInput.value;
-        } else if (node.type === 'input') {
-            const sourceInput = document.getElementById('prop-source');
-            const valueInput = document.getElementById('prop-value');
-            if (sourceInput) node.config.source = sourceInput.value;
-            if (valueInput) {
-                if (sourceInput.value === 'context') {
-                    node.config.contextKey = valueInput.value;
-                } else {
-                    node.config.value = valueInput.value;
-                }
-            }
-        } else if (node.type === 'output') {
-            const nameInput = document.getElementById('prop-outputName');
-            const formatInput = document.getElementById('prop-outputFormat');
-            if (nameInput) node.config.name = nameInput.value;
-            if (formatInput) node.config.format = formatInput.value;
-        }
-    };
-
-    /**
-     * Delete a node
-     */
-    WorkflowBuilder.deleteNode = function(nodeId) {
-        // Remove connections
-        const connectionsToRemove = this.currentWorkflow.connections.filter(c =>
-            c.from.nodeId === nodeId || c.to.nodeId === nodeId
-        );
-        connectionsToRemove.forEach(c => {
-            const pathEl = document.querySelector(`[data-connection-id="${c.id}"]`);
-            if (pathEl) pathEl.remove();
-        });
-        this.currentWorkflow.connections = this.currentWorkflow.connections.filter(c =>
-            c.from.nodeId !== nodeId && c.to.nodeId !== nodeId
-        );
-
-        // Remove node
-        this.currentWorkflow.nodes.delete(nodeId);
-        const nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
-        if (nodeEl) nodeEl.remove();
-
-        // Clear selection
-        this.selectedNode = null;
-        document.getElementById('properties-content').innerHTML = `
-            <div style="text-align: center; color: #8b949e; padding: 20px;">
-                Select a node to view properties
-            </div>
+    WorkflowBuilder.showToast = function(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+            <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+            <span>${message}</span>
         `;
-
-        this.showToast('Node deleted', 'info');
-    };
-
-    /**
-     * Delete a connection
-     */
-    WorkflowBuilder.deleteConnection = function(connectionId) {
-        this.currentWorkflow.connections = this.currentWorkflow.connections.filter(c => c.id !== connectionId);
-        const pathEl = document.querySelector(`[data-connection-id="${connectionId}"]`);
-        if (pathEl) pathEl.remove();
-
-        // Update port visual state
-        // This would require tracking which ports are connected
-
-        this.selectedConnection = null;
-        this.showToast('Connection deleted', 'info');
-    };
-
-    /**
-     * Clear the workflow
-     */
-    WorkflowBuilder.clearWorkflow = function() {
-        if (!confirm('Are you sure you want to clear the entire workflow?')) return;
-
-        // Clear all nodes
-        this.currentWorkflow.nodes.clear();
-        this.currentWorkflow.connections = [];
-
-        // Clear UI
-        document.getElementById('nodes-layer').innerHTML = '';
-        document.getElementById('connections-layer').innerHTML = '';
-        document.getElementById('properties-content').innerHTML = `
-            <div style="text-align: center; color: #8b949e; padding: 20px;">
-                Select a node to view properties
-            </div>
-        `;
-
-        this.selectedNode = null;
-        this.selectedConnection = null;
-
-        this.showToast('Workflow cleared', 'info');
-    };
-
-    /**
-     * Auto layout nodes
-     */
-    WorkflowBuilder.autoLayout = function() {
-        // Simple grid layout
-        const nodes = Array.from(this.currentWorkflow.nodes.values());
-        const columns = Math.ceil(Math.sqrt(nodes.length));
-        const spacing = 250;
-        const startX = 100;
-        const startY = 100;
-
-        nodes.forEach((node, index) => {
-            const col = index % columns;
-            const row = Math.floor(index / columns);
-            const x = startX + col * spacing;
-            const y = startY + row * spacing;
-
-            node.setPosition(x, y);
-            const nodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
-            if (nodeEl) {
-                nodeEl.style.left = x + 'px';
-                nodeEl.style.top = y + 'px';
-            }
-        });
-
-        this.updateConnections();
-        this.showToast('Layout updated', 'success');
-    };
-
-    /**
-     * Save workflow
-     */
-    WorkflowBuilder.saveWorkflow = function() {
-        const data = this.currentWorkflow.toJSON();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.currentWorkflow.name.replace(/\s+/g, '_')}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-
-        this.showToast('Workflow saved', 'success');
-    };
-
-    /**
-     * Load workflow dialog
-     */
-    WorkflowBuilder.loadWorkflowDialog = function() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const data = JSON.parse(e.target.result);
-                        this.loadWorkflow(data);
-                        this.showToast('Workflow loaded', 'success');
-                    } catch (error) {
-                        this.showToast('Failed to load workflow: ' + error.message, 'error');
-                    }
-                };
-                reader.readAsText(file);
-            }
-        };
-        input.click();
-    };
-
-    /**
-     * Load workflow from data
-     */
-    WorkflowBuilder.loadWorkflow = function(data) {
-        // Clear current workflow
-        this.clearWorkflow();
-
-        // Load new workflow
-        this.currentWorkflow.name = data.name || 'Loaded Workflow';
-        document.getElementById('workflow-name').textContent = this.currentWorkflow.name;
-
-        // Load nodes
-        if (data.nodes) {
-            data.nodes.forEach(([id, nodeData]) => {
-                // Reconstruct node
-                let node;
-                switch (nodeData.type) {
-                    case 'agent':
-                        node = WorkflowEngine.createAgentNode(nodeData.config.role);
-                        break;
-                    case 'composer':
-                        node = WorkflowEngine.createComposerNode();
-                        break;
-                    case 'input':
-                        node = WorkflowEngine.createInputNode();
-                        break;
-                    case 'output':
-                        node = WorkflowEngine.createOutputNode();
-                        break;
-                }
-
-                if (node) {
-                    node.id = id;
-                    node.name = nodeData.name;
-                    node.config = nodeData.config;
-                    node.position = nodeData.position;
-                    node.icon = nodeData.icon;
-
-                    this.currentWorkflow.nodes.set(id, node);
-                    this.renderNode(node);
-                }
-            });
-        }
-
-        // Load connections
-        if (data.connections) {
-            data.connections.forEach(connData => {
-                const connection = this.currentWorkflow.connect(
-                    connData.from.nodeId,
-                    connData.from.port,
-                    connData.to.nodeId,
-                    connData.to.port
-                );
-                if (connection) {
-                    this.renderConnection(connection);
-                }
-            });
-        }
-    };
-
-    /**
-     * Stop workflow execution
-     */
-    WorkflowBuilder.stopWorkflow = function() {
-        // Implementation would depend on actual execution mechanism
-        this.updateStatus('idle');
-        this.showToast('Workflow stopped', 'info');
-    };
-
-    /**
-     * Render the workflow
-     */
-    WorkflowBuilder.render = function() {
-        // Clear and re-render all nodes and connections
-        document.getElementById('nodes-layer').innerHTML = '';
-        document.getElementById('connections-layer').innerHTML = '';
-
-        // Render all nodes
-        this.currentWorkflow.nodes.forEach((node) => {
-            this.renderNode(node);
-        });
-
-        // Render all connections
-        this.currentWorkflow.connections.forEach((connection) => {
-            this.renderConnection(connection);
-        });
+        
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     };
 
     /**
@@ -1636,7 +1265,7 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
                 <button class="toolbar-btn" onclick="WorkflowBuilder.loadExample()">Load Example</button>
             </div>
         `;
-
+        
         document.getElementById('canvas-container').appendChild(overlay);
     };
 
@@ -1653,14 +1282,14 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
      */
     WorkflowBuilder.loadExample = function() {
         this.hideWelcome();
-
+        
         // Create example workflow
         const input = this.addNode('input', 100, 200);
         const codeAgent = this.addNode('agent', 350, 100, 'CODE_GENERATOR');
         const researchAgent = this.addNode('agent', 350, 300, 'RESEARCH');
         const composer = this.addNode('composer', 600, 200);
         const output = this.addNode('output', 850, 200);
-
+        
         // Create connections
         setTimeout(() => {
             this.currentWorkflow.connect(input.id, 'output', codeAgent.id, 'input');
@@ -1668,7 +1297,7 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
             this.currentWorkflow.connect(codeAgent.id, 'result', composer.id, 'input1');
             this.currentWorkflow.connect(researchAgent.id, 'result', composer.id, 'input2');
             this.currentWorkflow.connect(composer.id, 'output', output.id, 'input');
-
+            
             this.render();
             this.showToast('Example workflow loaded', 'success');
         }, 500);
@@ -1704,7 +1333,7 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
         if (this.autoSaveTimer) {
             clearTimeout(this.autoSaveTimer);
         }
-
+        
         this.autoSaveTimer = setTimeout(() => {
             const data = {
                 workflow: this.currentWorkflow.toJSON(),
@@ -1716,55 +1345,80 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
     };
 
     /**
-     * Show toast notification
+     * Improved run workflow with better error handling
      */
-    WorkflowBuilder.showToast = function(message, type = 'info') {
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.innerHTML = `
-            <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
-            <span>${message}</span>
-        `;
-
-        document.body.appendChild(toast);
-
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
-    };
-
-    /**
-     * Update node status
-     */
-    WorkflowBuilder.updateNodeStatus = function(nodeId, status) {
-        const nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
-        if (nodeEl) {
-            // Remove all status classes
-            nodeEl.classList.remove('running', 'completed', 'error');
-
-            // Add new status class
-            if (status !== 'idle') {
-                nodeEl.classList.add(status);
+    WorkflowBuilder.runWorkflow = async function() {
+        try {
+            // Validate workflow
+            if (this.currentWorkflow.nodes.size === 0) {
+                this.showToast('Workflow is empty. Add some nodes first!', 'error');
+                return;
             }
+            
+            // Check for unconnected nodes
+            const unconnected = [];
+            this.currentWorkflow.nodes.forEach((node, id) => {
+                if (node.type !== 'input' && this.currentWorkflow.getIncomingConnections(id).length === 0) {
+                    unconnected.push(node.name);
+                }
+            });
+            
+            if (unconnected.length > 0) {
+                this.showToast(`Warning: Unconnected nodes: ${unconnected.join(', ')}`, 'error');
+                return;
+            }
+            
+            // Update status
+            this.updateStatus('running');
+            this.showToast('Workflow started', 'info');
+            
+            // Reset node states
+            this.currentWorkflow.nodes.forEach(node => {
+                node.status = 'idle';
+                node.result = null;
+                node.error = null;
+                this.updateNodeStatus(node.id, 'idle');
+            });
+            
+            // Create custom executor
+            const executor = new WorkflowEngine.WorkflowExecutor(this.currentWorkflow);
+            
+            // Override executeNode to update UI
+            const originalExecuteNode = executor.executeNode.bind(executor);
+            executor.executeNode = async (nodeId) => {
+                this.updateNodeStatus(nodeId, 'running');
+                try {
+                    const result = await originalExecuteNode(nodeId);
+                    this.updateNodeStatus(nodeId, 'completed');
+                    
+                    // Update properties panel if selected
+                    if (this.selectedNode === nodeId) {
+                        this.showNodeResult(nodeId, result);
+                    }
+                    
+                    return result;
+                } catch (error) {
+                    this.updateNodeStatus(nodeId, 'error');
+                    this.showToast(`Node ${this.currentWorkflow.nodes.get(nodeId).name} failed: ${error.message}`, 'error');
+                    throw error;
+                }
+            };
+            
+            // Execute workflow
+            const results = await executor.execute();
+            
+            // Update status
+            this.updateStatus('completed');
+            this.showToast('Workflow completed successfully!', 'success');
+            
+            // Show results
+            this.showWorkflowResults(results);
+            
+        } catch (error) {
+            console.error('Workflow execution failed:', error);
+            this.updateStatus('error');
+            this.showToast(`Workflow failed: ${error.message}`, 'error');
         }
-    };
-
-    /**
-     * Update workflow status
-     */
-    WorkflowBuilder.updateStatus = function(status) {
-        const statusEl = document.getElementById('workflow-status');
-        const indicator = statusEl.querySelector('.status-indicator');
-
-        // Remove all status classes
-        indicator.className = 'status-indicator';
-
-        // Add new status class
-        indicator.classList.add(`status-${status}`);
-
-        // Update text
-        statusEl.lastChild.textContent = status.charAt(0).toUpperCase() + status.slice(1);
     };
 
     /**
@@ -1773,7 +1427,7 @@ return Object.assign({}, ...Object.values(inputs));">${node.config.composerFunct
     WorkflowBuilder.showNodeResult = function(nodeId, result) {
         const existingResult = document.querySelector('.node-result');
         if (existingResult) existingResult.remove();
-
+        
         const resultDiv = document.createElement('div');
         resultDiv.className = 'property-group node-result';
         resultDiv.innerHTML = `
@@ -1802,7 +1456,7 @@ ${JSON.stringify(results, null, 2)}</pre>
                 <button class="toolbar-btn" onclick="WorkflowBuilder.exportResults()">Export Results</button>
             </div>
         `;
-
+        
         document.getElementById('canvas-container').appendChild(modal);
     };
 
@@ -1812,83 +1466,6 @@ ${JSON.stringify(results, null, 2)}</pre>
     WorkflowBuilder.exportResults = function() {
         // Implementation for exporting results
         this.showToast('Export feature coming soon!', 'info');
-    };
-
-    /**
-     * Improved run workflow with better error handling
-     */
-    WorkflowBuilder.runWorkflow = async function() {
-        try {
-            // Validate workflow
-            if (this.currentWorkflow.nodes.size === 0) {
-                this.showToast('Workflow is empty. Add some nodes first!', 'error');
-                return;
-            }
-
-            // Check for unconnected nodes
-            const unconnected = [];
-            this.currentWorkflow.nodes.forEach((node, id) => {
-                if (node.type !== 'input' && this.currentWorkflow.getIncomingConnections(id).length === 0) {
-                    unconnected.push(node.name);
-                }
-            });
-
-            if (unconnected.length > 0) {
-                this.showToast(`Warning: Unconnected nodes: ${unconnected.join(', ')}`, 'error');
-                return;
-            }
-
-            // Update status
-            this.updateStatus('running');
-            this.showToast('Workflow started', 'info');
-
-            // Reset node states
-            this.currentWorkflow.nodes.forEach(node => {
-                node.status = 'idle';
-                node.result = null;
-                node.error = null;
-                this.updateNodeStatus(node.id, 'idle');
-            });
-
-            // Create custom executor
-            const executor = new WorkflowEngine.WorkflowExecutor(this.currentWorkflow);
-
-            // Override executeNode to update UI
-            const originalExecuteNode = executor.executeNode.bind(executor);
-            executor.executeNode = async (nodeId) => {
-                this.updateNodeStatus(nodeId, 'running');
-                try {
-                    const result = await originalExecuteNode(nodeId);
-                    this.updateNodeStatus(nodeId, 'completed');
-
-                    // Update properties panel if selected
-                    if (this.selectedNode === nodeId) {
-                        this.showNodeResult(nodeId, result);
-                    }
-
-                    return result;
-                } catch (error) {
-                    this.updateNodeStatus(nodeId, 'error');
-                    this.showToast(`Node ${this.currentWorkflow.nodes.get(nodeId).name} failed: ${error.message}`, 'error');
-                    throw error;
-                }
-            };
-
-            // Execute workflow
-            const results = await executor.execute();
-
-            // Update status
-            this.updateStatus('completed');
-            this.showToast('Workflow completed successfully!', 'success');
-
-            // Show results
-            this.showWorkflowResults(results);
-
-        } catch (error) {
-            console.error('Workflow execution failed:', error);
-            this.updateStatus('error');
-            this.showToast(`Workflow failed: ${error.message}`, 'error');
-        }
     };
 
     // Utility functions

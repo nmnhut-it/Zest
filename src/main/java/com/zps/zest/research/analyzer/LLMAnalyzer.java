@@ -677,17 +677,27 @@ public class LLMAnalyzer {
     private boolean shouldCompleteSearch(String confidence, int iteration, String missingContext) {
         // High confidence = likely complete
         if ("HIGH".equals(confidence)) {
+            LOG.info("High confidence achieved - search should complete");
+            return true;
+        }
+        
+        // Medium confidence after 3 iterations is usually enough
+        if ("MEDIUM".equals(confidence) && iteration >= 2) {
+            LOG.info("Medium confidence after " + (iteration + 1) + " iterations - search should complete");
             return true;
         }
 
         // After 5 iterations, complete unless confidence is very low
         if (iteration >= 4) {
-            return !"LOW".equals(confidence);
+            boolean shouldComplete = !"LOW".equals(confidence);
+            LOG.info("Max iterations reached, confidence: " + confidence + ", completing: " + shouldComplete);
+            return shouldComplete;
         }
 
         // If no missing context identified, we're probably done
         if (missingContext == null || missingContext.trim().isEmpty() ||
                 missingContext.equalsIgnoreCase("none")) {
+            LOG.info("No missing context identified - search should complete");
             return true;
         }
 

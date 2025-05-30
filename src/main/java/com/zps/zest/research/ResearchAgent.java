@@ -5,8 +5,9 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.KeywordGeneratorService;
-import com.zps.zest.research.analyzer.LLMAnalyzer;
 import com.zps.zest.research.analyzer.AnalysisResult;
+import com.zps.zest.research.analyzer.LLMAnalyzer;
+import com.zps.zest.research.analyzer.CodeExtractor;
 import com.zps.zest.research.analyzer.CodeExtractor;
 import com.zps.zest.research.context.ResearchContext;
 import com.zps.zest.research.context.ResearchIteration;
@@ -36,12 +37,14 @@ public class ResearchAgent {
     private final SearchCoordinator searchCoordinator;
     private final LLMAnalyzer llmAnalyzer;
     private final KeywordGeneratorService keywordGenerator;
+    private final CodeExtractor codeExtractor;
     
     public ResearchAgent(@NotNull Project project) {
         this.project = project;
         this.searchCoordinator = new SearchCoordinator(project);
         this.llmAnalyzer = new LLMAnalyzer(project);
         this.keywordGenerator = new KeywordGeneratorService(project);
+        this.codeExtractor = new CodeExtractor(project);
     }
     
     /**
@@ -71,6 +74,7 @@ public class ResearchAgent {
                 context.addKeywords(keywords);
                 
                 // Main research loop
+                boolean searchCompleted = false;
                 for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
                     LOG.info("=== Research Iteration " + (iteration + 1) + " ===");
                     
@@ -83,6 +87,7 @@ public class ResearchAgent {
                     // Check if we should continue
                     if (!shouldContinue(context, iteration, iterationResult)) {
                         LOG.info("Research complete after " + (iteration + 1) + " iterations");
+                        searchCompleted = true;
                         break;
                     }
                     
@@ -90,10 +95,27 @@ public class ResearchAgent {
                     keywords = iterationResult.getAnalysisResult().getNextKeywords();
                     if (keywords.isEmpty()) {
                         LOG.info("No new keywords generated, ending research");
+                        searchCompleted = true;
                         break;
                     }
                     
                     LOG.info("Continuing with " + keywords.size() + " new keywords: " + keywords);
+                }
+                
+                // Extract relevant code if search completed successfully
+                if (searchCompleted && context.getTotalResultsFound() > 0) {
+                    LOG.info("Extracting relevant code pieces for the query");
+                    try {
+                        JsonObject extractedCode = codeExtractor.extractRelevantCode(
+                            userQuery, context
+                        ).get(30, TimeUnit.SECONDS);
+                        
+                        // Add extracted code to context
+                        context.setExtractedCode(extractedCode);
+                        LOG.info("Successfully extracted relevant code");
+                    } catch (Exception e) {
+                        LOG.error("Error extracting code", e);
+                    }
                 }
                 
                 // Build final enhanced context

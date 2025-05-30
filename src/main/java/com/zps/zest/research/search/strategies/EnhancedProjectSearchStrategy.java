@@ -29,8 +29,9 @@ import java.util.concurrent.CompletableFuture;
 public class EnhancedProjectSearchStrategy implements SearchStrategy {
     private static final Logger LOG = Logger.getInstance(EnhancedProjectSearchStrategy.class);
     private static final Gson GSON = new Gson();
-    private static final int MAX_PROJECT_RESULTS = 5;
-    private static final int MAX_TEXT_RESULTS_PER_KEYWORD = 2;
+    private static final int MAX_PROJECT_RESULTS = 10;
+    private static final int MAX_TEXT_RESULTS_PER_KEYWORD = 10;
+    private static final int MAX_RESULTS_PER_KEYWORD = 10; // Total results per keyword
     private static final int MAX_LINES_FOR_FULL_CONTENT = 150;
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     
@@ -50,6 +51,8 @@ public class EnhancedProjectSearchStrategy implements SearchStrategy {
             
             try {
                 for (String keyword : keywords) {
+                    int resultsForKeyword = 0;
+                    
                     // Try to find functions first
                     LOG.info("Searching functions for keyword: " + keyword);
                     
@@ -67,27 +70,34 @@ public class EnhancedProjectSearchStrategy implements SearchStrategy {
                         if (funcResults.size() > 0) {
                             LOG.info("Found " + funcResults.size() + " functions for keyword: " + keyword);
                             
+                            // Limit function results
+                            JsonArray limitedFuncResults = limitResults(funcResults, MAX_RESULTS_PER_KEYWORD);
+                            
                             // Enhance function results with full content/context
-                            JsonArray enhancedFuncResults = enhanceFunctionResultsWithContext(funcResults);
+                            JsonArray enhancedFuncResults = enhanceFunctionResultsWithContext(limitedFuncResults);
                             
                             JsonObject result = new JsonObject();
                             result.addProperty("type", "function");
                             result.addProperty("keyword", keyword);
                             result.add("matches", enhancedFuncResults);
                             results.add(result);
+                            
+                            resultsForKeyword = enhancedFuncResults.size();
                         } else {
                             LOG.info("No functions found for keyword: " + keyword);
                         }
                     }
                     
-                    // If we haven't hit the limit, try text search
-                    if (results.size() < MAX_PROJECT_RESULTS) {
+                    // If we haven't hit the limit for this keyword, try text search
+                    if (resultsForKeyword < MAX_RESULTS_PER_KEYWORD && results.size() < MAX_PROJECT_RESULTS) {
                         LOG.info("Searching text for keyword: " + keyword);
+                        
+                        int remainingSlots = MAX_RESULTS_PER_KEYWORD - resultsForKeyword;
                         
                         JsonObject textSearchData = new JsonObject();
                         textSearchData.addProperty("searchText", keyword);
                         textSearchData.addProperty("path", "/");
-                        textSearchData.addProperty("maxResults", MAX_TEXT_RESULTS_PER_KEYWORD);
+                        textSearchData.addProperty("maxResults", Math.min(remainingSlots, MAX_TEXT_RESULTS_PER_KEYWORD));
                         textSearchData.addProperty("caseSensitive", false);
                         
                         String textResult = fileService.searchInFiles(textSearchData);
@@ -100,8 +110,11 @@ public class EnhancedProjectSearchStrategy implements SearchStrategy {
                                 LOG.info("Found text matches in " + textResults.size() + 
                                         " files for keyword: " + keyword);
                                 
+                                // Limit text results
+                                JsonArray limitedTextResults = limitResults(textResults, remainingSlots);
+                                
                                 // Enhanced text search results with full content or containing function
-                                JsonArray enhancedResults = enhanceTextSearchResultsWithContext(textResults, keyword);
+                                JsonArray enhancedResults = enhanceTextSearchResultsWithContext(limitedTextResults, keyword);
                                 
                                 JsonObject result = new JsonObject();
                                 result.addProperty("type", "text");
@@ -127,6 +140,23 @@ public class EnhancedProjectSearchStrategy implements SearchStrategy {
             LOG.info("Enhanced project search completed with " + results.size() + " results");
             return results;
         });
+    }
+    
+    /**
+     * Limits results array to specified maximum.
+     */
+    private JsonArray limitResults(JsonArray results, int maxResults) {
+        if (results.size() <= maxResults) {
+            return results;
+        }
+        
+        JsonArray limited = new JsonArray();
+        for (int i = 0; i < maxResults && i < results.size(); i++) {
+            limited.add(results.get(i));
+        }
+        
+        LOG.info("Limited results from " + results.size() + " to " + limited.size());
+        return limited;
     }
     
     /**

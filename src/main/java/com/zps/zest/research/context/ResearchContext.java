@@ -23,6 +23,7 @@ public class ResearchContext {
     private final List<ResearchIteration> iterations;
     private final List<String> summaries;
     private int totalResultsFound;
+    private JsonObject extractedCode;
 
     public ResearchContext(String originalQuery, String currentFileContext) {
         this.originalQuery = originalQuery;
@@ -95,6 +96,20 @@ public class ResearchContext {
     }
 
     /**
+     * Sets the extracted code from final analysis.
+     */
+    public void setExtractedCode(JsonObject extractedCode) {
+        this.extractedCode = extractedCode;
+    }
+    
+    /**
+     * Gets the extracted code.
+     */
+    public JsonObject getExtractedCode() {
+        return extractedCode;
+    }
+
+    /**
      * Builds the final context JSON.
      */
     public JsonObject buildFinalContext() {
@@ -153,6 +168,11 @@ public class ResearchContext {
         metadata.add("summaries", summariesArray);
 
         context.add("researchMetadata", metadata);
+        
+        // Add extracted code if available
+        if (extractedCode != null) {
+            context.add("extractedCode", extractedCode);
+        }
 
         return context;
     }

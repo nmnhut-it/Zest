@@ -380,7 +380,7 @@ public class JavaScriptBridgeActions {
                 long startTime = System.currentTimeMillis();
                 
                 String enhancedPrompt = promptBuilder.buildEnhancedPrompt(userQuery, currentFile)
-                    .get(10, java.util.concurrent.TimeUnit.SECONDS);
+                    .get(300, java.util.concurrent.TimeUnit.SECONDS);
                 
                 long duration = System.currentTimeMillis() - startTime;
                 LOG.info("Enhanced prompt built in " + duration + "ms");

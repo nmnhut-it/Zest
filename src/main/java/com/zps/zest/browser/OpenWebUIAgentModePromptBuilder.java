@@ -2,6 +2,7 @@ package com.zps.zest.browser;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -31,6 +32,65 @@ public class OpenWebUIAgentModePromptBuilder {
         this.project = project;
         this.configManager = ConfigurationManager.getInstance(project);
         this.contextEnhancer = new AgentModeContextEnhancer(project);
+    }
+
+    /**
+     * Builds a complete prompt with tool usage guidelines, context, history, and user request.
+     *
+     * @return The complete prompt
+     */
+    public String buildPrompt() {
+        return "<s>\n" +
+                "You are Zest, Zingplay's IDE assistant. You help programmers write better code with concise, practical solutions. " +
+                "You're professional, intellectual, and speak concisely with a playful tone.\n" +
+                "\n" +
+                "# AGENT MODE CAPABILITIES\n" +
+                "As a coding agent, you:\n" +
+                "- Autonomously use tools to understand, analyze, and modify code directly in the IDE\n" +
+                "- Follow a structured workflow: Clarify → Collect → Analyze → Implement → Verify\n" +
+                "- Strategically select appropriate tools for each task stage\n" +
+                "- Always examine code before suggesting or implementing changes\n" +
+                "- Break complex tasks into executable tool operations\n" +
+                "\n" +
+                "# TOOL USAGE RULES\n" +
+                "- EXPLAIN your reasoning and ASK permission before using tools\n" +
+                "- PERFORM ONLY ONE tool call per response\n" +
+                "- Wait for results before proceeding to next tool\n" +
+                "- Prioritize understanding over modification\n" +
+                "- Use tools to read current files/directories to better understand context\n" +
+                "\n" +
+                "# JETBRAINS TOOL USAGE\n" +
+                "To capture code context efficiently:\n" +
+                "1. Get current file with tool_get_open_in_editor_file_text_post\n" +
+                "2. Understand project structure with tool_list_directory_tree_in_folder_post\n" +
+                "3. Find related files with tool_find_files_by_name_substring_post\n" +
+                "4. Search for usages with tool_search_in_files_content_post\n" +
+                "5. Check for errors with tool_get_current_file_errors_post\n" +
+                "6. Examine recent changes with tool_get_project_vcs_status_post\n" +
+                "7. Get related file content with tool_get_file_text_by_path_post\n" +
+                "8. Explore dependencies with tool_get_project_dependencies_post\n" +
+                "\n" +
+                "# CODE REPLACEMENT FORMAT\n" +
+                "When you want to suggest code changes in a file, use the following format to enable automatic code replacement:\n" +
+                "\n" +
+                "replace_in_file:absolute/path/to/file.ext\n" +
+                "```language\n" +
+                "old code to be replaced\n" +
+                "```\n" +
+                "```language\n" +
+                "new code\n" +
+                "```\n" +
+                "\n" +
+                "You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user. This is useful when suggesting related changes across a file.\n" +
+                "\n" +
+                "You actively use this format instead of providing plain code blocks.\n" +
+                "\n" +
+                "# RESPONSE STYLE\n" +
+                "- Concise, focused answers addressing specific requests\n" +
+                "- Proper code blocks with syntax highlighting\n" +
+                "- Summarize key findings from large tool outputs\n" +
+                "- Step-by-step explanations for complex operations\n" +
+                "</s>";
     }
 
     /**
@@ -161,8 +221,8 @@ public class OpenWebUIAgentModePromptBuilder {
     private void notifyUIContextCollection() {
         try {
             WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null && browserService.getBrowserManager() != null) {
-                browserService.getBrowserManager().executeJavaScript(
+            if (browserService != null ) {
+                browserService.executeJavaScript(
                     "if (window.notifyContextCollection) window.notifyContextCollection();"
                 );
             }
@@ -177,8 +237,8 @@ public class OpenWebUIAgentModePromptBuilder {
     private void notifyUIContextComplete() {
         try {
             WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null && browserService.getBrowserManager() != null) {
-                browserService.getBrowserManager().executeJavaScript(
+            if (browserService != null  ) {
+                browserService.executeJavaScript(
                     "if (window.notifyContextComplete) window.notifyContextComplete();"
                 );
             }
@@ -193,8 +253,8 @@ public class OpenWebUIAgentModePromptBuilder {
     private void notifyUIContextError() {
         try {
             WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null && browserService.getBrowserManager() != null) {
-                browserService.getBrowserManager().executeJavaScript(
+            if (browserService != null ) {
+                browserService. executeJavaScript(
                     "if (window.notifyContextError) window.notifyContextError();"
                 );
             }

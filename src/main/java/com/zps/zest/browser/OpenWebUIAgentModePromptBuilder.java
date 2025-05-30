@@ -158,6 +158,7 @@ public class OpenWebUIAgentModePromptBuilder {
     
     /**
      * Formats git context for the prompt.
+     * Now includes commit messages and file changes.
      */
     private String formatGitContext(com.google.gson.JsonArray gitResults) {
         LOG.info("Formatting git context from " + gitResults.size() + " results");
@@ -168,14 +169,42 @@ public class OpenWebUIAgentModePromptBuilder {
             String keyword = result.get("keyword").getAsString();
             JsonArray commits = result.getAsJsonArray("commits");
             
-            formatted.append("- Keyword '").append(keyword)
-                    .append("' found in ").append(commits.size())
-                    .append(" recent commits\n");
-            
-            // Log first commit for debugging
             if (commits.size() > 0) {
-                JsonObject firstCommit = commits.get(0).getAsJsonObject();
-                LOG.info("  First commit: " + firstCommit.get("message").getAsString());
+                formatted.append("\n### Recent commits for '").append(keyword).append("':\n");
+                
+                // Show up to 3 commits per keyword
+                for (int j = 0; j < Math.min(commits.size(), 3); j++) {
+                    JsonObject commit = commits.get(j).getAsJsonObject();
+                    String hash = commit.has("hash") ? commit.get("hash").getAsString().substring(0, 8) : "unknown";
+                    String message = commit.has("message") ? commit.get("message").getAsString() : "No message";
+                    String author = commit.has("author") ? commit.get("author").getAsString() : "Unknown";
+                    
+                    formatted.append("- [").append(hash).append("] ").append(message);
+                    if (!author.equals("Unknown")) {
+                        formatted.append(" (by ").append(author).append(")");
+                    }
+                    formatted.append("\n");
+                    
+                    // Include changed files if available
+                    if (commit.has("files")) {
+                        JsonArray files = commit.getAsJsonArray("files");
+                        if (files.size() > 0) {
+                            formatted.append("  Files: ");
+                            for (int k = 0; k < Math.min(files.size(), 3); k++) {
+                                if (k > 0) formatted.append(", ");
+                                formatted.append(files.get(k).getAsString());
+                            }
+                            if (files.size() > 3) {
+                                formatted.append(" and ").append(files.size() - 3).append(" more");
+                            }
+                            formatted.append("\n");
+                        }
+                    }
+                }
+                
+                if (commits.size() > 3) {
+                    formatted.append("... and ").append(commits.size() - 3).append(" more commits\n");
+                }
             }
         }
         
@@ -184,6 +213,7 @@ public class OpenWebUIAgentModePromptBuilder {
     
     /**
      * Formats code context for the prompt.
+     * Now includes full function implementations when available.
      */
     private String formatCodeContext(com.google.gson.JsonArray codeResults) {
         LOG.info("Formatting code context from " + codeResults.size() + " results");
@@ -196,19 +226,85 @@ public class OpenWebUIAgentModePromptBuilder {
             JsonArray matches = result.getAsJsonArray("matches");
             
             if (type.equals("function")) {
-                formatted.append("- Function '").append(keyword)
-                        .append("' found in ").append(matches.size())
-                        .append(" files (use as reference)\n");
+                formatted.append("\n### Functions matching '").append(keyword).append("':\n");
                 
-                // Log first match for debugging
+                // Show up to 2 function implementations per keyword
+                int funcCount = 0;
+                for (int j = 0; j < matches.size() && funcCount < 2; j++) {
+                    JsonObject fileMatch = matches.get(j).getAsJsonObject();
+                    String filePath = fileMatch.get("file").getAsString();
+                    JsonArray functions = fileMatch.getAsJsonArray("functions");
+                    
+                    for (int k = 0; k < functions.size() && funcCount < 2; k++) {
+                        JsonObject function = functions.get(k).getAsJsonObject();
+                        String funcName = function.get("name").getAsString();
+                        int line = function.get("line").getAsInt();
+                        
+                        formatted.append("\nFile: `").append(filePath).append("` (line ").append(line).append(")\n");
+                        
+                        // Include full implementation if available
+                        if (function.has("implementation")) {
+                            String impl = function.get("implementation").getAsString();
+                            // Limit implementation length to avoid overwhelming the prompt
+                            if (impl.length() > 1500) {
+                                impl = impl.substring(0, 1500) + "\n... (truncated)";
+                            }
+                            formatted.append("```javascript\n").append(impl).append("\n```\n");
+                        } else if (function.has("signature")) {
+                            // Fall back to signature if no implementation
+                            formatted.append("```javascript\n").append(function.get("signature").getAsString()).append("\n```\n");
+                        }
+                        
+                        funcCount++;
+                    }
+                }
+                
+                if (matches.size() > funcCount) {
+                    formatted.append("... and ").append(matches.size() - funcCount).append(" more occurrences\n");
+                }
+                
+            } else if (type.equals("text")) {
+                formatted.append("\n### Text matches for '").append(keyword).append("':\n");
+                formatted.append("Found in ").append(matches.size()).append(" locations\n");
+                
+                // Show first match with context
                 if (matches.size() > 0) {
                     JsonObject firstMatch = matches.get(0).getAsJsonObject();
-                    LOG.info("  First match in: " + firstMatch.get("file").getAsString());
+                    String filePath = firstMatch.get("file").getAsString();
+                    JsonArray fileMatches = firstMatch.getAsJsonArray("matches");
+                    
+                    if (fileMatches.size() > 0) {
+                        JsonObject match = fileMatches.get(0).getAsJsonObject();
+                        int line = match.get("line").getAsInt();
+                        formatted.append("Example from `").append(filePath).append("` (line ").append(line).append(")\n");
+                        
+                        if (match.has("context")) {
+                            JsonObject context = match.getAsJsonObject("context");
+                            formatted.append("```\n");
+                            
+                            // Show context lines
+                            if (context.has("before")) {
+                                JsonArray before = context.getAsJsonArray("before");
+                                for (int j = 0; j < before.size(); j++) {
+                                    formatted.append(before.get(j).getAsString()).append("\n");
+                                }
+                            }
+                            
+                            if (context.has("current")) {
+                                formatted.append(">>> ").append(context.get("current").getAsString()).append("\n");
+                            }
+                            
+                            if (context.has("after")) {
+                                JsonArray after = context.getAsJsonArray("after");
+                                for (int j = 0; j < after.size(); j++) {
+                                    formatted.append(after.get(j).getAsString()).append("\n");
+                                }
+                            }
+                            
+                            formatted.append("```\n");
+                        }
+                    }
                 }
-            } else {
-                formatted.append("- Code pattern '").append(keyword)
-                        .append("' found in ").append(matches.size())
-                        .append(" locations\n");
             }
         }
         

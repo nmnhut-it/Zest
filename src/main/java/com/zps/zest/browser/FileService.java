@@ -24,6 +24,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.ReplaceInFileTool;
 import org.jetbrains.annotations.NotNull;
@@ -648,6 +649,12 @@ public class FileService {
         try {
             if (file.getLength() > MAX_FILE_SIZE) return;
             
+            // Check if it's a Java file and use PSI if available
+            if (file.getName().endsWith(".java")) {
+                findFunctionsInJavaFile(file, relativePath, targetName, results);
+                return;
+            }
+            
             String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
             
             // Comprehensive function patterns for JavaScript/TypeScript
@@ -745,6 +752,10 @@ public class FileService {
                         JsonObject func = new JsonObject();
                         func.addProperty("name", funcName);
                         func.addProperty("line", lineNumber);
+                        
+                        // Extract full function implementation
+                        String implementation = extractFullFunctionImplementation(content, position);
+                        func.addProperty("implementation", implementation);
                         func.addProperty("signature", extractSignature(content, position));
                         func.addProperty("type", detectFunctionType(matcher.group(0)));
                         functions.add(func);
@@ -807,11 +818,69 @@ public class FileService {
                     func.addProperty("name", "<anonymous#" + anonymousCount++ + ">");
                     func.addProperty("line", getLineNumber(content, position));
                     func.addProperty("context", extractContext(content, position, 50));
+                    
+                    // Extract full anonymous function implementation
+                    String implementation = extractAnonymousFunctionImplementation(content, position);
+                    func.addProperty("implementation", implementation);
                     func.addProperty("type", "anonymous");
                     functions.add(func);
                 }
             }
         }
+    }
+    
+    /**
+     * Extracts the full implementation of an anonymous function.
+     */
+    private String extractAnonymousFunctionImplementation(String content, int startPos) {
+        // Find where the function actually starts
+        int funcStart = startPos;
+        
+        // Look for function keyword or arrow
+        int searchEnd = Math.min(startPos + 200, content.length());
+        boolean isArrowFunction = false;
+        int bodyStart = -1;
+        
+        for (int i = startPos; i < searchEnd; i++) {
+            if (content.substring(i).startsWith("=>")) {
+                isArrowFunction = true;
+                bodyStart = i + 2;
+                break;
+            } else if (content.charAt(i) == '{') {
+                bodyStart = i;
+                break;
+            }
+        }
+        
+        if (bodyStart == -1) {
+            return extractContext(content, startPos, 100);
+        }
+        
+        if (isArrowFunction) {
+            // Skip whitespace after arrow
+            while (bodyStart < content.length() && Character.isWhitespace(content.charAt(bodyStart))) {
+                bodyStart++;
+            }
+            
+            if (bodyStart < content.length() && content.charAt(bodyStart) == '{') {
+                // Arrow function with block body
+                int endBrace = findMatchingBrace(content, bodyStart);
+                if (endBrace != -1) {
+                    return content.substring(funcStart, endBrace + 1);
+                }
+            } else {
+                // Arrow function with expression body
+                return extractArrowFunctionExpression(content, bodyStart);
+            }
+        } else {
+            // Regular function with braces
+            int endBrace = findMatchingBrace(content, bodyStart);
+            if (endBrace != -1) {
+                return content.substring(funcStart, endBrace + 1);
+            }
+        }
+        
+        return extractContext(content, startPos, 200);
     }
     
     private String detectFunctionType(String match) {
@@ -1117,6 +1186,475 @@ public class FileService {
             }
         }
         return line;
+    }
+    
+    /**
+     * Extracts the full function implementation starting from a given position.
+     * This method handles various JavaScript/TypeScript function patterns.
+     */
+    private String extractFullFunctionImplementation(String content, int startPos) {
+        // Find the opening brace or arrow
+        int functionStart = startPos;
+        int openBrace = -1;
+        boolean isArrowFunction = false;
+        
+        // Look for the function body start
+        for (int i = startPos; i < content.length(); i++) {
+            char c = content.charAt(i);
+            char nextChar = i < content.length() - 1 ? content.charAt(i + 1) : '\0';
+            
+            // Check for arrow function
+            if (c == '=' && nextChar == '>') {
+                isArrowFunction = true;
+                i++; // Skip the '>'
+                
+                // Skip whitespace after arrow
+                while (i < content.length() - 1 && Character.isWhitespace(content.charAt(i + 1))) {
+                    i++;
+                }
+                
+                // Check if next character is opening brace or direct expression
+                if (i < content.length() - 1 && content.charAt(i + 1) == '{') {
+                    openBrace = i + 1;
+                    break;
+                } else {
+                    // Arrow function with expression body (no braces)
+                    return extractArrowFunctionExpression(content, i + 1);
+                }
+            } else if (c == '{') {
+                openBrace = i;
+                break;
+            }
+        }
+        
+        if (openBrace == -1) {
+            // No function body found, return just the signature
+            return extractSignature(content, startPos);
+        }
+        
+        // Find the matching closing brace
+        int closeBrace = findMatchingBrace(content, openBrace);
+        if (closeBrace == -1) {
+            // Can't find matching brace, return what we have
+            return content.substring(functionStart, Math.min(functionStart + 1000, content.length()));
+        }
+        
+        // Extract the full function including signature and body
+        // Find the actual start of the function declaration
+        int realStart = findFunctionDeclarationStart(content, startPos);
+        
+        return content.substring(realStart, closeBrace + 1);
+    }
+    
+    /**
+     * Finds the actual start of a function declaration by backing up from the match position.
+     */
+    private int findFunctionDeclarationStart(String content, int matchPos) {
+        int start = matchPos;
+        
+        // Back up to find modifiers, export statements, etc.
+        while (start > 0) {
+            int prevStart = start;
+            
+            // Check for various prefixes
+            String[] prefixes = {
+                "export default ", "export ", "static ", "async ", "public ", 
+                "private ", "protected ", "readonly ", "const ", "let ", "var "
+            };
+            
+            boolean foundPrefix = false;
+            for (String prefix : prefixes) {
+                if (start >= prefix.length()) {
+                    String before = content.substring(start - prefix.length(), start);
+                    if (before.equals(prefix)) {
+                        start -= prefix.length();
+                        foundPrefix = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!foundPrefix) {
+                // Check if we're at the start of a line (after whitespace)
+                int lineStart = start;
+                while (lineStart > 0 && content.charAt(lineStart - 1) != '\n') {
+                    if (!Character.isWhitespace(content.charAt(lineStart - 1))) {
+                        return start; // Found non-whitespace, this is the start
+                    }
+                    lineStart--;
+                }
+                return lineStart == 0 ? 0 : lineStart;
+            }
+            
+            // Skip whitespace before the prefix
+            while (start > 0 && Character.isWhitespace(content.charAt(start - 1))) {
+                start--;
+                if (content.charAt(start) == '\n') {
+                    return start + 1; // Start of line
+                }
+            }
+            
+            if (start == prevStart) {
+                break; // No more prefixes found
+            }
+        }
+        
+        return start;
+    }
+    
+    /**
+     * Extracts an arrow function expression body (for arrow functions without braces).
+     */
+    private String extractArrowFunctionExpression(String content, int exprStart) {
+        // Find the end of the expression (semicolon, comma, closing paren/bracket, or newline followed by dedent)
+        int end = exprStart;
+        int parenCount = 0;
+        int braceCount = 0;
+        int bracketCount = 0;
+        boolean inString = false;
+        boolean inTemplate = false;
+        char stringChar = '\0';
+        
+        while (end < content.length()) {
+            char c = content.charAt(end);
+            char prev = end > 0 ? content.charAt(end - 1) : '\0';
+            
+            // Handle strings
+            if (!inString && !inTemplate && (c == '"' || c == '\'')) {
+                inString = true;
+                stringChar = c;
+            } else if (inString && c == stringChar && prev != '\\') {
+                inString = false;
+            } else if (!inString && c == '`') {
+                inTemplate = !inTemplate;
+            }
+            
+            if (!inString && !inTemplate) {
+                // Track nesting
+                if (c == '(') parenCount++;
+                else if (c == ')') parenCount--;
+                else if (c == '{') braceCount++;
+                else if (c == '}') braceCount--;
+                else if (c == '[') bracketCount++;
+                else if (c == ']') bracketCount--;
+                
+                // Check for expression end
+                if (parenCount == 0 && braceCount == 0 && bracketCount == 0) {
+                    if (c == ';' || c == ',' || c == '\n') {
+                        break;
+                    }
+                    // Also check for end of object property (next property or closing brace)
+                    if (end + 1 < content.length()) {
+                        char next = content.charAt(end + 1);
+                        if ((c == '\n' && (next == '}' || next == ',' || !Character.isWhitespace(next))) ||
+                            (c == ' ' && next == '}')) {
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            end++;
+        }
+        
+        // Back up from the match position to find the full arrow function
+        int realStart = exprStart;
+        while (realStart > 0 && content.charAt(realStart - 1) != '\n') {
+            realStart--;
+            if (content.substring(realStart, exprStart).contains("=>")) {
+                break;
+            }
+        }
+        
+        // Find the actual start including variable declaration
+        realStart = findFunctionDeclarationStart(content, realStart);
+        
+        return content.substring(realStart, end).trim();
+    }
+    
+    /**
+     * Finds functions in Java files using PSI (Program Structure Interface).
+     */
+    private void findFunctionsInJavaFile(VirtualFile file, String relativePath, String targetName,
+                                         JsonArray results) {
+        try {
+            // Check if we can use PSI
+            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+            if (psiFile instanceof PsiJavaFile) {
+                PsiJavaFile javaFile = (PsiJavaFile) psiFile;
+                JsonArray functions = new JsonArray();
+                
+                // Visit all classes in the file
+                for (PsiClass psiClass : javaFile.getClasses()) {
+                    findMethodsInClass(psiClass, targetName, functions);
+                }
+                
+                if (functions.size() > 0) {
+                    JsonObject fileResult = new JsonObject();
+                    fileResult.addProperty("file", relativePath);
+                    fileResult.add("functions", functions);
+                    results.add(fileResult);
+                }
+            } else {
+                // Fall back to text-based parsing for Java files
+                findFunctionsInJavaFileText(file, relativePath, targetName, results);
+            }
+        } catch (Exception e) {
+            LOG.warn("Error finding functions in Java file: " + relativePath, e);
+            // Fall back to text-based parsing
+            try {
+                findFunctionsInJavaFileText(file, relativePath, targetName, results);
+            } catch (Exception ex) {
+                LOG.error("Failed to parse Java file: " + relativePath, ex);
+            }
+        }
+    }
+    
+    /**
+     * Recursively finds methods in a PSI class and its inner classes.
+     */
+    private void findMethodsInClass(PsiClass psiClass, String targetName, JsonArray functions) {
+        // Add methods from this class
+        for (PsiMethod method : psiClass.getMethods()) {
+            String methodName = method.getName();
+            
+            if (targetName == null || methodName.equals(targetName)) {
+                JsonObject func = new JsonObject();
+                func.addProperty("name", methodName);
+                func.addProperty("line", getLineNumber(method));
+                func.addProperty("signature", getMethodSignature(method));
+                func.addProperty("implementation", method.getText());
+                func.addProperty("type", getMethodType(method));
+                
+                // Add class context
+                func.addProperty("className", psiClass.getName());
+                func.addProperty("classQualifiedName", psiClass.getQualifiedName());
+                
+                functions.add(func);
+            }
+        }
+        
+        // Process inner classes
+        for (PsiClass innerClass : psiClass.getInnerClasses()) {
+            findMethodsInClass(innerClass, targetName, functions);
+        }
+    }
+    
+    /**
+     * Gets the line number for a PSI element.
+     */
+    private int getLineNumber(PsiElement element) {
+        PsiFile file = element.getContainingFile();
+        if (file != null) {
+            String text = file.getText();
+            int offset = element.getTextOffset();
+            return getLineNumber(text, offset);
+        }
+        return 1;
+    }
+    
+    /**
+     * Generates a method signature string from a PSI method.
+     */
+    private String getMethodSignature(PsiMethod method) {
+        StringBuilder sig = new StringBuilder();
+        
+        // Add modifiers
+        PsiModifierList modifiers = method.getModifierList();
+        if (modifiers.hasModifierProperty(PsiModifier.PUBLIC)) sig.append("public ");
+        if (modifiers.hasModifierProperty(PsiModifier.PRIVATE)) sig.append("private ");
+        if (modifiers.hasModifierProperty(PsiModifier.PROTECTED)) sig.append("protected ");
+        if (modifiers.hasModifierProperty(PsiModifier.STATIC)) sig.append("static ");
+        if (modifiers.hasModifierProperty(PsiModifier.FINAL)) sig.append("final ");
+        if (modifiers.hasModifierProperty(PsiModifier.ABSTRACT)) sig.append("abstract ");
+        if (modifiers.hasModifierProperty(PsiModifier.SYNCHRONIZED)) sig.append("synchronized ");
+        
+        // Add return type
+        if (!method.isConstructor()) {
+            PsiType returnType = method.getReturnType();
+            if (returnType != null) {
+                sig.append(returnType.getPresentableText()).append(" ");
+            }
+        }
+        
+        // Add method name
+        sig.append(method.getName()).append("(");
+        
+        // Add parameters
+        PsiParameter[] params = method.getParameterList().getParameters();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) sig.append(", ");
+            sig.append(params[i].getType().getPresentableText()).append(" ");
+            sig.append(params[i].getName());
+        }
+        sig.append(")");
+        
+        // Add throws clause
+        PsiClassType[] throwTypes = method.getThrowsList().getReferencedTypes();
+        if (throwTypes.length > 0) {
+            sig.append(" throws ");
+            for (int i = 0; i < throwTypes.length; i++) {
+                if (i > 0) sig.append(", ");
+                sig.append(throwTypes[i].getPresentableText());
+            }
+        }
+        
+        return sig.toString();
+    }
+    
+    /**
+     * Determines the type of a Java method.
+     */
+    private String getMethodType(PsiMethod method) {
+        if (method.isConstructor()) return "constructor";
+        if (method.hasModifierProperty(PsiModifier.STATIC)) return "static";
+        if (method.hasModifierProperty(PsiModifier.ABSTRACT)) return "abstract";
+        
+        // Check for getter/setter
+        String name = method.getName();
+        if ((name.startsWith("get") || name.startsWith("is")) && 
+            method.getParameterList().getParametersCount() == 0) {
+            return "getter";
+        }
+        if (name.startsWith("set") && method.getParameterList().getParametersCount() == 1) {
+            return "setter";
+        }
+        
+        // Check for common lifecycle methods
+        if (name.equals("onCreate") || name.equals("onStart") || name.equals("onResume") ||
+            name.equals("onPause") || name.equals("onStop") || name.equals("onDestroy")) {
+            return "lifecycle";
+        }
+        
+        // Check for test methods
+        for (PsiAnnotation annotation : method.getAnnotations()) {
+            String qName = annotation.getQualifiedName();
+            if (qName != null && (qName.contains("Test") || qName.contains("Before") || 
+                qName.contains("After"))) {
+                return "test";
+            }
+        }
+        
+        return "method";
+    }
+    
+    /**
+     * Fallback method to find functions in Java files using text parsing.
+     */
+    private void findFunctionsInJavaFileText(VirtualFile file, String relativePath, String targetName,
+                                             JsonArray results) throws IOException {
+        String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
+        
+        // Java method patterns
+        List<Pattern> patterns = Arrays.asList(
+            // Standard method declarations
+            Pattern.compile("(?:public|private|protected)?\\s*(?:static)?\\s*(?:final)?\\s*(?:synchronized)?\\s*(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*(?:throws\\s+[^{]+)?\\s*\\{"),
+            
+            // Constructor patterns
+            Pattern.compile("(?:public|private|protected)\\s+([A-Z][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*(?:throws\\s+[^{]+)?\\s*\\{"),
+            
+            // Interface method declarations (no body)
+            Pattern.compile("(?:public)?\\s*(?:default|static)?\\s*(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*;"),
+            
+            // Abstract method declarations
+            Pattern.compile("(?:public|protected)?\\s*abstract\\s+(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*;")
+        );
+        
+        JsonArray functions = new JsonArray();
+        Set<String> foundFunctions = new HashSet<>();
+        
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(content);
+            while (matcher.find()) {
+                String funcName = matcher.group(1);
+                
+                // Skip if already found
+                String uniqueKey = funcName + "_" + matcher.start();
+                if (foundFunctions.contains(uniqueKey)) continue;
+                foundFunctions.add(uniqueKey);
+                
+                if (targetName == null || funcName.equals(targetName)) {
+                    int position = matcher.start();
+                    int lineNumber = getLineNumber(content, position);
+                    
+                    JsonObject func = new JsonObject();
+                    func.addProperty("name", funcName);
+                    func.addProperty("line", lineNumber);
+                    
+                    // For Java, extract the full method including JavaDoc if present
+                    String implementation = extractJavaMethodImplementation(content, position);
+                    func.addProperty("implementation", implementation);
+                    func.addProperty("signature", matcher.group(0).trim());
+                    func.addProperty("type", detectJavaMethodType(matcher.group(0)));
+                    functions.add(func);
+                }
+            }
+        }
+        
+        if (functions.size() > 0) {
+            JsonObject fileResult = new JsonObject();
+            fileResult.addProperty("file", relativePath);
+            fileResult.add("functions", functions);
+            results.add(fileResult);
+        }
+    }
+    
+    /**
+     * Extracts a complete Java method implementation including JavaDoc.
+     */
+    private String extractJavaMethodImplementation(String content, int methodStart) {
+        // First, find any JavaDoc comment before the method
+        int docStart = methodStart;
+        
+        // Go backwards to find JavaDoc
+        int searchPos = methodStart - 1;
+        while (searchPos > 0 && Character.isWhitespace(content.charAt(searchPos))) {
+            searchPos--;
+        }
+        
+        if (searchPos > 1 && content.charAt(searchPos) == '/' && content.charAt(searchPos - 1) == '*') {
+            // Found end of JavaDoc, find the start
+            int docSearchPos = searchPos - 2;
+            while (docSearchPos > 1) {
+                if (content.charAt(docSearchPos) == '/' && 
+                    content.charAt(docSearchPos + 1) == '*' && 
+                    content.charAt(docSearchPos + 2) == '*') {
+                    docStart = docSearchPos;
+                    break;
+                }
+                docSearchPos--;
+            }
+        }
+        
+        // Find the end of the method
+        int bracePos = content.indexOf('{', methodStart);
+        if (bracePos == -1) {
+            // Interface or abstract method, ends with semicolon
+            int semiPos = content.indexOf(';', methodStart);
+            if (semiPos != -1) {
+                return content.substring(docStart, semiPos + 1);
+            }
+            return content.substring(docStart, Math.min(docStart + 500, content.length()));
+        }
+        
+        int methodEnd = findMatchingBrace(content, bracePos);
+        if (methodEnd == -1) {
+            // Can't find matching brace, return what we have
+            return content.substring(docStart, Math.min(bracePos + 1000, content.length()));
+        }
+        
+        return content.substring(docStart, methodEnd + 1);
+    }
+    
+    /**
+     * Detects the type of a Java method from its declaration.
+     */
+    private String detectJavaMethodType(String declaration) {
+        if (declaration.contains("abstract")) return "abstract";
+        if (declaration.contains("static")) return "static";
+        if (declaration.matches(".*\\b[A-Z][a-zA-Z0-9_]*\\s*\\(.*")) return "constructor";
+        if (declaration.contains(";") && !declaration.contains("{")) return "interface";
+        return "method";
     }
     
     private String extractSignature(String content, int startPos) {

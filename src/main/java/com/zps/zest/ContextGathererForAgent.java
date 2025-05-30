@@ -20,7 +20,7 @@ import java.util.Map;
  */
 public class ContextGathererForAgent {
 
-    private static final int MAX_FILES_PER_ROOT = 50; // Limit number of files to avoid context overload
+    private static final int MAX_FILES_PER_ROOT = 100; // Limit number of files to avoid context overload
 
     /**
      * Gathers context information from the current editor.

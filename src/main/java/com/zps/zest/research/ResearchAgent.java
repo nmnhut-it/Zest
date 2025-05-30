@@ -59,7 +59,7 @@ public class ResearchAgent {
                 
                 // Get initial keywords
                 List<String> keywords = keywordGenerator.generateKeywords(userQuery)
-                    .get(30, TimeUnit.SECONDS);
+                    .get(300, TimeUnit.SECONDS);
                 
                 if (keywords.isEmpty()) {
                     LOG.warn("No initial keywords generated, using fallback");

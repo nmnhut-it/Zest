@@ -14,7 +14,7 @@ public class ContextEnhancerFactory {
     private static final String USE_RESEARCH_AGENT_PROPERTY = "zest.use.research.agent";
     
     public static ContextEnhancer createEnhancer(Project project) {
-        boolean useResearchAgent = Boolean.getBoolean(USE_RESEARCH_AGENT_PROPERTY);
+        boolean useResearchAgent = true; // Boolean.getBoolean(USE_RESEARCH_AGENT_PROPERTY);
         
         if (useResearchAgent) {
             return new ResearchAgentAdapter(project);

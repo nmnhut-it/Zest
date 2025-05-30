@@ -4,19 +4,53 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonElement;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.structuralsearch.plugin.ui.ConfigurationManager;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.Optional;
 
 /**
  * Builds prompts for the LLM with emphasis on effective tool usage for Open Web UI.
  */
 public class OpenWebUIAgentModePromptBuilder {
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Logger LOG = Logger.getInstance(OpenWebUIAgentModePromptBuilder.class);
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    // Constants for configuration
+    private static final int MAX_GIT_RESULTS = 2;
+    private static final int MAX_COMMITS_PER_KEYWORD = 3;
+    private static final int MAX_CHANGED_FILES_DISPLAY = 3;
+    private static final int MAX_CODE_RESULTS = 5;
+    private static final int MAX_FUNCTIONS_PER_KEYWORD = 2;
+    private static final int MAX_IMPLEMENTATION_LENGTH = 1500;
+    private static final int COMMIT_HASH_LENGTH = 8;
+
+    // Base prompt sections
+    private static final String AGENT_IDENTITY = "You are Zest, Zingplay's IDE assistant. You help programmers write better code with concise, practical solutions. " +
+            "You're professional, intellectual, and speak concisely with a playful tone.";
+
+    private static final String AGENT_MODE_CAPABILITIES = """
+            # AGENT MODE CAPABILITIES
+            As a coding agent, you:
+            - Autonomously use tools to understand, analyze, and modify code directly in the IDE
+            - Follow a structured workflow: Clarify → Collect → Analyze → Implement → Verify
+            - Strategically select appropriate tools for each task stage
+            - Always examine code before suggesting or implementing changes
+            - Break complex tasks into executable tool operations
+            """;
+
+    private static final String TOOL_USAGE_RULES = """
+            # TOOL USAGE RULES
+            - EXPLAIN your reasoning and ASK permission before using tools
+            - PERFORM ONLY ONE tool call per response
+            - Wait for results before proceeding to next tool
+            - Prioritize understanding over modification
+            - Use tools to read current files/directories to better understand context
+            """;
 
     private final Project project;
     private final ConfigurationManager configManager;
@@ -29,9 +63,22 @@ public class OpenWebUIAgentModePromptBuilder {
      * @param project The current project
      */
     public OpenWebUIAgentModePromptBuilder(Project project) {
-        this.project = project;
+        this.project = validateProject(project);
         this.configManager = ConfigurationManager.getInstance(project);
         this.contextEnhancer = new AgentModeContextEnhancer(project);
+    }
+
+    /**
+     * Validates the project parameter
+     */
+    private Project validateProject(Project project) {
+        if (project == null) {
+            throw new IllegalArgumentException("Project cannot be null");
+        }
+        if (project.isDisposed()) {
+            throw new IllegalStateException("Project has been disposed");
+        }
+        return project;
     }
 
     /**
@@ -40,57 +87,77 @@ public class OpenWebUIAgentModePromptBuilder {
      * @return The complete prompt
      */
     public String buildPrompt() {
-        return "<s>\n" +
-                "You are Zest, Zingplay's IDE assistant. You help programmers write better code with concise, practical solutions. " +
-                "You're professional, intellectual, and speak concisely with a playful tone.\n" +
-                "\n" +
-                "# AGENT MODE CAPABILITIES\n" +
-                "As a coding agent, you:\n" +
-                "- Autonomously use tools to understand, analyze, and modify code directly in the IDE\n" +
-                "- Follow a structured workflow: Clarify → Collect → Analyze → Implement → Verify\n" +
-                "- Strategically select appropriate tools for each task stage\n" +
-                "- Always examine code before suggesting or implementing changes\n" +
-                "- Break complex tasks into executable tool operations\n" +
-                "\n" +
-                "# TOOL USAGE RULES\n" +
-                "- EXPLAIN your reasoning and ASK permission before using tools\n" +
-                "- PERFORM ONLY ONE tool call per response\n" +
-                "- Wait for results before proceeding to next tool\n" +
-                "- Prioritize understanding over modification\n" +
-                "- Use tools to read current files/directories to better understand context\n" +
-                "\n" +
-                "# JETBRAINS TOOL USAGE\n" +
-                "To capture code context efficiently:\n" +
-                "1. Get current file with tool_get_open_in_editor_file_text_post\n" +
-                "2. Understand project structure with tool_list_directory_tree_in_folder_post\n" +
-                "3. Find related files with tool_find_files_by_name_substring_post\n" +
-                "4. Search for usages with tool_search_in_files_content_post\n" +
-                "5. Check for errors with tool_get_current_file_errors_post\n" +
-                "6. Examine recent changes with tool_get_project_vcs_status_post\n" +
-                "7. Get related file content with tool_get_file_text_by_path_post\n" +
-                "8. Explore dependencies with tool_get_project_dependencies_post\n" +
-                "\n" +
-                "# CODE REPLACEMENT FORMAT\n" +
-                "When you want to suggest code changes in a file, use the following format to enable automatic code replacement:\n" +
-                "\n" +
-                "replace_in_file:absolute/path/to/file.ext\n" +
-                "```language\n" +
-                "old code to be replaced\n" +
-                "```\n" +
-                "```language\n" +
-                "new code\n" +
-                "```\n" +
-                "\n" +
-                "You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user. This is useful when suggesting related changes across a file.\n" +
-                "\n" +
-                "You actively use this format instead of providing plain code blocks.\n" +
-                "\n" +
-                "# RESPONSE STYLE\n" +
-                "- Concise, focused answers addressing specific requests\n" +
-                "- Proper code blocks with syntax highlighting\n" +
-                "- Summarize key findings from large tool outputs\n" +
-                "- Step-by-step explanations for complex operations\n" +
-                "</s>";
+        return buildBasePrompt();
+    }
+
+    /**
+     * Builds the base prompt structure
+     */
+    private String buildBasePrompt() {
+        return String.join("\n",
+                "<s>",
+                AGENT_IDENTITY,
+                "",
+                AGENT_MODE_CAPABILITIES,
+                TOOL_USAGE_RULES,
+                buildJetBrainsToolUsage(),
+                buildCodeReplacementFormat(),
+                buildResponseStyle(),
+                "</s>"
+        );
+    }
+
+    /**
+     * Builds JetBrains tool usage section
+     */
+    private String buildJetBrainsToolUsage() {
+        return """
+            # JETBRAINS TOOL USAGE
+            To capture code context efficiently:
+            1. Get current file with tool_get_open_in_editor_file_text_post
+            2. Understand project structure with tool_list_directory_tree_in_folder_post
+            3. Find related files with tool_find_files_by_name_substring_post
+            4. Search for usages with tool_search_in_files_content_post
+            5. Check for errors with tool_get_current_file_errors_post
+            6. Examine recent changes with tool_get_project_vcs_status_post
+            7. Get related file content with tool_get_file_text_by_path_post
+            8. Explore dependencies with tool_get_project_dependencies_post
+            """;
+    }
+
+    /**
+     * Builds code replacement format section
+     */
+    private String buildCodeReplacementFormat() {
+        return """
+            # CODE REPLACEMENT FORMAT
+            When you want to suggest code changes in a file, use the following format to enable automatic code replacement:
+            
+            replace_in_file:absolute/path/to/file.ext
+            ```language
+            old code to be replaced
+            ```
+            ```language
+            new code
+            ```
+            
+            You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user. This is useful when suggesting related changes across a file.
+            
+            You actively use this format instead of providing plain code blocks.
+            """;
+    }
+
+    /**
+     * Builds response style section
+     */
+    private String buildResponseStyle() {
+        return """
+            # RESPONSE STYLE
+            - Concise, focused answers addressing specific requests
+            - Proper code blocks with syntax highlighting
+            - Summarize key findings from large tool outputs
+            - Step-by-step explanations for complex operations
+            """;
     }
 
     /**
@@ -102,294 +169,505 @@ public class OpenWebUIAgentModePromptBuilder {
      * @return CompletableFuture with the complete prompt
      */
     public CompletableFuture<String> buildEnhancedPrompt(String userQuery, String currentFileContext) {
+        // Validate inputs
+        if (userQuery == null || userQuery.trim().isEmpty()) {
+            return CompletableFuture.completedFuture(buildPrompt() + "\n\n# USER REQUEST\n[No query provided]");
+        }
+
         // Notify UI that we're collecting context
-        notifyUIContextCollection();
-        
+        notifyUI(UINotificationType.CONTEXT_COLLECTION_STARTED);
+
         // Get enhanced context asynchronously
         return contextEnhancer.enhancePromptWithContext(userQuery, currentFileContext)
-            .thenApply(enhancedContext -> {
-                StringBuilder prompt = new StringBuilder();
-                
-                // Add base prompt
-                prompt.append(buildPrompt());
-                
-                // Add enhanced context
-                prompt.append("\n\n# PROJECT CONTEXT\n");
-                prompt.append("The following relevant code was found in the project:\n");
-                
-                try {
-                    JsonObject context = GSON.fromJson(enhancedContext, JsonObject.class);
-                    
-                    // Add git history context
-                    if (context.has("recentChanges") && 
-                        context.getAsJsonArray("recentChanges").size() > 0) {
-                        prompt.append("\n## Recent Changes\n");
-                        prompt.append("Recent commits related to your query:\n");
-                        prompt.append(formatGitContext(context.getAsJsonArray("recentChanges")));
-                    }
-                    
-                    // Add related code context
-                    if (context.has("relatedCode") && 
-                        context.getAsJsonArray("relatedCode").size() > 0) {
-                        prompt.append("\n## Related Code in Project\n");
-                        prompt.append("Existing code that might be relevant:\n");
-                        prompt.append(formatCodeContext(context.getAsJsonArray("relatedCode")));
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Error formatting enhanced context", e);
-                }
-                
-                // Add user query
-                prompt.append("\n\n# USER REQUEST\n");
-                prompt.append(userQuery);
-                
-                // Notify UI that context collection is complete
-                notifyUIContextComplete();
-                
-                return prompt.toString();
-            })
-            .exceptionally(e -> {
-                LOG.error("Error building enhanced prompt", e);
-                notifyUIContextError();
-                // Fall back to basic prompt
-                return buildPrompt() + "\n\n# USER REQUEST\n" + userQuery;
-            });
+                .thenApply(enhancedContext -> buildPromptWithContext(userQuery, enhancedContext))
+                .exceptionally(e -> handleEnhancementError(e, userQuery));
     }
-    
+
+    /**
+     * Builds prompt with enhanced context
+     */
+    private String buildPromptWithContext(String userQuery, String enhancedContext) {
+        StringBuilder prompt = new StringBuilder();
+
+        // Add base prompt
+        prompt.append(buildPrompt());
+
+        // Add enhanced context
+        prompt.append("\n\n# PROJECT CONTEXT\n");
+        prompt.append("The following relevant code was found in the project:\n");
+
+        try {
+            JsonObject context = parseContext(enhancedContext);
+            appendGitHistory(prompt, context);
+            appendRelatedCode(prompt, context);
+        } catch (Exception e) {
+            LOG.warn("Error formatting enhanced context", e);
+            prompt.append("\n[Context formatting error - using raw context]\n");
+        }
+
+        // Add user query
+        prompt.append("\n\n# USER REQUEST\n");
+        prompt.append(userQuery);
+
+        // Notify UI that context collection is complete
+        notifyUI(UINotificationType.CONTEXT_COLLECTION_COMPLETED);
+
+        return prompt.toString();
+    }
+
+    /**
+     * Parses context JSON safely
+     */
+    private JsonObject parseContext(String enhancedContext) {
+        if (enhancedContext == null || enhancedContext.trim().isEmpty()) {
+            return new JsonObject();
+        }
+
+        try {
+            return GSON.fromJson(enhancedContext, JsonObject.class);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse context JSON", e);
+            return new JsonObject();
+        }
+    }
+
+    /**
+     * Appends git history to prompt if available
+     */
+    private void appendGitHistory(StringBuilder prompt, JsonObject context) {
+        JsonArray recentChanges = getJsonArray(context, "recentChanges");
+        if (recentChanges.size() > 0) {
+            prompt.append("\n## Recent Changes\n");
+            prompt.append("Recent commits related to your query:\n");
+            prompt.append(formatGitContext(recentChanges));
+        }
+    }
+
+    /**
+     * Appends related code to prompt if available
+     */
+    private void appendRelatedCode(StringBuilder prompt, JsonObject context) {
+        JsonArray relatedCode = getJsonArray(context, "relatedCode");
+        if (relatedCode.size() > 0) {
+            prompt.append("\n## Related Code in Project\n");
+            prompt.append("Existing code that might be relevant:\n");
+            prompt.append(formatCodeContext(relatedCode));
+        }
+    }
+
+    /**
+     * Handles enhancement errors
+     */
+    private String handleEnhancementError(Throwable e, String userQuery) {
+        LOG.error("Error building enhanced prompt", e);
+        notifyUI(UINotificationType.CONTEXT_COLLECTION_ERROR);
+        // Fall back to basic prompt
+        return buildPrompt() + "\n\n# USER REQUEST\n" + userQuery;
+    }
+
     /**
      * Formats git context for the prompt.
      * Now includes commit messages and file changes.
      */
-    private String formatGitContext(com.google.gson.JsonArray gitResults) {
+    private String formatGitContext(JsonArray gitResults) {
         LOG.info("Formatting git context from " + gitResults.size() + " results");
         StringBuilder formatted = new StringBuilder();
-        
-        for (int i = 0; i < Math.min(gitResults.size(), 2); i++) {
-            JsonObject result = gitResults.get(i).getAsJsonObject();
-            String keyword = result.get("keyword").getAsString();
-            JsonArray commits = result.getAsJsonArray("commits");
-            
-            if (commits.size() > 0) {
-                formatted.append("\n### Recent commits for '").append(keyword).append("':\n");
-                
-                // Show up to 3 commits per keyword
-                for (int j = 0; j < Math.min(commits.size(), 3); j++) {
-                    JsonObject commit = commits.get(j).getAsJsonObject();
-                    String hash = commit.has("hash") ? commit.get("hash").getAsString().substring(0, 8) : "unknown";
-                    String message = commit.has("message") ? commit.get("message").getAsString() : "No message";
-                    String author = commit.has("author") ? commit.get("author").getAsString() : "Unknown";
-                    
-                    formatted.append("- [").append(hash).append("] ").append(message);
-                    if (!author.equals("Unknown")) {
-                        formatted.append(" (by ").append(author).append(")");
-                    }
-                    formatted.append("\n");
-                    
-                    // Include changed files if available
-                    if (commit.has("files")) {
-                        JsonArray files = commit.getAsJsonArray("files");
-                        if (files.size() > 0) {
-                            formatted.append("  Files: ");
-                            for (int k = 0; k < Math.min(files.size(), 3); k++) {
-                                if (k > 0) formatted.append(", ");
-                                formatted.append(files.get(k).getAsString());
-                            }
-                            if (files.size() > 3) {
-                                formatted.append(" and ").append(files.size() - 3).append(" more");
-                            }
-                            formatted.append("\n");
-                        }
-                    }
-                }
-                
-                if (commits.size() > 3) {
-                    formatted.append("... and ").append(commits.size() - 3).append(" more commits\n");
-                }
-            }
+
+        int resultsToShow = Math.min(gitResults.size(), MAX_GIT_RESULTS);
+
+        for (int i = 0; i < resultsToShow; i++) {
+            JsonObject result = getJsonObject(gitResults, i);
+            if (result == null) continue;
+
+            formatGitResult(formatted, result);
         }
-        
+
         return formatted.toString();
     }
-    
+
+    /**
+     * Formats a single git result
+     */
+    private void formatGitResult(StringBuilder formatted, JsonObject result) {
+        String keyword = getJsonString(result, "keyword", "unknown");
+        JsonArray commits = getJsonArray(result, "commits");
+
+        if (commits.size() == 0) return;
+
+        formatted.append("\n### Recent commits for '").append(keyword).append("':\n");
+
+        int commitsToShow = Math.min(commits.size(), MAX_COMMITS_PER_KEYWORD);
+        for (int j = 0; j < commitsToShow; j++) {
+            JsonObject commit = getJsonObject(commits, j);
+            if (commit != null) {
+                formatCommit(formatted, commit);
+            }
+        }
+
+        if (commits.size() > MAX_COMMITS_PER_KEYWORD) {
+            formatted.append("... and ").append(commits.size() - MAX_COMMITS_PER_KEYWORD).append(" more commits\n");
+        }
+    }
+
+    /**
+     * Formats a single commit
+     */
+    private void formatCommit(StringBuilder formatted, JsonObject commit) {
+        String hash = getJsonString(commit, "hash", "unknown");
+        String shortHash = hash.length() > COMMIT_HASH_LENGTH ? hash.substring(0, COMMIT_HASH_LENGTH) : hash;
+        String message = getJsonString(commit, "message", "No message");
+        String author = getJsonString(commit, "author", "Unknown");
+
+        formatted.append("- [").append(shortHash).append("] ").append(message);
+        if (!author.equals("Unknown")) {
+            formatted.append(" (by ").append(author).append(")");
+        }
+        formatted.append("\n");
+
+        formatChangedFiles(formatted, commit);
+    }
+
+    /**
+     * Formats changed files in a commit
+     */
+    private void formatChangedFiles(StringBuilder formatted, JsonObject commit) {
+        JsonArray files = getJsonArray(commit, "files");
+        if (files.size() == 0) return;
+
+        formatted.append("  Files: ");
+        int filesToShow = Math.min(files.size(), MAX_CHANGED_FILES_DISPLAY);
+
+        for (int k = 0; k < filesToShow; k++) {
+            if (k > 0) formatted.append(", ");
+            formatted.append(getJsonString(files.get(k), ""));
+        }
+
+        if (files.size() > MAX_CHANGED_FILES_DISPLAY) {
+            formatted.append(" and ").append(files.size() - MAX_CHANGED_FILES_DISPLAY).append(" more");
+        }
+        formatted.append("\n");
+    }
+
     /**
      * Formats code context for the prompt.
      * Now includes full function implementations when available.
      */
-    private String formatCodeContext(com.google.gson.JsonArray codeResults) {
+    private String formatCodeContext(JsonArray codeResults) {
         LOG.info("Formatting code context from " + codeResults.size() + " results");
         StringBuilder formatted = new StringBuilder();
-        
-        for (int i = 0; i < Math.min(codeResults.size(), 5); i++) {
-            JsonObject result = codeResults.get(i).getAsJsonObject();
-            String type = result.get("type").getAsString();
-            String keyword = result.get("keyword").getAsString();
-            JsonArray matches = result.getAsJsonArray("matches");
-            
+
+        int resultsToShow = Math.min(codeResults.size(), MAX_CODE_RESULTS);
+
+        for (int i = 0; i < resultsToShow; i++) {
+            JsonObject result = getJsonObject(codeResults, i);
+            if (result == null) continue;
+
+            String type = getJsonString(result, "type", "unknown");
             if (type.equals("function") || type.equals("text")) {
-                // Check if this is actually a function result (might have been enhanced from text)
-                boolean hasFunction = false;
-                if (matches.size() > 0) {
-                    JsonObject firstMatch = matches.get(0).getAsJsonObject();
-                    hasFunction = firstMatch.has("functions");
-                }
-                
-                if (hasFunction || type.equals("function")) {
-                    formatted.append("\n### Functions matching '").append(keyword).append("':\n");
-                    
-                    // Show up to 2 function implementations per keyword
-                    int funcCount = 0;
-                    for (int j = 0; j < matches.size() && funcCount < 2; j++) {
-                        JsonObject fileMatch = matches.get(j).getAsJsonObject();
-                        String filePath = fileMatch.get("file").getAsString();
-                        JsonArray functions = fileMatch.getAsJsonArray("functions");
-                        
-                        for (int k = 0; k < functions.size() && funcCount < 2; k++) {
-                            JsonObject function = functions.get(k).getAsJsonObject();
-                            String funcName = function.get("name").getAsString();
-                            int line = function.get("line").getAsInt();
-                            
-                            formatted.append("\nFile: `").append(filePath).append("` (line ").append(line).append(")\n");
-                            
-                            // Include full implementation if available
-                            if (function.has("implementation")) {
-                                String impl = function.get("implementation").getAsString();
-                                // Limit implementation length to avoid overwhelming the prompt
-                                if (impl.length() > 1500) {
-                                    impl = impl.substring(0, 1500) + "\n... (truncated)";
-                                }
-                                
-                                // Detect language from file extension
-                                String lang = "javascript";
-                                if (filePath.endsWith(".java")) lang = "java";
-                                else if (filePath.endsWith(".py")) lang = "python";
-                                else if (filePath.endsWith(".ts") || filePath.endsWith(".tsx")) lang = "typescript";
-                                else if (filePath.endsWith(".cpp") || filePath.endsWith(".cc")) lang = "cpp";
-                                else if (filePath.endsWith(".c")) lang = "c";
-                                else if (filePath.endsWith(".cs")) lang = "csharp";
-                                else if (filePath.endsWith(".go")) lang = "go";
-                                
-                                formatted.append("```").append(lang).append("\n").append(impl).append("\n```\n");
-                            } else if (function.has("signature")) {
-                                // Fall back to signature if no implementation
-                                formatted.append("```javascript\n").append(function.get("signature").getAsString()).append("\n```\n");
-                            }
-                            
-                            funcCount++;
-                        }
-                    }
-                    
-                    if (matches.size() > funcCount) {
-                        formatted.append("... and ").append(matches.size() - funcCount).append(" more occurrences\n");
-                    }
-                } else {
-                    // Regular text match (not converted to function)
-                    formatted.append("\n### Text matches for '").append(keyword).append("':\n");
-                    formatted.append("Found in ").append(matches.size()).append(" locations\n");
-                    
-                    // Show first match with extended context
-                    if (matches.size() > 0) {
-                        JsonObject firstMatch = matches.get(0).getAsJsonObject();
-                        String filePath = firstMatch.get("file").getAsString();
-                        JsonArray fileMatches = firstMatch.getAsJsonArray("matches");
-                        
-                        if (fileMatches.size() > 0) {
-                            JsonObject match = fileMatches.get(0).getAsJsonObject();
-                            int line = match.get("line").getAsInt();
-                            String matchText = match.has("text") ? match.get("text").getAsString() : "";
-                            
-                            formatted.append("Example from `").append(filePath).append("` (line ").append(line).append(")\n");
-                            
-                            if (match.has("context")) {
-                                JsonObject context = match.getAsJsonObject("context");
-                                
-                                // Detect language from file extension
-                                String lang = "";
-                                if (filePath.endsWith(".java")) lang = "java";
-                                else if (filePath.endsWith(".py")) lang = "python";
-                                else if (filePath.endsWith(".js")) lang = "javascript";
-                                else if (filePath.endsWith(".ts") || filePath.endsWith(".tsx")) lang = "typescript";
-                                else if (filePath.endsWith(".cpp") || filePath.endsWith(".cc")) lang = "cpp";
-                                else if (filePath.endsWith(".c")) lang = "c";
-                                else if (filePath.endsWith(".cs")) lang = "csharp";
-                                else if (filePath.endsWith(".go")) lang = "go";
-                                
-                                formatted.append("```").append(lang).append("\n");
-                                
-                                // Show extended context
-                                if (context.has("before")) {
-                                    JsonArray before = context.getAsJsonArray("before");
-                                    for (int j = 0; j < before.size(); j++) {
-                                        formatted.append(before.get(j).getAsString()).append("\n");
-                                    }
-                                }
-                                
-                                if (context.has("current")) {
-                                    formatted.append(">>> ").append(context.get("current").getAsString()).append("\n");
-                                }
-                                
-                                if (context.has("after")) {
-                                    JsonArray after = context.getAsJsonArray("after");
-                                    for (int j = 0; j < after.size(); j++) {
-                                        formatted.append(after.get(j).getAsString()).append("\n");
-                                    }
-                                }
-                                
-                                formatted.append("```\n");
-                            }
-                        }
-                    }
-                }
+                formatCodeResult(formatted, result, type);
             }
         }
-        
+
         return formatted.toString();
     }
-    
+
     /**
-     * Notifies the UI that context collection has started.
+     * Formats a single code result
      */
-    private void notifyUIContextCollection() {
-        try {
-            WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null ) {
-                browserService.executeJavaScript(
-                    "if (window.notifyContextCollection) window.notifyContextCollection();"
-                );
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not notify UI about context collection", e);
+    private void formatCodeResult(StringBuilder formatted, JsonObject result, String type) {
+        String keyword = getJsonString(result, "keyword", "unknown");
+        JsonArray matches = getJsonArray(result, "matches");
+
+        if (matches.size() == 0) return;
+
+        boolean hasFunction = checkHasFunction(matches);
+
+        if (hasFunction || type.equals("function")) {
+            formatFunctionResults(formatted, keyword, matches);
+        } else {
+            formatTextResults(formatted, keyword, matches);
         }
     }
-    
+
     /**
-     * Notifies the UI that context collection is complete.
+     * Checks if matches contain function information
      */
-    private void notifyUIContextComplete() {
-        try {
-            WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null  ) {
-                browserService.executeJavaScript(
-                    "if (window.notifyContextComplete) window.notifyContextComplete();"
-                );
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not notify UI about context completion", e);
+    private boolean checkHasFunction(JsonArray matches) {
+        if (matches.size() > 0) {
+            JsonObject firstMatch = getJsonObject(matches, 0);
+            return firstMatch != null && firstMatch.has("functions");
+        }
+        return false;
+    }
+
+    /**
+     * Formats function results
+     */
+    private void formatFunctionResults(StringBuilder formatted, String keyword, JsonArray matches) {
+        formatted.append("\n### Functions matching '").append(keyword).append("':\n");
+
+        int funcCount = 0;
+        for (int j = 0; j < matches.size() && funcCount < MAX_FUNCTIONS_PER_KEYWORD; j++) {
+            JsonObject fileMatch = getJsonObject(matches, j);
+            if (fileMatch == null) continue;
+
+            funcCount = formatFileFunctions(formatted, fileMatch, funcCount);
+        }
+
+        if (matches.size() > funcCount) {
+            formatted.append("... and ").append(matches.size() - funcCount).append(" more occurrences\n");
         }
     }
-    
+
     /**
-     * Notifies the UI that context collection had an error.
+     * Formats functions from a file match
      */
-    private void notifyUIContextError() {
+    private int formatFileFunctions(StringBuilder formatted, JsonObject fileMatch, int currentCount) {
+        String filePath = getJsonString(fileMatch, "file", "unknown");
+        JsonArray functions = getJsonArray(fileMatch, "functions");
+
+        int funcCount = currentCount;
+        for (int k = 0; k < functions.size() && funcCount < MAX_FUNCTIONS_PER_KEYWORD; k++) {
+            JsonObject function = getJsonObject(functions, k);
+            if (function != null) {
+                formatFunction(formatted, function, filePath);
+                funcCount++;
+            }
+        }
+
+        return funcCount;
+    }
+
+    /**
+     * Formats a single function
+     */
+    private void formatFunction(StringBuilder formatted, JsonObject function, String filePath) {
+        String funcName = getJsonString(function, "name", "unknown");
+        int line = getJsonInt(function, "line", 0);
+
+        formatted.append("\nFile: `").append(filePath).append("` (line ").append(line).append(")\n");
+
+        if (function.has("implementation")) {
+            formatImplementation(formatted, function, filePath);
+        } else if (function.has("signature")) {
+            formatSignature(formatted, function);
+        }
+    }
+
+    /**
+     * Formats function implementation
+     */
+    private void formatImplementation(StringBuilder formatted, JsonObject function, String filePath) {
+        String impl = getJsonString(function, "implementation", "");
+        if (impl.isEmpty()) return;
+
+        // Limit implementation length
+        if (impl.length() > MAX_IMPLEMENTATION_LENGTH) {
+            impl = impl.substring(0, MAX_IMPLEMENTATION_LENGTH) + "\n... (truncated)";
+        }
+
+        String lang = detectLanguage(filePath);
+        formatted.append("```").append(lang).append("\n").append(impl).append("\n```\n");
+    }
+
+    /**
+     * Formats function signature
+     */
+    private void formatSignature(StringBuilder formatted, JsonObject function) {
+        String signature = getJsonString(function, "signature", "");
+        if (!signature.isEmpty()) {
+            formatted.append("```javascript\n").append(signature).append("\n```\n");
+        }
+    }
+
+    /**
+     * Formats text match results
+     */
+    private void formatTextResults(StringBuilder formatted, String keyword, JsonArray matches) {
+        formatted.append("\n### Text matches for '").append(keyword).append("':\n");
+        formatted.append("Found in ").append(matches.size()).append(" locations\n");
+
+        if (matches.size() > 0) {
+            JsonObject firstMatch = getJsonObject(matches, 0);
+            if (firstMatch != null) {
+                formatTextMatch(formatted, firstMatch);
+            }
+        }
+    }
+
+    /**
+     * Formats a single text match
+     */
+    private void formatTextMatch(StringBuilder formatted, JsonObject firstMatch) {
+        String filePath = getJsonString(firstMatch, "file", "unknown");
+        JsonArray fileMatches = getJsonArray(firstMatch, "matches");
+
+        if (fileMatches.size() > 0) {
+            JsonObject match = getJsonObject(fileMatches, 0);
+            if (match != null) {
+                formatMatchContext(formatted, match, filePath);
+            }
+        }
+    }
+
+    /**
+     * Formats match context
+     */
+    private void formatMatchContext(StringBuilder formatted, JsonObject match, String filePath) {
+        int line = getJsonInt(match, "line", 0);
+
+        formatted.append("Example from `").append(filePath).append("` (line ").append(line).append(")\n");
+
+        if (match.has("context")) {
+            JsonObject context = match.getAsJsonObject("context");
+            String lang = detectLanguage(filePath);
+
+            formatted.append("```").append(lang).append("\n");
+            formatContextLines(formatted, context);
+            formatted.append("```\n");
+        }
+    }
+
+    /**
+     * Formats context lines (before, current, after)
+     */
+    private void formatContextLines(StringBuilder formatted, JsonObject context) {
+        // Before lines
+        JsonArray before = getJsonArray(context, "before");
+        for (int j = 0; j < before.size(); j++) {
+            formatted.append(getJsonString(before.get(j), "")).append("\n");
+        }
+
+        // Current line
+        String current = getJsonString(context, "current", "");
+        if (!current.isEmpty()) {
+            formatted.append(">>> ").append(current).append("\n");
+        }
+
+        // After lines
+        JsonArray after = getJsonArray(context, "after");
+        for (int j = 0; j < after.size(); j++) {
+            formatted.append(getJsonString(after.get(j), "")).append("\n");
+        }
+    }
+
+    /**
+     * Detects programming language from file extension
+     */
+    private String detectLanguage(String filePath) {
+        if (filePath == null) return "";
+
+        String lowerPath = filePath.toLowerCase();
+        if (lowerPath.endsWith(".java")) return "java";
+        if (lowerPath.endsWith(".py")) return "python";
+        if (lowerPath.endsWith(".js")) return "javascript";
+        if (lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx")) return "typescript";
+        if (lowerPath.endsWith(".cpp") || lowerPath.endsWith(".cc")) return "cpp";
+        if (lowerPath.endsWith(".c")) return "c";
+        if (lowerPath.endsWith(".cs")) return "csharp";
+        if (lowerPath.endsWith(".go")) return "go";
+        if (lowerPath.endsWith(".rb")) return "ruby";
+        if (lowerPath.endsWith(".php")) return "php";
+        if (lowerPath.endsWith(".swift")) return "swift";
+        if (lowerPath.endsWith(".kt")) return "kotlin";
+        if (lowerPath.endsWith(".rs")) return "rust";
+
+        return "";
+    }
+
+    /**
+     * UI notification types
+     */
+    private enum UINotificationType {
+        CONTEXT_COLLECTION_STARTED("notifyContextCollection"),
+        CONTEXT_COLLECTION_COMPLETED("notifyContextComplete"),
+        CONTEXT_COLLECTION_ERROR("notifyContextError");
+
+        private final String functionName;
+
+        UINotificationType(String functionName) {
+            this.functionName = functionName;
+        }
+    }
+
+    /**
+     * Notifies the UI about various events
+     */
+    private void notifyUI(UINotificationType type) {
+        if (project.isDisposed()) {
+            LOG.warn("Cannot notify UI - project is disposed");
+            return;
+        }
+
         try {
             WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null ) {
-                browserService. executeJavaScript(
-                    "if (window.notifyContextError) window.notifyContextError();"
+            if (browserService != null) {
+                String script = String.format(
+                        "if (window.%s) window.%s();",
+                        type.functionName,
+                        type.functionName
                 );
+                browserService.executeJavaScript(script);
             }
         } catch (Exception e) {
-            LOG.warn("Could not notify UI about context error", e);
+            LOG.warn("Could not notify UI about " + type.name(), e);
+        }
+    }
+
+    /**
+     * Safe JSON helper methods
+     */
+    private JsonArray getJsonArray(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key)) return new JsonArray();
+        try {
+            JsonElement element = obj.get(key);
+            return element.isJsonArray() ? element.getAsJsonArray() : new JsonArray();
+        } catch (Exception e) {
+            LOG.warn("Error getting JSON array for key: " + key, e);
+            return new JsonArray();
+        }
+    }
+
+    private JsonObject getJsonObject(JsonArray array, int index) {
+        if (array == null || index < 0 || index >= array.size()) return null;
+        try {
+            JsonElement element = array.get(index);
+            return element.isJsonObject() ? element.getAsJsonObject() : null;
+        } catch (Exception e) {
+            LOG.warn("Error getting JSON object at index: " + index, e);
+            return null;
+        }
+    }
+
+    private String getJsonString(JsonObject obj, String key, String defaultValue) {
+        if (obj == null || !obj.has(key)) return defaultValue;
+        try {
+            JsonElement element = obj.get(key);
+            return element.isJsonPrimitive() ? element.getAsString() : defaultValue;
+        } catch (Exception e) {
+            LOG.warn("Error getting JSON string for key: " + key, e);
+            return defaultValue;
+        }
+    }
+
+    private String getJsonString(JsonElement element, String defaultValue) {
+        if (element == null) return defaultValue;
+        try {
+            return element.isJsonPrimitive() ? element.getAsString() : defaultValue;
+        } catch (Exception e) {
+            LOG.warn("Error getting JSON string from element", e);
+            return defaultValue;
+        }
+    }
+
+    private int getJsonInt(JsonObject obj, String key, int defaultValue) {
+        if (obj == null || !obj.has(key)) return defaultValue;
+        try {
+            JsonElement element = obj.get(key);
+            return element.isJsonPrimitive() ? element.getAsInt() : defaultValue;
+        } catch (Exception e) {
+            LOG.warn("Error getting JSON int for key: " + key, e);
+            return defaultValue;
         }
     }
 
@@ -398,7 +676,11 @@ public class OpenWebUIAgentModePromptBuilder {
      */
     public void dispose() {
         if (contextEnhancer != null) {
-            contextEnhancer.dispose();
+            try {
+                contextEnhancer.dispose();
+            } catch (Exception e) {
+                LOG.error("Error disposing context enhancer", e);
+            }
         }
     }
 
@@ -464,7 +746,6 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("- ONLY call ONE tool per message\n\n");
         prompt.append("- ASK and EXPLAIN before using tools\n\n");
 
-
         prompt.append("## COMMON TOOL USAGE PITFALLS TO AVOID\n");
         prompt.append("- DON'T modify code without first reading and understanding it\n");
         prompt.append("- DON'T assume the structure or content of files you haven't examined\n");
@@ -482,5 +763,4 @@ public class OpenWebUIAgentModePromptBuilder {
 
         prompt.append("Learn and adapt to the specific tools provided by examining their documentation.\n\n");
     }
-
 }

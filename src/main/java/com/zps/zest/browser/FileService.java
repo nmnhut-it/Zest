@@ -8,6 +8,7 @@ import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -27,6 +28,11 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.ReplaceInFileTool;
+import com.zps.zest.browser.utils.StringMatchingUtils;
+import com.zps.zest.browser.utils.CodeExtractionUtils;
+import com.zps.zest.browser.utils.FunctionExtractionUtils;
+import com.zps.zest.browser.utils.JavaMethodUtils;
+import com.zps.zest.browser.utils.JavaScriptPatterns;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -44,16 +50,16 @@ import java.util.stream.Collectors;
  * This includes file replacement operations and batch processing.
  * PRESERVES ORIGINAL IMPLEMENTATIONS from JavaScriptBridge.
  */
-public class FileService {
+public class FileService implements Disposable {
     private static final Logger LOG = Logger.getInstance(FileService.class);
-    
+
     private final Project project;
     private final Gson gson = new Gson();
-    
+
     public FileService(@NotNull Project project) {
         this.project = project;
     }
-    
+
     /**
      * Handles replace in file requests.
      */
@@ -64,12 +70,12 @@ public class FileService {
             String replaceText = data.get("replace").getAsString();
             boolean useRegex = data.has("regex") && data.get("regex").getAsBoolean();
             boolean caseSensitive = !data.has("caseSensitive") || data.get("caseSensitive").getAsBoolean();
-            
+
             // Run async - don't wait for result
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 handleReplaceInFileInternal(filePath, searchText, replaceText, useRegex, caseSensitive);
             });
-            
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             return gson.toJson(response);
@@ -81,7 +87,7 @@ public class FileService {
             return gson.toJson(response);
         }
     }
-    
+
     /**
      * Handles batch replace in file requests.
      */
@@ -89,12 +95,12 @@ public class FileService {
         try {
             String batchFilePath = data.get("filePath").getAsString();
             JsonArray replacements = data.getAsJsonArray("replacements");
-            
+
             // Run async - don't wait for result
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 handleBatchReplaceInFileInternal(batchFilePath, replacements);
             });
-            
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             return gson.toJson(response);
@@ -106,7 +112,7 @@ public class FileService {
             return gson.toJson(response);
         }
     }
-    
+
     /**
      * Handles replace in file requests from JavaScript by delegating to the ReplaceInFileTool
      * This method is now asynchronous and doesn't block the UI.
@@ -148,7 +154,7 @@ public class FileService {
             return false;
         }
     }
-    
+
     /**
      * Handles batch replace in file requests from JavaScript by delegating to the ReplaceInFileTool multiple times
      * This method is now fully asynchronous and doesn't block the UI.
@@ -281,7 +287,7 @@ public class FileService {
             return false;
         }
     }
-    
+
     /**
      * Lists files in a directory recursively for the Research Agent
      */
@@ -289,20 +295,20 @@ public class FileService {
         return ReadAction.compute(() -> {
             try {
                 String path = data.has("path") ? data.get("path").getAsString() : "/";
-                JsonArray excludePatterns = data.has("excludePatterns") ? 
-                    data.getAsJsonArray("excludePatterns") : new JsonArray();
-                JsonArray extensions = data.has("extensions") ? 
-                    data.getAsJsonArray("extensions") : null;
+                JsonArray excludePatterns = data.has("excludePatterns") ?
+                        data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ?
+                        data.getAsJsonArray("extensions") : null;
                 int maxDepth = data.has("maxDepth") ? data.get("maxDepth").getAsInt() : 5;
-                
+
                 VirtualFile baseDir = getProjectFile(path);
                 if (baseDir == null || !baseDir.isDirectory()) {
                     return createErrorResponse("Directory not found: " + path);
                 }
-                
+
                 Set<String> excludeSet = new HashSet<>();
                 excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
-                
+
                 Set<String> extensionSet;
                 if (extensions != null) {
                     extensionSet = new HashSet<>();
@@ -313,19 +319,19 @@ public class FileService {
 
                 JsonArray files = new JsonArray();
                 collectFiles(baseDir, project.getBasePath(), files, excludeSet, extensionSet, 0, maxDepth);
-                
+
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.add("files", files);
                 return gson.toJson(response);
-                
+
             } catch (Exception e) {
                 LOG.error("Error listing files", e);
                 return createErrorResponse(e.getMessage());
             }
         });
     }
-    
+ 
     /**
      * Reads a file's content
      */
@@ -334,34 +340,34 @@ public class FileService {
             try {
                 String path = data.get("path").getAsString();
                 String encoding = data.has("encoding") ? data.get("encoding").getAsString() : "UTF-8";
-                
+
                 VirtualFile file = getProjectFile(path);
                 if (file == null || file.isDirectory()) {
                     return createErrorResponse("File not found: " + path);
                 }
-                
+
                 // Check file size
                 if (file.getLength() > MAX_FILE_SIZE) {
                     return createErrorResponse("File too large: " + file.getLength() + " bytes");
                 }
-                
+
                 String content = new String(file.contentsToByteArray(), encoding);
-                
+
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.addProperty("content", content);
                 response.addProperty("path", path);
                 return gson.toJson(response);
-                
+
             } catch (Exception e) {
                 LOG.error("Error reading file", e);
                 return createErrorResponse(e.getMessage());
             }
         });
     }
-    
+
     /**
-     * Searches for text in files
+     * Searches for text in files with support for case-insensitive matching across naming conventions
      */
     public String searchInFiles(JsonObject data) {
         return ReadAction.compute(() -> {
@@ -373,20 +379,20 @@ public class FileService {
                 boolean regex = data.has("regex") && data.get("regex").getAsBoolean();
                 int contextLines = data.has("contextLines") ? data.get("contextLines").getAsInt() : 2;
                 int maxResults = data.has("maxResults") ? data.get("maxResults").getAsInt() : 1000;
-                
-                JsonArray excludePatterns = data.has("excludePatterns") ? 
-                    data.getAsJsonArray("excludePatterns") : new JsonArray();
-                JsonArray extensions = data.has("extensions") ? 
-                    data.getAsJsonArray("extensions") : null;
-                
+
+                JsonArray excludePatterns = data.has("excludePatterns") ?
+                        data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ?
+                        data.getAsJsonArray("extensions") : null;
+
                 VirtualFile baseDir = getProjectFile(path);
                 if (baseDir == null || !baseDir.isDirectory()) {
                     return createErrorResponse("Directory not found: " + path);
                 }
-                
+
                 Set<String> excludeSet = new HashSet<>();
                 excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
-                
+
                 Set<String> extensionSet;
                 if (extensions != null) {
                     extensionSet = new HashSet<>();
@@ -395,74 +401,78 @@ public class FileService {
                     extensionSet = null;
                 }
 
-                // Build search pattern
+                // Build search pattern with support for naming conventions
                 Pattern searchPattern;
                 if (regex) {
                     searchPattern = Pattern.compile(searchText, caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
+                } else if (!caseSensitive) {
+                    // Use cross-naming pattern for case-insensitive search
+                    searchPattern = StringMatchingUtils.createCrossNamingPattern(searchText, false);
                 } else {
                     String escapedText = Pattern.quote(searchText);
                     if (wholeWord) {
                         escapedText = "\\b" + escapedText + "\\b";
                     }
-                    searchPattern = Pattern.compile(escapedText, caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
+                    searchPattern = Pattern.compile(escapedText);
                 }
-                
+
                 JsonArray results = new JsonArray();
                 int[] totalMatches = {0};
-                searchInDirectory(baseDir, project.getBasePath(), searchPattern, results, 
-                    excludeSet, extensionSet, contextLines, maxResults, totalMatches);
-                
+                searchInDirectory(baseDir, project.getBasePath(), searchPattern, results,
+                        excludeSet, extensionSet, contextLines, maxResults, totalMatches);
+
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.addProperty("totalMatches", totalMatches[0]);
                 response.add("results", results);
                 return gson.toJson(response);
-                
+
             } catch (Exception e) {
                 LOG.error("Error searching in files", e);
                 return createErrorResponse(e.getMessage());
             }
         });
     }
-    
+
     /**
-     * Finds JavaScript functions in files
+     * Finds JavaScript functions in files with support for case-insensitive matching across naming conventions
      */
     public String findFunctions(JsonObject data) {
         return ReadAction.compute(() -> {
             try {
                 String functionName = data.has("functionName") ? data.get("functionName").getAsString() : null;
                 String path = data.has("path") ? data.get("path").getAsString() : "/";
-                
+                boolean caseSensitive = data.has("caseSensitive") && data.get("caseSensitive").getAsBoolean();
+
                 VirtualFile baseDir = getProjectFile(path);
                 if (baseDir == null || !baseDir.isDirectory()) {
                     return createErrorResponse("Directory not found: " + path);
                 }
-                
-                JsonArray excludePatterns = data.has("excludePatterns") ? 
-                    data.getAsJsonArray("excludePatterns") : new JsonArray();
+
+                JsonArray excludePatterns = data.has("excludePatterns") ?
+                        data.getAsJsonArray("excludePatterns") : new JsonArray();
                 Set<String> excludeSet = new HashSet<>();
                 excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
-                
+
                 // JavaScript file extensions
-                Set<String> jsExtensions = Set.of(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs");
-                
+                Set<String> jsExtensions = Set.of(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".java");
+
                 JsonArray results = new JsonArray();
-                findFunctionsInDirectory(baseDir, project.getBasePath(), functionName, 
-                    results, excludeSet, jsExtensions);
-                
+                findFunctionsInDirectory(baseDir, project.getBasePath(), functionName,
+                        results, excludeSet, jsExtensions, caseSensitive);
+
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.add("results", results);
                 return gson.toJson(response);
-                
+
             } catch (Exception e) {
                 LOG.error("Error finding functions", e);
                 return createErrorResponse(e.getMessage());
             }
         });
     }
-    
+
     /**
      * Gets directory tree structure
      */
@@ -471,20 +481,20 @@ public class FileService {
             try {
                 String path = data.has("path") ? data.get("path").getAsString() : "/";
                 int maxDepth = data.has("maxDepth") ? data.get("maxDepth").getAsInt() : 3;
-                
-                JsonArray excludePatterns = data.has("excludePatterns") ? 
-                    data.getAsJsonArray("excludePatterns") : new JsonArray();
-                JsonArray extensions = data.has("extensions") ? 
-                    data.getAsJsonArray("extensions") : null;
-                
+
+                JsonArray excludePatterns = data.has("excludePatterns") ?
+                        data.getAsJsonArray("excludePatterns") : new JsonArray();
+                JsonArray extensions = data.has("extensions") ?
+                        data.getAsJsonArray("extensions") : null;
+
                 VirtualFile baseDir = getProjectFile(path);
                 if (baseDir == null) {
                     return createErrorResponse("Directory not found: " + path);
                 }
-                
+
                 Set<String> excludeSet = new HashSet<>();
                 excludePatterns.forEach(e -> excludeSet.add(e.getAsString()));
-                
+
                 Set<String> extensionSet;
                 if (extensions != null) {
                     extensionSet = new HashSet<>();
@@ -494,341 +504,253 @@ public class FileService {
                 }
 
                 JsonObject tree = buildDirectoryTree(baseDir, excludeSet, extensionSet, 0, maxDepth);
-                
+
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.add("tree", tree);
                 return gson.toJson(response);
-                
+
             } catch (Exception e) {
                 LOG.error("Error getting directory tree", e);
                 return createErrorResponse(e.getMessage());
             }
         });
     }
-    
+
     // Helper methods
-    
+
     private VirtualFile getProjectFile(String path) {
         if (path.equals("/") || path.isEmpty()) {
             return project.getBaseDir();
         }
-        
+
         VirtualFile projectBase = project.getBaseDir();
         if (projectBase == null) return null;
-        
+
         // Remove leading slash if present
         if (path.startsWith("/")) {
             path = path.substring(1);
         }
-        
+
         return projectBase.findFileByRelativePath(path);
     }
-    
-    private void collectFiles(VirtualFile dir, String projectBase, JsonArray results, 
-                            Set<String> excludePatterns, Set<String> extensions, 
-                            int currentDepth, int maxDepth) {
+
+    private void collectFiles(VirtualFile dir, String projectBase, JsonArray results,
+                              Set<String> excludePatterns, Set<String> extensions,
+                              int currentDepth, int maxDepth) {
         if (currentDepth > maxDepth) return;
-        
+
         for (VirtualFile child : dir.getChildren()) {
             String relativePath = getRelativePath(child, projectBase);
-            
+
             // Check exclusions
             if (shouldExclude(relativePath, excludePatterns)) continue;
-            
+
             JsonObject fileInfo = new JsonObject();
             fileInfo.addProperty("path", relativePath);
             fileInfo.addProperty("name", child.getName());
             fileInfo.addProperty("type", child.isDirectory() ? "directory" : "file");
-            
+
             if (child.isDirectory()) {
                 results.add(fileInfo);
-                collectFiles(child, projectBase, results, excludePatterns, extensions, 
-                    currentDepth + 1, maxDepth);
+                collectFiles(child, projectBase, results, excludePatterns, extensions,
+                        currentDepth + 1, maxDepth);
             } else if (extensions == null || hasValidExtension(child.getName(), extensions)) {
                 results.add(fileInfo);
             }
         }
     }
-    
+
     private void searchInDirectory(VirtualFile dir, String projectBase, Pattern searchPattern,
-                                 JsonArray results, Set<String> excludePatterns, 
-                                 Set<String> extensions, int contextLines, int maxResults,
-                                 int[] totalMatches) {
+                                   JsonArray results, Set<String> excludePatterns,
+                                   Set<String> extensions, int contextLines, int maxResults,
+                                   int[] totalMatches) {
         if (totalMatches[0] >= maxResults) return;
-        
+
         for (VirtualFile child : dir.getChildren()) {
             if (totalMatches[0] >= maxResults) return;
-            
+
             String relativePath = getRelativePath(child, projectBase);
             if (shouldExclude(relativePath, excludePatterns)) continue;
-            
+
             if (child.isDirectory()) {
                 searchInDirectory(child, projectBase, searchPattern, results, excludePatterns,
-                    extensions, contextLines, maxResults, totalMatches);
+                        extensions, contextLines, maxResults, totalMatches);
             } else if (extensions == null || hasValidExtension(child.getName(), extensions)) {
-                searchInFile(child, relativePath, searchPattern, results, contextLines, 
-                    maxResults, totalMatches);
+                searchInFile(child, relativePath, searchPattern, results, contextLines,
+                        maxResults, totalMatches);
             }
         }
     }
-    
+
     private void searchInFile(VirtualFile file, String relativePath, Pattern searchPattern,
-                            JsonArray results, int contextLines, int maxResults, int[] totalMatches) {
+                              JsonArray results, int contextLines, int maxResults, int[] totalMatches) {
         try {
             if (file.getLength() > MAX_FILE_SIZE) return;
-            
+
             String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
             String[] lines = content.split("\n");
-            
+
             JsonArray matches = new JsonArray();
-            
+
             // Determine if this is a code file that might benefit from more context
-            boolean isCodeFile = relativePath.endsWith(".java") || relativePath.endsWith(".js") || 
-                                relativePath.endsWith(".ts") || relativePath.endsWith(".jsx") || 
-                                relativePath.endsWith(".tsx") || relativePath.endsWith(".py") ||
-                                relativePath.endsWith(".cpp") || relativePath.endsWith(".c") ||
-                                relativePath.endsWith(".cs") || relativePath.endsWith(".go");
-            
+            boolean isCodeFile = relativePath.endsWith(".java") || relativePath.endsWith(".js") ||
+                    relativePath.endsWith(".ts") || relativePath.endsWith(".jsx") ||
+                    relativePath.endsWith(".tsx") || relativePath.endsWith(".py") ||
+                    relativePath.endsWith(".cpp") || relativePath.endsWith(".c") ||
+                    relativePath.endsWith(".cs") || relativePath.endsWith(".go");
+
             // Use more context lines for code files
             int effectiveContextLines = isCodeFile ? Math.max(contextLines, 5) : contextLines;
-            
+
             for (int i = 0; i < lines.length; i++) {
                 if (totalMatches[0] >= maxResults) break;
-                
+
                 Matcher matcher = searchPattern.matcher(lines[i]);
                 if (matcher.find()) {
                     totalMatches[0]++;
-                    
+
                     JsonObject match = new JsonObject();
                     match.addProperty("line", i + 1);
                     match.addProperty("column", matcher.start() + 1);
                     match.addProperty("text", lines[i].trim());
-                    
+
                     // Add context
                     JsonObject context = new JsonObject();
                     JsonArray before = new JsonArray();
                     JsonArray after = new JsonArray();
-                    
+
                     for (int j = Math.max(0, i - effectiveContextLines); j < i; j++) {
                         before.add(lines[j]);
                     }
                     for (int j = i + 1; j < Math.min(lines.length, i + effectiveContextLines + 1); j++) {
                         after.add(lines[j]);
                     }
-                    
+
                     context.add("before", before);
                     context.addProperty("current", lines[i]);
                     context.add("after", after);
                     match.add("context", context);
-                    
+
                     matches.add(match);
                 }
             }
-            
+
             if (matches.size() > 0) {
                 JsonObject fileResult = new JsonObject();
                 fileResult.addProperty("file", relativePath);
                 fileResult.add("matches", matches);
                 results.add(fileResult);
             }
-            
+
         } catch (Exception e) {
             LOG.warn("Error searching in file: " + relativePath, e);
         }
     }
-    
+
     private void findFunctionsInDirectory(VirtualFile dir, String projectBase, String functionName,
-                                        JsonArray results, Set<String> excludePatterns,
-                                        Set<String> extensions) {
+                                          JsonArray results, Set<String> excludePatterns,
+                                          Set<String> extensions, boolean caseSensitive) {
         for (VirtualFile child : dir.getChildren()) {
             String relativePath = getRelativePath(child, projectBase);
             if (shouldExclude(relativePath, excludePatterns)) continue;
-            
+
             if (child.isDirectory()) {
-                findFunctionsInDirectory(child, projectBase, functionName, results, 
-                    excludePatterns, extensions);
+                findFunctionsInDirectory(child, projectBase, functionName, results,
+                        excludePatterns, extensions, caseSensitive);
             } else if (hasValidExtension(child.getName(), extensions)) {
-                findFunctionsInFile(child, relativePath, functionName, results);
+                findFunctionsInFile(child, relativePath, functionName, results, caseSensitive);
             }
         }
     }
-    
+
     private void findFunctionsInFile(VirtualFile file, String relativePath, String targetName,
-                                   JsonArray results) {
+                                     JsonArray results, boolean caseSensitive) {
         try {
             if (file.getLength() > MAX_FILE_SIZE) return;
-            
+
             // Check if it's a Java file and use PSI if available
             if (file.getName().endsWith(".java")) {
-                findFunctionsInJavaFile(file, relativePath, targetName, results);
+                JavaMethodUtils.findFunctionsInJavaFile(project, file, relativePath, targetName, results, caseSensitive);
                 return;
             }
-            
+
             String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
-            
+
             // Comprehensive function patterns for JavaScript/TypeScript
-            List<Pattern> patterns = Arrays.asList(
-                // Traditional function declarations
-                Pattern.compile("function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"),
-                Pattern.compile("async\\s+function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"),
-                Pattern.compile("function\\s*\\*\\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"), // generator
-                Pattern.compile("async\\s+function\\s*\\*\\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"), // async generator
-                
-                // Variable assignments with function expressions
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function\\s*\\([^)]*\\)"),
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*async\\s+function\\s*\\([^)]*\\)"),
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function\\s*\\*\\s*\\([^)]*\\)"),
-                
-                // Arrow functions
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*async\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*[a-zA-Z_$][a-zA-Z0-9_$]*\\s*=>"), // single param
-                Pattern.compile("(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*async\\s+[a-zA-Z_$][a-zA-Z0-9_$]*\\s*=>"),
-                
-                // Object methods (ES6 shorthand)
-                Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
-                Pattern.compile("async\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
-                Pattern.compile("\\*\\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"), // generator method
-                
-                // Object property functions
-                Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*function\\s*\\([^)]*\\)"),
-                Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*async\\s+function\\s*\\([^)]*\\)"),
-                Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*async\\s*\\([^)]*\\)\\s*=>"),
-                
-                // Class methods
-                Pattern.compile("(?:static\\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
-                Pattern.compile("(?:static\\s+)?async\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
-                Pattern.compile("(?:static\\s+)?\\*\\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{"),
-                Pattern.compile("(?:get|set)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"), // getters/setters
-                
-                // Constructor
-                Pattern.compile("(constructor)\\s*\\([^)]*\\)\\s*\\{"),
-                
-                // Exports
-                Pattern.compile("export\\s+(?:default\\s+)?function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)"),
-                Pattern.compile("export\\s+(?:default\\s+)?async\\s+function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)"),
-                Pattern.compile("export\\s+(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("export\\s+(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*async\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("export\\s+(?:const|let|var)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function"),
-                
-                // Module exports
-                Pattern.compile("module\\.exports\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function"),
-                Pattern.compile("module\\.exports\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*\\([^)]*\\)\\s*=>"),
-                Pattern.compile("exports\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function"),
-                Pattern.compile("exports\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*\\([^)]*\\)\\s*=>"),
-                
-                // IIFE (Immediately Invoked Function Expression) - special handling
-                Pattern.compile("\\(function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"),
-                
-                // Object.defineProperty functions
-                Pattern.compile("(?:value|get|set)\\s*:\\s*function\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)"),
-                
-                // React/Vue component methods
-                Pattern.compile("(?:componentDidMount|componentWillUnmount|render|mounted|created|beforeDestroy)\\s*\\([^)]*\\)"),
-                
-                // TypeScript specific
-                Pattern.compile("(?:public|private|protected)\\s+(?:static\\s+)?(?:async\\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)"),
-                Pattern.compile("(?:readonly\\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*\\([^)]*\\)\\s*=>"),
-                
-                // jQuery style
-                Pattern.compile("\\$\\.fn\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function"),
-                Pattern.compile("jQuery\\.fn\\.([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*function")
-            );
-            
+            List<Pattern> patterns = JavaScriptPatterns.getPatterns();
+
             JsonArray functions = new JsonArray();
             Set<String> foundFunctions = new HashSet<>();
-            String[] lines = content.split("\n");
-            
+
             // First, look for Cocos2d-x class definitions and extract their methods
-            findCocosClassMethods(content, functions, foundFunctions, targetName);
-            
+            FunctionExtractionUtils.findCocosClassMethods(content, functions, foundFunctions, targetName, caseSensitive);
+
             // Then look for regular function patterns
             for (Pattern pattern : patterns) {
                 Matcher matcher = pattern.matcher(content);
                 while (matcher.find()) {
                     String funcName = matcher.group(1);
-                    
+
                     // Skip if already found
                     String uniqueKey = funcName + "_" + matcher.start();
                     if (foundFunctions.contains(uniqueKey)) continue;
                     foundFunctions.add(uniqueKey);
-                    
-                    if (targetName == null || funcName.equals(targetName)) {
+
+                    // Check if name matches using cross-naming convention support
+                    if (targetName == null || StringMatchingUtils.matchesAcrossNamingConventions(funcName, targetName, caseSensitive)) {
                         int position = matcher.start();
-                        int lineNumber = getLineNumber(content, position);
-                        
+                        int lineNumber = CodeExtractionUtils.getLineNumber(content, position);
+
                         JsonObject func = new JsonObject();
                         func.addProperty("name", funcName);
                         func.addProperty("line", lineNumber);
-                        
+
                         // Extract full function implementation
-                        String implementation = extractFullFunctionImplementation(content, position);
+                        String implementation = FunctionExtractionUtils.extractFullFunctionImplementation(content, position);
                         func.addProperty("implementation", implementation);
-                        func.addProperty("signature", extractSignature(content, position));
-                        func.addProperty("type", detectFunctionType(matcher.group(0)));
+                        func.addProperty("signature", FunctionExtractionUtils.extractSignature(content, position));
+                        func.addProperty("type", CodeExtractionUtils.detectFunctionType(matcher.group(0)));
                         functions.add(func);
                     }
                 }
             }
-            
+
             // Also look for anonymous functions if no specific name is requested
             if (targetName == null) {
                 findAnonymousFunctions(content, functions, foundFunctions);
             }
-            
+
             if (functions.size() > 0) {
                 JsonObject fileResult = new JsonObject();
                 fileResult.addProperty("file", relativePath);
                 fileResult.add("functions", functions);
                 results.add(fileResult);
             }
-            
+
         } catch (Exception e) {
             LOG.warn("Error finding functions in file: " + relativePath, e);
         }
     }
-    
+
     private void findAnonymousFunctions(String content, JsonArray functions, Set<String> foundFunctions) {
-        // Pattern for anonymous functions that might be interesting
-        List<Pattern> anonymousPatterns = Arrays.asList(
-            // Callbacks
-            Pattern.compile("\\b(?:then|catch|finally|map|filter|reduce|forEach|find|some|every)\\s*\\(\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)"),
-            Pattern.compile("\\b(?:setTimeout|setInterval|requestAnimationFrame)\\s*\\(\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)"),
-            Pattern.compile("\\b(?:addEventListener|on[A-Z][a-zA-Z]*)\\s*\\(\\s*['\"][^'\"]+['\"]\\s*,\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)"),
-            
-            // Promise executors
-            Pattern.compile("new\\s+Promise\\s*\\(\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)"),
-            
-            // Array methods with anonymous functions
-            Pattern.compile("\\.(?:map|filter|reduce|forEach|find|some|every)\\s*\\(\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>"),
-            
-            // Event handlers
-            Pattern.compile("\\bon[A-Z][a-zA-Z]*\\s*=\\s*(?:async\\s*)?(?:function\\s*)?\\([^)]*\\)"),
-            
-            // Module patterns
-            Pattern.compile("\\(\\s*(?:async\\s*)?function\\s*\\([^)]*\\)\\s*\\{[^}]+\\}\\s*\\)\\s*\\("), // IIFE
-            
-            // React hooks
-            Pattern.compile("use(?:Effect|Callback|Memo|LayoutEffect)\\s*\\(\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>")
-        );
-        
+        List<Pattern> anonymousPatterns = JavaScriptPatterns.getAnonymousPatterns();
+
         int anonymousCount = 1;
         for (Pattern pattern : anonymousPatterns) {
             Matcher matcher = pattern.matcher(content);
             while (matcher.find()) {
                 int position = matcher.start();
                 String uniqueKey = "anonymous_" + position;
-                
+
                 if (!foundFunctions.contains(uniqueKey)) {
                     foundFunctions.add(uniqueKey);
-                    
+
                     JsonObject func = new JsonObject();
                     func.addProperty("name", "<anonymous#" + anonymousCount++ + ">");
-                    func.addProperty("line", getLineNumber(content, position));
-                    func.addProperty("context", extractContext(content, position, 50));
-                    
+                    func.addProperty("line", CodeExtractionUtils.getLineNumber(content, position));
+                    func.addProperty("context", CodeExtractionUtils.extractContext(content, position, 50));
+
                     // Extract full anonymous function implementation
                     String implementation = extractAnonymousFunctionImplementation(content, position);
                     func.addProperty("implementation", implementation);
@@ -838,19 +760,19 @@ public class FileService {
             }
         }
     }
-    
+
     /**
      * Extracts the full implementation of an anonymous function.
      */
     private String extractAnonymousFunctionImplementation(String content, int startPos) {
         // Find where the function actually starts
         int funcStart = startPos;
-        
+
         // Look for function keyword or arrow
         int searchEnd = Math.min(startPos + 200, content.length());
         boolean isArrowFunction = false;
         int bodyStart = -1;
-        
+
         for (int i = startPos; i < searchEnd; i++) {
             if (content.substring(i).startsWith("=>")) {
                 isArrowFunction = true;
@@ -861,288 +783,58 @@ public class FileService {
                 break;
             }
         }
-        
+
         if (bodyStart == -1) {
-            return extractContext(content, startPos, 100);
+            return CodeExtractionUtils.extractContext(content, startPos, 100);
         }
-        
+
         if (isArrowFunction) {
             // Skip whitespace after arrow
             while (bodyStart < content.length() && Character.isWhitespace(content.charAt(bodyStart))) {
                 bodyStart++;
             }
-            
+
             if (bodyStart < content.length() && content.charAt(bodyStart) == '{') {
                 // Arrow function with block body
-                int endBrace = findMatchingBrace(content, bodyStart);
+                int endBrace = CodeExtractionUtils.findMatchingBrace(content, bodyStart);
                 if (endBrace != -1) {
                     return content.substring(funcStart, endBrace + 1);
                 }
             } else {
                 // Arrow function with expression body
-                return extractArrowFunctionExpression(content, bodyStart);
+                return CodeExtractionUtils.extractArrowFunctionExpression(content, bodyStart);
             }
         } else {
             // Regular function with braces
-            int endBrace = findMatchingBrace(content, bodyStart);
+            int endBrace = CodeExtractionUtils.findMatchingBrace(content, bodyStart);
             if (endBrace != -1) {
                 return content.substring(funcStart, endBrace + 1);
             }
         }
-        
-        return extractContext(content, startPos, 200);
+
+        return CodeExtractionUtils.extractContext(content, startPos, 200);
     }
-    
-    private String detectFunctionType(String match) {
-        if (match.contains("=>")) return "arrow";
-        if (match.contains("async")) return "async";
-        if (match.contains("function*") || match.contains("*")) return "generator";
-        if (match.contains("constructor")) return "constructor";
-        if (match.contains("static")) return "static";
-        if (match.contains("get ")) return "getter";
-        if (match.contains("set ")) return "setter";
-        if (match.contains("export")) return "exported";
-        if (match.startsWith("(")) return "anonymous";
-        if (match.contains(":")) return "method";
-        return "function";
+
+    @Override
+    public void dispose() {
+
     }
-    
-    private String extractContext(String content, int position, int contextLength) {
-        int start = Math.max(0, position - contextLength);
-        int end = Math.min(content.length(), position + contextLength);
-        String context = content.substring(start, end).replaceAll("\\s+", " ").trim();
-        if (start > 0) context = "..." + context;
-        if (end < content.length()) context = context + "...";
-        return context;
+
+    // Add these constants at the class level
+    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    private static final Set<String> DEFAULT_EXCLUDE_DIRS = Set.of(
+            ".git", ".idea", ".vscode", "node_modules", "dist", "build",
+            "target", "out", ".gradle", "__pycache__", ".pytest_cache"
+    );
+
+    // Add these methods to the FileService class
+    private String createErrorResponse(String message) {
+        JsonObject response = new JsonObject();
+        response.addProperty("success", false);
+        response.addProperty("error", message);
+        return gson.toJson(response);
     }
-    
-    private void findCocosClassMethods(String content, JsonArray functions, Set<String> foundFunctions, String targetName) {
-        // Pattern to find Cocos2d-x class definitions
-        // Examples:
-        // var MyClass = cc.Class.extend({
-        // cc.Class.extend({
-        // ClassName.extend({
-        Pattern classPattern = Pattern.compile("(?:var\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*)?(?:cc\\.Class|cc\\.Layer|cc\\.Scene|cc\\.Sprite|cc\\.Node|[a-zA-Z_$][a-zA-Z0-9_$]*)\\.extend\\s*\\(\\s*\\{");
-        
-        Matcher classMatcher = classPattern.matcher(content);
-        while (classMatcher.find()) {
-            int classStart = classMatcher.end() - 1; // Position of the opening brace
-            String className = classMatcher.group(1); // May be null for anonymous classes
-            
-            // Find the matching closing brace for the class
-            int classEnd = findMatchingBrace(content, classStart);
-            if (classEnd == -1) continue;
-            
-            String classBody = content.substring(classStart + 1, classEnd);
-            
-            // Find all methods within this class body
-            // Method patterns in Cocos2d-x classes:
-            // methodName: function() {}
-            // methodName: function(param1, param2) {}
-            // methodName:function() {} (no space)
-            // ctor: function() {} (constructor)
-            // onEnter: function() {} (lifecycle methods)
-            Pattern methodPattern = Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*function\\s*\\([^)]*\\)");
-            
-            Matcher methodMatcher = methodPattern.matcher(classBody);
-            while (methodMatcher.find()) {
-                String methodName = methodMatcher.group(1);
-                
-                if (targetName == null || methodName.equals(targetName)) {
-                    int methodPosition = classStart + 1 + methodMatcher.start();
-                    String uniqueKey = methodName + "_" + methodPosition;
-                    
-                    if (!foundFunctions.contains(uniqueKey)) {
-                        foundFunctions.add(uniqueKey);
-                        
-                        JsonObject func = new JsonObject();
-                        func.addProperty("name", methodName);
-                        func.addProperty("line", getLineNumber(content, methodPosition));
-                        func.addProperty("signature", methodName + methodMatcher.group(0).substring(methodName.length()));
-                        func.addProperty("type", "cocos-method");
-                        if (className != null) {
-                            func.addProperty("className", className);
-                        }
-                        
-                        // Add special type annotations for common Cocos2d-x methods
-                        if (methodName.equals("ctor")) {
-                            func.addProperty("type", "cocos-constructor");
-                        } else if (methodName.matches("^(onEnter|onExit|onEnterTransitionDidFinish|onExitTransitionDidStart|init|update|draw|visit)$")) {
-                            func.addProperty("type", "cocos-lifecycle");
-                        }
-                        
-                        functions.add(func);
-                    }
-                }
-            }
-            
-            // Also look for ES6-style methods in Cocos classes (some modern Cocos2d-x code)
-            // methodName() {}
-            // methodName(param) {}
-            Pattern es6MethodPattern = Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\([^)]*\\)\\s*\\{");
-            Matcher es6Matcher = es6MethodPattern.matcher(classBody);
-            
-            while (es6Matcher.find()) {
-                String methodName = es6Matcher.group(1);
-                
-                // Skip if it's actually "function("
-                if (methodName.equals("function")) continue;
-                
-                if (targetName == null || methodName.equals(targetName)) {
-                    int methodPosition = classStart + 1 + es6Matcher.start();
-                    String uniqueKey = methodName + "_es6_" + methodPosition;
-                    
-                    if (!foundFunctions.contains(uniqueKey)) {
-                        foundFunctions.add(uniqueKey);
-                        
-                        JsonObject func = new JsonObject();
-                        func.addProperty("name", methodName);
-                        func.addProperty("line", getLineNumber(content, methodPosition));
-                        func.addProperty("signature", es6Matcher.group(0));
-                        func.addProperty("type", "cocos-method-es6");
-                        if (className != null) {
-                            func.addProperty("className", className);
-                        }
-                        functions.add(func);
-                    }
-                }
-            }
-        }
-        
-        // Also look for Cocos Creator style classes
-        // cc.Class({
-        //     extends: cc.Component,
-        //     properties: { ... },
-        //     methodName: function() {}
-        // })
-        Pattern creatorPattern = Pattern.compile("cc\\.Class\\s*\\(\\s*\\{");
-        Matcher creatorMatcher = creatorPattern.matcher(content);
-        
-        while (creatorMatcher.find()) {
-            int classStart = creatorMatcher.end() - 1;
-            int classEnd = findMatchingBrace(content, classStart);
-            if (classEnd == -1) continue;
-            
-            String classBody = content.substring(classStart + 1, classEnd);
-            
-            // Find methods in Creator-style classes
-            Pattern methodPattern = Pattern.compile("([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*:\\s*function\\s*\\([^)]*\\)");
-            Matcher methodMatcher = methodPattern.matcher(classBody);
-            
-            while (methodMatcher.find()) {
-                String methodName = methodMatcher.group(1);
-                
-                // Skip property definitions
-                if (methodName.equals("properties") || methodName.equals("extends")) continue;
-                
-                if (targetName == null || methodName.equals(targetName)) {
-                    int methodPosition = classStart + 1 + methodMatcher.start();
-                    String uniqueKey = "creator_" + methodName + "_" + methodPosition;
-                    
-                    if (!foundFunctions.contains(uniqueKey)) {
-                        foundFunctions.add(uniqueKey);
-                        
-                        JsonObject func = new JsonObject();
-                        func.addProperty("name", methodName);
-                        func.addProperty("line", getLineNumber(content, methodPosition));
-                        func.addProperty("signature", methodName + methodMatcher.group(0).substring(methodName.length()));
-                        func.addProperty("type", "cocos-creator-method");
-                        functions.add(func);
-                    }
-                }
-            }
-        }
-    }
-    
-    private int findMatchingBrace(String content, int openBracePos) {
-        int braceCount = 1;
-        boolean inString = false;
-        boolean inComment = false;
-        boolean inMultiLineComment = false;
-        char stringChar = 0;
-        
-        for (int i = openBracePos + 1; i < content.length(); i++) {
-            char current = content.charAt(i);
-            char prev = i > 0 ? content.charAt(i - 1) : 0;
-            char next = i < content.length() - 1 ? content.charAt(i + 1) : 0;
-            
-            // Handle multi-line comments
-            if (!inString && !inComment && current == '/' && next == '*') {
-                inMultiLineComment = true;
-                i++; // Skip next char
-                continue;
-            }
-            if (inMultiLineComment && current == '*' && next == '/') {
-                inMultiLineComment = false;
-                i++; // Skip next char
-                continue;
-            }
-            if (inMultiLineComment) continue;
-            
-            // Handle single-line comments
-            if (!inString && current == '/' && next == '/') {
-                inComment = true;
-                continue;
-            }
-            if (inComment && current == '\n') {
-                inComment = false;
-                continue;
-            }
-            if (inComment) continue;
-            
-            // Handle strings
-            if (!inString && (current == '"' || current == '\'' || current == '`')) {
-                inString = true;
-                stringChar = current;
-                continue;
-            }
-            if (inString && current == stringChar && prev != '\\') {
-                inString = false;
-                continue;
-            }
-            if (inString) continue;
-            
-            // Count braces
-            if (current == '{') {
-                braceCount++;
-            } else if (current == '}') {
-                braceCount--;
-                if (braceCount == 0) {
-                    return i;
-                }
-            }
-        }
-        
-        return -1; // No matching brace found
-    }
-    
-    private JsonObject buildDirectoryTree(VirtualFile file, Set<String> excludePatterns,
-                                        Set<String> extensions, int currentDepth, int maxDepth) {
-        JsonObject node = new JsonObject();
-        node.addProperty("name", file.getName());
-        node.addProperty("type", file.isDirectory() ? "directory" : "file");
-        node.addProperty("path", getRelativePath(file, project.getBasePath()));
-        
-        if (file.isDirectory() && currentDepth < maxDepth) {
-            JsonArray children = new JsonArray();
-            
-            for (VirtualFile child : file.getChildren()) {
-                String relativePath = getRelativePath(child, project.getBasePath());
-                if (shouldExclude(relativePath, excludePatterns)) continue;
-                
-                if (child.isDirectory() || extensions == null || 
-                    hasValidExtension(child.getName(), extensions)) {
-                    children.add(buildDirectoryTree(child, excludePatterns, extensions, 
-                        currentDepth + 1, maxDepth));
-                }
-            }
-            
-            node.add("children", children);
-        }
-        
-        return node;
-    }
-    
+
     private String getRelativePath(VirtualFile file, String basePath) {
         String fullPath = file.getPath();
         if (basePath != null && fullPath.startsWith(basePath)) {
@@ -1154,7 +846,7 @@ public class FileService {
         }
         return file.getName();
     }
-    
+
     private boolean shouldExclude(String path, Set<String> excludePatterns) {
         // Check default excludes
         for (String exclude : DEFAULT_EXCLUDE_DIRS) {
@@ -1162,23 +854,23 @@ public class FileService {
                 return true;
             }
         }
-        
+
         // Check custom excludes
         for (String pattern : excludePatterns) {
             if (matchesPattern(path, pattern)) {
                 return true;
             }
         }
-        
+
         return false;
     }
-    
+
     private boolean matchesPattern(String path, String pattern) {
         // Simple glob pattern matching
         String regex = pattern.replace("**", ".*").replace("*", "[^/]*");
         return path.matches(regex);
     }
-    
+
     private boolean hasValidExtension(String filename, Set<String> extensions) {
         String ext = "";
         int lastDot = filename.lastIndexOf('.');
@@ -1187,631 +879,32 @@ public class FileService {
         }
         return extensions.contains(ext);
     }
-    
-    private int getLineNumber(String content, int position) {
-        int line = 1;
-        for (int i = 0; i < position && i < content.length(); i++) {
-            if (content.charAt(i) == '\n') {
-                line++;
-            }
-        }
-        return line;
-    }
-    
-    /**
-     * Extracts the full function implementation starting from a given position.
-     * This method handles various JavaScript/TypeScript function patterns.
-     */
-    private String extractFullFunctionImplementation(String content, int startPos) {
-        // Find the opening brace or arrow
-        int functionStart = startPos;
-        int openBrace = -1;
-        boolean isArrowFunction = false;
-        
-        // Look for the function body start
-        for (int i = startPos; i < content.length(); i++) {
-            char c = content.charAt(i);
-            char nextChar = i < content.length() - 1 ? content.charAt(i + 1) : '\0';
-            
-            // Check for arrow function
-            if (c == '=' && nextChar == '>') {
-                isArrowFunction = true;
-                i++; // Skip the '>'
-                
-                // Skip whitespace after arrow
-                while (i < content.length() - 1 && Character.isWhitespace(content.charAt(i + 1))) {
-                    i++;
-                }
-                
-                // Check if next character is opening brace or direct expression
-                if (i < content.length() - 1 && content.charAt(i + 1) == '{') {
-                    openBrace = i + 1;
-                    break;
-                } else {
-                    // Arrow function with expression body (no braces)
-                    return extractArrowFunctionExpression(content, i + 1);
-                }
-            } else if (c == '{') {
-                openBrace = i;
-                break;
-            }
-        }
-        
-        if (openBrace == -1) {
-            // No function body found, return just the signature
-            return extractSignature(content, startPos);
-        }
-        
-        // Find the matching closing brace
-        int closeBrace = findMatchingBrace(content, openBrace);
-        if (closeBrace == -1) {
-            // Can't find matching brace, return what we have
-            return content.substring(functionStart, Math.min(functionStart + 1000, content.length()));
-        }
-        
-        // Extract the full function including signature and body
-        // Find the actual start of the function declaration
-        int realStart = findFunctionDeclarationStart(content, startPos);
-        
-        return content.substring(realStart, closeBrace + 1);
-    }
-    
-    /**
-     * Finds the actual start of a function declaration by backing up from the match position.
-     */
-    private int findFunctionDeclarationStart(String content, int matchPos) {
-        int start = matchPos;
-        
-        // Back up to find modifiers, export statements, etc.
-        while (start > 0) {
-            int prevStart = start;
-            
-            // Check for various prefixes
-            String[] prefixes = {
-                "export default ", "export ", "static ", "async ", "public ", 
-                "private ", "protected ", "readonly ", "const ", "let ", "var "
-            };
-            
-            boolean foundPrefix = false;
-            for (String prefix : prefixes) {
-                if (start >= prefix.length()) {
-                    String before = content.substring(start - prefix.length(), start);
-                    if (before.equals(prefix)) {
-                        start -= prefix.length();
-                        foundPrefix = true;
-                        break;
-                    }
+
+    private JsonObject buildDirectoryTree(VirtualFile file, Set<String> excludePatterns,
+                                          Set<String> extensions, int currentDepth, int maxDepth) {
+        JsonObject node = new JsonObject();
+        node.addProperty("name", file.getName());
+        node.addProperty("type", file.isDirectory() ? "directory" : "file");
+        node.addProperty("path", getRelativePath(file, project.getBasePath()));
+
+        if (file.isDirectory() && currentDepth < maxDepth) {
+            JsonArray children = new JsonArray();
+
+            for (VirtualFile child : file.getChildren()) {
+                String relativePath = getRelativePath(child, project.getBasePath());
+                if (shouldExclude(relativePath, excludePatterns)) continue;
+
+                if (child.isDirectory() || extensions == null ||
+                        hasValidExtension(child.getName(), extensions)) {
+                    children.add(buildDirectoryTree(child, excludePatterns, extensions,
+                            currentDepth + 1, maxDepth));
                 }
             }
-            
-            if (!foundPrefix) {
-                // Check if we're at the start of a line (after whitespace)
-                int lineStart = start;
-                while (lineStart > 0 && content.charAt(lineStart - 1) != '\n') {
-                    if (!Character.isWhitespace(content.charAt(lineStart - 1))) {
-                        return start; // Found non-whitespace, this is the start
-                    }
-                    lineStart--;
-                }
-                return lineStart == 0 ? 0 : lineStart;
-            }
-            
-            // Skip whitespace before the prefix
-            while (start > 0 && Character.isWhitespace(content.charAt(start - 1))) {
-                start--;
-                if (content.charAt(start) == '\n') {
-                    return start + 1; // Start of line
-                }
-            }
-            
-            if (start == prevStart) {
-                break; // No more prefixes found
-            }
-        }
-        
-        return start;
-    }
-    
-    /**
-     * Extracts an arrow function expression body (for arrow functions without braces).
-     */
-    private String extractArrowFunctionExpression(String content, int exprStart) {
-        // Find the end of the expression (semicolon, comma, closing paren/bracket, or newline followed by dedent)
-        int end = exprStart;
-        int parenCount = 0;
-        int braceCount = 0;
-        int bracketCount = 0;
-        boolean inString = false;
-        boolean inTemplate = false;
-        char stringChar = '\0';
-        
-        while (end < content.length()) {
-            char c = content.charAt(end);
-            char prev = end > 0 ? content.charAt(end - 1) : '\0';
-            
-            // Handle strings
-            if (!inString && !inTemplate && (c == '"' || c == '\'')) {
-                inString = true;
-                stringChar = c;
-            } else if (inString && c == stringChar && prev != '\\') {
-                inString = false;
-            } else if (!inString && c == '`') {
-                inTemplate = !inTemplate;
-            }
-            
-            if (!inString && !inTemplate) {
-                // Track nesting
-                if (c == '(') parenCount++;
-                else if (c == ')') parenCount--;
-                else if (c == '{') braceCount++;
-                else if (c == '}') braceCount--;
-                else if (c == '[') bracketCount++;
-                else if (c == ']') bracketCount--;
-                
-                // Check for expression end
-                if (parenCount == 0 && braceCount == 0 && bracketCount == 0) {
-                    if (c == ';' || c == ',' || c == '\n') {
-                        break;
-                    }
-                    // Also check for end of object property (next property or closing brace)
-                    if (end + 1 < content.length()) {
-                        char next = content.charAt(end + 1);
-                        if ((c == '\n' && (next == '}' || next == ',' || !Character.isWhitespace(next))) ||
-                            (c == ' ' && next == '}')) {
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            end++;
-        }
-        
-        // Back up from the match position to find the full arrow function
-        int realStart = exprStart;
-        while (realStart > 0 && content.charAt(realStart - 1) != '\n') {
-            realStart--;
-            if (content.substring(realStart, exprStart).contains("=>")) {
-                break;
-            }
-        }
-        
-        // Find the actual start including variable declaration
-        realStart = findFunctionDeclarationStart(content, realStart);
-        
-        return content.substring(realStart, end).trim();
-    }
-    
-    /**
-     * Finds functions in Java files using PSI (Program Structure Interface).
-     */
-    private void findFunctionsInJavaFile(VirtualFile file, String relativePath, String targetName,
-                                         JsonArray results) {
-        try {
-            // Check if we can use PSI
-            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
-            if (psiFile instanceof PsiJavaFile) {
-                PsiJavaFile javaFile = (PsiJavaFile) psiFile;
-                JsonArray functions = new JsonArray();
-                
-                // Visit all classes in the file
-                for (PsiClass psiClass : javaFile.getClasses()) {
-                    findMethodsInClass(psiClass, targetName, functions);
-                }
-                
-                if (functions.size() > 0) {
-                    JsonObject fileResult = new JsonObject();
-                    fileResult.addProperty("file", relativePath);
-                    fileResult.add("functions", functions);
-                    results.add(fileResult);
-                }
-            } else {
-                // Fall back to text-based parsing for Java files
-                findFunctionsInJavaFileText(file, relativePath, targetName, results);
-            }
-        } catch (Exception e) {
-            LOG.warn("Error finding functions in Java file: " + relativePath, e);
-            // Fall back to text-based parsing
-            try {
-                findFunctionsInJavaFileText(file, relativePath, targetName, results);
-            } catch (Exception ex) {
-                LOG.error("Failed to parse Java file: " + relativePath, ex);
-            }
-        }
-    }
-    
-    /**
-     * Recursively finds methods in a PSI class and its inner classes.
-     */
-    private void findMethodsInClass(PsiClass psiClass, String targetName, JsonArray functions) {
-        // Add methods from this class
-        for (PsiMethod method : psiClass.getMethods()) {
-            String methodName = method.getName();
-            
-            if (targetName == null || methodName.equals(targetName)) {
-                JsonObject func = new JsonObject();
-                func.addProperty("name", methodName);
-                func.addProperty("line", getLineNumber(method));
-                func.addProperty("signature", getMethodSignature(method));
-                func.addProperty("implementation", method.getText());
-                func.addProperty("type", getMethodType(method));
-                
-                // Add class context
-                func.addProperty("className", psiClass.getName());
-                func.addProperty("classQualifiedName", psiClass.getQualifiedName());
-                
-                functions.add(func);
-            }
-        }
-        
-        // Process inner classes
-        for (PsiClass innerClass : psiClass.getInnerClasses()) {
-            findMethodsInClass(innerClass, targetName, functions);
-        }
-    }
-    
-    /**
-     * Gets the line number for a PSI element.
-     */
-    private int getLineNumber(PsiElement element) {
-        PsiFile file = element.getContainingFile();
-        if (file != null) {
-            String text = file.getText();
-            int offset = element.getTextOffset();
-            return getLineNumber(text, offset);
-        }
-        return 1;
-    }
-    
-    /**
-     * Generates a method signature string from a PSI method.
-     */
-    private String getMethodSignature(PsiMethod method) {
-        StringBuilder sig = new StringBuilder();
-        
-        // Add modifiers
-        PsiModifierList modifiers = method.getModifierList();
-        if (modifiers.hasModifierProperty(PsiModifier.PUBLIC)) sig.append("public ");
-        if (modifiers.hasModifierProperty(PsiModifier.PRIVATE)) sig.append("private ");
-        if (modifiers.hasModifierProperty(PsiModifier.PROTECTED)) sig.append("protected ");
-        if (modifiers.hasModifierProperty(PsiModifier.STATIC)) sig.append("static ");
-        if (modifiers.hasModifierProperty(PsiModifier.FINAL)) sig.append("final ");
-        if (modifiers.hasModifierProperty(PsiModifier.ABSTRACT)) sig.append("abstract ");
-        if (modifiers.hasModifierProperty(PsiModifier.SYNCHRONIZED)) sig.append("synchronized ");
-        
-        // Add return type
-        if (!method.isConstructor()) {
-            PsiType returnType = method.getReturnType();
-            if (returnType != null) {
-                sig.append(returnType.getPresentableText()).append(" ");
-            }
-        }
-        
-        // Add method name
-        sig.append(method.getName()).append("(");
-        
-        // Add parameters
-        PsiParameter[] params = method.getParameterList().getParameters();
-        for (int i = 0; i < params.length; i++) {
-            if (i > 0) sig.append(", ");
-            sig.append(params[i].getType().getPresentableText()).append(" ");
-            sig.append(params[i].getName());
-        }
-        sig.append(")");
-        
-        // Add throws clause
-        PsiClassType[] throwTypes = method.getThrowsList().getReferencedTypes();
-        if (throwTypes.length > 0) {
-            sig.append(" throws ");
-            for (int i = 0; i < throwTypes.length; i++) {
-                if (i > 0) sig.append(", ");
-                sig.append(throwTypes[i].getPresentableText());
-            }
-        }
-        
-        return sig.toString();
-    }
-    
-    /**
-     * Determines the type of a Java method.
-     */
-    private String getMethodType(PsiMethod method) {
-        if (method.isConstructor()) return "constructor";
-        if (method.hasModifierProperty(PsiModifier.STATIC)) return "static";
-        if (method.hasModifierProperty(PsiModifier.ABSTRACT)) return "abstract";
-        
-        // Check for getter/setter
-        String name = method.getName();
-        if ((name.startsWith("get") || name.startsWith("is")) && 
-            method.getParameterList().getParametersCount() == 0) {
-            return "getter";
-        }
-        if (name.startsWith("set") && method.getParameterList().getParametersCount() == 1) {
-            return "setter";
-        }
-        
-        // Check for common lifecycle methods
-        if (name.equals("onCreate") || name.equals("onStart") || name.equals("onResume") ||
-            name.equals("onPause") || name.equals("onStop") || name.equals("onDestroy")) {
-            return "lifecycle";
-        }
-        
-        // Check for test methods
-        for (PsiAnnotation annotation : method.getAnnotations()) {
-            String qName = annotation.getQualifiedName();
-            if (qName != null && (qName.contains("Test") || qName.contains("Before") || 
-                qName.contains("After"))) {
-                return "test";
-            }
-        }
-        
-        return "method";
-    }
-    
-    /**
-     * Fallback method to find functions in Java files using text parsing.
-     */
-    private void findFunctionsInJavaFileText(VirtualFile file, String relativePath, String targetName,
-                                             JsonArray results) throws IOException {
-        String content = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
-        
-        // Java method patterns
-        List<Pattern> patterns = Arrays.asList(
-            // Standard method declarations
-            Pattern.compile("(?:public|private|protected)?\\s*(?:static)?\\s*(?:final)?\\s*(?:synchronized)?\\s*(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*(?:throws\\s+[^{]+)?\\s*\\{"),
-            
-            // Constructor patterns
-            Pattern.compile("(?:public|private|protected)\\s+([A-Z][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*(?:throws\\s+[^{]+)?\\s*\\{"),
-            
-            // Interface method declarations (no body)
-            Pattern.compile("(?:public)?\\s*(?:default|static)?\\s*(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*;"),
-            
-            // Abstract method declarations
-            Pattern.compile("(?:public|protected)?\\s*abstract\\s+(?:<[^>]+>\\s*)?(?:[a-zA-Z_][a-zA-Z0-9_.<>\\[\\]]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\([^)]*\\)\\s*;")
-        );
-        
-        JsonArray functions = new JsonArray();
-        Set<String> foundFunctions = new HashSet<>();
-        
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(content);
-            while (matcher.find()) {
-                String funcName = matcher.group(1);
-                
-                // Skip if already found
-                String uniqueKey = funcName + "_" + matcher.start();
-                if (foundFunctions.contains(uniqueKey)) continue;
-                foundFunctions.add(uniqueKey);
-                
-                if (targetName == null || funcName.equals(targetName)) {
-                    int position = matcher.start();
-                    int lineNumber = getLineNumber(content, position);
-                    
-                    JsonObject func = new JsonObject();
-                    func.addProperty("name", funcName);
-                    func.addProperty("line", lineNumber);
-                    
-                    // For Java, extract the full method including JavaDoc if present
-                    String implementation = extractJavaMethodImplementation(content, position);
-                    func.addProperty("implementation", implementation);
-                    func.addProperty("signature", matcher.group(0).trim());
-                    func.addProperty("type", detectJavaMethodType(matcher.group(0)));
-                    functions.add(func);
-                }
-            }
-        }
-        
-        if (functions.size() > 0) {
-            JsonObject fileResult = new JsonObject();
-            fileResult.addProperty("file", relativePath);
-            fileResult.add("functions", functions);
-            results.add(fileResult);
-        }
-    }
-    
-    /**
-     * Extracts a complete Java method implementation including JavaDoc.
-     */
-    private String extractJavaMethodImplementation(String content, int methodStart) {
-        // First, find any JavaDoc comment before the method
-        int docStart = methodStart;
-        
-        // Go backwards to find JavaDoc
-        int searchPos = methodStart - 1;
-        while (searchPos > 0 && Character.isWhitespace(content.charAt(searchPos))) {
-            searchPos--;
-        }
-        
-        if (searchPos > 1 && content.charAt(searchPos) == '/' && content.charAt(searchPos - 1) == '*') {
-            // Found end of JavaDoc, find the start
-            int docSearchPos = searchPos - 2;
-            while (docSearchPos > 1) {
-                if (content.charAt(docSearchPos) == '/' && 
-                    content.charAt(docSearchPos + 1) == '*' && 
-                    content.charAt(docSearchPos + 2) == '*') {
-                    docStart = docSearchPos;
-                    break;
-                }
-                docSearchPos--;
-            }
-        }
-        
-        // Find the end of the method
-        int bracePos = content.indexOf('{', methodStart);
-        if (bracePos == -1) {
-            // Interface or abstract method, ends with semicolon
-            int semiPos = content.indexOf(';', methodStart);
-            if (semiPos != -1) {
-                return content.substring(docStart, semiPos + 1);
-            }
-            return content.substring(docStart, Math.min(docStart + 500, content.length()));
-        }
-        
-        int methodEnd = findMatchingBrace(content, bracePos);
-        if (methodEnd == -1) {
-            // Can't find matching brace, return what we have
-            return content.substring(docStart, Math.min(bracePos + 1000, content.length()));
-        }
-        
-        return content.substring(docStart, methodEnd + 1);
-    }
-    
-    /**
-     * Detects the type of a Java method from its declaration.
-     */
-    private String detectJavaMethodType(String declaration) {
-        if (declaration.contains("abstract")) return "abstract";
-        if (declaration.contains("static")) return "static";
-        if (declaration.matches(".*\\b[A-Z][a-zA-Z0-9_]*\\s*\\(.*")) return "constructor";
-        if (declaration.contains(";") && !declaration.contains("{")) return "interface";
-        return "method";
-    }
-    
-    private String extractSignature(String content, int startPos) {
-        int endPos = startPos;
-        int braceCount = 0;
-        boolean foundFirstBrace = false;
-        
-        for (int i = startPos; i < content.length(); i++) {
-            char c = content.charAt(i);
-            if (c == '{') {
-                if (!foundFirstBrace) {
-                    foundFirstBrace = true;
-                    endPos = i;
-                }
-                braceCount++;
-            } else if (c == '}' && foundFirstBrace) {
-                braceCount--;
-                if (braceCount == 0) {
-                    break;
-                }
-            } else if (c == '\n' && !foundFirstBrace) {
-                endPos = i;
-                break;
-            }
-        }
-        
-        return content.substring(startPos, endPos).trim();
-    }
-    
-    private String createErrorResponse(String message) {
-        JsonObject response = new JsonObject();
-        response.addProperty("success", false);
-        response.addProperty("error", message);
-        return gson.toJson(response);
-    }
-    
-    // Common exclude patterns
-    private static final Set<String> DEFAULT_EXCLUDE_DIRS = Set.of(
-        ".git", ".idea", ".vscode", "node_modules", "dist", "build", 
-        "target", "out", ".gradle", "__pycache__", ".pytest_cache"
-    );
-    
-    // File size limit (10MB)
-    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024;
-    
-    /**
-     * Disposes of any resources.
-     */
-    public void dispose() {
-        // Currently no resources to dispose
-    }
-    /**
-     * Extracts a Cocos method implementation from class body.
-     */
-    private String extractCocosMethodImplementation(String classBody, int methodStart, String methodName) {
-        // Find the function keyword and opening brace
-        int funcPos = classBody.indexOf("function", methodStart);
-        if (funcPos == -1) return "";
 
-        int bracePos = classBody.indexOf("{", funcPos);
-        if (bracePos == -1) return "";
-
-        // Find matching closing brace
-        int endBrace = findMatchingBraceInString(classBody, bracePos);
-        if (endBrace == -1) return "";
-
-        // Extract from method name to end of function
-        return methodName + classBody.substring(methodStart + methodName.length(), endBrace + 1);
-    }
-
-    /**
-     * Extracts an ES6-style method implementation.
-     */
-    private String extractES6MethodImplementation(String classBody, int methodStart) {
-        // Find the opening brace
-        int bracePos = classBody.indexOf("{", methodStart);
-        if (bracePos == -1) return "";
-
-        // Find matching closing brace
-        int endBrace = findMatchingBraceInString(classBody, bracePos);
-        if (endBrace == -1) return "";
-
-        return classBody.substring(methodStart, endBrace + 1);
-    }
-
-    /**
-     * Helper method to find matching brace within a string (not the full content).
-     */
-    private int findMatchingBraceInString(String str, int openBracePos) {
-        int braceCount = 1;
-        boolean inString = false;
-        boolean inComment = false;
-        boolean inMultiLineComment = false;
-        char stringChar = 0;
-
-        for (int i = openBracePos + 1; i < str.length(); i++) {
-            char current = str.charAt(i);
-            char prev = i > 0 ? str.charAt(i - 1) : 0;
-            char next = i < str.length() - 1 ? str.charAt(i + 1) : 0;
-
-            // Handle multi-line comments
-            if (!inString && !inComment && current == '/' && next == '*') {
-                inMultiLineComment = true;
-                i++; // Skip next char
-                continue;
-            }
-            if (inMultiLineComment && current == '*' && next == '/') {
-                inMultiLineComment = false;
-                i++; // Skip next char
-                continue;
-            }
-            if (inMultiLineComment) continue;
-
-            // Handle single-line comments
-            if (!inString && current == '/' && next == '/') {
-                inComment = true;
-                continue;
-            }
-            if (inComment && current == '\n') {
-                inComment = false;
-                continue;
-            }
-            if (inComment) continue;
-
-            // Handle strings
-            if (!inString && (current == '"' || current == '\'' || current == '`')) {
-                inString = true;
-                stringChar = current;
-                continue;
-            }
-            if (inString && current == stringChar && prev != '\\') {
-                inString = false;
-                continue;
-            }
-            if (inString) continue;
-
-            // Count braces
-            if (current == '{') {
-                braceCount++;
-            } else if (current == '}') {
-                braceCount--;
-                if (braceCount == 0) {
-                    return i;
-                }
-            }
+            node.add("children", children);
         }
 
-        return -1; // No matching brace found
+        return node;
     }
+
 }

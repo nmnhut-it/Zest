@@ -3,9 +3,11 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
@@ -181,6 +183,8 @@ public class AgentModeContextEnhancer {
                     JsonObject searchData = new JsonObject();
                     searchData.addProperty("functionName", keyword);
                     searchData.addProperty("path", "/");
+                    // Make function search case-insensitive
+                    searchData.addProperty("caseSensitive", false);
                     
                     String funcResult = fileService.findFunctions(searchData);
                     JsonObject funcResponse = GSON.fromJson(funcResult, JsonObject.class);
@@ -221,6 +225,8 @@ public class AgentModeContextEnhancer {
                         textSearchData.addProperty("searchText", keyword);
                         textSearchData.addProperty("path", "/");
                         textSearchData.addProperty("maxResults", 2);
+                        // Make text search case-insensitive
+                        textSearchData.addProperty("caseSensitive", false);
                         
                         String textResult = fileService.searchInFiles(textSearchData);
                         JsonObject textResponse = GSON.fromJson(textResult, JsonObject.class);
@@ -366,13 +372,24 @@ public class AgentModeContextEnhancer {
         try {
             LOG.info("Attempting to extract function '" + functionName + "' from " + filePath + " near line " + lineNumber);
             
-            // Read the file content
+            // Get the virtual file
             VirtualFile vFile = project.getBaseDir().findFileByRelativePath(filePath);
             if (vFile == null) {
                 LOG.warn("Could not find file: " + filePath);
                 return null;
             }
             
+            // For Java files, try PSI first
+            if (filePath.endsWith(".java")) {
+                JsonObject psiResult = extractJavaMethodUsingPSI(vFile, functionName, lineNumber);
+                if (psiResult != null) {
+                    LOG.info("Successfully extracted Java method using PSI");
+                    return psiResult;
+                }
+                LOG.info("PSI extraction failed, falling back to text-based extraction");
+            }
+            
+            // Fall back to text-based extraction
             String content = new String(vFile.contentsToByteArray(), StandardCharsets.UTF_8);
             String[] lines = content.split("\n");
             
@@ -412,7 +429,170 @@ public class AgentModeContextEnhancer {
     }
     
     /**
-     * Extracts a Java method at a specific position.
+     * Extracts a Java method using PSI (Program Structure Interface).
+     */
+    private JsonObject extractJavaMethodUsingPSI(VirtualFile file, String methodName, int lineNumber) {
+        return ReadAction.compute(()->{
+            try {
+                // Use PSI to find the method
+                PsiFile psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(file);
+                if (!(psiFile instanceof com.intellij.psi.PsiJavaFile)) {
+                    return null;
+                }
+
+                com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) psiFile;
+
+                // Find the element at the approximate position
+                String content = psiFile.getText();
+                String[] lines = content.split("\n");
+                int offset = 0;
+                for (int i = 0; i < Math.min(lineNumber - 1, lines.length); i++) {
+                    offset += lines[i].length() + 1;
+                }
+
+                // Find the method at or near this offset
+                com.intellij.psi.PsiElement element = psiFile.findElementAt(offset);
+                if (element == null) {
+                    return null;
+                }
+
+                // Walk up the PSI tree to find the containing method
+                com.intellij.psi.PsiMethod method = com.intellij.psi.util.PsiTreeUtil.getParentOfType(element, com.intellij.psi.PsiMethod.class);
+
+                // If not found directly, search in the vicinity
+                if (method == null || !method.getName().equals(methodName)) {
+                    // Search for the method in all classes in the file
+                    for (com.intellij.psi.PsiClass psiClass : javaFile.getClasses()) {
+                        method = findMethodInClass(psiClass, methodName, lineNumber);
+                        if (method != null) {
+                            break;
+                        }
+                    }
+                }
+
+                if (method != null && method.getName().equals(methodName)) {
+                    JsonObject func = new JsonObject();
+                    func.addProperty("name", methodName);
+                    func.addProperty("line", getLineNumber(method, psiFile));
+                    func.addProperty("implementation", method.getText());
+                    func.addProperty("type", "psi-extracted");
+
+                    // Add class context
+                    com.intellij.psi.PsiClass containingClass = method.getContainingClass();
+                    if (containingClass != null) {
+                        func.addProperty("className", containingClass.getName());
+                        func.addProperty("classQualifiedName", containingClass.getQualifiedName());
+                    }
+
+                    // Add method signature
+                    func.addProperty("signature", buildMethodSignature(method));
+
+                    return func;
+                }
+
+            } catch (Exception e) {
+                LOG.warn("Error using PSI to extract method", e);
+            }
+
+            return null;
+        });
+
+    }
+    
+    /**
+     * Finds a method in a PSI class near a specific line number.
+     */
+    private com.intellij.psi.PsiMethod findMethodInClass(com.intellij.psi.PsiClass psiClass, String methodName, int targetLine) {
+        // Check methods in this class
+        for (com.intellij.psi.PsiMethod method : psiClass.getMethods()) {
+            if (method.getName().equals(methodName)) {
+                // Check if the method is near the target line
+                int methodLine = getLineNumber(method, method.getContainingFile());
+                if (Math.abs(methodLine - targetLine) <= 5) { // Within 5 lines
+                    return method;
+                }
+            }
+        }
+        
+        // Check inner classes
+        for (com.intellij.psi.PsiClass innerClass : psiClass.getInnerClasses()) {
+            com.intellij.psi.PsiMethod found = findMethodInClass(innerClass, methodName, targetLine);
+            if (found != null) {
+                return found;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Gets the line number for a PSI element.
+     */
+    private int getLineNumber(com.intellij.psi.PsiElement element, com.intellij.psi.PsiFile file) {
+        if (file != null) {
+            com.intellij.openapi.editor.Document document = 
+                com.intellij.psi.PsiDocumentManager.getInstance(project).getDocument(file);
+            if (document != null) {
+                int offset = element.getTextOffset();
+                return document.getLineNumber(offset) + 1; // Convert to 1-based
+            }
+        }
+        // Fallback to manual calculation
+        String text = file.getText();
+        int offset = element.getTextOffset();
+        return getLineNumberFromOffset(text, offset);
+    }
+    
+    /**
+     * Calculates line number from text offset.
+     */
+    private int getLineNumberFromOffset(String text, int offset) {
+        int line = 1;
+        for (int i = 0; i < Math.min(offset, text.length()); i++) {
+            if (text.charAt(i) == '\n') {
+                line++;
+            }
+        }
+        return line;
+    }
+    
+    /**
+     * Builds a method signature string from a PSI method.
+     */
+    private String buildMethodSignature(com.intellij.psi.PsiMethod method) {
+        StringBuilder sig = new StringBuilder();
+        
+        // Add modifiers
+        com.intellij.psi.PsiModifierList modifiers = method.getModifierList();
+        if (modifiers.hasModifierProperty(com.intellij.psi.PsiModifier.PUBLIC)) sig.append("public ");
+        if (modifiers.hasModifierProperty(com.intellij.psi.PsiModifier.PRIVATE)) sig.append("private ");
+        if (modifiers.hasModifierProperty(com.intellij.psi.PsiModifier.PROTECTED)) sig.append("protected ");
+        if (modifiers.hasModifierProperty(com.intellij.psi.PsiModifier.STATIC)) sig.append("static ");
+        if (modifiers.hasModifierProperty(com.intellij.psi.PsiModifier.FINAL)) sig.append("final ");
+        
+        // Add return type
+        if (!method.isConstructor()) {
+            com.intellij.psi.PsiType returnType = method.getReturnType();
+            if (returnType != null) {
+                sig.append(returnType.getPresentableText()).append(" ");
+            }
+        }
+        
+        // Add method name and parameters
+        sig.append(method.getName()).append("(");
+        com.intellij.psi.PsiParameter[] params = method.getParameterList().getParameters();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) sig.append(", ");
+            sig.append(params[i].getType().getPresentableText()).append(" ");
+            sig.append(params[i].getName());
+        }
+        sig.append(")");
+        
+        return sig.toString();
+    }
+    
+    /**
+     * Extracts a Java method at a specific position (fallback when PSI fails).
      */
     private String extractJavaMethodAtPosition(String content, int position, String methodName) {
         // Search backwards for method start (including annotations and JavaDoc)

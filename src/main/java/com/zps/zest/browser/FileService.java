@@ -1716,4 +1716,102 @@ public class FileService {
     public void dispose() {
         // Currently no resources to dispose
     }
+    /**
+     * Extracts a Cocos method implementation from class body.
+     */
+    private String extractCocosMethodImplementation(String classBody, int methodStart, String methodName) {
+        // Find the function keyword and opening brace
+        int funcPos = classBody.indexOf("function", methodStart);
+        if (funcPos == -1) return "";
+
+        int bracePos = classBody.indexOf("{", funcPos);
+        if (bracePos == -1) return "";
+
+        // Find matching closing brace
+        int endBrace = findMatchingBraceInString(classBody, bracePos);
+        if (endBrace == -1) return "";
+
+        // Extract from method name to end of function
+        return methodName + classBody.substring(methodStart + methodName.length(), endBrace + 1);
+    }
+
+    /**
+     * Extracts an ES6-style method implementation.
+     */
+    private String extractES6MethodImplementation(String classBody, int methodStart) {
+        // Find the opening brace
+        int bracePos = classBody.indexOf("{", methodStart);
+        if (bracePos == -1) return "";
+
+        // Find matching closing brace
+        int endBrace = findMatchingBraceInString(classBody, bracePos);
+        if (endBrace == -1) return "";
+
+        return classBody.substring(methodStart, endBrace + 1);
+    }
+
+    /**
+     * Helper method to find matching brace within a string (not the full content).
+     */
+    private int findMatchingBraceInString(String str, int openBracePos) {
+        int braceCount = 1;
+        boolean inString = false;
+        boolean inComment = false;
+        boolean inMultiLineComment = false;
+        char stringChar = 0;
+
+        for (int i = openBracePos + 1; i < str.length(); i++) {
+            char current = str.charAt(i);
+            char prev = i > 0 ? str.charAt(i - 1) : 0;
+            char next = i < str.length() - 1 ? str.charAt(i + 1) : 0;
+
+            // Handle multi-line comments
+            if (!inString && !inComment && current == '/' && next == '*') {
+                inMultiLineComment = true;
+                i++; // Skip next char
+                continue;
+            }
+            if (inMultiLineComment && current == '*' && next == '/') {
+                inMultiLineComment = false;
+                i++; // Skip next char
+                continue;
+            }
+            if (inMultiLineComment) continue;
+
+            // Handle single-line comments
+            if (!inString && current == '/' && next == '/') {
+                inComment = true;
+                continue;
+            }
+            if (inComment && current == '\n') {
+                inComment = false;
+                continue;
+            }
+            if (inComment) continue;
+
+            // Handle strings
+            if (!inString && (current == '"' || current == '\'' || current == '`')) {
+                inString = true;
+                stringChar = current;
+                continue;
+            }
+            if (inString && current == stringChar && prev != '\\') {
+                inString = false;
+                continue;
+            }
+            if (inString) continue;
+
+            // Count braces
+            if (current == '{') {
+                braceCount++;
+            } else if (current == '}') {
+                braceCount--;
+                if (braceCount == 0) {
+                    return i;
+                }
+            }
+        }
+
+        return -1; // No matching brace found
+    }
 }

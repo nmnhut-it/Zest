@@ -1,40 +1,60 @@
-# Agent Mode Context Enhancement - Automatic Function Extraction
+# Agent Mode Context Enhancement - Complete Implementation with PSI
 
-## What's New
+## Final Implementation Summary
 
-We've now implemented **automatic function extraction** when text search results appear to be function/method declarations!
+We've implemented a comprehensive Agent Mode context enhancement system that automatically extracts full function implementations when searching for code.
 
-### How It Works
+### Key Features
 
-1. **Text Search Enhancement**: When a text search finds a match that looks like a function declaration (e.g., "public LeaderboardScore addScore"), the system automatically:
-   - Detects that this is likely a function/method declaration
-   - Extracts the full function implementation from the file
-   - Converts the text match result into a function result with full implementation
+1. **PSI-Based Java Extraction** (NEW)
+   - Uses IntelliJ's Program Structure Interface for accurate Java parsing
+   - Finds methods by walking the PSI tree from the match location
+   - Searches within a 5-line radius to handle minor line number discrepancies
+   - Falls back to text-based extraction if PSI fails
 
-2. **Multi-Language Support**: The automatic extraction works for:
-   - **Java**: Methods with modifiers (public/private/protected), annotations, JavaDoc
-   - **JavaScript/TypeScript**: Functions, arrow functions, methods, exports
-   - **Python**: def functions with proper indentation handling
-   - **C/C++**: Function declarations with various return types
+2. **Automatic Function Detection & Extraction**
+   - Detects when text search results are likely function/method declarations
+   - Automatically extracts the complete implementation
+   - Converts text matches to function results with full code
 
-3. **Smart Detection**: Uses regex patterns to identify function-like matches:
-   - Java: `public ReturnType methodName(params)`
-   - JavaScript: `function name()`, `const name = () =>`, etc.
-   - Python: `def function_name():`
-   - C/C++: `ReturnType functionName(params)`
+3. **Multi-Language Support**
+   - **Java**: PSI-based extraction with fallback to regex
+   - **JavaScript/TypeScript**: Full support for functions, arrow functions, methods
+   - **Python**: Proper indentation-based extraction
+   - **C/C++**: Function extraction with brace matching
 
-## Example: Before and After
+4. **Smart Context Enhancement**
+   - 5+ lines of context for code files (instead of default 2)
+   - Proper syntax highlighting based on file extension
+   - Truncation of very large implementations (>1500 chars)
 
-### Before (Manual Process):
+## How It Works
+
+When you search for a keyword like "addScore":
+
+1. **Keyword Generation**: LLM extracts search terms from your query
+2. **Search Execution**: 
+   - First tries to find as a function
+   - Falls back to text search if not found
+3. **Text Match Enhancement**:
+   - Detects if the match looks like a function declaration
+   - For Java files: Uses PSI to extract the complete method
+   - For other languages: Uses language-specific regex patterns
+4. **Result Formatting**:
+   - Shows complete implementations with proper syntax highlighting
+   - Includes JavaDoc, annotations, full method bodies
+
+## Example Output
+
+Instead of just context lines:
 ```
 ### Text matches for 'addScore':
 Found in 2 locations
 Example from `src/main/java/com.zps.leaderboard/OldLeaderboard.java` (line 73)
-Note: This appears to be a Java method. Use Agent Mode tools to see the full implementation.
 ```
 
-### After (Automatic Extraction):
-```
+You now get the complete method:
+```java
 ### Functions matching 'addScore':
 
 File: `src/main/java/com.zps.leaderboard/OldLeaderboard.java` (line 73)
@@ -48,47 +68,65 @@ File: `src/main/java/com.zps.leaderboard/OldLeaderboard.java` (line 73)
 @AdminApi(autoApi = true, value = "/api/leaderboard/score/user/add")
 public LeaderboardScore addScore(String userId, double score) {
     try {
+        long timestamp = Instant.now().getEpochSecond();
+        List<Object> result = connection.sync()
+            .evalsha(addScoreSha, ScriptOutputType.MULTI, 
+                new String[]{LEADERBOARD_KEY}, 
+                userId, String.valueOf(score), String.valueOf(timestamp));
+        
         LeaderboardScore leaderboardScore = new LeaderboardScore();
         leaderboardScore.setUserId(userId);
         leaderboardScore.setScore(score);
-        leaderboardScore.setTimestamp(System.currentTimeMillis());
+        leaderboardScore.setTimestamp(timestamp);
+        leaderboardScore.setRank(((Long) result.get(0)).intValue());
         
-        // Save to database
-        leaderboardRepository.save(leaderboardScore);
-        
-        // Update rankings
-        updateRankings();
+        // Publish score update event
+        publishScoreUpdate(leaderboardScore);
         
         return leaderboardScore;
     } catch (Exception e) {
-        log.error("Error adding score for user: " + userId, e);
+        logger.error("Failed to add score for user: " + userId, e);
         throw new RuntimeException("Failed to add score", e);
     }
 }
 ```
 
-## Benefits
+## Technical Implementation Details
 
-1. **No Manual Steps**: The LLM automatically gets full function implementations
-2. **Better Context**: Complete code with JavaDoc, annotations, and full logic
-3. **Seamless Experience**: Works transparently - text matches that are functions become function results
-4. **Performance**: Cached results prevent redundant extractions
+### PSI-Based Extraction (Java)
+```java
+// 1. Get PSI file
+PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
 
-## Technical Implementation
+// 2. Find element at line position
+PsiElement element = psiFile.findElementAt(offset);
 
-The `AgentModeContextEnhancer` now includes:
-- `enhanceTextSearchResults()`: Detects function-like text matches
-- `extractFunctionFromFile()`: Extracts full implementations
-- Language-specific extractors:
-  - `extractJavaMethodAtPosition()`
-  - `extractJavaScriptFunctionAtPosition()`
-  - `extractPythonFunctionAtPosition()`
+// 3. Walk up tree to find method
+PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+
+// 4. Extract complete method text including JavaDoc
+String implementation = method.getText();
+```
+
+### Benefits of PSI
+- **Accurate**: Understands Java syntax perfectly
+- **Complete**: Gets entire method including JavaDoc and annotations
+- **Reliable**: Handles complex cases like nested classes, generics
+- **Fast**: No regex parsing needed
 
 ## Testing
 
-1. Use Agent Mode and ask about a function (e.g., "How does addScore work?")
-2. Even if the keyword search only finds it as text, you'll get the full implementation
-3. Check logs to see: "Text match appears to be a function declaration"
-4. The formatted output will show the complete function, not just context lines
+1. Enable debug logging: `#com.zps.zest` in IDE debug settings
+2. Use Agent Mode with a query like "How does addScore work?"
+3. Watch logs for:
+   - "Text match appears to be a function declaration"
+   - "Successfully extracted Java method using PSI"
+4. Verify full implementation appears in the context
 
-This makes Agent Mode significantly more powerful - it can now automatically extract complete function implementations from text search results!
+## Performance
+
+- **Caching**: Results cached for 5 minutes
+- **PSI Efficiency**: Faster than regex for Java files
+- **Fallback Strategy**: Ensures extraction always works
+
+This implementation significantly enhances Agent Mode's ability to understand and work with your codebase by providing complete function implementations automatically!

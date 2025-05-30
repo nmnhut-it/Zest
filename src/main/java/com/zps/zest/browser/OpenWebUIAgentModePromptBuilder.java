@@ -225,83 +225,117 @@ public class OpenWebUIAgentModePromptBuilder {
             String keyword = result.get("keyword").getAsString();
             JsonArray matches = result.getAsJsonArray("matches");
             
-            if (type.equals("function")) {
-                formatted.append("\n### Functions matching '").append(keyword).append("':\n");
-                
-                // Show up to 2 function implementations per keyword
-                int funcCount = 0;
-                for (int j = 0; j < matches.size() && funcCount < 2; j++) {
-                    JsonObject fileMatch = matches.get(j).getAsJsonObject();
-                    String filePath = fileMatch.get("file").getAsString();
-                    JsonArray functions = fileMatch.getAsJsonArray("functions");
-                    
-                    for (int k = 0; k < functions.size() && funcCount < 2; k++) {
-                        JsonObject function = functions.get(k).getAsJsonObject();
-                        String funcName = function.get("name").getAsString();
-                        int line = function.get("line").getAsInt();
-                        
-                        formatted.append("\nFile: `").append(filePath).append("` (line ").append(line).append(")\n");
-                        
-                        // Include full implementation if available
-                        if (function.has("implementation")) {
-                            String impl = function.get("implementation").getAsString();
-                            // Limit implementation length to avoid overwhelming the prompt
-                            if (impl.length() > 1500) {
-                                impl = impl.substring(0, 1500) + "\n... (truncated)";
-                            }
-                            formatted.append("```javascript\n").append(impl).append("\n```\n");
-                        } else if (function.has("signature")) {
-                            // Fall back to signature if no implementation
-                            formatted.append("```javascript\n").append(function.get("signature").getAsString()).append("\n```\n");
-                        }
-                        
-                        funcCount++;
-                    }
-                }
-                
-                if (matches.size() > funcCount) {
-                    formatted.append("... and ").append(matches.size() - funcCount).append(" more occurrences\n");
-                }
-                
-            } else if (type.equals("text")) {
-                formatted.append("\n### Text matches for '").append(keyword).append("':\n");
-                formatted.append("Found in ").append(matches.size()).append(" locations\n");
-                
-                // Show first match with context
+            if (type.equals("function") || type.equals("text")) {
+                // Check if this is actually a function result (might have been enhanced from text)
+                boolean hasFunction = false;
                 if (matches.size() > 0) {
                     JsonObject firstMatch = matches.get(0).getAsJsonObject();
-                    String filePath = firstMatch.get("file").getAsString();
-                    JsonArray fileMatches = firstMatch.getAsJsonArray("matches");
+                    hasFunction = firstMatch.has("functions");
+                }
+                
+                if (hasFunction || type.equals("function")) {
+                    formatted.append("\n### Functions matching '").append(keyword).append("':\n");
                     
-                    if (fileMatches.size() > 0) {
-                        JsonObject match = fileMatches.get(0).getAsJsonObject();
-                        int line = match.get("line").getAsInt();
-                        formatted.append("Example from `").append(filePath).append("` (line ").append(line).append(")\n");
+                    // Show up to 2 function implementations per keyword
+                    int funcCount = 0;
+                    for (int j = 0; j < matches.size() && funcCount < 2; j++) {
+                        JsonObject fileMatch = matches.get(j).getAsJsonObject();
+                        String filePath = fileMatch.get("file").getAsString();
+                        JsonArray functions = fileMatch.getAsJsonArray("functions");
                         
-                        if (match.has("context")) {
-                            JsonObject context = match.getAsJsonObject("context");
-                            formatted.append("```\n");
+                        for (int k = 0; k < functions.size() && funcCount < 2; k++) {
+                            JsonObject function = functions.get(k).getAsJsonObject();
+                            String funcName = function.get("name").getAsString();
+                            int line = function.get("line").getAsInt();
                             
-                            // Show context lines
-                            if (context.has("before")) {
-                                JsonArray before = context.getAsJsonArray("before");
-                                for (int j = 0; j < before.size(); j++) {
-                                    formatted.append(before.get(j).getAsString()).append("\n");
+                            formatted.append("\nFile: `").append(filePath).append("` (line ").append(line).append(")\n");
+                            
+                            // Include full implementation if available
+                            if (function.has("implementation")) {
+                                String impl = function.get("implementation").getAsString();
+                                // Limit implementation length to avoid overwhelming the prompt
+                                if (impl.length() > 1500) {
+                                    impl = impl.substring(0, 1500) + "\n... (truncated)";
                                 }
+                                
+                                // Detect language from file extension
+                                String lang = "javascript";
+                                if (filePath.endsWith(".java")) lang = "java";
+                                else if (filePath.endsWith(".py")) lang = "python";
+                                else if (filePath.endsWith(".ts") || filePath.endsWith(".tsx")) lang = "typescript";
+                                else if (filePath.endsWith(".cpp") || filePath.endsWith(".cc")) lang = "cpp";
+                                else if (filePath.endsWith(".c")) lang = "c";
+                                else if (filePath.endsWith(".cs")) lang = "csharp";
+                                else if (filePath.endsWith(".go")) lang = "go";
+                                
+                                formatted.append("```").append(lang).append("\n").append(impl).append("\n```\n");
+                            } else if (function.has("signature")) {
+                                // Fall back to signature if no implementation
+                                formatted.append("```javascript\n").append(function.get("signature").getAsString()).append("\n```\n");
                             }
                             
-                            if (context.has("current")) {
-                                formatted.append(">>> ").append(context.get("current").getAsString()).append("\n");
-                            }
+                            funcCount++;
+                        }
+                    }
+                    
+                    if (matches.size() > funcCount) {
+                        formatted.append("... and ").append(matches.size() - funcCount).append(" more occurrences\n");
+                    }
+                } else {
+                    // Regular text match (not converted to function)
+                    formatted.append("\n### Text matches for '").append(keyword).append("':\n");
+                    formatted.append("Found in ").append(matches.size()).append(" locations\n");
+                    
+                    // Show first match with extended context
+                    if (matches.size() > 0) {
+                        JsonObject firstMatch = matches.get(0).getAsJsonObject();
+                        String filePath = firstMatch.get("file").getAsString();
+                        JsonArray fileMatches = firstMatch.getAsJsonArray("matches");
+                        
+                        if (fileMatches.size() > 0) {
+                            JsonObject match = fileMatches.get(0).getAsJsonObject();
+                            int line = match.get("line").getAsInt();
+                            String matchText = match.has("text") ? match.get("text").getAsString() : "";
                             
-                            if (context.has("after")) {
-                                JsonArray after = context.getAsJsonArray("after");
-                                for (int j = 0; j < after.size(); j++) {
-                                    formatted.append(after.get(j).getAsString()).append("\n");
+                            formatted.append("Example from `").append(filePath).append("` (line ").append(line).append(")\n");
+                            
+                            if (match.has("context")) {
+                                JsonObject context = match.getAsJsonObject("context");
+                                
+                                // Detect language from file extension
+                                String lang = "";
+                                if (filePath.endsWith(".java")) lang = "java";
+                                else if (filePath.endsWith(".py")) lang = "python";
+                                else if (filePath.endsWith(".js")) lang = "javascript";
+                                else if (filePath.endsWith(".ts") || filePath.endsWith(".tsx")) lang = "typescript";
+                                else if (filePath.endsWith(".cpp") || filePath.endsWith(".cc")) lang = "cpp";
+                                else if (filePath.endsWith(".c")) lang = "c";
+                                else if (filePath.endsWith(".cs")) lang = "csharp";
+                                else if (filePath.endsWith(".go")) lang = "go";
+                                
+                                formatted.append("```").append(lang).append("\n");
+                                
+                                // Show extended context
+                                if (context.has("before")) {
+                                    JsonArray before = context.getAsJsonArray("before");
+                                    for (int j = 0; j < before.size(); j++) {
+                                        formatted.append(before.get(j).getAsString()).append("\n");
+                                    }
                                 }
+                                
+                                if (context.has("current")) {
+                                    formatted.append(">>> ").append(context.get("current").getAsString()).append("\n");
+                                }
+                                
+                                if (context.has("after")) {
+                                    JsonArray after = context.getAsJsonArray("after");
+                                    for (int j = 0; j < after.size(); j++) {
+                                        formatted.append(after.get(j).getAsString()).append("\n");
+                                    }
+                                }
+                                
+                                formatted.append("```\n");
                             }
-                            
-                            formatted.append("```\n");
                         }
                     }
                 }

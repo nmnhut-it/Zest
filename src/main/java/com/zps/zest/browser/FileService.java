@@ -583,6 +583,16 @@ public class FileService {
             
             JsonArray matches = new JsonArray();
             
+            // Determine if this is a code file that might benefit from more context
+            boolean isCodeFile = relativePath.endsWith(".java") || relativePath.endsWith(".js") || 
+                                relativePath.endsWith(".ts") || relativePath.endsWith(".jsx") || 
+                                relativePath.endsWith(".tsx") || relativePath.endsWith(".py") ||
+                                relativePath.endsWith(".cpp") || relativePath.endsWith(".c") ||
+                                relativePath.endsWith(".cs") || relativePath.endsWith(".go");
+            
+            // Use more context lines for code files
+            int effectiveContextLines = isCodeFile ? Math.max(contextLines, 5) : contextLines;
+            
             for (int i = 0; i < lines.length; i++) {
                 if (totalMatches[0] >= maxResults) break;
                 
@@ -600,10 +610,10 @@ public class FileService {
                     JsonArray before = new JsonArray();
                     JsonArray after = new JsonArray();
                     
-                    for (int j = Math.max(0, i - contextLines); j < i; j++) {
+                    for (int j = Math.max(0, i - effectiveContextLines); j < i; j++) {
                         before.add(lines[j]);
                     }
-                    for (int j = i + 1; j < Math.min(lines.length, i + contextLines + 1); j++) {
+                    for (int j = i + 1; j < Math.min(lines.length, i + effectiveContextLines + 1); j++) {
                         after.add(lines[j]);
                     }
                     

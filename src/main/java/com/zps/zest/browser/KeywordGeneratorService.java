@@ -3,6 +3,7 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -16,9 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -109,34 +108,37 @@ public class KeywordGeneratorService {
      * Gathers code context for keyword generation.
      */
     private Map<String, String> gatherCodeContext() {
-        Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
-        return ContextGathererForAgent.gatherCodeContext(project, editor);
+        return ReadAction.compute(()->{
+            Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
+            return ContextGathererForAgent.gatherCodeContext(project, editor);
+        });
+
     }
 
-    /**
-     * Builds the prompt for keyword generation with code context.
-     */
-    /**
-     * Builds the prompt for keyword generation with code context.
-     */
-    /**
-     * Builds the prompt for keyword generation with code context.
-     */
-    /**
-     * Builds the prompt for keyword generation with code context.
-     */
     private String buildKeywordPromptWithContext(String userQuery, Map<String, String> context) {
         StringBuilder prompt = new StringBuilder();
 
-        prompt.append("Generate keywords to search for code in a project. ");
-        prompt.append("These keywords will be used to find relevant functions, classes, and code snippets.\n\n");
+        prompt.append("You are analyzing a software project to generate search keywords.\n");
+        prompt.append("Your goal is to find ALL relevant code including frameworks, utilities, and patterns.\n\n");
 
-        prompt.append("Examples:\n");
-        prompt.append("- 'user authentication' → authenticate, login, user, password, token, auth\n");
-        prompt.append("- 'handle button clicks' → click, button, handle, event, listener, press\n");
-        prompt.append("- 'database connection' → database, connection, connect, query, pool, db\n\n");
+        prompt.append("THINK LIKE A DEVELOPER exploring this codebase:\n");
+        prompt.append("- What frameworks might be in use?\n");
+        prompt.append("- What utility/helper classes would exist?\n");
+        prompt.append("- What design patterns are likely used?\n");
+        prompt.append("- What would the file/class naming conventions be?\n\n");
 
-        // Keep your existing context information
+        prompt.append("Examples of good keyword generation:\n");
+        prompt.append("Query: 'user authentication'\n");
+        prompt.append("Keywords: auth, user, login, password, token, session, security, authenticate, authorize, ");
+        prompt.append("AuthService, UserService, AuthController, SecurityConfig, AuthUtils, PasswordEncoder, ");
+        prompt.append("JWT, OAuth, LDAP, filter, interceptor, guard, middleware\n\n");
+
+        prompt.append("Query: 'handle button clicks'\n");
+        prompt.append("Keywords: click, button, handle, event, listener, onClick, press, tap, ");
+        prompt.append("EventHandler, ButtonComponent, ClickListener, EventManager, UIUtils, ");
+        prompt.append("addEventListener, preventDefault, propagation, delegate\n\n");
+
+        // Add context information
         prompt.append("PROJECT CONTEXT:\n");
 
         if ("true".equals(context.get("hasProject"))) {
@@ -149,6 +151,9 @@ public class KeywordGeneratorService {
                 if (currentFile != null) {
                     prompt.append("- Current file: ").append(currentFile).append("\n");
                     prompt.append("- File type: ").append(extension != null ? extension : "unknown").append("\n");
+                    
+                    // Infer framework from file patterns
+                    inferFrameworkFromFile(currentFile, extension, prompt);
                 }
 
                 // Add selected text or cursor context
@@ -157,6 +162,9 @@ public class KeywordGeneratorService {
                     if (selectedText != null && selectedText.length() < 500) {
                         prompt.append("- Selected code:\n```\n");
                         prompt.append(selectedText).append("\n```\n");
+                        
+                        // Analyze code for framework indicators
+                        analyzeCodeForFrameworks(selectedText, prompt);
                     }
                 } else {
                     // Add a small code snippet around cursor if available
@@ -170,6 +178,8 @@ public class KeywordGeneratorService {
                             String snippet = fileContent.substring(start, end);
                             prompt.append("- Code near cursor:\n```\n");
                             prompt.append(snippet).append("\n```\n");
+                            
+                            analyzeCodeForFrameworks(snippet, prompt);
                         } catch (Exception e) {
                             // Ignore parsing errors
                         }
@@ -182,29 +192,131 @@ public class KeywordGeneratorService {
             if (sourceRoot != null) {
                 prompt.append("- Source root: ").append(sourceRoot).append("\n");
 
-                // Add sample file paths to understand project structure
+                // Analyze project structure
                 String sourceFiles = context.get("sourceRootFiles");
                 if (sourceFiles != null && !sourceFiles.isEmpty()) {
-                    String[] files = sourceFiles.split("\n");
-                    if (files.length > 0) {
-                        prompt.append("- Sample files in project:\n");
-                        for (int i = 0; i < Math.min(300, files.length); i++) {
-                            prompt.append("  ").append(files[i]).append("\n");
-                        }
-                    }
+                    analyzeProjectStructure(sourceFiles, prompt);
                 }
             }
         }
 
-        prompt.append("\nQuery: ").append(userQuery).append("\n\n");
-        prompt.append("Generate 10-15 SIMPLE keywords to search for this query.\n");
+        prompt.append("\nUSER QUERY: ").append(userQuery).append("\n\n");
+        
+        prompt.append("GENERATE COMPREHENSIVE KEYWORDS:\n");
+        prompt.append("1. Core terms from the query (break into parts)\n");
+        prompt.append("2. Common class/method names for this functionality\n");
+        prompt.append("3. Framework-specific terms (if framework detected)\n");
+        prompt.append("4. Utility/helper class names\n");
+        prompt.append("5. Common patterns (Factory, Builder, Manager, etc.)\n");
+        prompt.append("6. Related configuration terms\n");
+        prompt.append("7. Test-related terms\n\n");
+        
         prompt.append("Rules:\n");
-        prompt.append("- Use single words, not phrases (e.g., 'user' not 'addUser')\n");
-        prompt.append("- Break compound words into parts (e.g., 'UserService' → 'user', 'service')\n");
-        prompt.append("- Include root words that appear in function/class names\n");
-        prompt.append("- One keyword per line:\n");
+        prompt.append("- Include both generic terms (e.g., 'user') and specific patterns (e.g., 'UserService')\n");
+        prompt.append("- Consider multiple naming conventions (camelCase, snake_case, PascalCase)\n");
+        prompt.append("- Think about what else would be in the same module/package\n");
+        prompt.append("- Generate 15-20 keywords total\n");
+        prompt.append("- One keyword per line\n");
 
         return prompt.toString();
+    }
+    
+    /**
+     * Infers framework from file name and extension.
+     */
+    private void inferFrameworkFromFile(String fileName, String extension, StringBuilder prompt) {
+        String lowerFileName = fileName.toLowerCase();
+        
+        if (lowerFileName.contains("controller") || lowerFileName.contains("service") || 
+            lowerFileName.contains("repository")) {
+            prompt.append("  * Likely Spring/MVC framework detected\n");
+        }
+        if (lowerFileName.contains("component") || lowerFileName.contains("hook") || 
+            extension != null && (extension.equals("jsx") || extension.equals("tsx"))) {
+            prompt.append("  * Likely React framework detected\n");
+        }
+        if (lowerFileName.contains("spec") || lowerFileName.contains("test")) {
+            prompt.append("  * Test file detected\n");
+        }
+    }
+    
+    /**
+     * Analyzes code snippet for framework indicators.
+     */
+    private void analyzeCodeForFrameworks(String code, StringBuilder prompt) {
+        // Spring indicators
+        if (code.contains("@Service") || code.contains("@Controller") || 
+            code.contains("@Repository") || code.contains("@Autowired")) {
+            prompt.append("  * Spring framework annotations detected\n");
+        }
+        
+        // React indicators
+        if (code.contains("useState") || code.contains("useEffect") || 
+            code.contains("React.") || code.contains("props.")) {
+            prompt.append("  * React framework detected\n");
+        }
+        
+        // Angular indicators
+        if (code.contains("@Component") || code.contains("@Injectable") || 
+            code.contains("ngOnInit")) {
+            prompt.append("  * Angular framework detected\n");
+        }
+        
+        // Testing frameworks
+        if (code.contains("@Test") || code.contains("describe(") || 
+            code.contains("it(") || code.contains("expect(")) {
+            prompt.append("  * Testing framework detected\n");
+        }
+    }
+    
+    /**
+     * Analyzes project structure from file list.
+     */
+    private void analyzeProjectStructure(String sourceFiles, StringBuilder prompt) {
+        String[] files = sourceFiles.split("\n");
+        Set<String> commonPatterns = new HashSet<>();
+        Set<String> frameworks = new HashSet<>();
+        
+        // Analyze first 100 files for patterns
+        for (int i = 0; i < Math.min(100, files.length); i++) {
+            String file = files[i].toLowerCase();
+            
+            // Detect common patterns
+            if (file.contains("utils")) commonPatterns.add("Utils classes");
+            if (file.contains("helper")) commonPatterns.add("Helper classes");
+            if (file.contains("service")) commonPatterns.add("Service layer");
+            if (file.contains("controller")) commonPatterns.add("Controller layer");
+            if (file.contains("repository")) commonPatterns.add("Repository layer");
+            if (file.contains("config")) commonPatterns.add("Configuration");
+            if (file.contains("constant")) commonPatterns.add("Constants");
+            
+            // Detect frameworks
+            if (file.contains("pom.xml") || file.contains("application.properties")) {
+                frameworks.add("Spring/Spring Boot");
+            }
+            if (file.contains("package.json")) {
+                frameworks.add("Node.js/JavaScript");
+            }
+            if (file.contains(".tsx") || file.contains(".jsx")) {
+                frameworks.add("React");
+            }
+            if (file.contains("angular.json")) {
+                frameworks.add("Angular");
+            }
+        }
+        
+        if (!commonPatterns.isEmpty()) {
+            prompt.append("- Common patterns detected: ").append(String.join(", ", commonPatterns)).append("\n");
+        }
+        if (!frameworks.isEmpty()) {
+            prompt.append("- Likely frameworks: ").append(String.join(", ", frameworks)).append("\n");
+        }
+        
+        // Show sample structure
+        prompt.append("- Sample project files:\n");
+        for (int i = 0; i < Math.min(20, files.length); i++) {
+            prompt.append("  ").append(files[i]).append("\n");
+        }
     }
 
 
@@ -275,6 +387,20 @@ public class KeywordGeneratorService {
                     // Add variations (camelCase to snake_case, etc.)
                     keywords.add(camelToSnake(nameWithoutExt));
                     keywords.add(nameWithoutExt.toLowerCase());
+                    
+                    // Add common patterns based on file name
+                    if (nameWithoutExt.endsWith("Service")) {
+                        keywords.add(nameWithoutExt.replace("Service", "Repository"));
+                        keywords.add(nameWithoutExt.replace("Service", "Controller"));
+                        keywords.add(nameWithoutExt.replace("Service", "Utils"));
+                    } else if (nameWithoutExt.endsWith("Controller")) {
+                        keywords.add(nameWithoutExt.replace("Controller", "Service"));
+                        keywords.add(nameWithoutExt.replace("Controller", "Repository"));
+                    } else if (nameWithoutExt.endsWith("Component")) {
+                        keywords.add(nameWithoutExt.replace("Component", "Service"));
+                        keywords.add(nameWithoutExt.replace("Component", "Container"));
+                        keywords.add("Provider");
+                    }
                 }
             }
 
@@ -284,6 +410,8 @@ public class KeywordGeneratorService {
                 if (selectedText != null && selectedText.length() < 200) {
                     // Look for function/method names in selection
                     extractIdentifiersFromCode(selectedText, keywords);
+                    // Look for framework patterns
+                    extractFrameworkPatterns(selectedText, keywords);
                 }
             }
         }
@@ -293,14 +421,88 @@ public class KeywordGeneratorService {
         if (extension != null) {
             addLanguageSpecificKeywords(extension, userQuery, keywords);
         }
+        
+        // Add exploration keywords
+        addExploratoryKeywords(userQuery, keywords);
 
         List<String> result = keywords.stream()
                 .distinct()
-                .limit(10)
+                .limit(20) // Allow more keywords for exploration
                 .toList();
 
         LOG.info("Generated " + result.size() + " context-aware fallback keywords: " + result);
         return result;
+    }
+    
+    /**
+     * Extracts framework-specific patterns from code.
+     */
+    private void extractFrameworkPatterns(String code, List<String> keywords) {
+        // Spring patterns
+        if (code.contains("@")) {
+            java.util.regex.Pattern annotationPattern = java.util.regex.Pattern.compile("@(\\w+)");
+            java.util.regex.Matcher m = annotationPattern.matcher(code);
+            while (m.find()) {
+                String annotation = m.group(1);
+                keywords.add(annotation);
+                
+                // Add related Spring terms
+                if (annotation.equals("Service")) {
+                    keywords.add("Repository");
+                    keywords.add("Controller");
+                } else if (annotation.equals("Component")) {
+                    keywords.add("Bean");
+                    keywords.add("Configuration");
+                }
+            }
+        }
+        
+        // React patterns
+        if (code.contains("use") || code.contains("State") || code.contains("Effect")) {
+            keywords.add("hook");
+            keywords.add("component");
+            keywords.add("props");
+            keywords.add("context");
+        }
+    }
+    
+    /**
+     * Adds exploratory keywords based on the query.
+     */
+    private void addExploratoryKeywords(String query, List<String> keywords) {
+        String lowerQuery = query.toLowerCase();
+        
+        // Add utility/helper patterns
+        keywords.add("Utils");
+        keywords.add("Helper");
+        keywords.add("Manager");
+        keywords.add("Factory");
+        
+        // Add common architectural patterns
+        if (lowerQuery.contains("service") || lowerQuery.contains("business")) {
+            keywords.add("Service");
+            keywords.add("Repository");
+            keywords.add("DAO");
+            keywords.add("Model");
+        }
+        
+        // Add test-related terms
+        if (lowerQuery.contains("test") || lowerQuery.contains("mock")) {
+            keywords.add("Test");
+            keywords.add("Spec");
+            keywords.add("Mock");
+            keywords.add("Stub");
+            keywords.add("Fixture");
+        }
+        
+        // Add configuration terms
+        if (lowerQuery.contains("config") || lowerQuery.contains("setup")) {
+            keywords.add("Config");
+            keywords.add("Configuration");
+            keywords.add("Settings");
+            keywords.add("Properties");
+            keywords.add("Constants");
+        }
     }
 
     /**
@@ -335,25 +537,114 @@ public class KeywordGeneratorService {
 
         switch (extension.toLowerCase()) {
             case "java":
-                if (lowerQuery.contains("test")) keywords.add("@Test");
-                if (lowerQuery.contains("spring")) keywords.add("@Component");
-                if (lowerQuery.contains("rest")) keywords.add("@RestController");
+                // Framework annotations
+                keywords.add("@Service");
+                keywords.add("@Repository");
+                keywords.add("@Controller");
+                keywords.add("@Component");
+                keywords.add("@Configuration");
+                
+                // Common patterns
+                keywords.add("Interface");
+                keywords.add("Abstract");
+                keywords.add("Factory");
+                keywords.add("Builder");
+                
+                // Testing
+                if (lowerQuery.contains("test")) {
+                    keywords.add("@Test");
+                    keywords.add("@Mock");
+                    keywords.add("@BeforeEach");
+                    keywords.add("TestUtils");
+                }
+                
+                // Spring specific
+                if (lowerQuery.contains("spring") || lowerQuery.contains("boot")) {
+                    keywords.add("@Autowired");
+                    keywords.add("@Bean");
+                    keywords.add("ApplicationContext");
+                }
                 break;
+                
             case "js":
             case "jsx":
             case "ts":
             case "tsx":
-                if (lowerQuery.contains("react")) {
-                    keywords.add("useState");
-                    keywords.add("useEffect");
+                // React patterns
+                keywords.add("Component");
+                keywords.add("useState");
+                keywords.add("useEffect");
+                keywords.add("useContext");
+                keywords.add("Provider");
+                keywords.add("props");
+                
+                // Common patterns
+                keywords.add("Utils");
+                keywords.add("Helper");
+                keywords.add("Service");
+                keywords.add("Manager");
+                
+                // Event handling
+                if (lowerQuery.contains("event") || lowerQuery.contains("click")) {
+                    keywords.add("addEventListener");
+                    keywords.add("onClick");
+                    keywords.add("handler");
                 }
-                if (lowerQuery.contains("component")) keywords.add("Component");
+                
+                // Testing
+                if (lowerQuery.contains("test")) {
+                    keywords.add("describe");
+                    keywords.add("beforeEach");
+                    keywords.add("jest");
+                    keywords.add("enzyme");
+                }
                 break;
+                
             case "py":
-                if (lowerQuery.contains("test")) keywords.add("pytest");
-                if (lowerQuery.contains("class")) keywords.add("__init__");
+                // Common patterns
+                keywords.add("class");
+                keywords.add("def");
+                keywords.add("__init__");
+                keywords.add("self");
+                
+                // Framework specific
+                keywords.add("django");
+                keywords.add("flask");
+                keywords.add("model");
+                keywords.add("view");
+                
+                // Testing
+                if (lowerQuery.contains("test")) {
+                    keywords.add("pytest");
+                    keywords.add("unittest");
+                    keywords.add("mock");
+                    keywords.add("fixture");
+                }
+                break;
+                
+            case "cpp":
+            case "c":
+            case "h":
+            case "hpp":
+                // Common patterns
+                keywords.add("class");
+                keywords.add("namespace");
+                keywords.add("template");
+                keywords.add("virtual");
+                keywords.add("interface");
+                
+                // Utilities
+                keywords.add("Utils");
+                keywords.add("Helper");
+                keywords.add("Manager");
                 break;
         }
+        
+        // Add general utility patterns for all languages
+        keywords.add("Config");
+        keywords.add("Constants");
+        keywords.add("Error");
+        keywords.add("Exception");
     }
 
     /**

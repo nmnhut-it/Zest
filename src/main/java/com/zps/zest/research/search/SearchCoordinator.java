@@ -1,10 +1,11 @@
 package com.zps.zest.research.search;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.research.search.strategies.GitSearchStrategy;
-import com.zps.zest.research.search.strategies.ProjectSearchStrategy;
+import com.zps.zest.research.search.strategies.EnhancedProjectSearchStrategy;
 import com.zps.zest.research.search.strategies.SearchStrategy;
 import com.zps.zest.research.search.strategies.UnstagedSearchStrategy;
 import org.jetbrains.annotations.NotNull;
@@ -30,9 +31,9 @@ public class SearchCoordinator {
         // Initialize search strategies
         strategies.add(new GitSearchStrategy(project));
         strategies.add(new UnstagedSearchStrategy(project));
-        strategies.add(new ProjectSearchStrategy(project));
+        strategies.add(new EnhancedProjectSearchStrategy(project)); // Use enhanced strategy
         
-        LOG.info("SearchCoordinator initialized with " + strategies.size() + " strategies");
+        LOG.info("SearchCoordinator initialized with " + strategies.size() + " strategies (using enhanced project search)");
     }
     
     /**
@@ -84,6 +85,9 @@ public class SearchCoordinator {
                             break;
                         case "project":
                             results.setProjectResults(strategyResults);
+                            
+                            // Log enhanced content info
+                            logEnhancedContentInfo(strategyResults);
                             break;
                     }
                     
@@ -101,6 +105,41 @@ public class SearchCoordinator {
             
             return results;
         });
+    }
+    
+    /**
+     * Logs information about enhanced content in project results.
+     */
+    private void logEnhancedContentInfo(JsonArray projectResults) {
+        int fullContentCount = 0;
+        int containingFunctionCount = 0;
+        
+        for (int i = 0; i < projectResults.size(); i++) {
+            JsonObject result = projectResults.get(i).getAsJsonObject();
+            JsonArray matches = result.getAsJsonArray("matches");
+            
+            for (int j = 0; j < matches.size(); j++) {
+                JsonObject match = matches.get(j).getAsJsonObject();
+                
+                if (match.has("hasFullContent") && match.get("hasFullContent").getAsBoolean()) {
+                    fullContentCount++;
+                } else if (match.has("matches")) {
+                    // Check text matches for containing functions
+                    JsonArray textMatches = match.getAsJsonArray("matches");
+                    for (int k = 0; k < textMatches.size(); k++) {
+                        JsonObject textMatch = textMatches.get(k).getAsJsonObject();
+                        if (textMatch.has("containingFunction")) {
+                            containingFunctionCount++;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (fullContentCount > 0 || containingFunctionCount > 0) {
+            LOG.info("Enhanced content: " + fullContentCount + " files with full content, " + 
+                    containingFunctionCount + " containing functions extracted");
+        }
     }
     
     /**

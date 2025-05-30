@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.KeywordGeneratorService;
 import com.zps.zest.research.analyzer.LLMAnalyzer;
 import com.zps.zest.research.analyzer.AnalysisResult;
+import com.zps.zest.research.analyzer.CodeExtractor;
 import com.zps.zest.research.context.ResearchContext;
 import com.zps.zest.research.context.ResearchIteration;
 import com.zps.zest.research.search.SearchCoordinator;

@@ -54,17 +54,27 @@ public class AgentModeContextEnhancer {
      * This method is called during prompt building in Agent Mode.
      */
     public CompletableFuture<String> enhancePromptWithContext(String userQuery, String currentFileContext) {
+        LOG.info("=== Agent Mode Context Enhancement Started ===");
+        LOG.info("User Query: " + userQuery);
+        LOG.info("Current File: " + currentFileContext);
+        
         return keywordGenerator.generateKeywords(userQuery)
             .thenCompose(keywords -> {
-                LOG.info("Generated keywords for context enhancement: " + keywords);
+                LOG.info("Generated " + keywords.size() + " keywords: " + keywords);
                 
                 return CompletableFuture.supplyAsync(() -> {
                     try {
+                        long startTime = System.currentTimeMillis();
+                        
                         // 1. First, search recent git history for relevant changes
+                        LOG.info("Starting git history search...");
                         JsonArray gitResults = searchGitHistory(keywords);
+                        LOG.info("Git search completed, found " + gitResults.size() + " results");
                         
                         // 2. Then search the project for relevant code
+                        LOG.info("Starting project code search...");
                         JsonArray projectResults = searchProject(keywords);
+                        LOG.info("Project search completed, found " + projectResults.size() + " results");
                         
                         // 3. Combine and format results
                         JsonObject enhancedContext = new JsonObject();
@@ -73,6 +83,10 @@ public class AgentModeContextEnhancer {
                         enhancedContext.add("keywords", GSON.toJsonTree(keywords));
                         enhancedContext.add("recentChanges", gitResults);
                         enhancedContext.add("relatedCode", projectResults);
+                        
+                        long duration = System.currentTimeMillis() - startTime;
+                        LOG.info("Context enhancement completed in " + duration + "ms");
+                        LOG.info("Enhanced context size: " + GSON.toJson(enhancedContext).length() + " chars");
                         
                         return GSON.toJson(enhancedContext);
                         
@@ -88,6 +102,7 @@ public class AgentModeContextEnhancer {
      * Searches git history for relevant recent changes.
      */
     private JsonArray searchGitHistory(List<String> keywords) {
+        LOG.info("Searching git history with keywords: " + keywords);
         JsonArray results = new JsonArray();
         
         try {
@@ -96,8 +111,11 @@ public class AgentModeContextEnhancer {
                 CachedResult cached = resultCache.get(cacheKey);
                 
                 if (cached != null && !cached.isExpired()) {
+                    LOG.info("Git cache hit for keyword: " + keyword);
                     results.add(GSON.fromJson(cached.result, JsonObject.class));
                 } else {
+                    LOG.info("Searching git commits for keyword: " + keyword);
+                    
                     // Search git history
                     JsonObject searchData = new JsonObject();
                     searchData.addProperty("text", keyword);
@@ -107,23 +125,33 @@ public class AgentModeContextEnhancer {
                     
                     if (gitResponse.get("success").getAsBoolean() && 
                         gitResponse.has("commits")) {
+                        JsonArray commits = gitResponse.getAsJsonArray("commits");
+                        LOG.info("Found " + commits.size() + " commits for keyword: " + keyword);
+                        
                         JsonObject result = new JsonObject();
                         result.addProperty("keyword", keyword);
-                        result.add("commits", gitResponse.get("commits"));
+                        result.add("commits", commits);
                         results.add(result);
                         
                         // Cache the result
                         resultCache.put(cacheKey, new CachedResult(GSON.toJson(result)));
+                        LOG.info("Cached git results for keyword: " + keyword);
+                    } else {
+                        LOG.info("No commits found for keyword: " + keyword);
                     }
                 }
                 
                 // Limit to first 2 git results
-                if (results.size() >= 2) break;
+                if (results.size() >= 2) {
+                    LOG.info("Reached git result limit (2), stopping search");
+                    break;
+                }
             }
         } catch (Exception e) {
             LOG.warn("Error searching git history", e);
         }
         
+        LOG.info("Git history search completed with " + results.size() + " results");
         return results;
     }
     
@@ -131,6 +159,7 @@ public class AgentModeContextEnhancer {
      * Searches the project for relevant code snippets and functions.
      */
     private JsonArray searchProject(List<String> keywords) {
+        LOG.info("Searching project with keywords: " + keywords);
         JsonArray results = new JsonArray();
         
         try {
@@ -140,8 +169,11 @@ public class AgentModeContextEnhancer {
                 CachedResult cached = resultCache.get(cacheKey);
                 
                 if (cached != null && !cached.isExpired()) {
+                    LOG.info("Function cache hit for keyword: " + keyword);
                     results.add(GSON.fromJson(cached.result, JsonObject.class));
                 } else {
+                    LOG.info("Searching functions for keyword: " + keyword);
+                    
                     JsonObject searchData = new JsonObject();
                     searchData.addProperty("functionName", keyword);
                     searchData.addProperty("path", "/");
@@ -153,6 +185,8 @@ public class AgentModeContextEnhancer {
                         funcResponse.has("results")) {
                         JsonArray funcResults = funcResponse.getAsJsonArray("results");
                         if (funcResults.size() > 0) {
+                            LOG.info("Found " + funcResults.size() + " functions for keyword: " + keyword);
+                            
                             JsonObject result = new JsonObject();
                             result.addProperty("type", "function");
                             result.addProperty("keyword", keyword);
@@ -161,6 +195,9 @@ public class AgentModeContextEnhancer {
                             
                             // Cache the result
                             resultCache.put(cacheKey, new CachedResult(GSON.toJson(result)));
+                            LOG.info("Cached function results for keyword: " + keyword);
+                        } else {
+                            LOG.info("No functions found for keyword: " + keyword);
                         }
                     }
                 }
@@ -171,8 +208,11 @@ public class AgentModeContextEnhancer {
                     cached = resultCache.get(cacheKey);
                     
                     if (cached != null && !cached.isExpired()) {
+                        LOG.info("Text cache hit for keyword: " + keyword);
                         results.add(GSON.fromJson(cached.result, JsonObject.class));
                     } else {
+                        LOG.info("Searching text for keyword: " + keyword);
+                        
                         JsonObject textSearchData = new JsonObject();
                         textSearchData.addProperty("searchText", keyword);
                         textSearchData.addProperty("path", "/");
@@ -183,25 +223,37 @@ public class AgentModeContextEnhancer {
                         
                         if (textResponse.get("success").getAsBoolean() && 
                             textResponse.has("results")) {
-                            JsonObject result = new JsonObject();
-                            result.addProperty("type", "text");
-                            result.addProperty("keyword", keyword);
-                            result.add("matches", textResponse.get("results"));
-                            results.add(result);
-                            
-                            // Cache the result
-                            resultCache.put(cacheKey, new CachedResult(GSON.toJson(result)));
+                            JsonArray textResults = textResponse.getAsJsonArray("results");
+                            if (textResults.size() > 0) {
+                                LOG.info("Found text matches in " + textResults.size() + " files for keyword: " + keyword);
+                                
+                                JsonObject result = new JsonObject();
+                                result.addProperty("type", "text");
+                                result.addProperty("keyword", keyword);
+                                result.add("matches", textResults);
+                                results.add(result);
+                                
+                                // Cache the result
+                                resultCache.put(cacheKey, new CachedResult(GSON.toJson(result)));
+                                LOG.info("Cached text results for keyword: " + keyword);
+                            } else {
+                                LOG.info("No text matches found for keyword: " + keyword);
+                            }
                         }
                     }
                 }
                 
                 // Limit total results to 5
-                if (results.size() >= 5) break;
+                if (results.size() >= 5) {
+                    LOG.info("Reached project result limit (5), stopping search");
+                    break;
+                }
             }
         } catch (Exception e) {
             LOG.warn("Error searching project", e);
         }
         
+        LOG.info("Project search completed with " + results.size() + " results");
         return results;
     }
     

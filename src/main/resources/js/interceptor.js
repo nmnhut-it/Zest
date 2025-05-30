@@ -89,10 +89,17 @@
               
               // Get enhanced prompt from IDE
               console.log('Agent Mode: Requesting enhanced prompt from IDE...');
+              console.log('  User query:', lastUserMessage.substring(0, 100) + '...');
+              console.log('  Current file:', window.__project_info__ ? window.__project_info__.currentOpenFile : 'unknown');
+              
+              const enhanceStartTime = Date.now();
               const response = await window.intellijBridge.callIDE('buildEnhancedPrompt', {
                 userQuery: lastUserMessage,
                 currentFile: window.__project_info__ ? window.__project_info__.currentOpenFile : ''
               });
+              const enhanceDuration = Date.now() - enhanceStartTime;
+              
+              console.log('Agent Mode: Enhanced prompt response received in', enhanceDuration, 'ms');
               
               if (response && response.success && response.prompt) {
                 // Use the enhanced prompt
@@ -107,6 +114,8 @@
                 }
                 
                 console.log('Agent Mode: Enhanced prompt applied');
+                console.log('  Prompt length:', response.prompt.length, 'characters');
+                console.log('  First 200 chars:', response.prompt.substring(0, 200) + '...');
                 
                 // Notify UI that context collection is complete
                 if (window.notifyContextComplete) {
@@ -114,6 +123,7 @@
                 }
               } else {
                 console.warn('Agent Mode: Failed to get enhanced prompt, using default');
+                console.warn('  Response:', response);
                 if (window.notifyContextError) {
                   window.notifyContextError();
                 }

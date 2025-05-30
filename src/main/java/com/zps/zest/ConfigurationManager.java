@@ -489,6 +489,10 @@ public class ConfigurationManager {
         return codeModel;
     }
 
+    public String getLiteModel() {
+        return "Qwen2.5-Coder-7B";
+    }
+
     public void setCodeModel(String codeModel) {
         this.codeModel = codeModel;
     }

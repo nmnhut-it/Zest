@@ -644,12 +644,18 @@ public class GitService {
      * Used by Agent Mode context enhancer to find recent relevant changes.
      */
     public String findCommitByMessage(JsonObject data) {
+        LOG.info("=== findCommitByMessage called ===");
+        
         try {
             String searchText = data.get("text").getAsString();
             int limit = data.has("limit") ? data.get("limit").getAsInt() : 10;
             
+            LOG.info("Searching commits for: " + searchText);
+            LOG.info("Limit: " + limit);
+            
             String projectPath = project.getBasePath();
             if (projectPath == null) {
+                LOG.error("Project path is null");
                 return createErrorResponse("Project path not found");
             }
             
@@ -659,11 +665,15 @@ public class GitService {
                 escapeForShell(searchText), limit
             );
             
+            LOG.info("Executing git command: " + command);
             String result = executeGitCommand(projectPath, command);
+            LOG.info("Git command result length: " + result.length());
             
             JsonArray commits = new JsonArray();
             if (!result.trim().isEmpty()) {
                 String[] lines = result.split("\n");
+                LOG.info("Found " + lines.length + " matching commits");
+                
                 for (String line : lines) {
                     String[] parts = line.split("\\|", 4);
                     if (parts.length >= 4) {
@@ -673,14 +683,20 @@ public class GitService {
                         commit.addProperty("author", parts[2]);
                         commit.addProperty("date", parts[3]);
                         commits.add(commit);
+                        
+                        LOG.info("  Commit: " + parts[1] + " by " + parts[2]);
                     }
                 }
+            } else {
+                LOG.info("No commits found matching: " + searchText);
             }
             
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.add("commits", commits);
             response.addProperty("count", commits.size());
+            
+            LOG.info("Returning " + commits.size() + " commits");
             return gson.toJson(response);
             
         } catch (Exception e) {

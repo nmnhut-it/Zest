@@ -264,6 +264,10 @@ public class JCEFBrowserManager implements Disposable {
             String agentNotificationsScript = loadResourceAsString("/js/agentModeNotifications.js");
             cefBrowser.executeJavaScript(agentNotificationsScript, frame.getURL(), 0);
 
+            // Load and inject the Agent Mode debug script (for development)
+            String agentDebugScript = loadResourceAsString("/js/agentModeDebug.js");
+            cefBrowser.executeJavaScript(agentDebugScript, frame.getURL(), 0);
+
             // Load startup notification script
             String agentStartupScript = loadResourceAsString("/js/agentStartup.js");
             cefBrowser.executeJavaScript(agentStartupScript, frame.getURL(), 0);

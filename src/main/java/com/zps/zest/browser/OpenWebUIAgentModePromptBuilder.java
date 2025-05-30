@@ -100,12 +100,25 @@ public class OpenWebUIAgentModePromptBuilder {
      * Formats git context for the prompt.
      */
     private String formatGitContext(com.google.gson.JsonArray gitResults) {
+        LOG.info("Formatting git context from " + gitResults.size() + " results");
         StringBuilder formatted = new StringBuilder();
+        
         for (int i = 0; i < Math.min(gitResults.size(), 2); i++) {
             JsonObject result = gitResults.get(i).getAsJsonObject();
-            formatted.append("- Keyword '").append(result.get("keyword").getAsString())
-                    .append("' found in recent commits\n");
+            String keyword = result.get("keyword").getAsString();
+            JsonArray commits = result.getAsJsonArray("commits");
+            
+            formatted.append("- Keyword '").append(keyword)
+                    .append("' found in ").append(commits.size())
+                    .append(" recent commits\n");
+            
+            // Log first commit for debugging
+            if (commits.size() > 0) {
+                JsonObject firstCommit = commits.get(0).getAsJsonObject();
+                LOG.info("  First commit: " + firstCommit.get("message").getAsString());
+            }
         }
+        
         return formatted.toString();
     }
     
@@ -113,20 +126,32 @@ public class OpenWebUIAgentModePromptBuilder {
      * Formats code context for the prompt.
      */
     private String formatCodeContext(com.google.gson.JsonArray codeResults) {
+        LOG.info("Formatting code context from " + codeResults.size() + " results");
         StringBuilder formatted = new StringBuilder();
+        
         for (int i = 0; i < Math.min(codeResults.size(), 5); i++) {
             JsonObject result = codeResults.get(i).getAsJsonObject();
             String type = result.get("type").getAsString();
             String keyword = result.get("keyword").getAsString();
+            JsonArray matches = result.getAsJsonArray("matches");
             
             if (type.equals("function")) {
                 formatted.append("- Function '").append(keyword)
-                        .append("' found in project (use as reference)\n");
+                        .append("' found in ").append(matches.size())
+                        .append(" files (use as reference)\n");
+                
+                // Log first match for debugging
+                if (matches.size() > 0) {
+                    JsonObject firstMatch = matches.get(0).getAsJsonObject();
+                    LOG.info("  First match in: " + firstMatch.get("file").getAsString());
+                }
             } else {
                 formatted.append("- Code pattern '").append(keyword)
-                        .append("' found in project\n");
+                        .append("' found in ").append(matches.size())
+                        .append(" locations\n");
             }
         }
+        
         return formatted.toString();
     }
     

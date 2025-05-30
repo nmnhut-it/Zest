@@ -360,11 +360,15 @@ public class JavaScriptBridgeActions {
      * Builds an enhanced prompt with context for Agent Mode
      */
     private String handleBuildEnhancedPrompt(JsonObject data) {
+        LOG.info("=== handleBuildEnhancedPrompt called ===");
+        
         try {
             String userQuery = data.get("userQuery").getAsString();
             String currentFile = data.has("currentFile") ? data.get("currentFile").getAsString() : "";
             
             LOG.info("Building enhanced prompt for Agent Mode");
+            LOG.info("  User query length: " + userQuery.length());
+            LOG.info("  Current file: " + currentFile);
             
             // Create prompt builder and get enhanced prompt synchronously
             OpenWebUIAgentModePromptBuilder promptBuilder = new OpenWebUIAgentModePromptBuilder(project);
@@ -372,20 +376,33 @@ public class JavaScriptBridgeActions {
             // We need to make this synchronous for the interceptor
             // So we'll block and wait for the result (with timeout)
             try {
+                LOG.info("Calling buildEnhancedPrompt with timeout of 10 seconds...");
+                long startTime = System.currentTimeMillis();
+                
                 String enhancedPrompt = promptBuilder.buildEnhancedPrompt(userQuery, currentFile)
                     .get(10, java.util.concurrent.TimeUnit.SECONDS);
+                
+                long duration = System.currentTimeMillis() - startTime;
+                LOG.info("Enhanced prompt built in " + duration + "ms");
+                LOG.info("  Enhanced prompt length: " + enhancedPrompt.length() + " chars");
                 
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
                 response.addProperty("prompt", enhancedPrompt);
-                return gson.toJson(response);
+                
+                String responseJson = gson.toJson(response);
+                LOG.info("Returning success response, length: " + responseJson.length());
+                return responseJson;
                 
             } catch (java.util.concurrent.TimeoutException e) {
                 LOG.error("Timeout building enhanced prompt", e);
                 // Return basic prompt on timeout
+                String basicPrompt = promptBuilder.buildPrompt();
+                LOG.info("Returning basic prompt due to timeout, length: " + basicPrompt.length());
+                
                 JsonObject response = new JsonObject();
                 response.addProperty("success", true);
-                response.addProperty("prompt", promptBuilder.buildPrompt());
+                response.addProperty("prompt", basicPrompt);
                 return gson.toJson(response);
             }
             

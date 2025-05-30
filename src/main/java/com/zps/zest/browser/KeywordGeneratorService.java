@@ -41,14 +41,18 @@ public class KeywordGeneratorService {
      * Returns up to 10 keywords that represent functions, patterns, or concepts to search for.
      */
     public CompletableFuture<List<String>> generateKeywords(String userQuery) {
+        LOG.info("=== Keyword Generation Started ===");
+        LOG.info("Query: " + userQuery);
+        
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Build prompt for keyword generation
                 String prompt = buildKeywordPrompt(userQuery);
+                LOG.info("Keyword prompt length: " + prompt.length() + " chars");
                 
                 // Call LLM API
                 JsonObject requestBody = new JsonObject();
-                requestBody.addProperty("model", configManager.getModel());
+                requestBody.addProperty("model", configManager.getLiteModel());
                 requestBody.addProperty("temperature", 0.3); // Lower temperature for more focused results
                 
                 JsonArray messages = new JsonArray();
@@ -58,25 +62,37 @@ public class KeywordGeneratorService {
                 messages.add(message);
                 requestBody.add("messages", messages);
                 
+                String apiUrl = configManager.getApiUrl();
+                LOG.info("Calling LLM API at: " + apiUrl);
+                LOG.info("Using model: " + configManager.getLiteModel());
+                
                 HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(configManager.getApiUrl()))
+                    .uri(URI.create(apiUrl))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + configManager.getAuthToken())
                     .timeout(Duration.ofSeconds(30))
                     .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(requestBody)))
                     .build();
                 
+                long startTime = System.currentTimeMillis();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                long duration = System.currentTimeMillis() - startTime;
+                
+                LOG.info("LLM API response received in " + duration + "ms, status: " + response.statusCode());
                 
                 if (response.statusCode() == 200) {
-                    return parseKeywordsFromResponse(response.body());
+                    List<String> keywords = parseKeywordsFromResponse(response.body());
+                    LOG.info("Successfully generated " + keywords.size() + " keywords: " + keywords);
+                    return keywords;
                 } else {
                     LOG.error("LLM API error: " + response.statusCode() + " - " + response.body());
+                    LOG.info("Falling back to simple keyword extraction");
                     return getFallbackKeywords(userQuery);
                 }
                 
             } catch (Exception e) {
                 LOG.error("Error generating keywords", e);
+                LOG.info("Falling back to simple keyword extraction due to error");
                 return getFallbackKeywords(userQuery);
             }
         });
@@ -102,6 +118,7 @@ public class KeywordGeneratorService {
      * Parses keywords from LLM response.
      */
     private List<String> parseKeywordsFromResponse(String responseBody) {
+        LOG.info("Parsing keywords from LLM response");
         List<String> keywords = new ArrayList<>();
         
         try {
@@ -113,6 +130,8 @@ public class KeywordGeneratorService {
                 JsonObject message = choice.getAsJsonObject("message");
                 String content = message.get("content").getAsString();
                 
+                LOG.info("LLM response content length: " + content.length());
+                
                 // Parse keywords from content (one per line)
                 String[] lines = content.trim().split("\n");
                 for (String line : lines) {
@@ -122,18 +141,29 @@ public class KeywordGeneratorService {
                         if (keywords.size() >= 10) break;
                     }
                 }
+                
+                LOG.info("Parsed " + keywords.size() + " keywords from LLM response");
+            } else {
+                LOG.warn("No choices found in LLM response");
             }
         } catch (Exception e) {
             LOG.warn("Error parsing LLM response", e);
         }
         
-        return keywords.isEmpty() ? getFallbackKeywords("") : keywords;
+        if (keywords.isEmpty()) {
+            LOG.info("No keywords parsed, using fallback");
+            return getFallbackKeywords("");
+        }
+        
+        return keywords;
     }
     
     /**
      * Provides fallback keywords when LLM is unavailable.
      */
     private List<String> getFallbackKeywords(String userQuery) {
+        LOG.info("Generating fallback keywords for: " + userQuery);
+        
         // Simple fallback: extract potential function/class names
         List<String> keywords = new ArrayList<>();
         
@@ -164,6 +194,8 @@ public class KeywordGeneratorService {
             keywords.add("request");
         }
         
-        return keywords.stream().distinct().limit(10).toList();
+        List<String> result = keywords.stream().distinct().limit(10).toList();
+        LOG.info("Generated " + result.size() + " fallback keywords: " + result);
+        return result;
     }
 }

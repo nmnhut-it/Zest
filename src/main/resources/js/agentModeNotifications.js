@@ -141,6 +141,7 @@
     // Context collection started
     window.notifyContextCollection = function() {
         console.log('Agent Mode: Starting context collection...');
+        console.log('  Timestamp:', new Date().toISOString());
         
         // Remove any existing loading notification
         if (currentLoadingNotification) {
@@ -158,6 +159,7 @@
     // Context collection completed
     window.notifyContextComplete = function() {
         console.log('Agent Mode: Context collection complete');
+        console.log('  Timestamp:', new Date().toISOString());
         
         // Remove loading notification
         if (currentLoadingNotification) {
@@ -172,6 +174,7 @@
     // Context collection error
     window.notifyContextError = function() {
         console.log('Agent Mode: Context collection error');
+        console.log('  Timestamp:', new Date().toISOString());
         
         // Remove loading notification
         if (currentLoadingNotification) {

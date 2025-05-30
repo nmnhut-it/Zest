@@ -14,6 +14,31 @@ ResearchAgent   →   fileAPI.js   →   JavaScriptBridge   →   FileService
 Agent Framework                                          VirtualFile API
 ```
 
+## Agent Mode Integration
+
+### How It Works
+
+1. **User sends a message in Agent Mode**
+2. **Interceptor catches the API request** (interceptor.js)
+3. **Calls IDE to build enhanced prompt** with context:
+   - Generates keywords using LLM (up to 10)
+   - Searches git history (priority, limit 2 results)
+   - Searches project files (limit 5 results)
+   - Caches results for 5 minutes
+4. **Enhanced prompt includes context** from search results
+5. **UI shows notification** during context collection
+
+### Key Components
+
+- **AgentModeContextEnhancer**: Orchestrates context collection
+- **KeywordGeneratorService**: Uses LLM to extract search keywords
+- **OpenWebUIAgentModePromptBuilder**: Builds enhanced prompts
+- **agentModeNotifications.js**: Shows UI notifications
+
+### Configuration
+
+The context enhancement is automatic in Agent Mode. No additional configuration needed.
+
 ## File Operations
 
 ### Implemented Methods

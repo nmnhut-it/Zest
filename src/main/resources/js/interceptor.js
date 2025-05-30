@@ -49,9 +49,9 @@
   /**
    * Enhances request body with real-time project info and dynamic model selection
    * @param {string} body - The original request body
-   * @returns {string} The modified request body
+   * @returns {Promise<string>} The modified request body
    */
-  function enhanceRequestBody(body) {
+  async function enhanceRequestBody(body) {
     if (!body) return body;
 
     try {
@@ -69,26 +69,72 @@
 
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
-        // Handle system message based on mode
-        if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
-          const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
-          if (systemMsgIndex >= 0) {
-            // Override existing system message
-            data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
-          } else {
-            // Add new system message at the beginning
-            console.log("Adding system message to the beginning of messages", window.__injected_system_prompt__);
-            data.messages.unshift({
-              role: 'system',
-              content: window.__injected_system_prompt__
-            });
+        // For Agent Mode, we need to get enhanced prompt with context
+        if (window.__zest_mode__ === 'Agent Mode' && window.intellijBridge) {
+          // Find the last user message
+          let lastUserMessage = null;
+          for (let i = data.messages.length - 1; i >= 0; i--) {
+            if (data.messages[i].role === 'user') {
+              lastUserMessage = data.messages[i].content;
+              break;
+            }
           }
-        } else if (!data.messages.some(msg => msg.role === 'system') && window.__injected_system_prompt__) {
-          // Not in Agent Mode, add system message only if it doesn't exist
-          data.messages.unshift({
-            role: 'system',
-            content: window.__injected_system_prompt__
-          });
+          
+          if (lastUserMessage) {
+            try {
+              // Notify UI that context collection is starting
+              if (window.notifyContextCollection) {
+                window.notifyContextCollection();
+              }
+              
+              // Get enhanced prompt from IDE
+              console.log('Agent Mode: Requesting enhanced prompt from IDE...');
+              const response = await window.intellijBridge.callIDE('buildEnhancedPrompt', {
+                userQuery: lastUserMessage,
+                currentFile: window.__project_info__ ? window.__project_info__.currentOpenFile : ''
+              });
+              
+              if (response && response.success && response.prompt) {
+                // Use the enhanced prompt
+                const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
+                if (systemMsgIndex >= 0) {
+                  data.messages[systemMsgIndex].content = response.prompt;
+                } else {
+                  data.messages.unshift({
+                    role: 'system',
+                    content: response.prompt
+                  });
+                }
+                
+                console.log('Agent Mode: Enhanced prompt applied');
+                
+                // Notify UI that context collection is complete
+                if (window.notifyContextComplete) {
+                  window.notifyContextComplete();
+                }
+              } else {
+                console.warn('Agent Mode: Failed to get enhanced prompt, using default');
+                if (window.notifyContextError) {
+                  window.notifyContextError();
+                }
+                // Fall back to default prompt
+                applyDefaultPrompt(data);
+              }
+            } catch (error) {
+              console.error('Agent Mode: Error getting enhanced prompt:', error);
+              if (window.notifyContextError) {
+                window.notifyContextError();
+              }
+              // Fall back to default prompt
+              applyDefaultPrompt(data);
+            }
+          } else {
+            // No user message, use default prompt
+            applyDefaultPrompt(data);
+          }
+        } else {
+          // Not in Agent Mode, apply prompt normally
+          applyDefaultPrompt(data);
         }
 
         // Add project context info to user messages if in Agent Mode
@@ -128,6 +174,33 @@
     } catch (e) {
       console.error('Failed to modify request body:', e);
       return body;
+    }
+  }
+  
+  /**
+   * Applies the default prompt based on mode
+   */
+  function applyDefaultPrompt(data) {
+    // Handle system message based on mode
+    if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
+      const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
+      if (systemMsgIndex >= 0) {
+        // Override existing system message
+        data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
+      } else {
+        // Add new system message at the beginning
+        console.log("Adding system message to the beginning of messages", window.__injected_system_prompt__);
+        data.messages.unshift({
+          role: 'system',
+          content: window.__injected_system_prompt__
+        });
+      }
+    } else if (!data.messages.some(msg => msg.role === 'system') && window.__injected_system_prompt__) {
+      // Not in Agent Mode, add system message only if it doesn't exist
+      data.messages.unshift({
+        role: 'system',
+        content: window.__injected_system_prompt__
+      });
     }
   }
 
@@ -210,11 +283,11 @@
       }
 
       return window.updateProjectInfo()
-        .then(() => {
+        .then(async () => {
           if (newInit.body) {
             const originalBody = newInit.body;
             if (typeof originalBody === 'string') {
-              newInit.body = enhanceRequestBody(originalBody);
+              newInit.body = await enhanceRequestBody(originalBody);
               console.log('Modified string request body');
               return originalFetch(input, newInit).then(handleResponse);
             } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {
@@ -223,9 +296,9 @@
             } else if (originalBody instanceof Blob) {
               return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = function() {
+                reader.onload = async function() {
                   const bodyText = reader.result;
-                  const modifiedBody = enhanceRequestBody(bodyText);
+                  const modifiedBody = await enhanceRequestBody(bodyText);
                   newInit.body = modifiedBody;
                   resolve(originalFetch(input, newInit)
                     .then(handleResponse));
@@ -237,8 +310,8 @@
               });
             }
           } else if (input instanceof Request) {
-            return input.clone().text().then(body => {
-              const modifiedBody = enhanceRequestBody(body);
+            return input.clone().text().then(async body => {
+              const modifiedBody = await enhanceRequestBody(body);
               const newRequest = new Request(input, {
                 method: input.method,
                 headers: input.headers,

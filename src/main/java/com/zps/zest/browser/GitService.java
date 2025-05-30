@@ -640,6 +640,56 @@ public class GitService {
     }
     
     /**
+     * Finds commits by searching commit messages.
+     * Used by Agent Mode context enhancer to find recent relevant changes.
+     */
+    public String findCommitByMessage(JsonObject data) {
+        try {
+            String searchText = data.get("text").getAsString();
+            int limit = data.has("limit") ? data.get("limit").getAsInt() : 10;
+            
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Search git log for matching commits
+            String command = String.format(
+                "git log --grep=\"%s\" -i --pretty=format:\"%%H|%%s|%%an|%%ad\" --date=short -n %d",
+                escapeForShell(searchText), limit
+            );
+            
+            String result = executeGitCommand(projectPath, command);
+            
+            JsonArray commits = new JsonArray();
+            if (!result.trim().isEmpty()) {
+                String[] lines = result.split("\n");
+                for (String line : lines) {
+                    String[] parts = line.split("\\|", 4);
+                    if (parts.length >= 4) {
+                        JsonObject commit = new JsonObject();
+                        commit.addProperty("hash", parts[0]);
+                        commit.addProperty("message", parts[1]);
+                        commit.addProperty("author", parts[2]);
+                        commit.addProperty("date", parts[3]);
+                        commits.add(commit);
+                    }
+                }
+            }
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("commits", commits);
+            response.addProperty("count", commits.size());
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error searching commits", e);
+            return createErrorResponse("Failed to search commits: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Creates an error response in JSON format.
      */
     private String createErrorResponse(String errorMessage) {

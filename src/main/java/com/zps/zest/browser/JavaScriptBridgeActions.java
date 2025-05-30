@@ -166,6 +166,9 @@ public class JavaScriptBridgeActions {
                     
                 case "executeWorkflow":
                     return handleExecuteWorkflow(data);
+                    
+                case "buildEnhancedPrompt":
+                    return handleBuildEnhancedPrompt(data);
                 
                 // Content update handling
                 case "contentUpdated":
@@ -346,6 +349,48 @@ public class JavaScriptBridgeActions {
             
         } catch (Exception e) {
             LOG.error("Error executing workflow", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", e.getMessage());
+            return gson.toJson(errorResponse);
+        }
+    }
+    
+    /**
+     * Builds an enhanced prompt with context for Agent Mode
+     */
+    private String handleBuildEnhancedPrompt(JsonObject data) {
+        try {
+            String userQuery = data.get("userQuery").getAsString();
+            String currentFile = data.has("currentFile") ? data.get("currentFile").getAsString() : "";
+            
+            LOG.info("Building enhanced prompt for Agent Mode");
+            
+            // Create prompt builder and get enhanced prompt synchronously
+            OpenWebUIAgentModePromptBuilder promptBuilder = new OpenWebUIAgentModePromptBuilder(project);
+            
+            // We need to make this synchronous for the interceptor
+            // So we'll block and wait for the result (with timeout)
+            try {
+                String enhancedPrompt = promptBuilder.buildEnhancedPrompt(userQuery, currentFile)
+                    .get(10, java.util.concurrent.TimeUnit.SECONDS);
+                
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.addProperty("prompt", enhancedPrompt);
+                return gson.toJson(response);
+                
+            } catch (java.util.concurrent.TimeoutException e) {
+                LOG.error("Timeout building enhanced prompt", e);
+                // Return basic prompt on timeout
+                JsonObject response = new JsonObject();
+                response.addProperty("success", true);
+                response.addProperty("prompt", promptBuilder.buildPrompt());
+                return gson.toJson(response);
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error handling build enhanced prompt", e);
             JsonObject errorResponse = new JsonObject();
             errorResponse.addProperty("success", false);
             errorResponse.addProperty("error", e.getMessage());

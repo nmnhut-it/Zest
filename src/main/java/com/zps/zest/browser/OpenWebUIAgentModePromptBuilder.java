@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.structuralsearch.plugin.ui.ConfigurationManager;
 import com.zps.zest.browser.utils.UnstagedChangesFormatter;
+import com.zps.zest.research.ContextEnhancerFactory;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -81,7 +82,7 @@ public class OpenWebUIAgentModePromptBuilder {
 
     private final Project project;
     private final ConfigurationManager configManager;
-    private final AgentModeContextEnhancer contextEnhancer;
+    private final ContextEnhancerFactory.ContextEnhancer contextEnhancer;
     private List<String> conversationHistory;
 
     /**
@@ -92,8 +93,7 @@ public class OpenWebUIAgentModePromptBuilder {
     public OpenWebUIAgentModePromptBuilder(Project project) {
         this.project = validateProject(project);
         this.configManager = ConfigurationManager.getInstance(project);
-        this.contextEnhancer = new AgentModeContextEnhancer(project);
-    }
+        this.contextEnhancer = ContextEnhancerFactory.createEnhancer(project);    }
 
     /**
      * Validates the project parameter

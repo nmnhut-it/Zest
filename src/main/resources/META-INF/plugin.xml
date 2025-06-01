@@ -206,6 +206,16 @@
 <!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
 <!--        </action>-->
 
+        <!-- KNOWLEDGE BASE ACTIONS -->
+        
+        <!-- Index Project for RAG -->
+        <action id="Zest.IndexProjectAction"
+                class="com.zps.zest.rag.IndexProjectAction"
+                text="Index Project for RAG"
+                description="Index all project code signatures for intelligent search">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+        </action>
+
         <!-- DEVELOPER TOOLS -->
         
         <!-- Toggle Dev Tools -->

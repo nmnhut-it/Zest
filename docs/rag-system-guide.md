@@ -1,0 +1,191 @@
+# RAG (Retrieval Augmented Generation) System Guide
+
+## Overview
+
+The RAG system in Zest enables intelligent code search and retrieval by indexing your project's code signatures (classes, methods, fields) and project information. This allows the AI to find relevant code when answering questions or generating new code.
+
+## Features
+
+### 1. Automatic Code Indexing
+- Indexes all Java and Kotlin files in your project
+- Extracts class, method, and field signatures
+- Captures project information (build system, dependencies, libraries)
+- Stores signatures in OpenWebUI's knowledge base for fast retrieval
+
+### 2. Intelligent Code Search
+- Use the `search_project_code` tool to find relevant code
+- Search by natural language queries
+- Returns matching signatures with relevance scores
+- Provides full code snippets for highly relevant matches
+
+### 3. Project Context Awareness
+- Understands your project's technology stack
+- Knows about dependencies and libraries
+- Helps avoid redundant implementations
+- Maintains code style consistency
+
+## Getting Started
+
+### First-Time Setup
+
+1. **Open your project** - When you open a project for the first time, Zest will prompt you to index it.
+
+2. **Manual indexing** - You can also manually index via:
+   - Right-click in editor → Zest → "Index Project for RAG"
+   - Or open Knowledge Base Manager and click "Index Project"
+
+3. **Indexing process** - The indexing runs in the background and:
+   - Extracts all code signatures
+   - Analyzes project structure
+   - Uploads to OpenWebUI knowledge base
+   - Takes a few minutes for large projects
+
+### Using the RAG System
+
+#### In Chat
+When chatting with the AI, it can now search your codebase:
+
+```
+You: "How does the authentication work in this project?"
+AI: Let me search for authentication-related code...
+[Uses search_project_code tool automatically]
+```
+
+#### With Tools
+The `search_project_code` tool is available for agents:
+
+```json
+{
+  "tool": "search_project_code",
+  "query": "authentication logic",
+  "maxResults": 5
+}
+```
+
+#### Example Queries
+- "Find all classes that handle user data"
+- "Show me methods related to database operations"
+- "What payment processing code exists?"
+- "Find the configuration manager"
+
+## Configuration
+
+### Settings Location
+Configuration is stored in `zest-plugin.properties`:
+
+```properties
+# Knowledge base ID (auto-generated)
+knowledgeId=kb-xxxxx-xxxxx
+
+# Other settings...
+```
+
+### Knowledge Base Management
+
+Open the Knowledge Base Manager dialog to:
+- View indexing status
+- Re-index the project
+- See indexed file count
+
+## How It Works
+
+### 1. Signature Extraction
+```java
+// Example: From this class...
+public class UserService {
+    private UserRepository repository;
+    
+    public User findById(Long id) {
+        return repository.findById(id);
+    }
+}
+
+// Extracts these signatures:
+// Class: "public class UserService"
+// Field: "private UserRepository repository"
+// Method: "public User findById(Long id)"
+```
+
+### 2. Knowledge Storage
+Signatures are stored as structured markdown documents:
+
+```markdown
+---
+file: /src/main/java/com/example/UserService.java
+type: code-signatures
+---
+
+## Classes
+### `com.example.UserService`
+```java
+public class UserService
+```
+
+## Methods
+- `com.example.UserService#findById`
+  ```java
+  public User findById(Long id)
+  ```
+```
+
+### 3. Intelligent Retrieval
+When searching, the system:
+1. Queries the knowledge base
+2. Calculates relevance scores
+3. Retrieves full code for relevant matches
+4. Returns formatted results
+
+## Best Practices
+
+### 1. Keep Index Updated
+- Re-index after major refactoring
+- The system auto-detects some changes
+- Use "Refresh Index" for full update
+
+### 2. Effective Queries
+- Use descriptive search terms
+- Include technical terms (e.g., "JWT authentication")
+- Search by functionality, not just class names
+
+### 3. Performance Tips
+- Initial indexing is resource-intensive
+- Subsequent searches are fast
+- Index runs in background threads
+
+## Troubleshooting
+
+### Index Not Working
+1. Check if API credentials are configured
+2. Ensure OpenWebUI is accessible
+3. Check the IDE logs for errors
+
+### Missing Code in Results
+1. Verify the file was indexed
+2. Try more specific search terms
+3. Re-index if files were recently added
+
+### Performance Issues
+1. Indexing is CPU-intensive - normal during first run
+2. Close unnecessary applications during indexing
+3. Index smaller modules separately if needed
+
+## Architecture
+
+```
+com.zps.zest.rag/
+├── RagAgent.java           # Main service for indexing and search
+├── SignatureExtractor.java # Extracts signatures from PSI
+├── CodeSignature.java      # Model for code signatures
+├── ProjectInfoExtractor.java # Extracts project metadata
+├── ProjectInfo.java        # Model for project info
+├── RagSearchTool.java      # Agent tool for searching
+└── IndexProjectAction.java # UI action for indexing
+```
+
+## Future Enhancements
+
+- Incremental indexing on file changes
+- Support for more languages (Python, JavaScript)
+- Semantic search using embeddings
+- Cross-file relationship mapping
+- Integration with refactoring tools

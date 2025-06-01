@@ -14,6 +14,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBUI;
+import com.zps.zest.rag.RagAgent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -140,6 +141,32 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
         controlPanel.setBorder(JBUI.Borders.empty(0, 8, 8, 8));
 
+        // RAG Indexing Panel
+        JPanel ragPanel = new JPanel(new BorderLayout());
+        ragPanel.setBorder(new TitledBorder("Code Indexing (RAG)"));
+        
+        JPanel ragControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        JButton indexProjectButton = new JButton("Index Project");
+        indexProjectButton.setToolTipText("Index all project code for intelligent search");
+        indexProjectButton.addActionListener(e -> indexProject());
+        
+        JButton refreshIndexButton = new JButton("Refresh Index");
+        refreshIndexButton.setToolTipText("Re-index the entire project");
+        refreshIndexButton.addActionListener(e -> refreshIndex());
+        
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+        String knowledgeId = config.getKnowledgeId();
+        JLabel indexStatusLabel = new JLabel(knowledgeId != null ? 
+            "Status: Indexed (ID: " + knowledgeId.substring(0, Math.min(8, knowledgeId.length())) + "...)" : 
+            "Status: Not indexed");
+        
+        ragControlPanel.add(indexProjectButton);
+        ragControlPanel.add(refreshIndexButton);
+        ragControlPanel.add(indexStatusLabel);
+        
+        ragPanel.add(ragControlPanel, BorderLayout.CENTER);
+
         // File extension filter panel
         JPanel filterPanel = new JPanel(new BorderLayout());
         filterPanel.setBorder(new TitledBorder("File Filters"));
@@ -183,10 +210,59 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         buttonPanel.add(removeButton);
 
         // Add panels to control panel
+        controlPanel.add(ragPanel);
         controlPanel.add(filterPanel);
         controlPanel.add(buttonPanel);
 
         return controlPanel;
+    }
+
+    /**
+     * Indexes the project for RAG.
+     */
+    private void indexProject() {
+        int result = Messages.showYesNoDialog(
+            project,
+            "This will index all Java and Kotlin files in your project.\n" +
+            "The process may take a few minutes for large projects.\n\n" +
+            "Do you want to proceed?",
+            "Index Project",
+            Messages.getQuestionIcon()
+        );
+        
+        if (result == Messages.YES) {
+            RagAgent ragAgent = RagAgent.getInstance(project);
+            ragAgent.indexProject(false);
+            
+            Messages.showInfoMessage(
+                "Project indexing started in background.\n" +
+                "You can continue working while indexing proceeds.",
+                "Indexing Started"
+            );
+        }
+    }
+    
+    /**
+     * Refreshes the project index.
+     */
+    private void refreshIndex() {
+        int result = Messages.showYesNoDialog(
+            project,
+            "This will remove the existing index and re-index all files.\n" +
+            "Do you want to proceed?",
+            "Refresh Index",
+            Messages.getQuestionIcon()
+        );
+        
+        if (result == Messages.YES) {
+            RagAgent ragAgent = RagAgent.getInstance(project);
+            ragAgent.indexProject(true);
+            
+            Messages.showInfoMessage(
+                "Project re-indexing started in background.",
+                "Re-indexing Started"
+            );
+        }
     }
 
     /**

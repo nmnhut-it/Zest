@@ -423,7 +423,7 @@ public class TestLangChain4jAction extends AnAction {
         // Benchmark 3: Vector search
         results.append("### Vector Search Performance\n");
         
-        InMemoryVectorStore store = new InMemoryVectorStore(service);
+        LangChain4jVectorStore store = new LangChain4jVectorStore(service);
         
         // Build index
         int[] sizes = {100, 1000, 5000};

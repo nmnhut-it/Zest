@@ -32,7 +32,7 @@ public final class RagService {
     public RagService(Project project) {
         this.project = project;
         this.embeddingService = new LocalEmbeddingService();
-        this.vectorStore = new InMemoryVectorStore(embeddingService);
+        this.vectorStore = new LangChain4jVectorStore(embeddingService);
         this.documentProcessor = new DocumentProcessor();
         
         LOG.info("Initialized LangChain4j RAG service for project: " + project.getName());

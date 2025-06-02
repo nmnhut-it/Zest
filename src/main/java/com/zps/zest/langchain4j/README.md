@@ -7,9 +7,37 @@ This package provides a local embedding generation service using LangChain4j, de
 - **Local Embedding Generation**: Uses ONNX models for fast, private embedding generation without API calls
 - **Multiple Model Support**: Supports all-MiniLM-L6-v2 and BGE-small-en-v1.5 models
 - **Document Processing**: Handles various file types with intelligent chunking
-- **Vector Store**: In-memory vector store with similarity search
+- **Vector Store**: Uses LangChain4j's `InMemoryEmbeddingStore` for similarity search
 - **Hybrid Search**: Combines vector similarity with keyword matching
 - **Integration**: Works seamlessly with existing OpenWebUI-based system
+
+## Implementation Notes
+
+### Vector Store Options
+
+The implementation uses LangChain4j's built-in `InMemoryEmbeddingStore` through our `LangChain4jVectorStore` adapter. This provides:
+
+- Official LangChain4j embedding storage
+- Efficient similarity search
+- Batch operations support
+
+If you need a custom implementation, see `InMemoryVectorStore.java` for a reference implementation of the `VectorStore` interface.
+
+### Available LangChain4j Stores
+
+LangChain4j provides several embedding store implementations:
+
+```java
+// In-memory (what we use)
+import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
+
+// Persistent stores (require additional dependencies)
+import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
+import dev.langchain4j.store.embedding.pinecone.PineconeEmbeddingStore;
+import dev.langchain4j.store.embedding.weaviate.WeaviateEmbeddingStore;
+import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
+import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
+```
 
 ## Usage
 

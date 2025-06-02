@@ -181,6 +181,23 @@ public final class HybridRagAgent {
     }
     
     /**
+     * Switches to a different embedding store implementation.
+     * This allows switching from in-memory to persistent storage.
+     * 
+     * @param storeType The type of store to use
+     */
+    public void switchEmbeddingStore(String storeType) {
+        // TODO: Implement switching between different LangChain4j stores
+        // Options include:
+        // - InMemoryEmbeddingStore (current)
+        // - ChromaEmbeddingStore
+        // - WeaviateEmbeddingStore  
+        // - QdrantEmbeddingStore
+        // - When LanceDB Java SDK is available, add LanceDBEmbeddingStore
+        LOG.info("Store switching not yet implemented. Currently using InMemoryEmbeddingStore.");
+    }
+    
+    /**
      * Gets statistics from both systems.
      */
     public Map<String, Object> getStatistics() {

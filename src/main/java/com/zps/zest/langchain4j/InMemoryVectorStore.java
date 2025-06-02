@@ -9,7 +9,20 @@ import java.util.stream.Collectors;
 
 /**
  * In-memory implementation of VectorStore.
- * Suitable for small to medium datasets and testing.
+ * 
+ * NOTE: This is a reference implementation. The actual system uses LangChain4j's
+ * built-in InMemoryEmbeddingStore through the LangChain4jVectorStore adapter.
+ * 
+ * This implementation is kept as a reference for:
+ * - Understanding how vector stores work internally
+ * - Creating custom vector store implementations
+ * - Testing and debugging
+ * 
+ * For production use, consider using LangChain4j's official stores:
+ * - InMemoryEmbeddingStore (for development/testing)
+ * - ChromaEmbeddingStore (for persistent storage)
+ * - PineconeEmbeddingStore (for cloud-based storage)
+ * - WeaviateEmbeddingStore (for production-ready storage)
  */
 public class InMemoryVectorStore implements VectorStore {
     private static final Logger LOG = Logger.getInstance(InMemoryVectorStore.class);

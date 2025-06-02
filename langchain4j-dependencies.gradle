@@ -1,7 +1,7 @@
 // Add these dependencies to your build.gradle or build.gradle.kts file
 
 dependencies {
-    // LangChain4j core
+    // LangChain4j core (includes InMemoryEmbeddingStore)
     implementation 'dev.langchain4j:langchain4j:0.35.0'
     implementation 'dev.langchain4j:langchain4j-embeddings:0.35.0'
     
@@ -15,6 +15,12 @@ dependencies {
     // Optional: If you want to use other embedding providers
     // implementation 'dev.langchain4j:langchain4j-open-ai:0.35.0'
     // implementation 'dev.langchain4j:langchain4j-hugging-face:0.35.0'
+    
+    // Optional: Other vector stores (if you don't want to use InMemoryEmbeddingStore)
+    // implementation 'dev.langchain4j:langchain4j-chroma:0.35.0'
+    // implementation 'dev.langchain4j:langchain4j-pinecone:0.35.0'
+    // implementation 'dev.langchain4j:langchain4j-weaviate:0.35.0'
+    // implementation 'dev.langchain4j:langchain4j-qdrant:0.35.0'
     
     // Apache Tika for document parsing
     implementation 'org.apache.tika:tika-core:2.9.2'

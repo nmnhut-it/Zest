@@ -8,7 +8,9 @@ The RAG system in Zest enables intelligent code search and retrieval by indexing
 
 ### 1. Automatic Code Indexing
 - Indexes all Java and Kotlin files in your project
-- Extracts class, method, and field signatures
+- Extracts class, interface, enum, and annotation signatures
+- Captures method and field signatures with full type information
+- Includes Javadoc documentation for all elements
 - Captures project information (build system, dependencies, libraries)
 - Stores signatures in OpenWebUI's knowledge base for fast retrieval
 
@@ -68,6 +70,15 @@ The `search_project_code` tool is available for agents:
 - "What payment processing code exists?"
 - "Find the configuration manager"
 
+### Project Mode
+For enhanced project understanding, use **Project Mode** in the Zest browser:
+1. Select "Project Mode" from the mode dropdown
+2. The AI automatically has access to your entire indexed codebase
+3. No need to manually search or provide context
+4. Get project-specific answers and code suggestions
+
+See [Project Mode Documentation](project-mode.md) for details.
+
 ## Configuration
 
 ### Settings Location
@@ -91,19 +102,23 @@ Open the Knowledge Base Manager dialog to:
 
 ### 1. Signature Extraction
 ```java
-// Example: From this class...
-public class UserService {
-    private UserRepository repository;
-    
-    public User findById(Long id) {
-        return repository.findById(id);
-    }
+// Example: From this interface...
+/**
+ * Repository for user operations.
+ */
+public interface UserRepository<T extends User> {
+    /**
+     * Finds a user by ID.
+     * @param id the user ID
+     * @return the user or null
+     */
+    T findById(Long id);
 }
 
 // Extracts these signatures:
-// Class: "public class UserService"
-// Field: "private UserRepository repository"
-// Method: "public User findById(Long id)"
+// Interface: "public interface UserRepository<T extends User>"
+// Method: "public T findById(Long id)"
+// Plus javadoc: "Repository for user operations."
 ```
 
 ### 2. Knowledge Storage

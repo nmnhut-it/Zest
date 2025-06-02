@@ -11,6 +11,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.ProjectModePromptBuilder;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -144,7 +145,15 @@ public class WebBrowserPanel {
                 p -> ConfigurationManager.getInstance(p).getBossPrompt()
         ));
 
-        // Add Advice Mode
+        // Add Project Mode
+        browserModes.add(new BrowserMode(
+                "Project Mode",
+                AllIcons.Nodes.Package,
+                "Enhanced project understanding with RAG",
+                p -> new ProjectModePromptBuilder(p).buildPrompt()
+        ));
+
+        // Add Agent Mode
         this.agentMode = new BrowserMode(
                 "Agent Mode",
                 AllIcons.Actions.BuildAutoReloadChanges,
@@ -245,6 +254,11 @@ public class WebBrowserPanel {
         } else {
             browserManager.executeJavaScript("window.__injected_system_prompt__ = null;\nwindow.__zest_mode__ = '"  + mode.name + "';");
         }
+        
+        // Dispatch a custom event for mode change
+        String modeChangeScript = "window.dispatchEvent(new CustomEvent('zestModeChanged', { detail: { mode: '" + 
+                                  StringEscapeUtils.escapeJavaScript(mode.getName()) + "' } }));";
+        browserManager.executeJavaScript(modeChangeScript);
     }
 
     /**

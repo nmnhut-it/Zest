@@ -273,6 +273,7 @@ public class JCEFBrowserManager {
     }
 
     String  interceptorScript;
+    String  projectModeInterceptorScript;
     public void addNetworkMonitorAndRequestModifier() {
         try {
             // Ensure DevTools is enabled
@@ -283,6 +284,9 @@ public class JCEFBrowserManager {
             if (interceptorScript == null) {
                 interceptorScript = loadResourceAsString("/js/interceptor.js");
             }
+            if (projectModeInterceptorScript == null) {
+                projectModeInterceptorScript = loadResourceAsString("/js/projectModeInterceptor.js");
+            }
 
             // Add a load handler to inject our script when the page loads
             browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
@@ -290,7 +294,9 @@ public class JCEFBrowserManager {
                 public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                     // Inject our interceptor script
                     browser.executeJavaScript(interceptorScript, frame.getURL(), 0);
-                    LOG.info("Injected request interceptor script with dynamic project info support");
+                    // Inject the project mode interceptor script
+                    browser.executeJavaScript(projectModeInterceptorScript, frame.getURL(), 0);
+                    LOG.info("Injected request interceptor scripts with dynamic project info and RAG support");
                 }
             }, browser.getCefBrowser());
 

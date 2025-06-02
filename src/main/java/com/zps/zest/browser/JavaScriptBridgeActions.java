@@ -97,6 +97,10 @@ public class JavaScriptBridgeActions {
                 // Project info (synchronous)
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
+                    
+                case "getProjectKnowledgeId":
+                    return getProjectKnowledgeId();
+                    
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
@@ -174,6 +178,28 @@ public class JavaScriptBridgeActions {
         
         JsonObject response = new JsonObject();
         response.addProperty("success", true);
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Gets the project knowledge ID from configuration.
+     */
+    private String getProjectKnowledgeId() {
+        JsonObject response = new JsonObject();
+        try {
+            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+            if (knowledgeId != null && !knowledgeId.isEmpty()) {
+                response.addProperty("success", true);
+                response.addProperty("result", knowledgeId);
+            } else {
+                response.addProperty("success", false);
+                response.addProperty("error", "No knowledge base configured. Please index your project first.");
+            }
+        } catch (Exception e) {
+            LOG.error("Error getting knowledge ID", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
         return gson.toJson(response);
     }
     

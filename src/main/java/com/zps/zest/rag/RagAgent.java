@@ -361,7 +361,62 @@ public final class RagAgent {
         if (grouped.containsKey("class")) {
             sb.append("## Classes\n\n");
             for (CodeSignature sig : grouped.get("class")) {
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
                 sb.append("### `").append(sig.getId()).append("`\n");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append("\n").append(metadata.get("javadoc").getAsString()).append("\n\n");
+                }
+                
+                sb.append("```java\n").append(sig.getSignature()).append("\n```\n\n");
+            }
+        }
+        
+        // Interfaces
+        if (grouped.containsKey("interface")) {
+            sb.append("## Interfaces\n\n");
+            for (CodeSignature sig : grouped.get("interface")) {
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
+                sb.append("### `").append(sig.getId()).append("`\n");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append("\n").append(metadata.get("javadoc").getAsString()).append("\n\n");
+                }
+                
+                sb.append("```java\n").append(sig.getSignature()).append("\n```\n\n");
+            }
+        }
+        
+        // Enums
+        if (grouped.containsKey("enum")) {
+            sb.append("## Enums\n\n");
+            for (CodeSignature sig : grouped.get("enum")) {
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
+                sb.append("### `").append(sig.getId()).append("`\n");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append("\n").append(metadata.get("javadoc").getAsString()).append("\n\n");
+                }
+                
+                sb.append("```java\n").append(sig.getSignature()).append("\n```\n\n");
+            }
+        }
+        
+        // Annotations
+        if (grouped.containsKey("annotation")) {
+            sb.append("## Annotations\n\n");
+            for (CodeSignature sig : grouped.get("annotation")) {
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
+                sb.append("### `").append(sig.getId()).append("`\n");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append("\n").append(metadata.get("javadoc").getAsString()).append("\n\n");
+                }
+                
                 sb.append("```java\n").append(sig.getSignature()).append("\n```\n\n");
             }
         }
@@ -370,7 +425,14 @@ public final class RagAgent {
         if (grouped.containsKey("method")) {
             sb.append("## Methods\n\n");
             for (CodeSignature sig : grouped.get("method")) {
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
                 sb.append("- `").append(sig.getId()).append("`\n");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append("  \n  ").append(metadata.get("javadoc").getAsString().replace("\n", "\n  ")).append("\n");
+                }
+                
                 sb.append("  ```java\n  ").append(sig.getSignature()).append("\n  ```\n");
             }
             sb.append("\n");
@@ -380,7 +442,14 @@ public final class RagAgent {
         if (grouped.containsKey("field")) {
             sb.append("## Fields\n\n");
             for (CodeSignature sig : grouped.get("field")) {
-                sb.append("- `").append(sig.getSignature()).append("`\n");
+                JsonObject metadata = gson.fromJson(sig.getMetadata(), JsonObject.class);
+                sb.append("- `").append(sig.getSignature()).append("`");
+                
+                // Add javadoc if present
+                if (metadata.has("javadoc") && !metadata.get("javadoc").isJsonNull()) {
+                    sb.append(" - ").append(metadata.get("javadoc").getAsString().replace("\n", " "));
+                }
+                sb.append("\n");
             }
         }
         

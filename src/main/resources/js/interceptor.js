@@ -69,6 +69,11 @@
 
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
+        // Handle Project Mode enhancement
+        if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
+          window.enhanceWithProjectKnowledge(data);
+        }
+        
         // Handle system message based on mode
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');

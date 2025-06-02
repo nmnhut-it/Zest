@@ -49,6 +49,23 @@
         const augmentedContext = augmentationResult.result;
         console.log('[Augmented Mode] Received augmented context:', augmentedContext.length, 'chars');
 
+        // Check if agent is asking questions or exploring
+        const hasAgentAnalysis = augmentedContext.includes('### Agent Analysis ###');
+        const hasAgentExploration = augmentedContext.includes('### Agent Exploration ###');
+        
+        if (hasAgentAnalysis || hasAgentExploration) {
+          console.log('[Augmented Mode] Agent is actively thinking and exploring...');
+          
+          // Could show a visual indicator that the agent is working
+          const indicator = document.createElement('div');
+          indicator.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4CAF50; color: white; padding: 10px; border-radius: 5px; z-index: 9999;';
+          indicator.textContent = '🤖 Agent is exploring your codebase...';
+          document.body.appendChild(indicator);
+          
+          // Remove after a few seconds
+          setTimeout(() => indicator.remove(), 3000);
+        }
+
         // Add augmented context to the user message
         if (augmentedContext.trim()) {
           const contextBlock = `<augmented_context>
@@ -64,19 +81,23 @@ ${augmentedContext}
         const augmentedSystemMessage = `You are an AI assistant with access to augmented code context from the project. 
 The user's query has been enhanced with relevant code patterns, relationships, and context discovered through intelligent search.
 
-When you see <augmented_context> blocks:
-1. Use the provided code context to give more accurate and specific answers
-2. Reference specific classes, methods, and patterns shown in the context
-3. Consider the relationships between components when suggesting changes
-4. Follow the existing patterns and conventions shown in the code
+When you see <augmented_context> blocks, pay special attention to:
+1. **Clarifying Questions**: If provided, these indicate ambiguities in the user's request. Consider asking these questions to better understand what they need.
+2. **Current IDE Context**: Shows where the user is currently working
+3. **Relevant Code Found**: Organized by component type (Controllers, Services, etc.)
+4. **Exploration Suggestions**: Additional areas the user might want to investigate
+5. **Pattern-Specific Guidance**: Best practices for the detected code patterns
 
-The augmented context includes:
-- Current IDE context (open files, current location)
-- Relevant code components matching query patterns
-- Code relationships and dependencies
-- Pattern-specific guidance
+Your role is to:
+- Help the user explore and understand their codebase
+- Ask clarifying questions when the request is ambiguous
+- Suggest related areas to investigate
+- Provide specific, actionable guidance based on the code context
+- Reference specific classes, methods, and patterns shown in the context
+- Consider the relationships between components when suggesting changes
+- Follow the existing patterns and conventions shown in the code
 
-Use this enhanced context to provide better, more project-aware responses.`;
+Be proactive in helping the user discover relevant code and understand their project structure.`;
 
         const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
         if (systemMsgIndex >= 0) {

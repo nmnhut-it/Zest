@@ -258,6 +258,14 @@
                 description="Test the intelligent query augmentation feature">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>
         </action>
+        
+        <!-- Test Autonomous Agent -->
+        <action id="Zest.TestAutonomousAgent"
+                class="com.zps.zest.langchain4j.TestAutonomousAgentAction"
+                text="Test Autonomous Agent"
+                description="Test the autonomous code exploration agent">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQueryAugmentation"/>
+        </action>
 
         <!-- DEVELOPER TOOLS -->
         

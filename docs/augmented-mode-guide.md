@@ -2,11 +2,53 @@
 
 ## Overview
 
-Augmented Mode is an intelligent query enhancement feature that automatically discovers and includes relevant code context based on patterns in your questions. Unlike Project Mode which includes the entire project's RAG knowledge base, Augmented Mode performs targeted searches to find exactly what's relevant to your query.
+Augmented Mode features an intelligent agent that not only discovers relevant code context but can also **autonomously ask and answer its own questions** to better understand your codebase. The agent uses the LLM service to think through problems, generate clarifying questions, and explore code relationships on its own.
 
-## How It Works
+**Key Innovation**: The agent can call the LLM service itself to generate smarter questions and perform autonomous exploration, building a deeper understanding before responding to you.
 
-### Pattern Detection
+## How the Autonomous Agent Works
+
+### 1. Intelligent Question Generation
+When your query is ambiguous, the agent uses the LLM to generate targeted clarifying questions:
+
+```
+User: "Fix the payment issue"
+
+Agent calls LLM with:
+- Detected patterns: payment
+- Detected actions: fix
+- Ambiguity: No specific error mentioned
+
+LLM generates smart questions:
+- What specific error or symptom are you experiencing with payments?
+- Is this related to payment processing, validation, or UI display?
+- Do you have error logs or a specific transaction ID?
+```
+
+### 2. Autonomous Exploration
+For complex queries, the agent can explore on its own:
+
+```
+User: "How does authentication work?"
+
+Agent autonomously:
+1. Searches for auth-related components
+2. Asks itself: "What authentication method is used?"
+3. Finds SecurityConfig and explores it
+4. Asks itself: "How are tokens validated?"
+5. Discovers TokenValidator and analyzes flow
+6. Builds comprehensive understanding
+```
+
+### 3. Self-Reflective Analysis
+The agent analyzes your query for ambiguity and generates clarifying questions to better understand your needs:
+
+- **Ambiguous Patterns**: "Are you looking for a specific type of component (controller, service), or all of them?"
+- **Missing Context**: "What specific feature would you like to implement?"
+- **Scope Clarification**: "Should I include test files in the search?"
+- **Relationship Direction**: "Do you want to see incoming or outgoing relationships?"
+
+### 2. Pattern Detection
 When you ask a question in Augmented Mode, the system analyzes your query for:
 
 1. **Code Patterns**:
@@ -30,7 +72,7 @@ When you ask a question in Augmented Mode, the system analyzes your query for:
 3. **Identifier Detection**:
    - Automatically detects CamelCase and PascalCase identifiers in your query
 
-### Context Augmentation
+### 3. Context Augmentation
 Based on the detected patterns, Augmented Mode:
 
 1. **Searches Multiple Indices**:
@@ -43,6 +85,101 @@ Based on the detected patterns, Augmented Mode:
    - Relevant code components grouped by type
    - Code relationships when needed
    - Pattern-specific guidance
+
+### 4. Exploration Suggestions
+The agent provides proactive suggestions to help you explore further:
+- Related components to investigate
+- Architectural patterns to consider
+- Potential issues to check
+- Best practices for the detected patterns
+
+## Agent Conversation Example
+
+### User: "I need to understand the payment processing in our system"
+
+**Agent Response:**
+```
+### Clarifying Questions ###
+To better understand your request and find the most relevant code, consider these aspects:
+
+1. Are you looking for a specific type of component (controller, service, repository), or all of them?
+2. Do you want to see incoming or outgoing relationships?
+3. Are you interested in how services interact with repositories?
+
+### Current IDE Context ###
+Current file: OrderService.java
+Current class: com.example.service.OrderService
+
+### Relevant Code Found ###
+
+#### Controllers/Endpoints ####
+- **PaymentController** (src/main/java/com/example/controller/PaymentController.java)
+  REST controller handling payment endpoints with methods for processing, refund, and status checks...
+
+#### Services/Business Logic ####
+- **PaymentService** (src/main/java/com/example/service/PaymentService.java)
+  Main payment processing service with transaction management and validation...
+
+### Exploration Suggestions ###
+Based on the code structure, you might also want to explore:
+- Check the corresponding service layer implementations
+- Review the request/response DTOs used by these controllers
+- Look at the repository/DAO layer for data access patterns
+- Check for custom query methods or specifications
+
+### Pattern-Specific Guidance ###
+- Controllers handle HTTP requests. Check @RequestMapping annotations
+- Look for @PathVariable, @RequestParam, and @RequestBody usage
+- Services contain business logic. Look for @Service annotations
+- Check for @Transactional boundaries and rollback conditions
+```
+
+### User: "Show me how PaymentService handles errors"
+
+**Agent Response:**
+```
+### Current IDE Context ###
+Current file: OrderService.java
+Exploring: PaymentService error handling
+
+### Relevant Code Found ###
+[Specific error handling code from PaymentService]
+
+### Next Steps ###
+Based on our exploration so far, you might want to:
+- Should we look at the tests for PaymentService?
+- Would you like to see what calls PaymentService?
+- Should we explore the error handling in PaymentController?
+```
+
+## Exploration Strategies
+
+The agent adapts its exploration strategy based on your needs:
+
+### 1. **Breadth-First Exploration**
+- **When**: You want an overview or architecture understanding
+- **Keywords**: "everything", "all", "overview", "architecture"
+- **Agent Behavior**: Maps component types, high-level relationships, entry points
+
+### 2. **Depth-First Exploration**
+- **When**: You need detailed understanding of specific components
+- **Keywords**: "deep", "detail", "specific", "exactly"
+- **Agent Behavior**: Examines interfaces, implementations, dependencies, tests
+
+### 3. **Relationship-Focused**
+- **When**: Understanding connections between components
+- **Keywords**: "connect", "relation", "depend", "use", "call"
+- **Agent Behavior**: Maps dependencies, traces data flow, finds integration points
+
+### 4. **Pattern-Based**
+- **When**: Finding similar implementations or patterns
+- **Keywords**: "similar", "pattern", "like", "example"
+- **Agent Behavior**: Identifies patterns, finds similar code, compares implementations
+
+### 5. **Problem-Solving**
+- **When**: Debugging or fixing issues
+- **Keywords**: "fix", "error", "problem", "issue", "debug"
+- **Agent Behavior**: Analyzes issues, checks recent changes, suggests fixes
 
 ## Usage Examples
 
@@ -121,6 +258,82 @@ Based on the detected patterns, Augmented Mode:
 - Cached embeddings for faster search
 - Limited to top 20 results
 - Timeout after 5 seconds
+
+## Testing the Autonomous Agent
+
+### Using the Test Action
+1. Right-click in the editor → Zest → Test Autonomous Agent
+2. Enter a query like "How does the payment system work?"
+3. Watch as the agent explores autonomously
+4. Review the complete exploration log
+
+### What Happens Behind the Scenes
+1. **Initial Analysis**: Agent analyzes your query and generates exploration questions
+2. **Autonomous Loop**: For each question:
+   - Searches for relevant code using augmentation
+   - Calls LLM to understand the code
+   - Extracts new questions and insights
+   - Builds knowledge incrementally
+3. **Summary Generation**: Creates a comprehensive summary of findings
+
+### Example Autonomous Exploration Log
+
+```markdown
+# Autonomous Code Exploration Session
+
+## Initial Query: How does the payment processing work in our system?
+
+## Initial Analysis
+Analyzing the payment processing system...
+
+Topics identified:
+- Payment controllers and endpoints
+- Payment service layer
+- Payment validation
+- Transaction handling
+- Payment gateways
+
+Generated questions:
+- Question: What payment methods are supported by the system?
+- Question: How are payment transactions validated before processing?
+- Question: What happens when a payment fails?
+- Question: How are payment events handled and logged?
+
+## Exploration Round 1
+
+### Question: What payment methods are supported by the system?
+
+#### Answer:
+Found PaymentMethod enum in com.example.payment.model:
+- CREDIT_CARD
+- DEBIT_CARD  
+- PAYPAL
+- BANK_TRANSFER
+- WALLET
+
+PaymentController has endpoints for each method type with specific validators.
+
+#### New Questions Discovered:
+- How does the PaymentValidator work for different payment methods?
+- What are the integration points with external payment gateways?
+
+[... continues for several rounds ...]
+
+## Exploration Summary
+The payment system uses a layered architecture:
+1. **Controllers**: Handle HTTP requests, delegate to services
+2. **Services**: Orchestrate payment flow, validation, and gateway calls
+3. **Validators**: Pluggable validation strategies per payment method
+4. **Gateways**: Abstract interfaces for external payment providers
+5. **Event System**: Async handling of payment events and failures
+
+Key patterns: Strategy (validators), Template Method (payment flow), Observer (events)
+
+Recommendations:
+- Add circuit breaker for gateway calls
+- Implement idempotency for payment requests
+- Consider adding payment status webhooks
+```
 
 ## Configuration
 

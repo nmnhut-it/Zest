@@ -1,3 +1,6 @@
+// NOTE: These dependencies are already added to build.gradle.kts
+// This file is kept for reference
+
 // Add these dependencies to your build.gradle or build.gradle.kts file
 
 dependencies {

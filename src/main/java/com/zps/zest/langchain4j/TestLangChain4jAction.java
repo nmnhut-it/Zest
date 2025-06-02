@@ -2,6 +2,7 @@ package com.zps.zest.langchain4j;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -55,9 +56,9 @@ public class TestLangChain4jAction extends AnAction {
             project,
             "Choose a test to run:",
             "Test LangChain4j",
+            null,  // icon
             options,
-            options[0],
-            Messages.getQuestionIcon()
+            options[0]
         );
         
         if (choice < 0) return;
@@ -213,77 +214,80 @@ public class TestLangChain4jAction extends AnAction {
     }
     
     private void runSearchTest(Project project, StringBuilder results, ProgressIndicator indicator) {
-        indicator.setText("Testing vector search...");
-        
-        results.append("## Vector Search Test\n\n");
-        
-        // Get current file
-        VirtualFile currentFile = getCurrentFile(project);
-        if (currentFile == null) {
-            results.append("❌ No file currently open in editor\n");
-            return;
-        }
-        
-        RagService ragService = project.getService(RagService.class);
-        
-        // Clear existing index
-        ragService.clearIndex();
-        
-        // Index current file
-        indicator.setText("Indexing " + currentFile.getName() + "...");
-        long start = System.currentTimeMillis();
-        
-        // Extract code signatures if it's a Java file
-        List<CodeSignature> signatures = null;
-        PsiFile psiFile = PsiManager.getInstance(project).findFile(currentFile);
-        if (psiFile instanceof PsiJavaFile) {
-            CodeAnalyzer analyzer = new DefaultCodeAnalyzer(project);
-            signatures = analyzer.extractSignatures(psiFile);
-            results.append("✓ Extracted ").append(signatures.size())
-                  .append(" code signatures\n");
-        }
-        
-        int segments = ragService.indexFile(currentFile, signatures);
-        long indexTime = System.currentTimeMillis() - start;
-        
-        results.append("✓ File indexed: ").append(currentFile.getName()).append("\n");
-        results.append("  - Segments: ").append(segments).append("\n");
-        results.append("  - Index time: ").append(indexTime).append("ms\n\n");
-        
-        // Test searches
-        String[] queries = {
-            "class definition",
-            "public method",
-            "import statements",
-            "error handling"
-        };
-        
-        results.append("Search results:\n");
-        for (String query : queries) {
-            start = System.currentTimeMillis();
-            List<RagService.SearchResult> searchResults = ragService.search(query, 3).join();
-            long searchTime = System.currentTimeMillis() - start;
-            
-            results.append("\n✓ Query: \"").append(query).append("\"\n");
-            results.append("  - Results: ").append(searchResults.size()).append("\n");
-            results.append("  - Search time: ").append(searchTime).append("ms\n");
-            
-            if (!searchResults.isEmpty()) {
-                RagService.SearchResult top = searchResults.get(0);
-                results.append("  - Top score: ")
-                      .append(String.format("%.3f", top.getScore())).append("\n");
-                results.append("  - Preview: ")
-                      .append(top.getContent().substring(0, Math.min(60, top.getContent().length())))
-                      .append("...\n");
+        ReadAction.run(()->{
+            indicator.setText("Testing vector search...");
+
+            results.append("## Vector Search Test\n\n");
+
+            // Get current file
+            VirtualFile currentFile = getCurrentFile(project);
+            if (currentFile == null) {
+                results.append("❌ No file currently open in editor\n");
+                return;
             }
-        }
-        
-        // Show statistics
-        Map<String, Object> stats = ragService.getStatistics();
-        results.append("\n✓ Index statistics:\n");
-        stats.forEach((key, value) -> 
-            results.append("  - ").append(key).append(": ").append(value).append("\n")
-        );
+
+            RagService ragService = project.getService(RagService.class);
+
+            // Clear existing index
+            ragService.clearIndex();
+
+            // Index current file
+            indicator.setText("Indexing " + currentFile.getName() + "...");
+            long start = System.currentTimeMillis();
+
+            // Extract code signatures if it's a Java file
+            List<CodeSignature> signatures = null;
+            PsiFile psiFile = PsiManager.getInstance(project).findFile(currentFile);
+            if (psiFile instanceof PsiJavaFile) {
+                CodeAnalyzer analyzer = new DefaultCodeAnalyzer(project);
+                signatures = analyzer.extractSignatures(psiFile);
+                results.append("✓ Extracted ").append(signatures.size())
+                        .append(" code signatures\n");
+            }
+
+            int segments = ragService.indexFile(currentFile, signatures);
+            long indexTime = System.currentTimeMillis() - start;
+
+            results.append("✓ File indexed: ").append(currentFile.getName()).append("\n");
+            results.append("  - Segments: ").append(segments).append("\n");
+            results.append("  - Index time: ").append(indexTime).append("ms\n\n");
+
+            // Test searches
+            String[] queries = {
+                    "class definition",
+                    "public method",
+                    "import statements",
+                    "error handling"
+            };
+
+            results.append("Search results:\n");
+            for (String query : queries) {
+                start = System.currentTimeMillis();
+                List<RagService.SearchResult> searchResults = ragService.search(query, 3).join();
+                long searchTime = System.currentTimeMillis() - start;
+
+                results.append("\n✓ Query: \"").append(query).append("\"\n");
+                results.append("  - Results: ").append(searchResults.size()).append("\n");
+                results.append("  - Search time: ").append(searchTime).append("ms\n");
+
+                if (!searchResults.isEmpty()) {
+                    RagService.SearchResult top = searchResults.get(0);
+                    results.append("  - Top score: ")
+                            .append(String.format("%.3f", top.getScore())).append("\n");
+                    results.append("  - Preview: ")
+                            .append(top.getContent().substring(0, Math.min(60, top.getContent().length())))
+                            .append("...\n");
+                }
+            }
+
+            // Show statistics
+            Map<String, Object> stats = ragService.getStatistics();
+            results.append("\n✓ Index statistics:\n");
+            stats.forEach((key, value) ->
+                    results.append("  - ").append(key).append(": ").append(value).append("\n")
+            );
+        });
+
     }
     
     private void runHybridSearchTest(Project project, StringBuilder results, ProgressIndicator indicator) {

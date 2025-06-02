@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.zps.zest.rag.CodeSignature;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;
 
 import java.util.*;
@@ -76,7 +77,11 @@ public final class RagService {
                 metadata.put("type", "code");
                 
                 // Add segment metadata
-                metadata.putAll(segment.metadata());
+                if (segment.metadata() != null) {
+                    segment.metadata().toMap().forEach((key, value) -> 
+                        metadata.put(key, value)
+                    );
+                }
                 
                 entries.add(new VectorStore.EmbeddingEntry(id, embedding, segment, metadata));
             }
@@ -190,6 +195,13 @@ public final class RagService {
         stats.put("embedding_dimension", embeddingService.getDimension());
         stats.put("use_hybrid_search", useHybridSearch);
         return stats;
+    }
+    
+    private void convertMetadata(Metadata from, Map<String, Object> to) {
+        // Convert LangChain4j Metadata to our Map format
+        for (String key : from.toMap().keySet()) {
+            to.put(key, from.get(key));
+        }
     }
     
     /**

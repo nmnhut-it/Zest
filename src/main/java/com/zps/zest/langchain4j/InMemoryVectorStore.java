@@ -108,7 +108,8 @@ public class InMemoryVectorStore implements VectorStore {
         final List<String> lowerKeywords = keywords != null ? 
             keywords.stream().map(String::toLowerCase).collect(Collectors.toList()) : 
             new ArrayList<>();
-        
+
+        double finalVectorWeight = vectorWeight;
         return store.values().parallelStream()
             .map(entry -> {
                 // Calculate vector similarity score
@@ -125,7 +126,7 @@ public class InMemoryVectorStore implements VectorStore {
                 }
                 
                 // Combine scores
-                double combinedScore = (vectorScore * vectorWeight) + (keywordScore * keywordWeight);
+                double combinedScore = (vectorScore * finalVectorWeight) + (keywordScore * keywordWeight);
                 
                 return new SearchResult(entry.getId(), entry.getTextSegment(), entry.getMetadata(), combinedScore);
             })

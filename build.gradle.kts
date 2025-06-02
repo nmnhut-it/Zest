@@ -17,7 +17,13 @@ repositories {
 intellij {
     version.set("2024.3.4.1")
     type.set("IC") // Target IDE Platform
+    // Add this to help with resource loading
+    sandboxDir = "$projectDir/build/idea-sandbox"
 
+    // Ensure all dependencies are included
+    downloadSources.set(true)
+    // This might help with classloader issues
+    sameSinceUntilBuild.set(false)
     plugins.set(listOf("java"/* Plugin Dependencies */))
 }
 
@@ -30,7 +36,15 @@ dependencies {
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    // ONNX Runtime - REQUIRED for ONNX models to work
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 
+    // Optional but recommended for better performance
+    implementation("ai.djl:api:0.28.0")
+    implementation("ai.djl.onnxruntime:onnxruntime-engine:0.28.0")
+
+    // If you still have issues, try adding:
+//    implementation("com.microsoft.onnxruntime:onnxruntime_gpu:1.19.2")
     // LSP4J for language server protocol support
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.1")
     
@@ -55,6 +69,7 @@ dependencies {
 }
 
 tasks {
+
     // Set the JVM compatibility versions
     withType<JavaCompile> {
         sourceCompatibility = "17"
@@ -63,7 +78,10 @@ tasks {
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }
-    
+    // Add this to ensure resources are properly packaged
+    processResources {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
     // Configure the test task for JUnit 4 (IntelliJ platform tests)
     test {
         useJUnit()

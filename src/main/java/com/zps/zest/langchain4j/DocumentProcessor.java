@@ -3,18 +3,15 @@ package com.zps.zest.langchain4j;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
-import dev.langchain4j.data.document.parser.TextDocumentParser;
+import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
- import dev.langchain4j.data.document.splitter.DocumentSplitters;
+import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.Tokenizer;
-
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +26,6 @@ public class DocumentProcessor {
     
     private final DocumentSplitter defaultSplitter;
     private final DocumentSplitter codeSplitter;
-    private final Tokenizer tokenizer;
     
     // Chunking parameters
     private static final int DEFAULT_CHUNK_SIZE = 300;
@@ -38,21 +34,16 @@ public class DocumentProcessor {
     private static final int CODE_CHUNK_OVERLAP = 100;
     
     public DocumentProcessor() {
-        // Use OpenAI tokenizer for accurate token counting
-        this.tokenizer = new OpenAiTokenizer();
-        
         // Default splitter for general documents
         this.defaultSplitter = DocumentSplitters.recursive(
             DEFAULT_CHUNK_SIZE,
-            DEFAULT_CHUNK_OVERLAP,
-            tokenizer
+            DEFAULT_CHUNK_OVERLAP
         );
         
         // Code-specific splitter with larger chunks
         this.codeSplitter = DocumentSplitters.recursive(
             CODE_CHUNK_SIZE,
-            CODE_CHUNK_OVERLAP,
-            tokenizer
+            CODE_CHUNK_OVERLAP
         );
     }
     
@@ -125,8 +116,7 @@ public class DocumentProcessor {
         // Use smaller chunks for markdown to preserve structure
         DocumentSplitter markdownSplitter = DocumentSplitters.recursive(
             250, 
-            40, 
-            tokenizer
+            40
         );
         
         return markdownSplitter.split(document);
@@ -146,9 +136,9 @@ public class DocumentProcessor {
             Document document = parser.parse(inputStream);
             
             // Add filename to metadata
-            document.metadata().put("filename", fileName);
+            document.metadata().add("filename", fileName);
             if (mimeType != null) {
-                document.metadata().put("mime_type", mimeType);
+                document.metadata().add("mime_type", mimeType);
             }
             
             return defaultSplitter.split(document);
@@ -167,36 +157,42 @@ public class DocumentProcessor {
      * @return A single text segment
      */
     public TextSegment createSegment(String text, java.util.Map<String, String> metadata) {
-        return TextSegment.from(text, metadata);
+        Metadata md = new Metadata();
+        for (java.util.Map.Entry<String, String> entry : metadata.entrySet()) {
+            md.add(entry.getKey(), entry.getValue());
+        }
+        return TextSegment.from(text, md);
     }
     
     /**
      * Estimates the number of tokens in a text.
+     * Simple approximation: ~4 characters per token
      * 
      * @param text The text to analyze
      * @return Estimated token count
      */
     public int estimateTokens(String text) {
-        return tokenizer.estimateTokenCountInText(text);
+        // Simple estimation: average 4 characters per token
+        return text.length() / 4;
     }
     
-    private java.util.Map<String, String> createMetadata(VirtualFile file) {
+    private Metadata createMetadata(VirtualFile file) {
         return createMetadata(file, detectFileType(file));
     }
     
-    private java.util.Map<String, String> createMetadata(VirtualFile file, String type) {
-        java.util.Map<String, String> metadata = new java.util.HashMap<>();
-        metadata.put("filename", file.getName());
-        metadata.put("path", file.getPath());
-        metadata.put("type", type);
-        metadata.put("extension", file.getExtension() != null ? file.getExtension() : "");
+    private Metadata createMetadata(VirtualFile file, String type) {
+        Metadata metadata = new Metadata();
+        metadata.add("filename", file.getName());
+        metadata.add("path", file.getPath());
+        metadata.add("type", type);
+        metadata.add("extension", file.getExtension() != null ? file.getExtension() : "");
         return metadata;
     }
     
-    private java.util.Map<String, String> createMetadata(String fileName, String type) {
-        java.util.Map<String, String> metadata = new java.util.HashMap<>();
-        metadata.put("filename", fileName);
-        metadata.put("type", type);
+    private Metadata createMetadata(String fileName, String type) {
+        Metadata metadata = new Metadata();
+        metadata.add("filename", fileName);
+        metadata.add("type", type);
         return metadata;
     }
     

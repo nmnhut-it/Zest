@@ -127,11 +127,7 @@ public class EnhancedRagSearchTool extends BaseAgentTool {
             return "Error performing enhanced search: " + e.getMessage();
         }
     }
-    
-    @Override
-    public String getUsageExample() {
-        return "search_project_code_enhanced \"authentication logic\" 10 true";
-    }
+
     
     @Override
     public JsonObject getExampleParams() {

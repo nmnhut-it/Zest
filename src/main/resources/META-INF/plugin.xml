@@ -233,6 +233,23 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestLangChain4jAction"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>
         </action>
+        
+        <!-- Index Project for Function-Level Search -->
+        <action id="Zest.IndexProjectFunctionLevel"
+                class="com.zps.zest.langchain4j.IndexProjectFunctionLevelAction"
+                text="Index Project for Function-Level Search"
+                description="Index all functions and classes for semantic code search">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.QuickTestLangChain4j"/>
+        </action>
+        
+        <!-- Test Two-Phase Code Search -->
+        <action id="Zest.TestCodeSearch"
+                class="com.zps.zest.langchain4j.TestCodeSearchAction"
+                text="Test Two-Phase Code Search"
+                description="Search for code using semantic search with related code discovery">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectFunctionLevel"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
+        </action>
 
         <!-- DEVELOPER TOOLS -->
         

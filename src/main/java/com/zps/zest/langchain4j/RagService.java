@@ -103,11 +103,14 @@ public final class RagService {
      */
     public void indexCodeSignature(CodeSignature signature) {
         String content = buildSignatureContent(signature);
-        TextSegment segment = documentProcessor.createSegment(content, Map.of(
-            "type", "signature",
-            "signature_id", signature.getId(),
-            "file_path", signature.getFilePath()
-        ));
+        
+        // Create metadata map for the segment
+        Map<String, String> segmentMetadata = new HashMap<>();
+        segmentMetadata.put("type", "signature");
+        segmentMetadata.put("signature_id", signature.getId());
+        segmentMetadata.put("file_path", signature.getFilePath());
+        
+        TextSegment segment = documentProcessor.createSegment(content, segmentMetadata);
         
         float[] embedding = embeddingService.embed(content);
         
@@ -116,6 +119,28 @@ public final class RagService {
         metadata.put("signature_id", signature.getId());
         metadata.put("signature_type", extractSignatureType(signature));
         metadata.put("file_path", signature.getFilePath());
+        
+        // Add additional metadata from signature
+        try {
+            com.google.gson.JsonObject sigMetadata = com.google.gson.JsonParser
+                .parseString(signature.getMetadata())
+                .getAsJsonObject();
+            
+            if (sigMetadata.has("qualifiedName")) {
+                metadata.put("qualified_name", sigMetadata.get("qualifiedName").getAsString());
+            }
+            if (sigMetadata.has("package")) {
+                metadata.put("package", sigMetadata.get("package").getAsString());
+            }
+            if (sigMetadata.has("class")) {
+                metadata.put("class_name", sigMetadata.get("class").getAsString());
+            }
+            if (sigMetadata.has("name")) {
+                metadata.put("element_name", sigMetadata.get("name").getAsString());
+            }
+        } catch (Exception e) {
+            // Ignore metadata parsing errors
+        }
         
         vectorStore.store(signature.getId(), embedding, segment, metadata);
     }

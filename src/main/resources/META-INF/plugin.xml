@@ -250,6 +250,14 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectFunctionLevel"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
         </action>
+        
+        <!-- Test Query Augmentation -->
+        <action id="Zest.TestQueryAugmentation"
+                class="com.zps.zest.langchain4j.TestQueryAugmentationAction"
+                text="Test Query Augmentation"
+                description="Test the intelligent query augmentation feature">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>
+        </action>
 
         <!-- DEVELOPER TOOLS -->
         

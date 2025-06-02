@@ -153,6 +153,14 @@ public class WebBrowserPanel {
                 p -> new ProjectModePromptBuilder(p).buildPrompt()
         ));
 
+        // Add Augmented Mode
+        browserModes.add(new BrowserMode(
+                "Augmented Mode",
+                AllIcons.Nodes.Module,
+                "Intelligently augmented queries with relevant code context",
+                p -> "You are an AI assistant with intelligently augmented code context. User queries will include relevant code patterns and relationships discovered automatically."
+        ));
+
         // Add Agent Mode
         this.agentMode = new BrowserMode(
                 "Agent Mode",

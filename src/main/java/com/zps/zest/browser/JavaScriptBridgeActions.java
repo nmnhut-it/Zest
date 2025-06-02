@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.rag.RagAgent;
 import com.zps.zest.rag.models.KnowledgeCollection;
+import com.zps.zest.langchain4j.QueryAugmentationService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -27,6 +28,7 @@ public class JavaScriptBridgeActions {
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
+    private final QueryAugmentationService queryAugmentationService;
     
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -36,6 +38,7 @@ public class JavaScriptBridgeActions {
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
         this.gitService = new GitService(project);
+        this.queryAugmentationService = project.getService(QueryAugmentationService.class);
     }
     
     /**
@@ -106,6 +109,9 @@ public class JavaScriptBridgeActions {
                 case "getProjectKnowledgeCollection":
                     return getProjectKnowledgeCollection();
                     
+                case "augmentQuery":
+                    return handleAugmentQuery(data);
+                    
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
@@ -155,6 +161,31 @@ public class JavaScriptBridgeActions {
             errorResponse.addProperty("error", e.getMessage());
             return gson.toJson(errorResponse);
         }
+    }
+    
+    /**
+     * Handles query augmentation requests.
+     */
+    private String handleAugmentQuery(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            String query = data.has("query") ? data.get("query").getAsString() : "";
+            if (query.isEmpty()) {
+                response.addProperty("success", false);
+                response.addProperty("error", "Query is required");
+                return gson.toJson(response);
+            }
+            
+            String augmentedContext = queryAugmentationService.augmentQuery(query);
+            response.addProperty("success", true);
+            response.addProperty("result", augmentedContext);
+            
+        } catch (Exception e) {
+            LOG.error("Error augmenting query", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
     }
     
     /**

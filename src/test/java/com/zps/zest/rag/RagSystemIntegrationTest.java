@@ -1,21 +1,17 @@
 package com.zps.zest.rag;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.zps.zest.ConfigurationManager;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static junit.framework.TestCase.*;
 
 /**
- * Integration test for the complete RAG system using JUnit Jupiter.
+ * Integration test for the complete RAG system.
  * Tests the full flow from indexing to search.
  */
 public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCase {
@@ -42,7 +38,6 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         );
     }
     
-    @Test
     public void testFullIndexingAndSearchFlow() throws Exception {
         // Create a test file
         myFixture.configureByText("AuthService.java",
@@ -88,8 +83,8 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
             .findFirst()
             .orElse(null);
         
-        assertNotNull(authMatch, "Should find AuthService in results");
-        assertTrue(authMatch.getRelevance() > 0.5, "Should have high relevance");
+        assertNotNull("Should find AuthService in results", authMatch);
+        assertTrue("Should have high relevance", authMatch.getRelevance() > 0.5);
         
         // Get full code for the method
         String fullCode = ragAgent.getFullCode("com.example.AuthService#authenticate");
@@ -99,7 +94,6 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         assertTrue(fullCode.contains("password"));
     }
     
-    @Test
     public void testSearchWithMultipleFiles() throws Exception {
         // Create multiple related files
         myFixture.configureByText("UserService.java",
@@ -137,11 +131,10 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         boolean foundRepository = matches.stream()
             .anyMatch(m -> m.getSignature().getId().contains("UserRepository"));
         
-        assertTrue(foundService, "Should find UserService");
-        assertTrue(foundRepository, "Should find UserRepository");
+        assertTrue("Should find UserService", foundService);
+        assertTrue("Should find UserRepository", foundRepository);
     }
     
-    @Test
     public void testProjectInfoExtraction() throws Exception {
         // Create a simple pom.xml
         myFixture.addFileToProject("pom.xml",
@@ -166,7 +159,6 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         assertTrue(info.getDependencies().contains("org.springframework:spring-core:5.3.0"));
     }
     
-    @Test
     public void testKotlinFileIndexing() throws Exception {
         // Create a Kotlin file
         myFixture.configureByText("DataService.kt",
@@ -194,10 +186,9 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         List<RagAgent.CodeMatch> matches = ragAgent.findRelatedCode("fetchUser")
             .get(10, TimeUnit.SECONDS);
         
-        assertTrue(matches.size() > 0, "Should find Kotlin code");
+        assertTrue("Should find Kotlin code", matches.size() > 0);
     }
     
-    @Test
     public void testEmptyProjectHandling() throws Exception {
         // Index empty project
         ApplicationManager.getApplication().invokeAndWait(() -> {
@@ -210,6 +201,6 @@ public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCas
         
         // Should still create knowledge base with project overview
         assertEquals(1, mockApiClient.getKnowledgeBaseCount());
-        assertTrue(mockApiClient.getFileCount() >= 1); // At least project overview
+        assertTrue("At least project overview", mockApiClient.getFileCount() >= 1);
     }
 }

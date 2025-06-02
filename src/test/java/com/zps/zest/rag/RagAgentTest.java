@@ -5,26 +5,22 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.zps.zest.ConfigurationManager;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import junit.framework.TestCase;
 import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.MockitoAnnotations;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for RagAgent using JUnit Jupiter.
+ * Unit tests for RagAgent using JUnit 4.
  */
-@ExtendWith(MockitoExtension.class)
-class RagAgentTest {
+public class RagAgentTest extends TestCase {
     
     @Mock
     private Project mockProject;
@@ -49,8 +45,11 @@ class RagAgentTest {
     
     private RagAgent ragAgent;
     
-    @BeforeEach
-    void setUp() {
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        MockitoAnnotations.openMocks(this);
+        
         when(mockProject.getName()).thenReturn("TestProject");
         when(mockConfig.getApiUrl()).thenReturn("http://localhost:8080/api");
         when(mockConfig.getAuthToken()).thenReturn("test-token");
@@ -58,8 +57,7 @@ class RagAgentTest {
         ragAgent = new RagAgent(mockProject, mockConfig, mockCodeAnalyzer, mockApiClient);
     }
     
-    @Test
-    void testPerformIndexing_CreatesKnowledgeBase() throws Exception {
+    public void testPerformIndexing_CreatesKnowledgeBase() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn(null);
         when(mockApiClient.createKnowledgeBase(anyString(), anyString())).thenReturn("kb-123");
@@ -81,8 +79,7 @@ class RagAgentTest {
         verify(mockConfig).saveConfig();
     }
     
-    @Test
-    void testIndexFile_ExtractsAndUploadsSignatures() throws Exception {
+    public void testIndexFile_ExtractsAndUploadsSignatures() throws Exception {
         // Given
         String knowledgeId = "kb-123";
         when(mockFile.getPath()).thenReturn("/src/TestClass.java");
@@ -105,8 +102,7 @@ class RagAgentTest {
         assertEquals(1, ragAgent.getSignatureCache().size());
     }
     
-    @Test
-    void testFindRelatedCode_ReturnsMatchingSignatures() throws Exception {
+    public void testFindRelatedCode_ReturnsMatchingSignatures() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn("kb-123");
         
@@ -137,8 +133,7 @@ class RagAgentTest {
         assertTrue(matches.get(0).getRelevance() > 0);
     }
     
-    @Test
-    void testCalculateRelevance_ScoresCorrectly() {
+    public void testCalculateRelevance_ScoresCorrectly() {
         // Given
         CodeSignature signature = new CodeSignature(
             "com.test.AuthenticationService#login",
@@ -155,8 +150,7 @@ class RagAgentTest {
         assertEquals(0.0, ragAgent.calculateRelevance(signature, "unrelated"), 0.01);
     }
     
-    @Test
-    void testCreateProjectOverviewDocument() {
+    public void testCreateProjectOverviewDocument() {
         // Given
         ProjectInfo info = new ProjectInfo();
         info.setBuildSystem("Maven");
@@ -176,8 +170,7 @@ class RagAgentTest {
         assertTrue(document.contains("Total Source Files:** 42"));
     }
     
-    @Test
-    void testErrorHandling_ContinuesOnFileFailure() throws Exception {
+    public void testErrorHandling_ContinuesOnFileFailure() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn("kb-123");
         
@@ -199,8 +192,7 @@ class RagAgentTest {
         verify(mockProgressIndicator, never()).cancel();
     }
     
-    @Test
-    void testGetFullCode_HandlesNullInput() {
+    public void testGetFullCode_HandlesNullInput() {
         // When
         String result = ragAgent.getFullCode(null);
         
@@ -208,8 +200,7 @@ class RagAgentTest {
         assertNull(result);
     }
     
-    @Test
-    void testGetFullCode_HandlesEmptyInput() {
+    public void testGetFullCode_HandlesEmptyInput() {
         // When
         String result = ragAgent.getFullCode("");
         
@@ -217,8 +208,7 @@ class RagAgentTest {
         assertNull(result);
     }
     
-    @Test
-    void testExtractCodeMatches_FiltersLowRelevance() {
+    public void testExtractCodeMatches_FiltersLowRelevance() {
         // Given
         CodeSignature sig1 = new CodeSignature(
             "com.test.Service",

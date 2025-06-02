@@ -1,13 +1,13 @@
 # RAG System Tests
 
-This directory contains all tests for the RAG (Retrieval Augmented Generation) system using JUnit Jupiter (JUnit 5).
+This directory contains all tests for the RAG (Retrieval Augmented Generation) system using JUnit 4.
 
 ## Test Structure
 
 ### Unit Tests
+- **CodeSignatureTest** - Tests the CodeSignature model class
 - **RagAgentTest** - Tests the main RAG agent logic with mocked dependencies
 - **SignatureExtractorTest** - Tests code signature extraction from PSI
-- **CodeSignatureTest** - Tests the CodeSignature model class
 
 ### Integration Tests
 - **RagSystemIntegrationTest** - Tests the full RAG flow from indexing to search
@@ -15,7 +15,7 @@ This directory contains all tests for the RAG (Retrieval Augmented Generation) s
 ### Test Utilities
 - **MockKnowledgeApiClient** - In-memory mock implementation of the API client
 - **TestUtils** - Helper methods for creating test data
-- **RagTestSuite** - JUnit Platform Suite for running all tests together
+- **RagTestSuite** - JUnit 4 test suite for running all tests together
 
 ## Running Tests
 
@@ -49,13 +49,17 @@ This directory contains all tests for the RAG (Retrieval Augmented Generation) s
 
 ### Mocking with Mockito
 ```java
-@ExtendWith(MockitoExtension.class)
-class MyTest {
+public class MyTest extends TestCase {
     @Mock
     private KnowledgeApiClient mockApiClient;
     
-    @Test
-    void testSomething() {
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        MockitoAnnotations.openMocks(this);
+    }
+    
+    public void testSomething() {
         when(mockApiClient.uploadFile(any(), any())).thenReturn("file-id");
         // test code
     }
@@ -66,7 +70,6 @@ class MyTest {
 Tests that need PSI support extend `LightJavaCodeInsightFixtureTestCase`:
 ```java
 public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase {
-    @Test
     public void testExtraction() {
         PsiFile file = myFixture.configureByText("Test.java", "class Test {}");
         // test code
@@ -82,21 +85,19 @@ ProjectInfo info = TestUtils.createTestProjectInfo("Maven", "spring-core:5.0");
 MockProgressIndicator indicator = new TestUtils.MockProgressIndicator();
 ```
 
-## JUnit Jupiter Features Used
+## JUnit 4 Conventions
 
-- **@Test** - Basic test annotation
-- **@BeforeEach** - Setup before each test
-- **@DisplayName** - Human-readable test names
-- **@ParameterizedTest** - Data-driven tests
-- **@ExtendWith(MockitoExtension.class)** - Mockito integration
-- **assertAll()** - Group assertions
-- **assertThrows()** - Exception testing
+- **Test methods** - Must start with "test" prefix
+- **setUp()** - Override for setup before each test
+- **tearDown()** - Override for cleanup after each test
+- **TestCase** - Extend for basic tests
+- **Static imports** - Use `import static junit.framework.TestCase.*;` for assertions
 
 ## Best Practices
 
 1. **Naming Convention**
    - Test methods: `testMethodName_Scenario_ExpectedBehavior()`
-   - Or use `@DisplayName` for readable names
+   - Test classes: End with "Test"
 
 2. **Test Structure**
    - Given - Set up test data
@@ -110,8 +111,8 @@ MockProgressIndicator indicator = new TestUtils.MockProgressIndicator();
 
 4. **Assertions**
    - Use descriptive assertion messages
-   - Group related assertions with `assertAll()`
-   - Use appropriate matchers
+   - Common assertions: assertEquals, assertTrue, assertFalse, assertNull, assertNotNull
+   - Use fail() for expected exceptions
 
 ## Coverage Goals
 
@@ -123,11 +124,12 @@ MockProgressIndicator indicator = new TestUtils.MockProgressIndicator();
 
 ### Test Not Found
 - Ensure test class names end with "Test"
-- Check that methods are public (or package-private)
-- Verify @Test annotation is from org.junit.jupiter.api
+- Check that test methods start with "test" prefix
+- Verify methods are public
+- Ensure class extends TestCase or appropriate base class
 
 ### Mock Issues
-- Ensure @ExtendWith(MockitoExtension.class) is present
+- Ensure MockitoAnnotations.openMocks(this) is called in setUp()
 - Check mock initialization
 - Verify stubbing before method calls
 

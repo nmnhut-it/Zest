@@ -154,6 +154,11 @@ public class TestUtils {
         @Override
         public boolean isShowing() { return true; }
         
+        @Override
+        public com.intellij.openapi.application.ModalityState getModalityState() { 
+            return com.intellij.openapi.application.ModalityState.defaultModalityState(); 
+        }
+        
         // Test helper methods
         public String getFullStatus() {
             return text + " - " + text2 + " (" + (int)(fraction * 100) + "%)";

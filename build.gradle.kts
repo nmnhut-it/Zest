@@ -22,14 +22,11 @@ intellij {
 }
 
 dependencies {
-    // JUnit Jupiter (JUnit 5)
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
-    testImplementation("org.junit.platform:junit-platform-suite:1.10.2")
+    // JUnit 4 for IntelliJ platform tests
+    testImplementation("junit:junit:4.13.2")
 
     // Mockito
     testImplementation("org.mockito:mockito-core:5.11.0")
-    testImplementation("org.mockito:mockito-junit-jupiter:5.11.0") // For JUnit 5 integration
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
@@ -53,9 +50,9 @@ tasks {
         kotlinOptions.jvmTarget = "17"
     }
     
-    // Configure the test task to use JUnit Platform
+    // Configure the test task for JUnit 4 (IntelliJ platform tests)
     test {
-        useJUnitPlatform()
+        useJUnit()
         testLogging {
             events("passed", "skipped", "failed")
         }

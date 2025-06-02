@@ -406,7 +406,7 @@ public final class CodeSearchUtility {
     /**
      * Search source indicator.
      */
-    private enum SearchSource {
+    public enum SearchSource {
         NAME("Name-based"),
         SEMANTIC("Semantic"),
         STRUCTURAL("Structural");

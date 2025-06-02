@@ -373,7 +373,7 @@ public class StructuralIndex {
         private final String elementType; // class, interface, method, field
         private final String packageName;
         private final String containingClass;
-        private final String superClass;
+        private String superClass; // Changed from final
         private final Set<String> implementsInterfaces = new HashSet<>();
         private final Set<String> calls = new HashSet<>();
         private final Set<String> overrides = new HashSet<>();

@@ -2,13 +2,10 @@ package com.zps.zest.langchain4j.index;
 
 import com.intellij.openapi.diagnostic.Logger;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.TokenStream;
-import org.apache.lucene.analysis.core.LowerCaseFilter;
-import org.apache.lucene.analysis.core.WhitespaceTokenizer;
-import org.apache.lucene.analysis.miscellaneous.WordDelimiterGraphFilter;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
+import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.ByteBuffersDirectory;
@@ -55,24 +52,9 @@ public class NameIndex {
      * Creates a custom analyzer that handles code identifiers.
      */
     private Analyzer createCodeAwareAnalyzer() {
-        return new Analyzer() {
-            @Override
-            protected TokenStreamComponents createComponents(String fieldName) {
-                WhitespaceTokenizer tokenizer = new WhitespaceTokenizer();
-                
-                // Configure word delimiter to handle camelCase, snake_case, etc.
-                int flags = WordDelimiterGraphFilter.GENERATE_WORD_PARTS |
-                           WordDelimiterGraphFilter.GENERATE_NUMBER_PARTS |
-                           WordDelimiterGraphFilter.SPLIT_ON_CASE_CHANGE |
-                           WordDelimiterGraphFilter.SPLIT_ON_NUMERICS |
-                           WordDelimiterGraphFilter.PRESERVE_ORIGINAL;
-                
-                TokenStream filter = new WordDelimiterGraphFilter(tokenizer, flags, null);
-                filter = new LowerCaseFilter(filter);
-                
-                return new TokenStreamComponents(tokenizer, filter);
-            }
-        };
+        // For now, use StandardAnalyzer which handles most cases well
+        // In the future, we can create a more sophisticated analyzer
+        return new StandardAnalyzer();
     }
     
     /**
@@ -180,7 +162,7 @@ public class NameIndex {
             QueryParser parser = new QueryParser("signature", analyzer);
             Query parsedQuery = parser.parse(queryStr);
             addResults(parsedQuery, 0.8f, maxResults, allResults, seenIds);
-        } catch (Exception e) {
+        } catch (ParseException e) {
             // Ignore parse errors
         }
         

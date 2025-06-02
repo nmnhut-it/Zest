@@ -22,11 +22,11 @@
     // Add project mode flag
     data.custom_tool = 'Zest|PROJECT_MODE_CHAT';
 
-    // Get the knowledge ID from the project configuration
-    const knowledgeId = window.__project_knowledge_id__;
+    // Get the knowledge collection from the cached data
+    const knowledgeCollection = window.__project_knowledge_collection__;
     
-    if (!knowledgeId) {
-      console.warn('[Project Mode] No knowledge base ID found. Please index your project first.');
+    if (!knowledgeCollection) {
+      console.warn('[Project Mode] No knowledge collection found. Please wait for it to load or re-index your project.');
       return false;
     }
 
@@ -37,15 +37,13 @@
 
     // Check if knowledge collection is already added
     const hasKnowledgeCollection = data.files.some(
-      file => file.type === 'collection' && file.id === knowledgeId
+      file => file.type === 'collection' && file.id === knowledgeCollection.id
     );
 
     if (!hasKnowledgeCollection) {
-      data.files.push({
-        type: 'collection',
-        id: knowledgeId
-      });
-      console.log('[Project Mode] Added knowledge collection:', knowledgeId);
+      // Add the complete collection object
+      data.files.push(knowledgeCollection);
+      console.log('[Project Mode] Added knowledge collection:', knowledgeCollection.id);
     }
 
     // Add a system message that explains the project context is available
@@ -104,36 +102,68 @@ Current File: ${info.currentOpenFile}
   };
 
   /**
-   * Loads the knowledge ID from the project configuration
+   * Loads the knowledge collection from the project configuration
    */
-  window.loadProjectKnowledgeId = function() {
+  window.loadProjectKnowledgeCollection = function() {
     if (window.intellijBridge) {
-      window.intellijBridge.callIDE('getProjectKnowledgeId', {})
+      console.log('[Project Mode] Fetching knowledge collection...');
+      window.intellijBridge.callIDE('getProjectKnowledgeCollection', {})
         .then(function(response) {
           if (response && response.success && response.result) {
-            window.__project_knowledge_id__ = response.result;
-            console.log('[Project Mode] Loaded knowledge ID:', response.result);
+            window.__project_knowledge_collection__ = response.result;
+            console.log('[Project Mode] Loaded knowledge collection:', response.result.id);
+            console.log('[Project Mode] Collection contains', response.result.files ? response.result.files.length : 0, 'files');
           } else {
-            console.warn('[Project Mode] No knowledge ID found in project configuration');
+            console.warn('[Project Mode] Failed to load knowledge collection:', response);
+            window.__project_knowledge_collection__ = null;
           }
         })
         .catch(function(error) {
-          console.error('[Project Mode] Failed to load knowledge ID:', error);
+          console.error('[Project Mode] Failed to load knowledge collection:', error);
+          window.__project_knowledge_collection__ = null;
         });
     }
   };
 
-  // Load knowledge ID when the page loads
+  /**
+   * Clears the cached knowledge collection
+   */
+  window.clearProjectKnowledgeCollection = function() {
+    window.__project_knowledge_collection__ = null;
+    console.log('[Project Mode] Cleared knowledge collection cache');
+  };
+
+  // Load knowledge collection when the page loads
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', window.loadProjectKnowledgeId);
+    document.addEventListener('DOMContentLoaded', function() {
+      // Only load if we're in Project Mode
+      if (window.__zest_mode__ === 'Project Mode') {
+        window.loadProjectKnowledgeCollection();
+      }
+    });
   } else {
-    window.loadProjectKnowledgeId();
+    // Only load if we're in Project Mode
+    if (window.__zest_mode__ === 'Project Mode') {
+      window.loadProjectKnowledgeCollection();
+    }
   }
 
-  // Also reload when switching to Project Mode
+  // Reload when switching to Project Mode
   window.addEventListener('zestModeChanged', function(event) {
     if (event.detail && event.detail.mode === 'Project Mode') {
-      window.loadProjectKnowledgeId();
+      console.log('[Project Mode] Mode activated, loading knowledge collection...');
+      window.loadProjectKnowledgeCollection();
+    } else {
+      // Clear the collection when switching away from Project Mode
+      window.clearProjectKnowledgeCollection();
+    }
+  });
+
+  // Also reload when project info changes (e.g., after re-indexing)
+  window.addEventListener('projectIndexed', function(event) {
+    if (window.__zest_mode__ === 'Project Mode') {
+      console.log('[Project Mode] Project re-indexed, reloading knowledge collection...');
+      window.loadProjectKnowledgeCollection();
     }
   });
 

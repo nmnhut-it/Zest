@@ -1,6 +1,7 @@
 package com.zps.zest.rag;
 
 import com.google.gson.JsonObject;
+import com.zps.zest.rag.models.KnowledgeCollection;
 
 import java.io.IOException;
 import java.util.List;
@@ -49,4 +50,13 @@ public interface KnowledgeApiClient {
      * @throws IOException if the operation fails
      */
     List<String> queryKnowledge(String knowledgeId, String query) throws IOException;
+    
+    /**
+     * Gets the complete knowledge collection details.
+     * 
+     * @param knowledgeId The knowledge base ID
+     * @return The complete knowledge collection with file metadata
+     * @throws IOException if the operation fails
+     */
+    KnowledgeCollection getKnowledgeCollection(String knowledgeId) throws IOException;
 }

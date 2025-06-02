@@ -18,6 +18,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.rag.models.KnowledgeCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -247,6 +248,21 @@ public final class RagAgent {
             }
             return null;
         });
+    }
+
+    /**
+     * Gets the complete knowledge collection from OpenWebUI.
+     * 
+     * @param knowledgeId The knowledge collection ID
+     * @return The complete knowledge collection with all metadata
+     */
+    public KnowledgeCollection getKnowledgeCollection(String knowledgeId) {
+        try {
+            return apiClient.getKnowledgeCollection(knowledgeId);
+        } catch (IOException e) {
+            LOG.error("Error fetching knowledge collection: " + knowledgeId, e);
+            return null;
+        }
     }
 
     private String createOrResetKnowledgeBase() throws IOException {

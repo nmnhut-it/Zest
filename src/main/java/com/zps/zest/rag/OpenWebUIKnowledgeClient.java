@@ -2,6 +2,7 @@ package com.zps.zest.rag;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.zps.zest.rag.models.KnowledgeCollection;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -93,6 +94,21 @@ public class OpenWebUIKnowledgeClient implements KnowledgeApiClient {
     public List<String> queryKnowledge(String knowledgeId, String query) throws IOException {
         // For MVP, return empty list - real implementation would query the API
         return new ArrayList<>();
+    }
+    
+    @Override
+    public KnowledgeCollection getKnowledgeCollection(String knowledgeId) throws IOException {
+        String apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId;
+        HttpURLConnection conn = createConnection(apiUrl, "GET");
+        conn.setDoOutput(false); // GET request doesn't have a body
+        
+        if (conn.getResponseCode() == 200) {
+            try (InputStreamReader reader = new InputStreamReader(conn.getInputStream())) {
+                return gson.fromJson(reader, KnowledgeCollection.class);
+            }
+        } else {
+            throw new IOException("Failed to get knowledge collection: " + conn.getResponseCode());
+        }
     }
     
     private HttpURLConnection createConnection(String url, String method) throws IOException {

@@ -8,6 +8,8 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.rag.RagAgent;
+import com.zps.zest.rag.models.KnowledgeCollection;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -100,6 +102,9 @@ public class JavaScriptBridgeActions {
                     
                 case "getProjectKnowledgeId":
                     return getProjectKnowledgeId();
+                    
+                case "getProjectKnowledgeCollection":
+                    return getProjectKnowledgeCollection();
                     
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
@@ -197,6 +202,40 @@ public class JavaScriptBridgeActions {
             }
         } catch (Exception e) {
             LOG.error("Error getting knowledge ID", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Gets the project knowledge collection from OpenWebUI.
+     */
+    private String getProjectKnowledgeCollection() {
+        JsonObject response = new JsonObject();
+        try {
+            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+            if (knowledgeId != null && !knowledgeId.isEmpty()) {
+                // Get the RAG agent instance
+                RagAgent ragAgent = RagAgent.getInstance(project);
+                
+                // Fetch the complete knowledge collection
+                KnowledgeCollection collection = ragAgent.getKnowledgeCollection(knowledgeId);
+                
+                if (collection != null) {
+                    response.addProperty("success", true);
+                    // Convert the collection to JSON
+                    response.add("result", gson.toJsonTree(collection));
+                } else {
+                    response.addProperty("success", false);
+                    response.addProperty("error", "Failed to fetch knowledge collection");
+                }
+            } else {
+                response.addProperty("success", false);
+                response.addProperty("error", "No knowledge base configured. Please index your project first.");
+            }
+        } catch (Exception e) {
+            LOG.error("Error getting knowledge collection", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }

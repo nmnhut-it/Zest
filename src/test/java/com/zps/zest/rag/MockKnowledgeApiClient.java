@@ -1,5 +1,8 @@
 package com.zps.zest.rag;
 
+import com.zps.zest.rag.models.KnowledgeCollection;
+import com.zps.zest.rag.models.KnowledgeCollection.*;
+
 import java.io.IOException;
 import java.util.*;
 
@@ -60,6 +63,53 @@ public class MockKnowledgeApiClient implements KnowledgeApiClient {
         
         // Simple mock: return all file IDs
         return new ArrayList<>(kb.fileIds);
+    }
+    
+    @Override
+    public KnowledgeCollection getKnowledgeCollection(String knowledgeId) throws IOException {
+        KnowledgeBase kb = knowledgeBases.get(knowledgeId);
+        if (kb == null) {
+            throw new IOException("Knowledge base not found: " + knowledgeId);
+        }
+        
+        // Create a mock KnowledgeCollection
+        KnowledgeCollection collection = new KnowledgeCollection();
+        collection.setId(kb.id);
+        collection.setUserId("test-user");
+        collection.setName(kb.name);
+        collection.setDescription(kb.description);
+        
+        // Set data with file IDs
+        KnowledgeData data = new KnowledgeData();
+        data.setFileIds(new ArrayList<>(kb.fileIds));
+        collection.setData(data);
+        
+        // Create file metadata for each file
+        List<FileMetadata> fileMetadataList = new ArrayList<>();
+        for (String fileId : kb.fileIds) {
+            FileMetadata fileMeta = new FileMetadata();
+            fileMeta.setId(fileId);
+            
+            FileMetaInfo metaInfo = new FileMetaInfo();
+            metaInfo.setName(fileId + ".md");
+            metaInfo.setContentType("text/markdown");
+            metaInfo.setSize(1000);
+            metaInfo.setData(new HashMap<>());
+            
+            fileMeta.setMeta(metaInfo);
+            fileMeta.setCreatedAt(System.currentTimeMillis() / 1000);
+            fileMeta.setUpdatedAt(System.currentTimeMillis() / 1000);
+            
+            fileMetadataList.add(fileMeta);
+        }
+        collection.setFiles(fileMetadataList);
+        
+        collection.setCreatedAt(System.currentTimeMillis() / 1000);
+        collection.setUpdatedAt(System.currentTimeMillis() / 1000);
+        collection.setType("collection");
+        collection.setStatus("processed");
+        
+        return collection;
     }
     
     // Test helpers

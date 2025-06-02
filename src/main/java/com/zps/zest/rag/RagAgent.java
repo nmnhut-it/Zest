@@ -1,7 +1,6 @@
 package com.zps.zest.rag;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -14,22 +13,23 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Main RAG agent that manages code indexing and retrieval.
+ * Designed with testability in mind using dependency injection.
  */
 @Service(Service.Level.PROJECT)
 public final class RagAgent {
@@ -38,19 +38,41 @@ public final class RagAgent {
     
     private final Project project;
     private final ConfigurationManager config;
-    private final SignatureExtractor signatureExtractor;
-    private final ProjectInfoExtractor projectInfoExtractor;
+    private final CodeAnalyzer codeAnalyzer;
+    private final KnowledgeApiClient apiClient;
+    private final Map<String, List<CodeSignature>> signatureCache;
     private final Gson gson = new Gson();
     
-    // Cache for signatures to avoid re-extraction
-    private final Map<String, List<CodeSignature>> signatureCache = new ConcurrentHashMap<>();
     private volatile boolean isIndexing = false;
 
+    // Production constructor
     public RagAgent(Project project) {
+        this(project, 
+             ConfigurationManager.getInstance(project),
+             new DefaultCodeAnalyzer(project),
+             null); // Will be created based on config
+    }
+    
+    // Test-friendly constructor
+    @VisibleForTesting
+    RagAgent(Project project, 
+             ConfigurationManager config,
+             CodeAnalyzer codeAnalyzer,
+             @Nullable KnowledgeApiClient apiClient) {
         this.project = project;
-        this.config = ConfigurationManager.getInstance(project);
-        this.signatureExtractor = new SignatureExtractor();
-        this.projectInfoExtractor = new ProjectInfoExtractor(project);
+        this.config = config;
+        this.codeAnalyzer = codeAnalyzer;
+        this.signatureCache = new ConcurrentHashMap<>();
+        
+        // Create API client if not provided (for testing)
+        if (apiClient == null) {
+            this.apiClient = new OpenWebUIKnowledgeClient(
+                config.getApiUrl(), 
+                config.getAuthToken()
+            );
+        } else {
+            this.apiClient = apiClient;
+        }
     }
 
     public static RagAgent getInstance(Project project) {
@@ -80,8 +102,12 @@ public final class RagAgent {
             }
         });
     }
-
-    private void performIndexing(ProgressIndicator indicator, boolean forceRefresh) throws IOException {
+    
+    /**
+     * Performs the actual indexing - extracted for testability.
+     */
+    @VisibleForTesting
+    void performIndexing(ProgressIndicator indicator, boolean forceRefresh) throws IOException {
         indicator.setText("Preparing knowledge base...");
         
         // Get or create knowledge base
@@ -95,7 +121,7 @@ public final class RagAgent {
         indicator.setText("Extracting project information...");
         
         // Extract project info
-        ProjectInfo projectInfo = ReadAction.compute(() -> projectInfoExtractor.extractProjectInfo());
+        ProjectInfo projectInfo = ReadAction.compute(() -> codeAnalyzer.extractProjectInfo());
         
         // Create project overview document
         String projectOverview = createProjectOverviewDocument(projectInfo);
@@ -104,7 +130,7 @@ public final class RagAgent {
         indicator.setText("Indexing source files...");
         
         // Index all source files
-        List<VirtualFile> sourceFiles = ReadAction.compute(() -> projectInfoExtractor.findAllSourceFiles());
+        List<VirtualFile> sourceFiles = ReadAction.compute(() -> codeAnalyzer.findAllSourceFiles());
         int total = sourceFiles.size();
         int current = 0;
 
@@ -125,12 +151,13 @@ public final class RagAgent {
         indicator.setText("Indexing complete");
         LOG.info("Project indexing completed. Indexed " + current + " files.");
     }
-
-    private void indexFile(String knowledgeId, VirtualFile file) throws IOException {
+    
+    @VisibleForTesting
+    void indexFile(String knowledgeId, VirtualFile file) throws IOException {
         List<CodeSignature> signatures = ReadAction.compute(() -> {
-            var psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(file);
+            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
             if (psiFile != null) {
-                return signatureExtractor.extractFromFile(psiFile);
+                return codeAnalyzer.extractSignatures(psiFile);
             }
             return Collections.<CodeSignature>emptyList();
         });
@@ -180,11 +207,19 @@ public final class RagAgent {
      * Gets the full code for a specific signature ID.
      */
     public String getFullCode(String signatureId) {
+        if (signatureId == null || signatureId.isEmpty()) {
+            return null;
+        }
+        
         return ReadAction.compute(() -> {
             try {
                 if (signatureId.contains("#")) {
                     // Method signature
-                    String[] parts = signatureId.split("#");
+                    String[] parts = signatureId.split("#", 2);
+                    if (parts.length != 2) {
+                        return null;
+                    }
+                    
                     String className = parts[0];
                     String methodName = parts[1];
                     
@@ -193,7 +228,7 @@ public final class RagAgent {
                     
                     if (psiClass != null) {
                         for (PsiMethod method : psiClass.getMethods()) {
-                            if (method.getName().equals(methodName)) {
+                            if (methodName.equals(method.getName())) {
                                 return method.getText();
                             }
                         }
@@ -215,113 +250,28 @@ public final class RagAgent {
     }
 
     private String createOrResetKnowledgeBase() throws IOException {
-        String apiUrl = config.getApiUrl().replace("/chat/completions", "") + "/v1/knowledge/create";
-        URL url = new URL(apiUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + config.getAuthToken());
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        JsonObject body = new JsonObject();
-        body.addProperty("name", KNOWLEDGE_NAME_PREFIX + project.getName());
-        body.addProperty("description", "Code signatures and project info for " + project.getName());
-        
-        try (var writer = new java.io.OutputStreamWriter(conn.getOutputStream())) {
-            writer.write(body.toString());
-        }
-
-        if (conn.getResponseCode() == 200) {
-            try (var reader = new java.io.InputStreamReader(conn.getInputStream())) {
-                JsonObject response = gson.fromJson(reader, JsonObject.class);
-                return response.get("id").getAsString();
-            }
-        } else {
-            throw new IOException("Failed to create knowledge base: " + conn.getResponseCode());
-        }
+        return apiClient.createKnowledgeBase(
+            KNOWLEDGE_NAME_PREFIX + project.getName(),
+            "Code signatures and project info for " + project.getName()
+        );
     }
 
     private void uploadDocument(String knowledgeId, String fileName, String content) throws IOException {
-        // First, create the file
-        String fileId = uploadFile(fileName, content);
-        
-        // Then add it to the knowledge base
-        addFileToKnowledge(knowledgeId, fileId);
-    }
-
-    private String uploadFile(String fileName, String content) throws IOException {
-        String apiUrl = config.getApiUrl().replace("/chat/completions", "") + "/v1/files/";
-        URL url = new URL(apiUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + config.getAuthToken());
-        conn.setDoOutput(true);
-
-        String boundary = "Boundary-" + System.currentTimeMillis();
-        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-
-        try (var os = conn.getOutputStream()) {
-            // Write file part
-            os.write(("--" + boundary + "\r\n").getBytes());
-            os.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n").getBytes());
-            os.write(("Content-Type: text/markdown\r\n\r\n").getBytes());
-            os.write(content.getBytes(StandardCharsets.UTF_8));
-            os.write(("\r\n--" + boundary + "--\r\n").getBytes());
-        }
-
-        if (conn.getResponseCode() == 200) {
-            try (var reader = new java.io.InputStreamReader(conn.getInputStream())) {
-                JsonObject response = gson.fromJson(reader, JsonObject.class);
-                return response.get("id").getAsString();
-            }
-        } else {
-            throw new IOException("Failed to upload file: " + conn.getResponseCode());
-        }
-    }
-
-    private void addFileToKnowledge(String knowledgeId, String fileId) throws IOException {
-        String apiUrl = config.getApiUrl().replace("/chat/completions", "") + "/v1/knowledge/" + knowledgeId + "/file/add";
-        URL url = new URL(apiUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + config.getAuthToken());
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-
-        JsonObject body = new JsonObject();
-        body.addProperty("file_id", fileId);
-        
-        try (var writer = new java.io.OutputStreamWriter(conn.getOutputStream())) {
-            writer.write(body.toString());
-        }
-
-        if (conn.getResponseCode() != 200) {
-            throw new IOException("Failed to add file to knowledge: " + conn.getResponseCode());
-        }
+        String fileId = apiClient.uploadFile(fileName, content);
+        apiClient.addFileToKnowledge(knowledgeId, fileId);
     }
 
     private List<String> queryKnowledgeBase(String knowledgeId, String query) throws IOException {
-        // For MVP, we'll use a simple approach:
-        // The knowledge base is already integrated with OpenWebUI's chat completions
-        // So we don't need a separate query endpoint
-        
-        // Instead, we'll search through our cached signatures
+        // For MVP, we'll use our local cache
         List<String> docIds = new ArrayList<>();
-        
-        // This is a placeholder - in production, you'd query the actual knowledge base
-        // For now, we'll use our local cache
         for (String path : signatureCache.keySet()) {
             docIds.add(path);
         }
-        
         return docIds;
     }
 
-    private List<CodeMatch> extractCodeMatches(String docId, String query) {
-        // Extract matches from cached signatures
+    @VisibleForTesting
+    List<CodeMatch> extractCodeMatches(String docId, String query) {
         List<CodeMatch> matches = new ArrayList<>();
         
         for (Map.Entry<String, List<CodeSignature>> entry : signatureCache.entrySet()) {
@@ -336,7 +286,8 @@ public final class RagAgent {
         return matches;
     }
 
-    private double calculateRelevance(CodeSignature signature, String query) {
+    @VisibleForTesting
+    double calculateRelevance(CodeSignature signature, String query) {
         String lowerQuery = query.toLowerCase();
         String lowerSig = signature.getSignature().toLowerCase();
         String lowerId = signature.getId().toLowerCase();
@@ -357,7 +308,8 @@ public final class RagAgent {
         return Math.min(score, 1.0);
     }
 
-    private String createProjectOverviewDocument(ProjectInfo info) {
+    @VisibleForTesting
+    String createProjectOverviewDocument(ProjectInfo info) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Project Overview: ").append(project.getName()).append("\n\n");
         
@@ -387,7 +339,8 @@ public final class RagAgent {
         return sb.toString();
     }
 
-    private String createSignatureDocument(VirtualFile file, List<CodeSignature> signatures) {
+    @VisibleForTesting
+    String createSignatureDocument(VirtualFile file, List<CodeSignature> signatures) {
         StringBuilder sb = new StringBuilder();
         
         sb.append("---\n");
@@ -432,6 +385,14 @@ public final class RagAgent {
         }
         
         return sb.toString();
+    }
+
+    /**
+     * Gets the signature cache for testing.
+     */
+    @VisibleForTesting
+    Map<String, List<CodeSignature>> getSignatureCache() {
+        return new HashMap<>(signatureCache);
     }
 
     /**

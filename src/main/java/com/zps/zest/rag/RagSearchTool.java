@@ -28,12 +28,30 @@ public class RagSearchTool extends BaseAgentTool {
     
     @Override
     protected String doExecute(JsonObject params) throws Exception {
-        String query = getStringParam(params, "query", "");
+        String query = "";
+        int maxResults = 5;
+        
+        // Handle different parameter formats
+        if (params != null) {
+            if (params.has("query")) {
+                query = getStringParam(params, "query", "");
+            } else if (params.has("args") && params.get("args").isJsonArray() && 
+                       params.get("args").getAsJsonArray().size() > 0) {
+                // Handle array format
+                query = params.get("args").getAsJsonArray().get(0).getAsString();
+                if (params.get("args").getAsJsonArray().size() > 1) {
+                    maxResults = params.get("args").getAsJsonArray().get(1).getAsInt();
+                }
+            }
+            
+            if (params.has("maxResults")) {
+                maxResults = params.get("maxResults").getAsInt();
+            }
+        }
+        
         if (query.isEmpty()) {
             return "Error: Please provide a search query.";
         }
-        
-        int maxResults = params.has("maxResults") ? params.get("maxResults").getAsInt() : 5;
         
         try {
             RagAgent ragAgent = RagAgent.getInstance(project);

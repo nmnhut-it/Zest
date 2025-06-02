@@ -179,7 +179,59 @@ com.zps.zest.rag/
 ├── ProjectInfoExtractor.java # Extracts project metadata
 ├── ProjectInfo.java        # Model for project info
 ├── RagSearchTool.java      # Agent tool for searching
-└── IndexProjectAction.java # UI action for indexing
+├── IndexProjectAction.java # UI action for indexing
+│
+# Testability interfaces
+├── KnowledgeApiClient.java # Interface for API operations
+├── OpenWebUIKnowledgeClient.java # Production implementation
+├── CodeAnalyzer.java       # Interface for code analysis
+├── DefaultCodeAnalyzer.java # Production implementation
+├── RagComponentFactory.java # Factory for dependency injection
+```
+
+## Testing & Testability
+
+The RAG system is designed with testability in mind:
+
+### 1. Dependency Injection
+All major components use interfaces and dependency injection:
+
+```java
+// Production code
+RagAgent agent = RagComponentFactory.createRagAgent(project);
+
+// Test code with mocks
+MockKnowledgeApiClient mockApi = new MockKnowledgeApiClient();
+RagAgent agent = RagComponentFactory.createRagAgent(
+    project, mockConfig, mockAnalyzer, mockApi
+);
+```
+
+### 2. Interface-Based Design
+Key components have interfaces for easy mocking:
+- `KnowledgeApiClient` - API operations
+- `CodeAnalyzer` - Code analysis operations
+
+### 3. Testing Utilities
+- `MockKnowledgeApiClient` - In-memory mock for API testing
+- `RagComponentFactory` - Simplifies component creation
+- Protected/package methods marked with `@VisibleForTesting`
+
+### 4. Example Test
+```java
+@Test
+public void testIndexing() {
+    // Given
+    MockKnowledgeApiClient mockApi = new MockKnowledgeApiClient();
+    RagAgent agent = new RagAgent(project, config, analyzer, mockApi);
+    
+    // When
+    agent.performIndexing(indicator, false);
+    
+    // Then
+    assertEquals(1, mockApi.getKnowledgeBaseCount());
+    assertTrue(mockApi.getFileCount() > 0);
+}
 ```
 
 ## Future Enhancements

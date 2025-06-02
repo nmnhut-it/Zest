@@ -1,5 +1,6 @@
 package com.zps.zest.rag;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -21,6 +22,7 @@ import java.util.regex.Pattern;
  * Extracts project information including build system, dependencies, and structure.
  */
 public class ProjectInfoExtractor {
+    private static final Logger LOG = Logger.getInstance(ProjectInfoExtractor.class);
     private final Project project;
     
     public ProjectInfoExtractor(Project project) {
@@ -96,6 +98,8 @@ public class ProjectInfoExtractor {
     }
     
     private void extractMavenInfo(ProjectInfo info, VirtualFile pomFile) {
+        if (pomFile == null || !pomFile.exists()) return;
+        
         try {
             PsiFile psiFile = PsiManager.getInstance(project).findFile(pomFile);
             if (psiFile instanceof XmlFile) {
@@ -113,7 +117,7 @@ public class ProjectInfoExtractor {
                             
                             if (groupId != null && artifactId != null) {
                                 String depString = groupId + ":" + artifactId;
-                                if (version != null) {
+                                if (version != null && !version.isEmpty()) {
                                     depString += ":" + version;
                                 }
                                 info.addDependency(depString);
@@ -124,10 +128,13 @@ public class ProjectInfoExtractor {
             }
         } catch (Exception e) {
             // Log error but continue
+            LOG.warn("Failed to extract Maven info from: " + pomFile.getPath(), e);
         }
     }
     
     private void extractGradleInfo(ProjectInfo info, VirtualFile buildFile) {
+        if (buildFile == null || !buildFile.exists()) return;
+        
         try {
             String content = new String(buildFile.contentsToByteArray());
             
@@ -138,9 +145,11 @@ public class ProjectInfoExtractor {
             );
             
             Matcher matcher = depPattern.matcher(content);
+            int count = 0;
             while (matcher.find()) {
                 String dependency = matcher.group(1);
                 info.addDependency(dependency);
+                count++;
             }
             
             // Also look for Kotlin specific patterns
@@ -154,10 +163,13 @@ public class ProjectInfoExtractor {
                 while (matcher.find()) {
                     String dependency = matcher.group(1);
                     info.addDependency(dependency);
+                    count++;
                 }
             }
+            
+            LOG.info("Extracted " + count + " dependencies from " + buildFile.getName());
         } catch (IOException e) {
-            // Log error but continue
+            LOG.warn("Failed to read Gradle file: " + buildFile.getPath(), e);
         }
     }
     

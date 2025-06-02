@@ -7,22 +7,24 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextArea;
+import com.zps.zest.langchain4j.index.StructuralIndex;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Action to test the two-phase code search functionality.
+ * Action to test the hybrid code search functionality.
  */
 public class TestCodeSearchAction extends AnAction {
     
     public TestCodeSearchAction() {
-        super("Test Two-Phase Code Search", 
-              "Search for code using semantic search with related code discovery", 
+        super("Test Hybrid Code Search", 
+              "Search for code using the hybrid index system", 
               null);
     }
     
@@ -83,42 +85,65 @@ public class TestCodeSearchAction extends AnAction {
     private void showResults(Project project, String query, List<CodeSearchUtility.EnrichedSearchResult> results) {
         // Build results text
         StringBuilder sb = new StringBuilder();
-        sb.append("Search Results for: \"").append(query).append("\"\n");
+        sb.append("Hybrid Search Results for: \"").append(query).append("\"\n");
         sb.append("Found ").append(results.size()).append(" results\n\n");
         sb.append("=".repeat(80)).append("\n\n");
         
         int resultNum = 1;
         for (CodeSearchUtility.EnrichedSearchResult result : results) {
             sb.append("### Result ").append(resultNum++).append(" ###\n");
-            sb.append("Signature: ").append(result.getSignatureId()).append("\n");
-            sb.append("Score: ").append(String.format("%.3f", result.getPrimaryScore())).append("\n");
-            sb.append("File: ").append(result.getFilePath()).append("\n\n");
+            sb.append("ID: ").append(result.getId()).append("\n");
+            sb.append("Score: ").append(String.format("%.3f", result.getScore())).append("\n");
+            sb.append("File: ").append(result.getFilePath()).append("\n");
+            
+            // Show search sources
+            sb.append("Found via: ");
+            result.getSources().forEach(source -> sb.append(source.getDisplayName()).append(" "));
+            sb.append("\n\n");
             
             // Show content preview
             String content = result.getContent();
-            if (content.length() > 300) {
-                content = content.substring(0, 300) + "...";
+            if (content.length() > 400) {
+                content = content.substring(0, 400) + "...";
             }
             sb.append("Content:\n").append(content).append("\n\n");
             
-            // Show related code
-            if (!result.getRelatedCode().isEmpty()) {
-                sb.append("Related Code (via Find Usages):\n");
-                for (RelatedCodeFinder.RelatedCodeItem related : result.getRelatedCode()) {
-                    sb.append("  - ").append(related.getRelationType().getDisplayName())
-                      .append(": ").append(related.getElementId())
-                      .append("\n    ").append(related.getDescription())
-                      .append("\n");
+            // Show structural relationships
+            if (!result.getStructuralRelationships().isEmpty()) {
+                sb.append("Structural Relationships:\n");
+                for (Map.Entry<StructuralIndex.RelationType, List<String>> entry : 
+                     result.getStructuralRelationships().entrySet()) {
+                    StructuralIndex.RelationType relType = entry.getKey();
+                    List<String> related = entry.getValue();
+                    
+                    if (!related.isEmpty()) {
+                        sb.append("  ").append(relType.getDisplayName()).append(":\n");
+                        for (String relatedId : related) {
+                            sb.append("    - ").append(relatedId).append("\n");
+                        }
+                    }
                 }
                 sb.append("\n");
             }
             
-            // Show related functions in same file
-            if (!result.getRelatedFunctions().isEmpty()) {
-                sb.append("Related Functions (same file):\n");
-                for (CodeSearchUtility.RelatedFunction func : result.getRelatedFunctions()) {
-                    sb.append("  - ").append(func.getSignatureId())
-                      .append(" (score: ").append(String.format("%.3f", func.getRelevanceScore()))
+            // Show similar code
+            if (!result.getSimilarCode().isEmpty()) {
+                sb.append("Similar Code:\n");
+                for (CodeSearchUtility.SimilarCode similar : result.getSimilarCode()) {
+                    sb.append("  - ").append(similar.getId())
+                      .append(" (similarity: ").append(String.format("%.3f", similar.getSimilarity()))
+                      .append(") - ").append(similar.getReason()).append("\n");
+                }
+                sb.append("\n");
+            }
+            
+            // Show related code in same file
+            if (!result.getRelatedInFile().isEmpty()) {
+                sb.append("Related in same file:\n");
+                for (CodeSearchUtility.RelatedInFile related : result.getRelatedInFile()) {
+                    sb.append("  - ").append(related.getId())
+                      .append(" (").append(related.getType())
+                      .append(", score: ").append(String.format("%.3f", related.getScore()))
                       .append(")\n");
                 }
                 sb.append("\n");
@@ -141,7 +166,7 @@ public class TestCodeSearchAction extends AnAction {
         
         protected SearchDialog(@Nullable Project project) {
             super(project);
-            setTitle("Two-Phase Code Search");
+            setTitle("Hybrid Code Search");
             init();
         }
         
@@ -181,10 +206,14 @@ public class TestCodeSearchAction extends AnAction {
             gbc.gridwidth = 2;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             JTextArea helpText = new JTextArea(
-                "Enter a natural language query to search for code.\n" +
-                "The search will:\n" +
-                "1. Find semantically related files/functions\n" +
-                "2. Discover structurally related code using Find Usages"
+                "The hybrid search combines three strategies:\n" +
+                "• Name Index: Finds exact matches (e.g., 'add score' finds 'addScore')\n" +
+                "• Semantic Index: Finds conceptually similar code\n" +
+                "• Structural Index: Finds related code through usage patterns\n\n" +
+                "Try queries like:\n" +
+                "• 'add score' - finds methods with camelCase matching\n" +
+                "• 'validate input' - finds semantically similar validation code\n" +
+                "• 'calls database' - finds methods that call database operations"
             );
             helpText.setEditable(false);
             helpText.setBackground(panel.getBackground());
@@ -217,7 +246,7 @@ public class TestCodeSearchAction extends AnAction {
         protected ResultsDialog(@Nullable Project project, String results) {
             super(project);
             this.results = results;
-            setTitle("Code Search Results");
+            setTitle("Hybrid Code Search Results");
             setModal(false);
             init();
         }
@@ -230,7 +259,7 @@ public class TestCodeSearchAction extends AnAction {
             textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
             
             JBScrollPane scrollPane = new JBScrollPane(textArea);
-            scrollPane.setPreferredSize(new Dimension(800, 600));
+            scrollPane.setPreferredSize(new Dimension(900, 700));
             
             return scrollPane;
         }

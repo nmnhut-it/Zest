@@ -3,485 +3,513 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.zps.zest.langchain4j.index.NameIndex;
+import com.zps.zest.langchain4j.index.SemanticIndex;
+import com.zps.zest.langchain4j.index.StructuralIndex;
+import com.zps.zest.rag.CodeSignature;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * Main search utility with two-phase semantic search:
- * 1. Find files/functions semantically related to query
- * 2. Within those results, find specific code pieces and their related code
+ * Main search utility that combines the three indices for comprehensive code search:
+ * 1. NameIndex - For identifier matching (camelCase aware)
+ * 2. SemanticIndex - For semantic similarity
+ * 3. StructuralIndex - For code relationships
  */
 @Service(Service.Level.PROJECT)
 public final class CodeSearchUtility {
     private static final Logger LOG = Logger.getInstance(CodeSearchUtility.class);
     
     private final Project project;
-    private final RagService ragService;
+    private final HybridIndexManager indexManager;
     private final RelatedCodeFinder relatedCodeFinder;
-    private final FunctionLevelIndexService indexService;
     
-    // Configuration
-    private int maxRelatedCodePerResult = 5;
-    private double relevanceThreshold = 0.3;
+    // Search configuration
+    private SearchConfig config = new SearchConfig();
     
     public CodeSearchUtility(Project project) {
         this.project = project;
-        this.ragService = project.getService(RagService.class);
+        this.indexManager = project.getService(HybridIndexManager.class);
         this.relatedCodeFinder = new RelatedCodeFinder(project);
-        this.indexService = project.getService(FunctionLevelIndexService.class);
         
         LOG.info("Initialized CodeSearchUtility for project: " + project.getName());
     }
     
     /**
-     * Performs two-phase semantic search for code.
+     * Performs hybrid search across all indices.
      * 
      * @param query The search query
      * @param maxResults Maximum number of results to return
-     * @return Search results with enriched related code information
+     * @return Search results with enriched information
      */
     public CompletableFuture<List<EnrichedSearchResult>> searchRelatedCode(String query, int maxResults) {
-        LOG.info("Starting two-phase search for query: " + query);
+        LOG.info("Starting hybrid search for query: " + query);
         
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Phase 1: Broad semantic search
-                List<RagService.SearchResult> phase1Results = performPhase1Search(query, maxResults * 3);
+                // Phase 1: Search across all indices
+                HybridSearchResults hybridResults = performHybridSearch(query, maxResults * 3);
                 
-                if (phase1Results.isEmpty()) {
-                    LOG.info("No results found in phase 1");
+                if (hybridResults.isEmpty()) {
+                    LOG.info("No results found");
                     return Collections.emptyList();
                 }
                 
-                // Phase 2: Narrow down and enrich results
-                List<EnrichedSearchResult> enrichedResults = performPhase2Search(phase1Results, query, maxResults);
+                // Phase 2: Enrich with related code
+                List<EnrichedSearchResult> enrichedResults = enrichResults(hybridResults, maxResults);
                 
                 LOG.info("Search complete. Found " + enrichedResults.size() + " enriched results");
                 return enrichedResults;
                 
             } catch (Exception e) {
-                LOG.error("Error during two-phase search", e);
+                LOG.error("Error during hybrid search", e);
                 return Collections.emptyList();
             }
         });
     }
     
     /**
-     * Searches for specific code patterns with context.
-     * Useful for finding implementations, usages, or specific patterns.
+     * Performs search across all three indices and combines results.
      */
-    public CompletableFuture<List<CodePatternResult>> searchCodePatterns(String pattern, int maxResults) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Search for code matching the pattern
-                List<RagService.SearchResult> results = ragService.searchCode(pattern, maxResults * 2)
-                    .join();
-                
-                // Group by file and analyze patterns
-                Map<String, List<RagService.SearchResult>> byFile = groupResultsByFile(results);
-                
-                List<CodePatternResult> patternResults = new ArrayList<>();
-                
-                for (Map.Entry<String, List<RagService.SearchResult>> entry : byFile.entrySet()) {
-                    String filePath = entry.getKey();
-                    List<RagService.SearchResult> fileResults = entry.getValue();
-                    
-                    // Create pattern result for this file
-                    CodePatternResult patternResult = new CodePatternResult(
-                        filePath,
-                        fileResults.size(),
-                        extractPatternContext(fileResults, pattern)
-                    );
-                    
-                    // Add individual matches
-                    for (RagService.SearchResult result : fileResults) {
-                        patternResult.addMatch(new PatternMatch(
-                            result.getId(),
-                            result.getContent(),
-                            result.getScore(),
-                            extractSignatureType(result.getMetadata())
-                        ));
-                    }
-                    
-                    patternResults.add(patternResult);
-                }
-                
-                // Sort by relevance (number of matches and average score)
-                patternResults.sort((a, b) -> {
-                    double scoreA = a.getAverageScore() * Math.log(a.getMatchCount() + 1);
-                    double scoreB = b.getAverageScore() * Math.log(b.getMatchCount() + 1);
-                    return Double.compare(scoreB, scoreA);
-                });
-                
-                return patternResults.stream()
-                    .limit(maxResults)
-                    .collect(Collectors.toList());
-                    
-            } catch (Exception e) {
-                LOG.error("Error searching code patterns", e);
-                return Collections.emptyList();
+    private HybridSearchResults performHybridSearch(String query, int limit) {
+        HybridSearchResults results = new HybridSearchResults();
+        
+        try {
+            // 1. Name-based search (highest priority for exact matches)
+            List<NameIndex.SearchResult> nameResults = indexManager.getNameIndex()
+                .search(query, limit);
+            
+            for (NameIndex.SearchResult nameResult : nameResults) {
+                results.addResult(new CombinedSearchResult(
+                    nameResult.getId(),
+                    nameResult.getSignature(),
+                    nameResult.getType(),
+                    nameResult.getFilePath(),
+                    nameResult.getScore() * config.nameWeight,
+                    SearchSource.NAME
+                ));
             }
-        });
-    }
-    
-    /**
-     * Finds code similar to a given signature ID.
-     * Useful for finding similar implementations or patterns.
-     */
-    public CompletableFuture<List<SimilarCodeResult>> findSimilarCode(String signatureId, int maxResults) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // First, find the original signature's content
-                String originalContent = getSignatureContent(signatureId);
-                if (originalContent == null) {
-                    LOG.warn("Could not find content for signature: " + signatureId);
-                    return Collections.emptyList();
-                }
-                
-                // Search for similar code
-                List<RagService.SearchResult> similarResults = ragService.search(originalContent, maxResults * 2)
-                    .join();
-                
-                // Filter out the original and convert to SimilarCodeResult
-                List<SimilarCodeResult> results = new ArrayList<>();
-                
-                for (RagService.SearchResult result : similarResults) {
-                    String resultId = extractSignatureId(result.getMetadata());
-                    if (resultId != null && !resultId.equals(signatureId)) {
-                        // Find what makes it similar
-                        List<String> similarities = analyzeSimilarities(originalContent, result.getContent());
-                        
-                        results.add(new SimilarCodeResult(
-                            resultId,
-                            result.getContent(),
-                            result.getScore(),
-                            similarities,
-                            result.getMetadata()
-                        ));
-                    }
-                }
-                
-                return results.stream()
-                    .limit(maxResults)
-                    .collect(Collectors.toList());
-                    
-            } catch (Exception e) {
-                LOG.error("Error finding similar code", e);
-                return Collections.emptyList();
+            
+            // 2. Semantic search
+            List<String> keywords = extractKeywords(query);
+            List<SemanticIndex.SearchResult> semanticResults = indexManager.getSemanticIndex()
+                .hybridSearch(query, keywords, limit, config.semanticVectorWeight);
+            
+            for (SemanticIndex.SearchResult semanticResult : semanticResults) {
+                results.addOrMergeResult(new CombinedSearchResult(
+                    semanticResult.getId(),
+                    semanticResult.getContent(),
+                    (String) semanticResult.getMetadata().get("type"),
+                    (String) semanticResult.getMetadata().get("file_path"),
+                    semanticResult.getScore() * config.semanticWeight,
+                    SearchSource.SEMANTIC
+                ));
             }
-        });
-    }
-    
-    /**
-     * Configures the search behavior.
-     */
-    public void configure(int maxRelatedCodePerResult, double relevanceThreshold) {
-        this.maxRelatedCodePerResult = maxRelatedCodePerResult;
-        this.relevanceThreshold = Math.max(0, Math.min(1, relevanceThreshold));
-        LOG.info("Configured search: maxRelatedCode=" + maxRelatedCodePerResult + 
-                ", relevanceThreshold=" + relevanceThreshold);
-    }
-    
-    private List<RagService.SearchResult> performPhase1Search(String query, int limit) {
-        LOG.debug("Phase 1: Broad semantic search with limit " + limit);
+            
+            // 3. Structural search (if query suggests relationships)
+            if (shouldPerformStructuralSearch(query)) {
+                addStructuralResults(query, results, limit);
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error in hybrid search", e);
+        }
         
-        // Perform semantic search
-        List<RagService.SearchResult> results = ragService.search(query, limit).join();
-        
-        // Filter by relevance threshold
-        results = results.stream()
-            .filter(r -> r.getScore() >= relevanceThreshold)
-            .collect(Collectors.toList());
-        
-        LOG.debug("Phase 1 found " + results.size() + " results above threshold");
         return results;
     }
     
-    private List<EnrichedSearchResult> performPhase2Search(List<RagService.SearchResult> phase1Results, 
-                                                           String query, int maxResults) {
-        LOG.debug("Phase 2: Narrowing down and enriching results");
+    /**
+     * Adds structural search results based on query intent.
+     */
+    private void addStructuralResults(String query, HybridSearchResults results, int limit) {
+        StructuralIndex structuralIndex = indexManager.getStructuralIndex();
         
-        // Group results by file
-        Map<String, List<RagService.SearchResult>> byFile = groupResultsByFile(phase1Results);
+        // Detect relationship keywords
+        String lowerQuery = query.toLowerCase();
         
+        if (lowerQuery.contains("calls") || lowerQuery.contains("uses")) {
+            // Find methods that call specific patterns
+            for (CombinedSearchResult existing : results.getTopResults(5)) {
+                List<String> callers = structuralIndex.findCallers(existing.getId());
+                for (String caller : callers) {
+                    results.addOrMergeResult(new CombinedSearchResult(
+                        caller,
+                        "Calls " + existing.getId(),
+                        "method",
+                        "",
+                        config.structuralWeight * 0.8,
+                        SearchSource.STRUCTURAL
+                    ));
+                }
+            }
+        }
+        
+        if (lowerQuery.contains("extends") || lowerQuery.contains("implements")) {
+            // Find inheritance relationships
+            for (CombinedSearchResult existing : results.getTopResults(5)) {
+                if ("class".equals(existing.getType()) || "interface".equals(existing.getType())) {
+                    List<String> subclasses = structuralIndex.findSubclasses(existing.getId());
+                    List<String> implementations = structuralIndex.findImplementations(existing.getId());
+                    
+                    for (String subclass : subclasses) {
+                        results.addOrMergeResult(new CombinedSearchResult(
+                            subclass,
+                            "Extends " + existing.getId(),
+                            "class",
+                            "",
+                            config.structuralWeight * 0.7,
+                            SearchSource.STRUCTURAL
+                        ));
+                    }
+                    
+                    for (String impl : implementations) {
+                        results.addOrMergeResult(new CombinedSearchResult(
+                            impl,
+                            "Implements " + existing.getId(),
+                            "class",
+                            "",
+                            config.structuralWeight * 0.7,
+                            SearchSource.STRUCTURAL
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Enriches search results with related code and context.
+     */
+    private List<EnrichedSearchResult> enrichResults(HybridSearchResults hybridResults, int maxResults) {
         List<EnrichedSearchResult> enrichedResults = new ArrayList<>();
         
-        for (Map.Entry<String, List<RagService.SearchResult>> entry : byFile.entrySet()) {
-            String filePath = entry.getKey();
-            List<RagService.SearchResult> fileResults = entry.getValue();
+        // Get top results
+        List<CombinedSearchResult> topResults = hybridResults.getTopResults(maxResults * 2);
+        
+        // Group by file for context
+        Map<String, List<CombinedSearchResult>> byFile = topResults.stream()
+            .collect(Collectors.groupingBy(r -> r.getFilePath() != null ? r.getFilePath() : "unknown"));
+        
+        for (Map.Entry<String, List<CombinedSearchResult>> entry : byFile.entrySet()) {
+            List<CombinedSearchResult> fileResults = entry.getValue();
             
-            // Find the most relevant result in this file
-            RagService.SearchResult primaryResult = fileResults.stream()
-                .max(Comparator.comparing(RagService.SearchResult::getScore))
+            // Find primary result for this file
+            CombinedSearchResult primary = fileResults.stream()
+                .max(Comparator.comparing(CombinedSearchResult::getCombinedScore))
                 .orElse(null);
                 
-            if (primaryResult == null) continue;
-            
-            // Extract signature ID
-            String signatureId = extractSignatureId(primaryResult.getMetadata());
-            if (signatureId == null) continue;
+            if (primary == null) continue;
             
             // Create enriched result
             EnrichedSearchResult enriched = new EnrichedSearchResult(
-                signatureId,
-                primaryResult.getContent(),
-                primaryResult.getScore(),
-                filePath,
-                primaryResult.getMetadata()
+                primary.getId(),
+                primary.getContent(),
+                primary.getCombinedScore(),
+                primary.getFilePath(),
+                primary.getSources()
             );
             
-            // Find related code using IntelliJ's Find Usages
-            List<RelatedCodeFinder.RelatedCodeItem> relatedCode = 
-                relatedCodeFinder.findRelatedCode(signatureId, maxRelatedCodePerResult);
-            enriched.setRelatedCode(relatedCode);
+            // Add structural relationships
+            StructuralIndex structuralIndex = indexManager.getStructuralIndex();
+            Map<StructuralIndex.RelationType, List<String>> relationships = 
+                structuralIndex.findAllRelated(primary.getId());
+            enriched.setStructuralRelationships(relationships);
             
-            // Add other relevant functions from the same file
-            for (RagService.SearchResult otherResult : fileResults) {
-                if (otherResult != primaryResult) {
-                    String otherId = extractSignatureId(otherResult.getMetadata());
-                    if (otherId != null) {
-                        enriched.addRelatedFunction(new RelatedFunction(
-                            otherId,
-                            otherResult.getContent(),
-                            otherResult.getScore(),
-                            "Same file"
-                        ));
-                    }
+            // Find similar code using semantic index
+            List<SemanticIndex.SearchResult> similar = indexManager.getSemanticIndex()
+                .findSimilar(primary.getId(), config.maxRelatedCodePerResult);
+            
+            for (SemanticIndex.SearchResult sim : similar) {
+                enriched.addSimilarCode(new SimilarCode(
+                    sim.getId(),
+                    sim.getContent(),
+                    sim.getScore(),
+                    "Semantically similar"
+                ));
+            }
+            
+            // Add other results from same file
+            for (CombinedSearchResult other : fileResults) {
+                if (!other.getId().equals(primary.getId())) {
+                    enriched.addRelatedInFile(new RelatedInFile(
+                        other.getId(),
+                        other.getContent(),
+                        other.getCombinedScore(),
+                        other.getType()
+                    ));
                 }
             }
             
             enrichedResults.add(enriched);
         }
         
-        // Sort by relevance and limit
-        enrichedResults.sort((a, b) -> Double.compare(b.getPrimaryScore(), a.getPrimaryScore()));
+        // Sort by score and limit
+        enrichedResults.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
         
         return enrichedResults.stream()
             .limit(maxResults)
             .collect(Collectors.toList());
     }
     
-    private Map<String, List<RagService.SearchResult>> groupResultsByFile(List<RagService.SearchResult> results) {
-        Map<String, List<RagService.SearchResult>> byFile = new HashMap<>();
-        
-        for (RagService.SearchResult result : results) {
-            String filePath = (String) result.getMetadata().get("file_path");
-            if (filePath != null) {
-                byFile.computeIfAbsent(filePath, k -> new ArrayList<>()).add(result);
-            }
-        }
-        
-        return byFile;
-    }
-    
-    private String extractSignatureId(Map<String, Object> metadata) {
-        Object signatureId = metadata.get("signature_id");
-        return signatureId != null ? signatureId.toString() : null;
-    }
-    
-    private String extractSignatureType(Map<String, Object> metadata) {
-        Object type = metadata.get("type");
-        return type != null ? type.toString() : "unknown";
-    }
-    
-    private String getSignatureContent(String signatureId) {
-        // Try to retrieve from vector store
-        // This would need to be exposed in RagService
-        // For now, return null
-        return null;
-    }
-    
-    private List<String> analyzeSimilarities(String content1, String content2) {
-        List<String> similarities = new ArrayList<>();
-        
-        // Simple similarity analysis - can be enhanced with better NLP
-        String lower1 = content1.toLowerCase();
-        String lower2 = content2.toLowerCase();
-        
-        // Check for common patterns
-        if (lower1.contains("override") && lower2.contains("override")) {
-            similarities.add("Both override methods");
-        }
-        if (lower1.contains("static") && lower2.contains("static")) {
-            similarities.add("Both are static");
-        }
-        if (lower1.contains("public") && lower2.contains("public")) {
-            similarities.add("Same visibility");
-        }
-        
-        // Check for similar return types
-        String[] commonTypes = {"void", "string", "int", "boolean", "list", "map", "set"};
-        for (String type : commonTypes) {
-            if (lower1.contains(type) && lower2.contains(type)) {
-                similarities.add("Similar return type: " + type);
-                break;
-            }
-        }
-        
-        return similarities;
-    }
-    
-    private String extractPatternContext(List<RagService.SearchResult> results, String pattern) {
-        // Analyze the context of pattern matches
-        Set<String> contexts = new HashSet<>();
-        
-        for (RagService.SearchResult result : results) {
-            String type = extractSignatureType(result.getMetadata());
-            contexts.add(type);
-        }
-        
-        return "Found in " + String.join(", ", contexts);
+    /**
+     * Determines if structural search should be performed based on query.
+     */
+    private boolean shouldPerformStructuralSearch(String query) {
+        String lower = query.toLowerCase();
+        return lower.contains("call") || lower.contains("use") || 
+               lower.contains("extend") || lower.contains("implement") ||
+               lower.contains("override") || lower.contains("inherit") ||
+               lower.contains("depend");
     }
     
     /**
-     * Enriched search result with related code information.
+     * Extracts keywords from query for hybrid search.
+     */
+    private List<String> extractKeywords(String query) {
+        // Simple keyword extraction
+        return Arrays.stream(query.toLowerCase().split("\\s+"))
+            .filter(word -> word.length() > 2)
+            .filter(word -> !isStopWord(word))
+            .distinct()
+            .collect(Collectors.toList());
+    }
+    
+    private boolean isStopWord(String word) {
+        Set<String> stopWords = Set.of(
+            "the", "and", "for", "with", "from", "that", "this", "what", "where",
+            "how", "when", "which", "who", "why", "are", "was", "were", "been"
+        );
+        return stopWords.contains(word);
+    }
+    
+    /**
+     * Configures the search behavior.
+     */
+    public void configure(SearchConfig config) {
+        this.config = config;
+        LOG.info("Updated search configuration: " + config);
+    }
+    
+    /**
+     * Search configuration.
+     */
+    public static class SearchConfig {
+        private double nameWeight = 2.0;
+        private double semanticWeight = 1.5;
+        private double structuralWeight = 1.0;
+        private double semanticVectorWeight = 0.7;
+        private int maxRelatedCodePerResult = 5;
+        private double relevanceThreshold = 0.3;
+        
+        // Getters and setters
+        public double getNameWeight() { return nameWeight; }
+        public void setNameWeight(double nameWeight) { this.nameWeight = nameWeight; }
+        
+        public double getSemanticWeight() { return semanticWeight; }
+        public void setSemanticWeight(double semanticWeight) { this.semanticWeight = semanticWeight; }
+        
+        public double getStructuralWeight() { return structuralWeight; }
+        public void setStructuralWeight(double structuralWeight) { this.structuralWeight = structuralWeight; }
+        
+        public double getSemanticVectorWeight() { return semanticVectorWeight; }
+        public void setSemanticVectorWeight(double semanticVectorWeight) { this.semanticVectorWeight = semanticVectorWeight; }
+        
+        public int getMaxRelatedCodePerResult() { return maxRelatedCodePerResult; }
+        public void setMaxRelatedCodePerResult(int maxRelatedCodePerResult) { this.maxRelatedCodePerResult = maxRelatedCodePerResult; }
+        
+        public double getRelevanceThreshold() { return relevanceThreshold; }
+        public void setRelevanceThreshold(double relevanceThreshold) { this.relevanceThreshold = relevanceThreshold; }
+        
+        @Override
+        public String toString() {
+            return "SearchConfig{" +
+                   "nameWeight=" + nameWeight +
+                   ", semanticWeight=" + semanticWeight +
+                   ", structuralWeight=" + structuralWeight +
+                   ", semanticVectorWeight=" + semanticVectorWeight +
+                   ", maxRelatedCodePerResult=" + maxRelatedCodePerResult +
+                   ", relevanceThreshold=" + relevanceThreshold +
+                   '}';
+        }
+    }
+    
+    /**
+     * Container for results from all indices.
+     */
+    private static class HybridSearchResults {
+        private final Map<String, CombinedSearchResult> results = new HashMap<>();
+        
+        public void addResult(CombinedSearchResult result) {
+            results.put(result.getId(), result);
+        }
+        
+        public void addOrMergeResult(CombinedSearchResult result) {
+            results.merge(result.getId(), result, (existing, newResult) -> {
+                // Combine scores from different sources
+                existing.addSource(newResult.getSources().iterator().next(), newResult.getCombinedScore());
+                return existing;
+            });
+        }
+        
+        public boolean isEmpty() {
+            return results.isEmpty();
+        }
+        
+        public List<CombinedSearchResult> getTopResults(int limit) {
+            return results.values().stream()
+                .sorted((a, b) -> Double.compare(b.getCombinedScore(), a.getCombinedScore()))
+                .limit(limit)
+                .collect(Collectors.toList());
+        }
+    }
+    
+    /**
+     * Combined search result from multiple indices.
+     */
+    private static class CombinedSearchResult {
+        private final String id;
+        private final String content;
+        private final String type;
+        private final String filePath;
+        private final Map<SearchSource, Double> sourceScores = new EnumMap<>(SearchSource.class);
+        
+        public CombinedSearchResult(String id, String content, String type, String filePath, 
+                                   double score, SearchSource source) {
+            this.id = id;
+            this.content = content;
+            this.type = type;
+            this.filePath = filePath;
+            this.sourceScores.put(source, score);
+        }
+        
+        public void addSource(SearchSource source, double score) {
+            sourceScores.merge(source, score, Double::sum);
+        }
+        
+        public double getCombinedScore() {
+            return sourceScores.values().stream().mapToDouble(Double::doubleValue).sum();
+        }
+        
+        public Set<SearchSource> getSources() {
+            return sourceScores.keySet();
+        }
+        
+        // Getters
+        public String getId() { return id; }
+        public String getContent() { return content; }
+        public String getType() { return type; }
+        public String getFilePath() { return filePath; }
+    }
+    
+    /**
+     * Search source indicator.
+     */
+    private enum SearchSource {
+        NAME("Name-based"),
+        SEMANTIC("Semantic"),
+        STRUCTURAL("Structural");
+        
+        private final String displayName;
+        
+        SearchSource(String displayName) {
+            this.displayName = displayName;
+        }
+        
+        public String getDisplayName() {
+            return displayName;
+        }
+    }
+    
+    /**
+     * Enriched search result with all related information.
      */
     public static class EnrichedSearchResult {
-        private final String signatureId;
+        private final String id;
         private final String content;
-        private final double primaryScore;
+        private final double score;
         private final String filePath;
-        private final Map<String, Object> metadata;
-        private List<RelatedCodeFinder.RelatedCodeItem> relatedCode = new ArrayList<>();
-        private List<RelatedFunction> relatedFunctions = new ArrayList<>();
+        private final Set<SearchSource> sources;
+        private Map<StructuralIndex.RelationType, List<String>> structuralRelationships = new HashMap<>();
+        private List<SimilarCode> similarCode = new ArrayList<>();
+        private List<RelatedInFile> relatedInFile = new ArrayList<>();
         
-        public EnrichedSearchResult(String signatureId, String content, double primaryScore,
-                                   String filePath, Map<String, Object> metadata) {
-            this.signatureId = signatureId;
+        public EnrichedSearchResult(String id, String content, double score, 
+                                   String filePath, Set<SearchSource> sources) {
+            this.id = id;
             this.content = content;
-            this.primaryScore = primaryScore;
+            this.score = score;
             this.filePath = filePath;
-            this.metadata = metadata;
+            this.sources = sources;
         }
         
-        public void setRelatedCode(List<RelatedCodeFinder.RelatedCodeItem> relatedCode) {
-            this.relatedCode = relatedCode;
+        public void setStructuralRelationships(Map<StructuralIndex.RelationType, List<String>> relationships) {
+            this.structuralRelationships = relationships;
         }
         
-        public void addRelatedFunction(RelatedFunction function) {
-            this.relatedFunctions.add(function);
+        public void addSimilarCode(SimilarCode similar) {
+            this.similarCode.add(similar);
+        }
+        
+        public void addRelatedInFile(RelatedInFile related) {
+            this.relatedInFile.add(related);
         }
         
         // Getters
-        public String getSignatureId() { return signatureId; }
+        public String getId() { return id; }
         public String getContent() { return content; }
-        public double getPrimaryScore() { return primaryScore; }
+        public double getScore() { return score; }
         public String getFilePath() { return filePath; }
-        public Map<String, Object> getMetadata() { return metadata; }
-        public List<RelatedCodeFinder.RelatedCodeItem> getRelatedCode() { return relatedCode; }
-        public List<RelatedFunction> getRelatedFunctions() { return relatedFunctions; }
+        public Set<SearchSource> getSources() { return sources; }
+        public Map<StructuralIndex.RelationType, List<String>> getStructuralRelationships() { return structuralRelationships; }
+        public List<SimilarCode> getSimilarCode() { return similarCode; }
+        public List<RelatedInFile> getRelatedInFile() { return relatedInFile; }
     }
     
     /**
-     * Represents a related function in the same file.
+     * Similar code found through semantic search.
      */
-    public static class RelatedFunction {
-        private final String signatureId;
+    public static class SimilarCode {
+        private final String id;
         private final String content;
-        private final double relevanceScore;
-        private final String relationship;
+        private final double similarity;
+        private final String reason;
         
-        public RelatedFunction(String signatureId, String content, double relevanceScore, String relationship) {
-            this.signatureId = signatureId;
+        public SimilarCode(String id, String content, double similarity, String reason) {
+            this.id = id;
             this.content = content;
-            this.relevanceScore = relevanceScore;
-            this.relationship = relationship;
+            this.similarity = similarity;
+            this.reason = reason;
         }
         
         // Getters
-        public String getSignatureId() { return signatureId; }
+        public String getId() { return id; }
         public String getContent() { return content; }
-        public double getRelevanceScore() { return relevanceScore; }
-        public String getRelationship() { return relationship; }
+        public double getSimilarity() { return similarity; }
+        public String getReason() { return reason; }
     }
     
     /**
-     * Result for code pattern searches.
+     * Related code in the same file.
      */
-    public static class CodePatternResult {
-        private final String filePath;
-        private final int matchCount;
-        private final String context;
-        private final List<PatternMatch> matches = new ArrayList<>();
-        
-        public CodePatternResult(String filePath, int matchCount, String context) {
-            this.filePath = filePath;
-            this.matchCount = matchCount;
-            this.context = context;
-        }
-        
-        public void addMatch(PatternMatch match) {
-            matches.add(match);
-        }
-        
-        public double getAverageScore() {
-            if (matches.isEmpty()) return 0;
-            return matches.stream()
-                .mapToDouble(PatternMatch::getScore)
-                .average()
-                .orElse(0);
-        }
-        
-        // Getters
-        public String getFilePath() { return filePath; }
-        public int getMatchCount() { return matchCount; }
-        public String getContext() { return context; }
-        public List<PatternMatch> getMatches() { return matches; }
-    }
-    
-    /**
-     * Individual pattern match.
-     */
-    public static class PatternMatch {
-        private final String signatureId;
+    public static class RelatedInFile {
+        private final String id;
         private final String content;
         private final double score;
         private final String type;
         
-        public PatternMatch(String signatureId, String content, double score, String type) {
-            this.signatureId = signatureId;
+        public RelatedInFile(String id, String content, double score, String type) {
+            this.id = id;
             this.content = content;
             this.score = score;
             this.type = type;
         }
         
         // Getters
-        public String getSignatureId() { return signatureId; }
+        public String getId() { return id; }
         public String getContent() { return content; }
         public double getScore() { return score; }
         public String getType() { return type; }
-    }
-    
-    /**
-     * Result for similar code searches.
-     */
-    public static class SimilarCodeResult {
-        private final String signatureId;
-        private final String content;
-        private final double similarityScore;
-        private final List<String> similarities;
-        private final Map<String, Object> metadata;
-        
-        public SimilarCodeResult(String signatureId, String content, double similarityScore,
-                                List<String> similarities, Map<String, Object> metadata) {
-            this.signatureId = signatureId;
-            this.content = content;
-            this.similarityScore = similarityScore;
-            this.similarities = similarities;
-            this.metadata = metadata;
-        }
-        
-        // Getters
-        public String getSignatureId() { return signatureId; }
-        public String getContent() { return content; }
-        public double getSimilarityScore() { return similarityScore; }
-        public List<String> getSimilarities() { return similarities; }
-        public Map<String, Object> getMetadata() { return metadata; }
     }
 }

@@ -67,13 +67,15 @@ dependencies {
     implementation("org.apache.tika:tika-core:2.9.2")
     implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
     
-    // Apache Lucene for name-based search
-    implementation("org.apache.lucene:lucene-core:9.11.1")
-    implementation("org.apache.lucene:lucene-analyzers-common:8.11.3")
-    implementation("org.apache.lucene:lucene-queryparser:9.11.1")
+    // No Lucene dependencies needed - using in-memory index instead
 }
 
 tasks {
+
+    // Clean task to also remove the sandbox
+    clean {
+        delete("$projectDir/build/idea-sandbox")
+    }
 
     // Set the JVM compatibility versions
     withType<JavaCompile> {

@@ -1,23 +1,16 @@
 package com.zps.zest.langchain4j.index;
 
 import com.intellij.openapi.diagnostic.Logger;
-import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.*;
-import org.apache.lucene.index.*;
-import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.*;
-import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.store.Directory;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Name-based index optimized for identifier matching with camelCase awareness.
- * Uses Lucene for efficient text search with support for:
+ * Uses in-memory structures for efficient text search with support for:
  * - CamelCase splitting (addScore -> add score)
  * - Snake_case handling
  * - Fuzzy matching
@@ -26,11 +19,11 @@ import java.util.regex.Pattern;
 public class NameIndex {
     private static final Logger LOG = Logger.getInstance(NameIndex.class);
     
-    private final Directory directory;
-    private final Analyzer analyzer;
-    private IndexWriter writer;
-    private DirectoryReader reader;
-    private IndexSearcher searcher;
+    // Main index: maps tokens to set of element IDs
+    private final Map<String, Set<String>> tokenIndex = new ConcurrentHashMap<>();
+    
+    // Element storage: maps element ID to its data
+    private final Map<String, IndexedElement> elementStorage = new ConcurrentHashMap<>();
     
     // Patterns for identifier parsing
     private static final Pattern CAMEL_CASE_PATTERN = Pattern.compile("(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])");
@@ -38,184 +31,230 @@ public class NameIndex {
     private static final Pattern DOT_PATTERN = Pattern.compile("\\.");
     
     public NameIndex() throws IOException {
-        this.directory = new ByteBuffersDirectory();
-        this.analyzer = createCodeAwareAnalyzer();
-        
-        IndexWriterConfig config = new IndexWriterConfig(analyzer);
-        config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
-        this.writer = new IndexWriter(directory, config);
-        
-        refreshSearcher();
-    }
-    
-    /**
-     * Creates a custom analyzer that handles code identifiers.
-     */
-    private Analyzer createCodeAwareAnalyzer() {
-        // For now, use StandardAnalyzer which handles most cases well
-        // In the future, we can create a more sophisticated analyzer
-        return new StandardAnalyzer();
+        // No initialization needed for in-memory index
     }
     
     /**
      * Indexes a code element with its identifier information.
      */
     public void indexElement(String id, String signature, String type, String filePath, Map<String, String> additionalFields) throws IOException {
-        Document doc = new Document();
+        // Store the element
+        IndexedElement element = new IndexedElement(id, signature, type, filePath, additionalFields);
+        elementStorage.put(id, element);
         
-        // Primary fields
-        doc.add(new StringField("id", id, Field.Store.YES));
-        doc.add(new TextField("signature", signature, Field.Store.YES));
-        doc.add(new StringField("type", type, Field.Store.YES));
-        doc.add(new StringField("file_path", filePath, Field.Store.YES));
+        // Extract and index all searchable tokens
+        Set<String> tokens = new HashSet<>();
         
-        // Extract and index name components
+        // Extract simple name and its variations
         String simpleName = extractSimpleName(id);
-        doc.add(new TextField("simple_name", simpleName, Field.Store.YES));
+        tokens.add(simpleName.toLowerCase());
         
-        // Add camelCase split version
+        // Add camelCase split tokens
         String spacedName = splitIdentifier(simpleName);
-        doc.add(new TextField("spaced_name", spacedName, Field.Store.YES));
+        tokens.addAll(Arrays.asList(spacedName.split("\\s+")));
         
-        // Add individual tokens
-        List<String> tokens = tokenizeIdentifier(simpleName);
-        doc.add(new TextField("tokens", String.join(" ", tokens), Field.Store.NO));
+        // Add individual tokens from the identifier
+        tokens.addAll(tokenizeIdentifier(simpleName));
         
-        // Extract package/class context
-        String[] parts = id.split("[.#]");
-        if (parts.length > 1) {
-            // Package name
-            String packageName = extractPackage(id);
-            if (!packageName.isEmpty()) {
-                doc.add(new TextField("package", packageName, Field.Store.YES));
-            }
-            
-            // Class name
-            String className = extractClassName(id);
-            if (!className.isEmpty()) {
-                doc.add(new TextField("class_name", className, Field.Store.YES));
-            }
+        // Extract package/class context tokens
+        String packageName = extractPackage(id);
+        if (!packageName.isEmpty()) {
+            tokens.addAll(Arrays.asList(packageName.split("\\.")));
         }
         
-        // Add method/field specific fields
+        String className = extractClassName(id);
+        if (!className.isEmpty()) {
+            tokens.add(className.toLowerCase());
+            tokens.addAll(tokenizeIdentifier(className));
+        }
+        
+        // Extract method/field specific tokens
         if (id.contains("#")) {
             String memberName = id.substring(id.lastIndexOf("#") + 1);
-            doc.add(new TextField("member_name", memberName, Field.Store.YES));
-            doc.add(new TextField("member_spaced", splitIdentifier(memberName), Field.Store.NO));
-        } else if (id.contains(".") && Character.isLowerCase(simpleName.charAt(0))) {
-            // Likely a field
-            doc.add(new TextField("field_name", simpleName, Field.Store.YES));
+            tokens.add(memberName.toLowerCase());
+            tokens.addAll(tokenizeIdentifier(memberName));
         }
         
-        // Add additional fields
-        for (Map.Entry<String, String> entry : additionalFields.entrySet()) {
-            doc.add(new TextField(entry.getKey(), entry.getValue(), Field.Store.YES));
+        // Add tokens from signature
+        tokens.addAll(tokenizeSignature(signature));
+        
+        // Index all tokens
+        for (String token : tokens) {
+            if (token.length() > 1) { // Skip single character tokens
+                tokenIndex.computeIfAbsent(token, k -> ConcurrentHashMap.newKeySet()).add(id);
+            }
         }
         
-        // Update or add document
-        writer.updateDocument(new Term("id", id), doc);
+        // Also index prefixes for prefix search
+        for (String token : new HashSet<>(tokens)) {
+            if (token.length() > 3) {
+                for (int i = 2; i < Math.min(token.length(), 8); i++) {
+                    String prefix = token.substring(0, i);
+                    tokenIndex.computeIfAbsent(prefix, k -> ConcurrentHashMap.newKeySet()).add(id);
+                }
+            }
+        }
     }
     
     /**
      * Searches the name index with various strategies.
      */
     public List<SearchResult> search(String queryStr, int maxResults) throws IOException {
-        refreshSearcher();
+        if (queryStr == null || queryStr.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
         
-        List<SearchResult> allResults = new ArrayList<>();
-        Set<String> seenIds = new HashSet<>();
+        Map<String, Float> scores = new HashMap<>();
+        String query = queryStr.toLowerCase().trim();
         
         // Strategy 1: Exact match on simple name
-        Query exactQuery = new TermQuery(new Term("simple_name", queryStr.toLowerCase()));
-        addResults(exactQuery, 2.0f, maxResults, allResults, seenIds);
-        
-        // Strategy 2: Search in spaced names (for "add score" -> "addScore")
-        String spacedQuery = queryStr.toLowerCase().replace(" ", "");
-        if (queryStr.contains(" ")) {
-            // User typed spaces, look for camelCase version
-            Query spacedNameQuery = new TermQuery(new Term("simple_name", spacedQuery));
-            addResults(spacedNameQuery, 1.8f, maxResults, allResults, seenIds);
+        for (Map.Entry<String, IndexedElement> entry : elementStorage.entrySet()) {
+            String id = entry.getKey();
+            String simpleName = extractSimpleName(id).toLowerCase();
             
-            // Also try member name
-            Query memberQuery = new TermQuery(new Term("member_name", spacedQuery));
-            addResults(memberQuery, 1.8f, maxResults, allResults, seenIds);
+            if (simpleName.equals(query)) {
+                scores.put(id, scores.getOrDefault(id, 0f) + 10.0f);
+            } else if (simpleName.startsWith(query)) {
+                scores.put(id, scores.getOrDefault(id, 0f) + 5.0f);
+            } else if (simpleName.contains(query)) {
+                scores.put(id, scores.getOrDefault(id, 0f) + 3.0f);
+            }
         }
         
-        // Strategy 3: Token-based search
-        BooleanQuery.Builder tokenQuery = new BooleanQuery.Builder();
-        String[] queryTokens = queryStr.toLowerCase().split("\\s+");
+        // Strategy 2: Token-based search
+        String[] queryTokens = query.split("\\s+");
+        Set<String> candidateIds = new HashSet<>();
+        
+        // Find all elements that contain at least one query token
         for (String token : queryTokens) {
-            tokenQuery.add(new TermQuery(new Term("tokens", token)), BooleanClause.Occur.MUST);
-        }
-        addResults(tokenQuery.build(), 1.5f, maxResults, allResults, seenIds);
-        
-        // Strategy 4: Fuzzy search for typos
-        Query fuzzyQuery = new FuzzyQuery(new Term("simple_name", queryStr.toLowerCase()), 2);
-        addResults(fuzzyQuery, 1.2f, maxResults, allResults, seenIds);
-        
-        // Strategy 5: Prefix search
-        Query prefixQuery = new PrefixQuery(new Term("simple_name", queryStr.toLowerCase()));
-        addResults(prefixQuery, 1.0f, maxResults, allResults, seenIds);
-        
-        // Strategy 6: Full text search on signature
-        try {
-            QueryParser parser = new QueryParser("signature", analyzer);
-            Query parsedQuery = parser.parse(queryStr);
-            addResults(parsedQuery, 0.8f, maxResults, allResults, seenIds);
-        } catch (ParseException e) {
-            // Ignore parse errors
+            Set<String> ids = tokenIndex.get(token);
+            if (ids != null) {
+                candidateIds.addAll(ids);
+            }
         }
         
-        // Sort by score and limit
-        allResults.sort((a, b) -> Float.compare(b.getScore(), a.getScore()));
-        
-        return allResults.stream()
-            .limit(maxResults)
-            .collect(ArrayList::new, (list, item) -> list.add(item), ArrayList::addAll);
-    }
-    
-    /**
-     * Adds search results with boost factor.
-     */
-    private void addResults(Query query, float boost, int maxResults, 
-                           List<SearchResult> results, Set<String> seenIds) throws IOException {
-        TopDocs topDocs = searcher.search(query, maxResults);
-        
-        for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
-            Document doc = searcher.doc(scoreDoc.doc);
-            String id = doc.get("id");
+        // Score candidates based on how many tokens they match
+        for (String id : candidateIds) {
+            float score = 0;
+            IndexedElement element = elementStorage.get(id);
+            if (element == null) continue;
             
-            if (!seenIds.contains(id)) {
-                seenIds.add(id);
+            // Count matching tokens
+            String elementText = (element.id + " " + element.signature).toLowerCase();
+            for (String token : queryTokens) {
+                if (elementText.contains(token)) {
+                    score += 2.0f;
+                }
+            }
+            
+            // Boost if all tokens match
+            boolean allMatch = true;
+            for (String token : queryTokens) {
+                if (!elementText.contains(token)) {
+                    allMatch = false;
+                    break;
+                }
+            }
+            if (allMatch && queryTokens.length > 1) {
+                score += 5.0f;
+            }
+            
+            scores.put(id, scores.getOrDefault(id, 0f) + score);
+        }
+        
+        // Strategy 3: Fuzzy matching for typos
+        if (query.length() >= 3) {
+            for (Map.Entry<String, IndexedElement> entry : elementStorage.entrySet()) {
+                String id = entry.getKey();
+                String simpleName = extractSimpleName(id).toLowerCase();
+                
+                // Simple edit distance check
+                if (Math.abs(simpleName.length() - query.length()) <= 2) {
+                    int distance = calculateSimpleEditDistance(simpleName, query);
+                    if (distance <= 2 && distance > 0) {
+                        scores.put(id, scores.getOrDefault(id, 0f) + (3.0f - distance));
+                    }
+                }
+            }
+        }
+        
+        // Convert scores to results and sort
+        List<SearchResult> results = new ArrayList<>();
+        for (Map.Entry<String, Float> entry : scores.entrySet()) {
+            IndexedElement element = elementStorage.get(entry.getKey());
+            if (element != null) {
                 results.add(new SearchResult(
-                    id,
-                    doc.get("signature"),
-                    doc.get("type"),
-                    doc.get("file_path"),
-                    scoreDoc.score * boost
+                    element.id,
+                    element.signature,
+                    element.type,
+                    element.filePath,
+                    entry.getValue()
                 ));
             }
         }
+        
+        // Sort by score descending
+        results.sort((a, b) -> Float.compare(b.getScore(), a.getScore()));
+        
+        // Limit results
+        return results.stream()
+            .limit(maxResults)
+            .collect(Collectors.toList());
+    }
+    
+    /**
+     * Simple edit distance calculation for fuzzy matching.
+     */
+    private int calculateSimpleEditDistance(String s1, String s2) {
+        int len1 = s1.length();
+        int len2 = s2.length();
+        
+        if (Math.abs(len1 - len2) > 2) return Integer.MAX_VALUE;
+        
+        int[][] dp = new int[len1 + 1][len2 + 1];
+        
+        for (int i = 0; i <= len1; i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= len2; j++) {
+            dp[0][j] = j;
+        }
+        
+        for (int i = 1; i <= len1; i++) {
+            for (int j = 1; j <= len2; j++) {
+                if (s1.charAt(i - 1) == s2.charAt(j - 1)) {
+                    dp[i][j] = dp[i - 1][j - 1];
+                } else {
+                    dp[i][j] = 1 + Math.min(dp[i - 1][j - 1], 
+                                   Math.min(dp[i - 1][j], dp[i][j - 1]));
+                }
+            }
+        }
+        
+        return dp[len1][len2];
+    }
+    
+    /**
+     * Tokenizes a signature for indexing.
+     */
+    private Set<String> tokenizeSignature(String signature) {
+        Set<String> tokens = new HashSet<>();
+        // Extract identifiers from the signature
+        String[] parts = signature.split("[^a-zA-Z0-9_]+");
+        for (String part : parts) {
+            if (part.length() > 1) {
+                tokens.add(part.toLowerCase());
+                tokens.addAll(tokenizeIdentifier(part));
+            }
+        }
+        return tokens;
     }
     
     /**
      * Commits changes to the index.
      */
     public void commit() throws IOException {
-        writer.commit();
-        refreshSearcher();
-    }
-    
-    /**
-     * Refreshes the searcher with latest index changes.
-     */
-    private void refreshSearcher() throws IOException {
-        DirectoryReader newReader = DirectoryReader.open(directory);
-        if (reader != null) {
-            reader.close();
-        }
-        reader = newReader;
-        searcher = new IndexSearcher(reader);
+        // No-op for in-memory index
     }
     
     /**
@@ -266,7 +305,9 @@ public class NameIndex {
      */
     private List<String> tokenizeIdentifier(String identifier) {
         String split = splitIdentifier(identifier);
-        return Arrays.asList(split.split("\\s+"));
+        return Arrays.stream(split.split("\\s+"))
+            .filter(s -> !s.isEmpty())
+            .collect(Collectors.toList());
     }
     
     /**
@@ -337,13 +378,27 @@ public class NameIndex {
      * Closes the index and releases resources.
      */
     public void close() throws IOException {
-        if (writer != null) {
-            writer.close();
+        tokenIndex.clear();
+        elementStorage.clear();
+    }
+    
+    /**
+     * Storage class for indexed elements.
+     */
+    private static class IndexedElement {
+        final String id;
+        final String signature;
+        final String type;
+        final String filePath;
+        final Map<String, String> additionalFields;
+        
+        IndexedElement(String id, String signature, String type, String filePath, Map<String, String> additionalFields) {
+            this.id = id;
+            this.signature = signature;
+            this.type = type;
+            this.filePath = filePath;
+            this.additionalFields = additionalFields;
         }
-        if (reader != null) {
-            reader.close();
-        }
-        directory.close();
     }
     
     /**

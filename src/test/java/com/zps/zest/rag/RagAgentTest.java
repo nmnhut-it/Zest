@@ -4,25 +4,27 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
-import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import com.zps.zest.ConfigurationManager;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for RagAgent.
+ * Unit tests for RagAgent using JUnit Jupiter.
  */
-public class RagAgentTest extends BasePlatformTestCase {
+@ExtendWith(MockitoExtension.class)
+class RagAgentTest {
     
     @Mock
     private Project mockProject;
@@ -47,11 +49,8 @@ public class RagAgentTest extends BasePlatformTestCase {
     
     private RagAgent ragAgent;
     
-    @Before
-    public void setUp() throws Exception {
-        super.setUp();
-        MockitoAnnotations.openMocks(this);
-        
+    @BeforeEach
+    void setUp() {
         when(mockProject.getName()).thenReturn("TestProject");
         when(mockConfig.getApiUrl()).thenReturn("http://localhost:8080/api");
         when(mockConfig.getAuthToken()).thenReturn("test-token");
@@ -60,7 +59,7 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testPerformIndexing_CreatesKnowledgeBase() throws Exception {
+    void testPerformIndexing_CreatesKnowledgeBase() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn(null);
         when(mockApiClient.createKnowledgeBase(anyString(), anyString())).thenReturn("kb-123");
@@ -83,19 +82,14 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testIndexFile_ExtractsAndUploadsSignatures() throws Exception {
+    void testIndexFile_ExtractsAndUploadsSignatures() throws Exception {
         // Given
         String knowledgeId = "kb-123";
         when(mockFile.getPath()).thenReturn("/src/TestClass.java");
         when(mockFile.getName()).thenReturn("TestClass.java");
         when(mockFile.getNameWithoutExtension()).thenReturn("TestClass");
         
-        CodeSignature signature = new CodeSignature(
-            "com.test.TestClass",
-            "public class TestClass",
-            "{\"type\":\"class\"}",
-            "/src/TestClass.java"
-        );
+        CodeSignature signature = TestUtils.createTestSignature("com.test.TestClass", "class");
         
         when(mockCodeAnalyzer.extractSignatures(any())).thenReturn(Arrays.asList(signature));
         when(mockApiClient.uploadFile(anyString(), anyString())).thenReturn("file-123");
@@ -112,7 +106,7 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testFindRelatedCode_ReturnsMatchingSignatures() throws Exception {
+    void testFindRelatedCode_ReturnsMatchingSignatures() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn("kb-123");
         
@@ -134,7 +128,8 @@ public class RagAgentTest extends BasePlatformTestCase {
         ragAgent.getSignatureCache().put("/src/UserService.java", Arrays.asList(sig2));
         
         // When
-        List<RagAgent.CodeMatch> matches = ragAgent.findRelatedCode("auth").get();
+        CompletableFuture<List<RagAgent.CodeMatch>> future = ragAgent.findRelatedCode("auth");
+        List<RagAgent.CodeMatch> matches = future.get();
         
         // Then
         assertEquals(1, matches.size());
@@ -143,7 +138,7 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testCalculateRelevance_ScoresCorrectly() {
+    void testCalculateRelevance_ScoresCorrectly() {
         // Given
         CodeSignature signature = new CodeSignature(
             "com.test.AuthenticationService#login",
@@ -161,7 +156,7 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testCreateProjectOverviewDocument() {
+    void testCreateProjectOverviewDocument() {
         // Given
         ProjectInfo info = new ProjectInfo();
         info.setBuildSystem("Maven");
@@ -182,7 +177,7 @@ public class RagAgentTest extends BasePlatformTestCase {
     }
     
     @Test
-    public void testErrorHandling_ContinuesOnFileFailure() throws Exception {
+    void testErrorHandling_ContinuesOnFileFailure() throws Exception {
         // Given
         when(mockConfig.getKnowledgeId()).thenReturn("kb-123");
         
@@ -202,5 +197,49 @@ public class RagAgentTest extends BasePlatformTestCase {
         
         // Then - should complete without throwing
         verify(mockProgressIndicator, never()).cancel();
+    }
+    
+    @Test
+    void testGetFullCode_HandlesNullInput() {
+        // When
+        String result = ragAgent.getFullCode(null);
+        
+        // Then
+        assertNull(result);
+    }
+    
+    @Test
+    void testGetFullCode_HandlesEmptyInput() {
+        // When
+        String result = ragAgent.getFullCode("");
+        
+        // Then
+        assertNull(result);
+    }
+    
+    @Test
+    void testExtractCodeMatches_FiltersLowRelevance() {
+        // Given
+        CodeSignature sig1 = new CodeSignature(
+            "com.test.Service",
+            "public class Service",
+            "{\"type\":\"class\"}",
+            "/src/Service.java"
+        );
+        CodeSignature sig2 = new CodeSignature(
+            "com.test.Helper",
+            "public class Helper",
+            "{\"type\":\"class\"}",
+            "/src/Helper.java"
+        );
+        
+        ragAgent.getSignatureCache().put("/src/Service.java", Arrays.asList(sig1));
+        ragAgent.getSignatureCache().put("/src/Helper.java", Arrays.asList(sig2));
+        
+        // When
+        List<RagAgent.CodeMatch> matches = ragAgent.extractCodeMatches("dummy", "unrelated");
+        
+        // Then
+        assertTrue(matches.isEmpty()); // All should be filtered out due to low relevance
     }
 }

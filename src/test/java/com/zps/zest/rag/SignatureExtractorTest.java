@@ -2,11 +2,16 @@ package com.zps.zest.rag;
 
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 /**
- * Unit tests for SignatureExtractor.
+ * Unit tests for SignatureExtractor using JUnit Jupiter.
+ * Note: This extends IntelliJ's test base class for PSI support.
  */
 public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase {
     
@@ -18,6 +23,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         extractor = new SignatureExtractor();
     }
     
+    @Test
     public void testExtractJavaClassSignature() {
         // Given
         PsiFile file = myFixture.configureByText("TestClass.java", 
@@ -38,6 +44,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(sig.getMetadata().contains("\"isAbstract\":true"));
     }
     
+    @Test
     public void testExtractJavaMethodSignatures() {
         // Given
         PsiFile file = myFixture.configureByText("Service.java",
@@ -74,6 +81,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(helperMethod.getMetadata().contains("\"isStatic\":true"));
     }
     
+    @Test
     public void testExtractJavaFieldSignatures() {
         // Given
         PsiFile file = myFixture.configureByText("Model.java",
@@ -99,6 +107,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(nameField.getMetadata().contains("\"isFinal\":true"));
     }
     
+    @Test
     public void testExtractKotlinClassSignature() {
         // Given
         PsiFile file = myFixture.configureByText("DataClass.kt",
@@ -120,6 +129,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(classSig.getMetadata().contains("\"isData\":true"));
     }
     
+    @Test
     public void testExtractKotlinFunctionSignature() {
         // Given
         PsiFile file = myFixture.configureByText("Utils.kt",
@@ -139,6 +149,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(funcSig.getMetadata().contains("\"isSuspend\":true"));
     }
     
+    @Test
     public void testIgnoresConstructors() {
         // Given
         PsiFile file = myFixture.configureByText("Builder.java",
@@ -156,6 +167,7 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(signatures.stream().noneMatch(s -> s.getId().contains("Builder#Builder")));
     }
     
+    @Test
     public void testHandlesInnerClasses() {
         // Given
         PsiFile file = myFixture.configureByText("Outer.java",
@@ -173,5 +185,49 @@ public class SignatureExtractorTest extends LightJavaCodeInsightFixtureTestCase 
         assertTrue(signatures.size() >= 2); // Outer + Inner classes
         assertTrue(signatures.stream().anyMatch(s -> s.getId().contains("Outer")));
         assertTrue(signatures.stream().anyMatch(s -> s.getId().contains("Inner")));
+    }
+    
+    @Test
+    public void testHandlesAnonymousClasses() {
+        // Given
+        PsiFile file = myFixture.configureByText("Container.java",
+            "public class Container {\n" +
+            "    Runnable r = new Runnable() {\n" +
+            "        public void run() {}\n" +
+            "    };\n" +
+            "}"
+        );
+        
+        // When
+        List<CodeSignature> signatures = extractor.extractFromFile(file);
+        
+        // Then
+        // Should extract Container class and field, but not anonymous class
+        assertTrue(signatures.stream().anyMatch(s -> s.getId().equals("Container")));
+        assertTrue(signatures.stream().anyMatch(s -> s.getId().endsWith(".r")));
+    }
+    
+    @Test
+    public void testHandlesGenericTypes() {
+        // Given
+        PsiFile file = myFixture.configureByText("GenericService.java",
+            "public class GenericService<T> {\n" +
+            "    public List<T> process(Map<String, T> input) {\n" +
+            "        return null;\n" +
+            "    }\n" +
+            "}"
+        );
+        
+        // When
+        List<CodeSignature> signatures = extractor.extractFromFile(file);
+        
+        // Then
+        CodeSignature methodSig = signatures.stream()
+            .filter(s -> s.getId().endsWith("#process"))
+            .findFirst().orElse(null);
+        
+        assertNotNull(methodSig);
+        assertTrue(methodSig.getSignature().contains("List<T>"));
+        assertTrue(methodSig.getSignature().contains("Map<String, T>"));
     }
 }

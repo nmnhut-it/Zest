@@ -1,18 +1,24 @@
 package com.zps.zest.rag;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.zps.zest.ConfigurationManager;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 /**
- * Integration test for the complete RAG system.
+ * Integration test for the complete RAG system using JUnit Jupiter.
  * Tests the full flow from indexing to search.
  */
-public class RagSystemIntegrationTest extends BasePlatformTestCase {
+public class RagSystemIntegrationTest extends LightJavaCodeInsightFixtureTestCase {
     
     private RagAgent ragAgent;
     private MockKnowledgeApiClient mockApiClient;
@@ -36,6 +42,7 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         );
     }
     
+    @Test
     public void testFullIndexingAndSearchFlow() throws Exception {
         // Create a test file
         myFixture.configureByText("AuthService.java",
@@ -58,7 +65,7 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         // Index the project
         ApplicationManager.getApplication().invokeAndWait(() -> {
             try {
-                ragAgent.performIndexing(new MockProgressIndicator(), false);
+                ragAgent.performIndexing(new TestUtils.MockProgressIndicator(), false);
             } catch (Exception e) {
                 fail("Indexing failed: " + e.getMessage());
             }
@@ -81,8 +88,8 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
             .findFirst()
             .orElse(null);
         
-        assertNotNull("Should find AuthService in results", authMatch);
-        assertTrue("Should have high relevance", authMatch.getRelevance() > 0.5);
+        assertNotNull(authMatch, "Should find AuthService in results");
+        assertTrue(authMatch.getRelevance() > 0.5, "Should have high relevance");
         
         // Get full code for the method
         String fullCode = ragAgent.getFullCode("com.example.AuthService#authenticate");
@@ -92,6 +99,7 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         assertTrue(fullCode.contains("password"));
     }
     
+    @Test
     public void testSearchWithMultipleFiles() throws Exception {
         // Create multiple related files
         myFixture.configureByText("UserService.java",
@@ -101,7 +109,7 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
             "}"
         );
         
-        myFixture.configureByText("UserRepository.java",
+        myFixture.addFileToProject("UserRepository.java",
             "package com.example;\n" +
             "public interface UserRepository {\n" +
             "    User findByUsername(String username);\n" +
@@ -111,7 +119,7 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         // Index
         ApplicationManager.getApplication().invokeAndWait(() -> {
             try {
-                ragAgent.performIndexing(new MockProgressIndicator(), false);
+                ragAgent.performIndexing(new TestUtils.MockProgressIndicator(), false);
             } catch (Exception e) {
                 fail("Indexing failed: " + e.getMessage());
             }
@@ -129,13 +137,14 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         boolean foundRepository = matches.stream()
             .anyMatch(m -> m.getSignature().getId().contains("UserRepository"));
         
-        assertTrue("Should find UserService", foundService);
-        assertTrue("Should find UserRepository", foundRepository);
+        assertTrue(foundService, "Should find UserService");
+        assertTrue(foundRepository, "Should find UserRepository");
     }
     
+    @Test
     public void testProjectInfoExtraction() throws Exception {
         // Create a simple pom.xml
-        myFixture.configureByText("pom.xml",
+        myFixture.addFileToProject("pom.xml",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
             "<project>\n" +
             "    <dependencies>\n" +
@@ -157,75 +166,50 @@ public class RagSystemIntegrationTest extends BasePlatformTestCase {
         assertTrue(info.getDependencies().contains("org.springframework:spring-core:5.3.0"));
     }
     
-    /**
-     * Mock progress indicator for testing.
-     */
-    private static class MockProgressIndicator implements com.intellij.openapi.progress.ProgressIndicator {
-        private volatile boolean canceled = false;
-        private String text = "";
-        private String text2 = "";
-        private double fraction = 0;
+    @Test
+    public void testKotlinFileIndexing() throws Exception {
+        // Create a Kotlin file
+        myFixture.configureByText("DataService.kt",
+            "package com.example\n" +
+            "\n" +
+            "data class User(val id: String, val name: String)\n" +
+            "\n" +
+            "class DataService {\n" +
+            "    suspend fun fetchUser(id: String): User? {\n" +
+            "        return null\n" +
+            "    }\n" +
+            "}"
+        );
         
-        @Override
-        public void start() {}
+        // Index
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            try {
+                ragAgent.performIndexing(new TestUtils.MockProgressIndicator(), false);
+            } catch (Exception e) {
+                fail("Indexing failed: " + e.getMessage());
+            }
+        });
         
-        @Override
-        public void stop() {}
+        // Search for Kotlin code
+        List<RagAgent.CodeMatch> matches = ragAgent.findRelatedCode("fetchUser")
+            .get(10, TimeUnit.SECONDS);
         
-        @Override
-        public boolean isRunning() { return true; }
+        assertTrue(matches.size() > 0, "Should find Kotlin code");
+    }
+    
+    @Test
+    public void testEmptyProjectHandling() throws Exception {
+        // Index empty project
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            try {
+                ragAgent.performIndexing(new TestUtils.MockProgressIndicator(), false);
+            } catch (Exception e) {
+                fail("Indexing failed: " + e.getMessage());
+            }
+        });
         
-        @Override
-        public void cancel() { canceled = true; }
-        
-        @Override
-        public boolean isCanceled() { return canceled; }
-        
-        @Override
-        public void setText(String text) { this.text = text; }
-        
-        @Override
-        public String getText() { return text; }
-        
-        @Override
-        public void setText2(String text) { this.text2 = text; }
-        
-        @Override
-        public String getText2() { return text2; }
-        
-        @Override
-        public double getFraction() { return fraction; }
-        
-        @Override
-        public void setFraction(double fraction) { this.fraction = fraction; }
-        
-        @Override
-        public void pushState() {}
-        
-        @Override
-        public void popState() {}
-        
-        @Override
-        public boolean isModal() { return false; }
-        
-        @Override
-        public void setModalityProgress(com.intellij.openapi.progress.ProgressIndicator modalityProgress) {}
-        
-        @Override
-        public boolean isIndeterminate() { return false; }
-        
-        @Override
-        public void setIndeterminate(boolean indeterminate) {}
-        
-        @Override
-        public void checkCanceled() throws com.intellij.openapi.progress.ProcessCanceledException {
-            if (canceled) throw new com.intellij.openapi.progress.ProcessCanceledException();
-        }
-        
-        @Override
-        public boolean isPopupWasShown() { return false; }
-        
-        @Override
-        public boolean isShowing() { return true; }
+        // Should still create knowledge base with project overview
+        assertEquals(1, mockApiClient.getKnowledgeBaseCount());
+        assertTrue(mockApiClient.getFileCount() >= 1); // At least project overview
     }
 }

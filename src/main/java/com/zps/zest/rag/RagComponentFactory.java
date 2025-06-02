@@ -45,14 +45,7 @@ public class RagComponentFactory {
         
         return new OpenWebUIKnowledgeClient(apiUrl, authToken);
     }
-    
-    /**
-     * Creates a mock API client for testing.
-     */
-    public static MockKnowledgeApiClient createMockApiClient() {
-        return new MockKnowledgeApiClient();
-    }
-    
+
     /**
      * Creates a code analyzer for the project.
      */

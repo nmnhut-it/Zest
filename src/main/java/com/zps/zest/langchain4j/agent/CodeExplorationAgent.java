@@ -30,7 +30,17 @@ public final class CodeExplorationAgent {
         DEPTH_FIRST("Deep dive into specific component"),
         RELATIONSHIP_FOCUSED("Explore connections between components"),
         PATTERN_BASED("Find similar patterns across codebase"),
-        PROBLEM_SOLVING("Debug or fix specific issues")
+        PROBLEM_SOLVING("Debug or fix specific issues");
+        
+        private final String description;
+        
+        ExplorationStrategy(String description) {
+            this.description = description;
+        }
+        
+        public String getDescription() {
+            return description;
+        }
     }
     
     public CodeExplorationAgent(@NotNull Project project) {
@@ -61,7 +71,7 @@ public final class CodeExplorationAgent {
         
         // Add exploration header
         response.append("### Code Exploration Assistant ###\n");
-        response.append("Strategy: ").append(strategy.description).append("\n\n");
+        response.append("Strategy: ").append(strategy.getDescription()).append("\n\n");
         
         // Analyze the input
         String ambiguityAnalysis = augmentationAgent.analyzeQueryAmbiguity(userInput);

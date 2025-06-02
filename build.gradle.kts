@@ -38,6 +38,20 @@ dependencies {
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")
     implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
+
+    implementation("dev.langchain4j:langchain4j:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")
+
+    // ONNX embedding models
+    implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0")
+
+    // Document processing
+    implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")
+
+    // Apache Tika
+    implementation("org.apache.tika:tika-core:2.9.2")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
 }
 
 tasks {

@@ -1,0 +1,47 @@
+// Add these dependencies to your build.gradle or build.gradle.kts file
+
+dependencies {
+    // LangChain4j core
+    implementation 'dev.langchain4j:langchain4j:0.35.0'
+    implementation 'dev.langchain4j:langchain4j-embeddings:0.35.0'
+    
+    // ONNX embedding models (choose one or both)
+    implementation 'dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0'
+    implementation 'dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0'
+    
+    // Document processing
+    implementation 'dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0'
+    
+    // Optional: If you want to use other embedding providers
+    // implementation 'dev.langchain4j:langchain4j-open-ai:0.35.0'
+    // implementation 'dev.langchain4j:langchain4j-hugging-face:0.35.0'
+    
+    // Apache Tika for document parsing
+    implementation 'org.apache.tika:tika-core:2.9.2'
+    implementation 'org.apache.tika:tika-parsers-standard-package:2.9.2'
+    
+    // JSON handling (if not already included)
+    implementation 'com.google.code.gson:gson:2.10.1'
+}
+
+// For Kotlin DSL (build.gradle.kts)
+/*
+dependencies {
+    implementation("dev.langchain4j:langchain4j:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")
+    
+    // ONNX embedding models
+    implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0")
+    
+    // Document processing
+    implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")
+    
+    // Apache Tika
+    implementation("org.apache.tika:tika-core:2.9.2")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
+}
+*/
+
+// Note: These embedding models run locally using ONNX Runtime
+// No API keys or external services required!

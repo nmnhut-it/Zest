@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.tools.*;
 import com.zps.zest.rag.RagSearchTool;
+import com.zps.zest.langchain4j.EnhancedRagSearchTool;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -68,6 +69,7 @@ public class AgentToolRegistry {
         register(new ReplaceInFileTool(project)); // Register the new tool
         register(new FollowUpQuestionTool(project)); // Register the new tool
         register(new RagSearchTool(project)); // Register the RAG search tool
+        register(new EnhancedRagSearchTool(project)); // Register the enhanced LangChain4j RAG search tool
 
 //        // Add the RAG tool
 //        ConfigurationManager config = ConfigurationManager.getInstance(project);

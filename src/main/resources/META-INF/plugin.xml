@@ -215,6 +215,24 @@
                 description="Index all project code signatures for intelligent search">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
         </action>
+        
+        <!-- Test LangChain4j Embeddings -->
+        <action id="Zest.TestLangChain4jAction"
+                class="com.zps.zest.langchain4j.TestLangChain4jAction"
+                text="Test LangChain4j Embeddings"
+                description="Test the LangChain4j embedding service with various features">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectAction"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Quick Search with LangChain4j -->
+        <action id="Zest.QuickTestLangChain4j"
+                class="com.zps.zest.langchain4j.QuickTestLangChain4j"
+                text="Quick Search with LangChain4j"
+                description="Search project code using local embeddings">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestLangChain4jAction"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>
+        </action>
 
         <!-- DEVELOPER TOOLS -->
         

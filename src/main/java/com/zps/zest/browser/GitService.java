@@ -21,7 +21,6 @@ import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.CodeContext;
 import com.zps.zest.browser.utils.GitCommandExecutor;
 import org.jetbrains.annotations.NotNull;
-import com.intellij.util.ui.UIUtil;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -766,8 +765,6 @@ public class GitService {
                     LOG.info("No more files to commit - closing modal");
                 } else {
                     // Update the file list - ensure we escape the string properly
-                    boolean isDark = isDarkTheme();
-                    
                     // Make sure the file list string is properly escaped for JavaScript
                     String escapedFileList = escapeJsString(updatedFileList);
                     
@@ -777,7 +774,7 @@ public class GitService {
                         "  var fileList = '%s'; " +
                         "  console.log('File list to refresh:', fileList); " +
                         "  if (window.GitModal && window.GitModal.populateFileList) { " +
-                        "    window.GitModal.populateFileList(fileList, %s); " +
+                        "    window.GitModal.populateFileList(fileList); " +
                         "  } else if (window.GitModal && window.GitModal.showFileSelectionModal) { " +
                         "    console.log('populateFileList not found, refreshing entire modal'); " +
                         "    window.GitModal.showFileSelectionModal(fileList); " +
@@ -785,8 +782,7 @@ public class GitService {
                         "    console.error('GitModal not found or does not have required methods'); " +
                         "  } " +
                         "})();",
-                        escapedFileList,
-                        isDark ? "true" : "false"
+                        escapedFileList
                     );
                 }
                 
@@ -797,18 +793,6 @@ public class GitService {
                 LOG.error("Error refreshing git file list in browser", e);
             }
         });
-    }
-    
-    /**
-     * Check if IDE is in dark theme
-     */
-    private boolean isDarkTheme() {
-        try {
-            return com.intellij.util.ui.UIUtil.isUnderDarcula();
-        } catch (Exception e) {
-            LOG.warn("Error checking theme, defaulting to light", e);
-            return false;
-        }
     }
     
     /**

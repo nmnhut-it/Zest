@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.HybridIndexManager;
@@ -17,7 +18,10 @@ public class FindCallersTool extends BaseCodeExplorationTool {
     private final HybridIndexManager indexManager;
     
     public FindCallersTool(@NotNull Project project) {
-        super(project, "find_callers", "Find all methods that call a specific method");
+        super(project, "find_callers", 
+            "Find all methods that call a specific method. " +
+            "Example: find_callers({\"methodId\": \"UserService#save\"}) - finds all methods calling UserService.save(). " +
+            "Params: methodId (string, required, format: 'ClassName#methodName')");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -28,11 +32,14 @@ public class FindCallersTool extends BaseCodeExplorationTool {
         
         JsonObject methodId = new JsonObject();
         methodId.addProperty("type", "string");
-        methodId.addProperty("description", "ID of the method to find callers for (e.g., 'ClassName#methodName')");
+        methodId.addProperty("description", "ID of the method to find callers for (format: 'ClassName#methodName')");
+        methodId.addProperty("pattern", "^[\\w\\.]+#\\w+$");
         properties.add("methodId", methodId);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"methodId\"]");
+        JsonArray required = new JsonArray();
+        required.add("methodId");
+        schema.add("required", required);
         
         return schema;
     }
@@ -40,6 +47,9 @@ public class FindCallersTool extends BaseCodeExplorationTool {
     @Override
     protected ToolResult doExecute(JsonObject parameters) {
         String methodId = getRequiredString(parameters, "methodId");
+        
+        // Validate and auto-correct common format mistakes
+        methodId = validateAndCorrectMethodId(methodId);
         
         try {
             StructuralIndex structuralIndex = indexManager.getStructuralIndex();
@@ -81,5 +91,42 @@ public class FindCallersTool extends BaseCodeExplorationTool {
         } catch (Exception e) {
             return ToolResult.error("Failed to find callers: " + e.getMessage());
         }
+    }
+    
+    private String validateAndCorrectMethodId(String methodId) {
+        if (methodId == null || methodId.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                "methodId cannot be empty. Expected format: 'ClassName#methodName'. " +
+                "Example: 'UserService#save'"
+            );
+        }
+        
+        methodId = methodId.trim();
+        
+        // Auto-correct common mistakes
+        if (methodId.contains("::")) {
+            methodId = methodId.replace("::", "#");
+        } else if (methodId.contains("->")) {
+            methodId = methodId.replace("->", "#");
+        } else if (methodId.contains(".") && !methodId.contains("#")) {
+            // Try to fix dot separator
+            int lastDot = methodId.lastIndexOf('.');
+            String possibleMethod = methodId.substring(lastDot + 1);
+            
+            if (possibleMethod.length() > 0 && 
+                (Character.isLowerCase(possibleMethod.charAt(0)) ||
+                 possibleMethod.matches("^(get|set|is|has|add|remove|find|create|update|delete).*"))) {
+                methodId = methodId.substring(0, lastDot) + "#" + possibleMethod;
+            }
+        }
+        
+        // Final validation
+        if (!methodId.contains("#")) {
+            throw new IllegalArgumentException(
+                "Invalid methodId format. Must use 'ClassName#methodName'. Got: '" + methodId + "'"
+            );
+        }
+        
+        return methodId;
     }
 }

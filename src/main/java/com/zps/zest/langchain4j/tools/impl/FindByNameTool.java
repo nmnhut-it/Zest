@@ -1,5 +1,7 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.HybridIndexManager;
@@ -16,7 +18,10 @@ public class FindByNameTool extends ThreadSafeIndexTool {
     private final HybridIndexManager indexManager;
     
     public FindByNameTool(@NotNull Project project) {
-        super(project, "find_by_name", "Find code elements by name using identifier matching (supports camelCase search)");
+        super(project, "find_by_name", 
+            "Find code elements by name (partial match supported). " +
+            "Example: find_by_name({\"name\": \"UserService\", \"maxResults\": 10}) - finds UserService, UserServiceImpl, etc. " +
+            "Params: name (string, required), maxResults (int, optional, default 10, range 1-50)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -27,17 +32,22 @@ public class FindByNameTool extends ThreadSafeIndexTool {
         
         JsonObject name = new JsonObject();
         name.addProperty("type", "string");
-        name.addProperty("description", "Name or partial name to search for");
+        name.addProperty("description", "Name or partial name to search for (case-sensitive)");
+        name.addProperty("minLength", 1);
         properties.add("name", name);
         
         JsonObject maxResults = new JsonObject();
         maxResults.addProperty("type", "integer");
-        maxResults.addProperty("description", "Maximum number of results (default: 10)");
+        maxResults.addProperty("description", "Maximum number of results (default: 10, range: 1-50)");
         maxResults.addProperty("default", 10);
+        maxResults.addProperty("minimum", 1);
+        maxResults.addProperty("maximum", 50);
         properties.add("maxResults", maxResults);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"name\"]");
+        JsonArray required = new JsonArray();
+        required.add("name");
+        schema.add("required", required);
         
         return schema;
     }
@@ -46,6 +56,11 @@ public class FindByNameTool extends ThreadSafeIndexTool {
     protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String name = getRequiredString(parameters, "name");
         int maxResults = getOptionalInt(parameters, "maxResults", 10);
+        
+        // Validate maxResults range
+        if (maxResults < 1 || maxResults > 50) {
+            return ToolResult.error("maxResults must be between 1 and 50, got: " + maxResults);
+        }
         
         return executeWithIndices(() -> {
             NameIndex nameIndex = indexManager.getNameIndex();

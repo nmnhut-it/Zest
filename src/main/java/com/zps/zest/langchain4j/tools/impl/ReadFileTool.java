@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -17,7 +18,10 @@ import java.nio.charset.StandardCharsets;
 public class ReadFileTool extends ThreadSafeCodeExplorationTool {
     
     public ReadFileTool(@NotNull Project project) {
-        super(project, "read_file", "Read the contents of a file");
+        super(project, "read_file", 
+            "Read the contents of a file. " +
+            "Example: read_file({\"filePath\": \"src/main/java/User.java\"}) - returns the full content of User.java. " +
+            "Params: filePath (string, required, relative to project root or absolute path)");
     }
     
     @Override
@@ -31,7 +35,9 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         properties.add("filePath", filePath);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"filePath\"]");
+        JsonArray required = new JsonArray();
+        required.add("filePath");
+        schema.add("required", required);
         
         return schema;
     }
@@ -49,11 +55,13 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         try {
             VirtualFile file = findFile(filePath);
             if (file == null) {
-                return ToolResult.error("File not found: " + filePath);
+                return ToolResult.error("File not found: " + filePath + 
+                    ". Ensure path is relative to project root or is a valid absolute path.");
             }
             
             if (file.isDirectory()) {
-                return ToolResult.error("Path is a directory, not a file: " + filePath);
+                return ToolResult.error("Path is a directory, not a file: " + filePath + 
+                    ". Use list_files tool to see directory contents.");
             }
             
             // Read file content
@@ -91,6 +99,9 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
     }
     
     private VirtualFile findFile(String filePath) {
+        // Normalize path
+        filePath = filePath.replace('\\', '/');
+        
         // Try as absolute path first
         VirtualFile file = VirtualFileManager.getInstance().findFileByUrl("file://" + filePath);
         if (file != null && file.exists()) {
@@ -100,6 +111,11 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         // Try relative to project base path
         VirtualFile baseDir = project.getBaseDir();
         if (baseDir != null) {
+            // Remove leading slash for relative paths
+            if (filePath.startsWith("/")) {
+                filePath = filePath.substring(1);
+            }
+            
             file = baseDir.findFileByRelativePath(filePath);
             if (file != null && file.exists()) {
                 return file;

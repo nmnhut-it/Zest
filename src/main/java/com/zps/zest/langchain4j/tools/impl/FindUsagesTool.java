@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -20,7 +21,10 @@ import java.util.Map;
 public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
     
     public FindUsagesTool(@NotNull Project project) {
-        super(project, "find_usages", "Find all usages of a class, method, or field");
+        super(project, "find_usages", 
+            "Find all usages of a class, method, or field. " +
+            "Example: find_usages({\"elementId\": \"User#email\", \"includeTests\": false}) - finds all non-test usages of User.email field. " +
+            "Params: elementId (string, required, format: 'ClassName' or 'ClassName#memberName'), includeTests (boolean, optional, default true)");
     }
     
     @Override
@@ -30,17 +34,19 @@ public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
         
         JsonObject elementId = new JsonObject();
         elementId.addProperty("type", "string");
-        elementId.addProperty("description", "ID of the element to find usages for (e.g., 'ClassName' or 'ClassName#methodName')");
+        elementId.addProperty("description", "ID of element to find usages for (e.g., 'UserService' for class, 'UserService#save' for method, 'User#email' for field)");
         properties.add("elementId", elementId);
         
         JsonObject includeTests = new JsonObject();
         includeTests.addProperty("type", "boolean");
-        includeTests.addProperty("description", "Include usages in test files (default: true)");
+        includeTests.addProperty("description", "Include usages in test files");
         includeTests.addProperty("default", true);
         properties.add("includeTests", includeTests);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"elementId\"]");
+        JsonArray required = new JsonArray();
+        required.add("elementId");
+        schema.add("required", required);
         
         return schema;
     }
@@ -58,7 +64,8 @@ public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
         try {
             PsiElement element = findElement(elementId);
             if (element == null) {
-                return ToolResult.error("Element not found: " + elementId);
+                return ToolResult.error("Element not found: " + elementId + 
+                    ". Ensure format is 'ClassName' for classes or 'ClassName#memberName' for methods/fields.");
             }
             
             StringBuilder content = new StringBuilder();
@@ -147,7 +154,7 @@ public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
     private PsiElement findElement(String elementId) {
         JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
         
-        // Check if it's a method reference (ClassName#methodName)
+        // Check if it's a method/field reference (ClassName#memberName)
         if (elementId.contains("#")) {
             String[] parts = elementId.split("#", 2);
             String className = parts[0];

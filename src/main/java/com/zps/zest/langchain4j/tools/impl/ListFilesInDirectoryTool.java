@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -66,7 +67,10 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
     ));
     
     public ListFilesInDirectoryTool(@NotNull Project project) {
-        super(project, "list_files", "List code files in a directory (excludes build artifacts and common non-code folders)");
+        super(project, "list_files", 
+            "List files in a directory (excludes build artifacts and common non-code folders by default). " +
+            "Example: list_files({\"directory\": \"src/main/java\", \"pattern\": \"*.java\", \"recursive\": true}) - lists all Java files recursively. " +
+            "Params: directory (string, required, use '/' for root), recursive (boolean, optional), pattern (string, optional), includeAll (boolean, optional)");
     }
     
     @Override
@@ -76,28 +80,30 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
         
         JsonObject directory = new JsonObject();
         directory.addProperty("type", "string");
-        directory.addProperty("description", "Directory path (relative to project root)");
+        directory.addProperty("description", "Directory path relative to project root (use '/' for project root)");
         properties.add("directory", directory);
         
         JsonObject recursive = new JsonObject();
         recursive.addProperty("type", "boolean");
-        recursive.addProperty("description", "List files recursively (default: false)");
+        recursive.addProperty("description", "List files recursively in subdirectories");
         recursive.addProperty("default", false);
         properties.add("recursive", recursive);
         
         JsonObject pattern = new JsonObject();
         pattern.addProperty("type", "string");
-        pattern.addProperty("description", "File name pattern to filter (e.g., '*.java')");
+        pattern.addProperty("description", "File name pattern (e.g., '*.java', 'Test*', '*Service.java')");
         properties.add("pattern", pattern);
         
         JsonObject includeAll = new JsonObject();
         includeAll.addProperty("type", "boolean");
-        includeAll.addProperty("description", "Include all files, not just code files (default: false)");
+        includeAll.addProperty("description", "Include all files, not just code files (bypasses exclusion filters)");
         includeAll.addProperty("default", false);
         properties.add("includeAll", includeAll);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"directory\"]");
+        JsonArray required = new JsonArray();
+        required.add("directory");
+        schema.add("required", required);
         
         return schema;
     }

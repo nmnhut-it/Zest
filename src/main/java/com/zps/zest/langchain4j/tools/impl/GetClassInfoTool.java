@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -13,7 +14,10 @@ import org.jetbrains.annotations.NotNull;
 public class GetClassInfoTool extends ThreadSafeCodeExplorationTool {
     
     public GetClassInfoTool(@NotNull Project project) {
-        super(project, "get_class_info", "Get detailed information about a class or interface including fields, methods summary, and hierarchy");
+        super(project, "get_class_info", 
+            "Get detailed information about a class or interface including fields, methods summary, and hierarchy. " +
+            "Example: get_class_info({\"className\": \"java.util.HashMap\"}) - returns HashMap's structure and members. " +
+            "Params: className (string, required, simple or fully qualified name)");
     }
     
     @Override
@@ -23,11 +27,13 @@ public class GetClassInfoTool extends ThreadSafeCodeExplorationTool {
         
         JsonObject className = new JsonObject();
         className.addProperty("type", "string");
-        className.addProperty("description", "Name of the class or interface");
+        className.addProperty("description", "Name of the class or interface (e.g., 'HashMap' or 'java.util.HashMap')");
         properties.add("className", className);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"className\"]");
+        JsonArray required = new JsonArray();
+        required.add("className");
+        schema.add("required", required);
         
         return schema;
     }

@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.HybridIndexManager;
@@ -17,7 +18,10 @@ public class FindImplementationsTool extends BaseCodeExplorationTool {
     private final HybridIndexManager indexManager;
     
     public FindImplementationsTool(@NotNull Project project) {
-        super(project, "find_implementations", "Find all implementations of an interface or abstract method");
+        super(project, "find_implementations", 
+            "Find all implementations of an interface or abstract method. " +
+            "Example: find_implementations({\"elementId\": \"UserRepository\"}) - finds all classes implementing UserRepository. " +
+            "Params: elementId (string, required, format: 'InterfaceName' or 'ClassName#methodName')");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -28,11 +32,13 @@ public class FindImplementationsTool extends BaseCodeExplorationTool {
         
         JsonObject elementId = new JsonObject();
         elementId.addProperty("type", "string");
-        elementId.addProperty("description", "ID of the interface or abstract method to find implementations for");
+        elementId.addProperty("description", "ID of the interface or abstract method (e.g., 'UserRepository' or 'AbstractService#process')");
         properties.add("elementId", elementId);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"elementId\"]");
+        JsonArray required = new JsonArray();
+        required.add("elementId");
+        schema.add("required", required);
         
         return schema;
     }

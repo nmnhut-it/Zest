@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -17,7 +18,10 @@ import java.util.List;
 public class FindMethodsTool extends ThreadSafeCodeExplorationTool {
     
     public FindMethodsTool(@NotNull Project project) {
-        super(project, "find_methods", "Find all methods in a class or interface");
+        super(project, "find_methods", 
+            "Find all methods in a class or interface. " +
+            "Example: find_methods({\"className\": \"ArrayList\", \"includeInherited\": true}) - lists all methods including inherited ones. " +
+            "Params: className (string, required), includeInherited (boolean, optional, default false)");
     }
     
     @Override
@@ -27,17 +31,19 @@ public class FindMethodsTool extends ThreadSafeCodeExplorationTool {
         
         JsonObject className = new JsonObject();
         className.addProperty("type", "string");
-        className.addProperty("description", "Name of the class or interface");
+        className.addProperty("description", "Name of the class or interface (simple or fully qualified)");
         properties.add("className", className);
         
         JsonObject includeInherited = new JsonObject();
         includeInherited.addProperty("type", "boolean");
-        includeInherited.addProperty("description", "Include inherited methods (default: false)");
+        includeInherited.addProperty("description", "Include methods inherited from parent classes/interfaces");
         includeInherited.addProperty("default", false);
         properties.add("includeInherited", includeInherited);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"className\"]");
+        JsonArray required = new JsonArray();
+        required.add("className");
+        schema.add("required", required);
         
         return schema;
     }

@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.CodeSearchUtility;
@@ -19,7 +20,10 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     private final CodeSearchUtility searchUtility;
     
     public SearchCodeTool(@NotNull Project project) {
-        super(project, "search_code", "Search for code using hybrid search across name, semantic, and structural indices");
+        super(project, "search_code", 
+            "Search for code using natural language queries across the entire codebase. " +
+            "Example: search_code({\"query\": \"user authentication logic\", \"maxResults\": 5}) - finds code related to authentication. " +
+            "Params: query (string, required), maxResults (int, optional, default 10, range 1-50)");
         this.searchUtility = project.getService(CodeSearchUtility.class);
     }
     
@@ -30,17 +34,21 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
         
         JsonObject query = new JsonObject();
         query.addProperty("type", "string");
-        query.addProperty("description", "Search query");
+        query.addProperty("description", "Natural language search query");
         properties.add("query", query);
         
         JsonObject maxResults = new JsonObject();
         maxResults.addProperty("type", "integer");
-        maxResults.addProperty("description", "Maximum number of results (default: 10)");
+        maxResults.addProperty("description", "Maximum number of results (default: 10, range: 1-50)");
         maxResults.addProperty("default", 10);
+        maxResults.addProperty("minimum", 1);
+        maxResults.addProperty("maximum", 50);
         properties.add("maxResults", maxResults);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"query\"]");
+        JsonArray required = new JsonArray();
+        required.add("query");
+        schema.add("required", required);
         
         return schema;
     }
@@ -55,6 +63,11 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String query = getRequiredString(parameters, "query");
         int maxResults = getOptionalInt(parameters, "maxResults", 10);
+        
+        // Validate maxResults range
+        if (maxResults < 1 || maxResults > 50) {
+            return ToolResult.error("maxResults must be between 1 and 50, got: " + maxResults);
+        }
         
         try {
             // Execute search asynchronously
@@ -73,8 +86,12 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
             
             if (results.isEmpty()) {
                 content.append("No results found for query: ").append(query);
+                content.append("\n\nTry:\n");
+                content.append("- Using different keywords\n");
+                content.append("- Being more specific (e.g., 'validate user email' instead of 'validation')\n");
+                content.append("- Using technical terms (e.g., 'authentication' instead of 'login')\n");
             } else {
-                content.append("Found ").append(results.size()).append(" results for query: ").append(query).append("\n\n");
+                content.append("Found ").append(results.size()).append(" results for query: \"").append(query).append("\"\n\n");
                 
                 for (int i = 0; i < results.size(); i++) {
                     CodeSearchUtility.EnrichedSearchResult result = results.get(i);

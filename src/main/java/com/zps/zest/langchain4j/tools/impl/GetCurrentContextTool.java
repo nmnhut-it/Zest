@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -15,13 +16,17 @@ import org.jetbrains.annotations.NotNull;
 public class GetCurrentContextTool extends BaseCodeExplorationTool {
     
     public GetCurrentContextTool(@NotNull Project project) {
-        super(project, "get_current_context", "Get information about the current context (open file, selected element, etc)");
+        super(project, "get_current_context", 
+            "Get information about the current IDE context (open file, selected element, cursor position). " +
+            "Example: get_current_context({}) - returns current file, cursor position, and element at cursor. " +
+            "Params: NONE - use empty object {}");
     }
     
     @Override
     public JsonObject getParameterSchema() {
         JsonObject schema = new JsonObject();
         schema.add("properties", new JsonObject());
+        schema.add("required", new JsonArray());
         return schema;
     }
     

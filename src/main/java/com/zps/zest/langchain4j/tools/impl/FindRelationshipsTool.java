@@ -1,5 +1,6 @@
 package com.zps.zest.langchain4j.tools.impl;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.HybridIndexManager;
@@ -19,7 +20,10 @@ public class FindRelationshipsTool extends BaseCodeExplorationTool {
     private final HybridIndexManager indexManager;
     
     public FindRelationshipsTool(@NotNull Project project) {
-        super(project, "find_relationships", "Find structural relationships (calls, inheritance, implementations) for a code element");
+        super(project, "find_relationships", 
+            "Find structural relationships (calls, inheritance, implementations) for a code element. " +
+            "Example: find_relationships({\"elementId\": \"UserService\", \"relationType\": \"CALLED_BY\"}) - finds all methods that call UserService. " +
+            "Params: elementId (string, required), relationType (string, optional, one of: CALLS, CALLED_BY, EXTENDS, EXTENDED_BY, IMPLEMENTS, IMPLEMENTED_BY, USES, USED_BY)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -30,17 +34,28 @@ public class FindRelationshipsTool extends BaseCodeExplorationTool {
         
         JsonObject elementId = new JsonObject();
         elementId.addProperty("type", "string");
-        elementId.addProperty("description", "ID of the code element to find relationships for");
+        elementId.addProperty("description", "ID of the code element (e.g., 'UserService' or 'UserService#save')");
         properties.add("elementId", elementId);
         
         JsonObject relationType = new JsonObject();
         relationType.addProperty("type", "string");
-        relationType.addProperty("description", "Type of relationship to find (optional, defaults to all)");
-        relationType.addProperty("enum", "[\"CALLS\", \"CALLED_BY\", \"EXTENDS\", \"EXTENDED_BY\", \"IMPLEMENTS\", \"IMPLEMENTED_BY\", \"USES\", \"USED_BY\"]");
+        relationType.addProperty("description", "Specific relationship type to find (optional, returns all if omitted)");
+        JsonArray enumValues = new JsonArray();
+        enumValues.add("CALLS");
+        enumValues.add("CALLED_BY");
+        enumValues.add("EXTENDS");
+        enumValues.add("EXTENDED_BY");
+        enumValues.add("IMPLEMENTS");
+        enumValues.add("IMPLEMENTED_BY");
+        enumValues.add("USES");
+        enumValues.add("USED_BY");
+        relationType.add("enum", enumValues);
         properties.add("relationType", relationType);
         
         schema.add("properties", properties);
-        schema.addProperty("required", "[\"elementId\"]");
+        JsonArray required = new JsonArray();
+        required.add("elementId");
+        schema.add("required", required);
         
         return schema;
     }
@@ -59,8 +74,14 @@ public class FindRelationshipsTool extends BaseCodeExplorationTool {
             content.append("Relationships for '").append(elementId).append("':\n\n");
             
             if (relationType != null) {
-                // Find specific relationship type
-                StructuralIndex.RelationType type = StructuralIndex.RelationType.valueOf(relationType);
+                // Validate relation type
+                StructuralIndex.RelationType type;
+                try {
+                    type = StructuralIndex.RelationType.valueOf(relationType);
+                } catch (IllegalArgumentException e) {
+                    return ToolResult.error("Invalid relationType: " + relationType + 
+                        ". Valid values: CALLS, CALLED_BY, EXTENDS, EXTENDED_BY, IMPLEMENTS, IMPLEMENTED_BY, USES, USED_BY");
+                }
                 
                 // Get all relationships and filter for the specific type
                 Map<StructuralIndex.RelationType, List<String>> allRelationships = 

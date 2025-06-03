@@ -134,6 +134,44 @@ public final class ToolCallingAutonomousAgent {
     }
     
     /**
+     * Explores code and generates a comprehensive report for use in coding tasks.
+     * 
+     * @param userQuery The exploration query
+     * @return A comprehensive report with all discovered code and relationships
+     */
+    public CodeExplorationReport exploreAndGenerateReport(String userQuery) {
+        LOG.info("Starting exploration with report generation for: " + userQuery);
+        
+        // First, perform the exploration
+        ExplorationResult explorationResult = exploreWithTools(userQuery);
+        
+        // Generate comprehensive report
+        CodeExplorationReportGenerator reportGenerator = new CodeExplorationReportGenerator(project);
+        CodeExplorationReport report = reportGenerator.generateReport(userQuery, explorationResult);
+        
+        LOG.info("Generated report summary: " + report.getSummary());
+        
+        return report;
+    }
+    
+    /**
+     * Explores code asynchronously and generates a comprehensive report.
+     * 
+     * @param userQuery The exploration query
+     * @param callback Progress callback
+     * @return Future containing the comprehensive report
+     */
+    public CompletableFuture<CodeExplorationReport> exploreAndGenerateReportAsync(
+            String userQuery, ProgressCallback callback) {
+        
+        return exploreWithToolsAsync(userQuery, callback)
+            .thenApply(explorationResult -> {
+                CodeExplorationReportGenerator reportGenerator = new CodeExplorationReportGenerator(project);
+                return reportGenerator.generateReport(userQuery, explorationResult);
+            });
+    }
+    
+    /**
      * Starts an autonomous exploration session with progress tracking.
      * This method handles IntelliJ's progress API properly.
      */

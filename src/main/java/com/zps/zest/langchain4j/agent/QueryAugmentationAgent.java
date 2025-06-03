@@ -99,17 +99,7 @@ public final class QueryAugmentationAgent {
             // 1. Analyze query and determine if we need clarification
             QueryAnalysis analysis = analyzeQuery(userQuery);
 
-            // 2. If query is ambiguous, use LLM to generate better questions
-            if (isAmbiguous(analysis)) {
-                String clarifiedQuestions = generateSmartQuestions(userQuery, analysis);
-                if (!clarifiedQuestions.isEmpty()) {
-                    augmented.append("### Agent Analysis ###\n");
-                    augmented.append(clarifiedQuestions);
-                    augmented.append("\n\n");
-                }
-            }
-
-            // 3. Get current IDE context
+            // 2. Get current IDE context (synchronous, wrapped in ReadAction)
             String ideContext = ReadAction.compute(this::getCurrentContext);
             if (!ideContext.isEmpty()) {
                 augmented.append("### Current IDE Context ###\n")
@@ -117,13 +107,26 @@ public final class QueryAugmentationAgent {
                         .append("\n\n");
             }
 
-            // 4. Find relevant code based on analysis
+            // 3. Find relevant code based on analysis (this includes embedding search)
+            // IMPORTANT: We wait for this to complete before any LLM calls
             String codeContext = findRelevantCode(userQuery, analysis);
             if (!codeContext.isEmpty()) {
                 augmented.append(codeContext);
             }
 
-            // 5. If enabled, perform autonomous exploration
+            // 4. Now that all embedding/search operations are complete, we can safely call LLM
+            // This ensures no thread context switching issues with embeddings
+            
+            // If query is ambiguous, use LLM to generate better questions
+            if (isAmbiguous(analysis)) {
+                String clarifiedQuestions = generateSmartQuestions(userQuery, analysis);
+                if (!clarifiedQuestions.isEmpty()) {
+                    // Prepend to the beginning of augmented context
+                    augmented.insert(0, "### Agent Analysis ###\n" + clarifiedQuestions + "\n\n");
+                }
+            }
+
+            // 5. If enabled, perform autonomous exploration (LLM call)
             if (shouldPerformAutonomousExploration(analysis)) {
                 String exploration = performQuickExploration(userQuery, codeContext);
                 if (!exploration.isEmpty()) {
@@ -133,7 +136,7 @@ public final class QueryAugmentationAgent {
                 }
             }
 
-            // 6. Add exploration suggestions
+            // 6. Add exploration suggestions (no LLM, just rules)
             List<String> explorationSuggestions = generateExplorationSuggestions(analysis);
             if (!explorationSuggestions.isEmpty()) {
                 augmented.append("\n### Exploration Suggestions ###\n");
@@ -143,7 +146,7 @@ public final class QueryAugmentationAgent {
                 }
             }
 
-            // 7. Add pattern-specific guidance
+            // 7. Add pattern-specific guidance (no LLM, just rules)
             String guidance = generateGuidance(analysis);
             if (!guidance.isEmpty()) {
                 augmented.append("\n### Pattern-Specific Guidance ###\n")
@@ -199,7 +202,7 @@ public final class QueryAugmentationAgent {
             CodeContext context = new CodeContext();
             context.setProject(project);
             context.setConfig(ConfigurationManager.getInstance(project));
-
+            context.setPrompt(prompt);  // This was missing!
 
             LlmApiCallStage llmStage = new LlmApiCallStage();
             llmStage.process(context);
@@ -251,7 +254,6 @@ public final class QueryAugmentationAgent {
             CodeContext context = new CodeContext();
             context.setProject(project);
             context.setConfig(ConfigurationManager.getInstance(project));
-
             context.setPrompt(prompt);
 
             LlmApiCallStage llmStage = new LlmApiCallStage();

@@ -120,9 +120,11 @@ public final class AutonomousCodeExplorationAgent {
      */
     private String performInitialAnalysis(String query, ExplorationSession session) {
         try {
-            // Get augmented context for the initial query
+            // IMPORTANT: First get augmented context (includes embedding search)
+            // This must complete before any LLM calls
             String augmentedContext = augmentationAgent.augmentQuery(query);
 
+            // Now that embedding search is complete, we can safely call LLM
             // Create prompt for initial analysis
             String analysisPrompt = buildInitialAnalysisPrompt(query, augmentedContext);
 
@@ -159,15 +161,18 @@ public final class AutonomousCodeExplorationAgent {
         ExplorationResult result = new ExplorationResult();
 
         try {
-            // Get augmented context for this question
+            // IMPORTANT: First get augmented context (includes embedding search)
+            // This must complete before any LLM calls
             String augmentedContext = augmentationAgent.augmentQuery(question);
 
+            // Now that embedding search is complete, we can safely call LLM
             // Build exploration prompt
             String explorationPrompt = buildExplorationPrompt(question, augmentedContext, session);
 
             // Call LLM
             CodeContext context = new CodeContext();
             context.setProject(project);
+            context.setConfig(ConfigurationManager.getInstance(project));
             context.setPrompt(explorationPrompt);
             llmService.process(context);
 

@@ -73,6 +73,10 @@
         <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>
         <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>
         
+        <!-- Register LangChain4j services -->
+        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>
+        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent"/>
+        
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
 
@@ -267,12 +271,20 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQueryAugmentation"/>
         </action>
         
+        <!-- Test Tool-Calling Agent -->
+        <action id="Zest.TestToolCallingAgent"
+                class="com.zps.zest.langchain4j.TestToolCallingAgentAction"
+                text="Test Tool-Calling Agent"
+                description="Test the tool-calling autonomous code exploration agent">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>
+        </action>
+        
         <!-- Test Streaming LLM -->
         <action id="Zest.TestStreamingLLM"
                 class="com.zps.zest.langchain4j.TestStreamingLLMAction"
                 text="Test Streaming LLM"
                 description="Test the streaming LLM service">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestToolCallingAgent"/>
         </action>
 
         <!-- DEVELOPER TOOLS -->

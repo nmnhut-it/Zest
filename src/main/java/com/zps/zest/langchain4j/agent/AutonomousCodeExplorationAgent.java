@@ -3,6 +3,12 @@ package com.zps.zest.langchain4j.agent;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.util.Computable;
+import com.intellij.psi.*;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
+import com.zps.zest.ClassAnalyzer;
 import com.zps.zest.langchain4j.util.LLMService;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
@@ -252,6 +258,9 @@ public final class AutonomousCodeExplorationAgent {
      */
     private String generateExplorationSummary(ExplorationSession session) {
         try {
+            // First, collect the most relevant code pieces discovered during exploration
+            String relevantCodePieces = collectRelevantCodePieces(session);
+            
             String summaryPrompt = String.format("""
                             Summarize this autonomous code exploration session:
                             
@@ -265,18 +274,25 @@ public final class AutonomousCodeExplorationAgent {
                             Key Knowledge Discovered:
                             %s
                             
+                            Relevant Code Pieces Found:
+                            %s
+                            
                             Please provide:
-                            1. A concise summary of what was learned
-                            2. Key architectural insights
-                            3. Important patterns or conventions discovered
-                            4. Recommendations for further exploration
-                            5. Any potential issues or concerns identified
+                            1. Executive summary of the exploration findings
+                            2. Most important code pieces developers should examine (include full method/class names)
+                            3. Key architectural patterns and design decisions discovered
+                            4. Critical implementation details and dependencies
+                            5. Suggested next steps for deeper understanding
+                            
+                            Focus on providing actionable insights and specific code references that developers can immediately use.
+                            Do NOT include code review comments or quality assessments.
                             """,
                     session.getInitialQuery(),
                     String.join(", ", session.getTopics()),
                     session.getTotalQuestions(),
                     session.getAnsweredQuestions(),
-                    session.getKnowledgeSummary()
+                    session.getKnowledgeSummary(),
+                    relevantCodePieces
             );
 
             String response = llmService.query(summaryPrompt);
@@ -286,6 +302,185 @@ public final class AutonomousCodeExplorationAgent {
             LOG.error("Error generating summary", e);
             return "Failed to generate summary: " + e.getMessage();
         }
+    }
+
+    /**
+     * Collects the most relevant code pieces discovered during exploration using PSI.
+     */
+    private String collectRelevantCodePieces(ExplorationSession session) {
+        StringBuilder codePieces = new StringBuilder();
+        
+        try {
+            // Extract method and class references from the knowledge base
+            Set<String> relevantElements = new HashSet<>();
+            
+            // Extract from knowledge
+            for (Map.Entry<String, String> entry : session.knowledge.entrySet()) {
+                relevantElements.addAll(extractCodeReferences(entry.getValue()));
+            }
+            
+            // Also extract from topics
+            for (String topic : session.getTopics()) {
+                relevantElements.addAll(extractCodeReferences(topic));
+            }
+            
+            // Add code references tracked by session
+            relevantElements.addAll(session.getCodeReferences());
+            
+            // Use PSI to get full code for each element
+            int count = 0;
+            for (String element : relevantElements) {
+                if (count >= 5) break; // Limit to 5 most relevant pieces
+                
+                String fullCode = getFullCodeForElement(element);
+                if (fullCode != null && !fullCode.isEmpty()) {
+                    codePieces.append("\n\n### ").append(element).append("\n");
+                    codePieces.append("```java\n").append(fullCode).append("\n```");
+                    count++;
+                }
+            }
+            
+            if (codePieces.length() == 0) {
+                codePieces.append("No specific code pieces were found. The exploration focused on understanding the following elements:\n");
+                for (String element : relevantElements) {
+                    codePieces.append("- ").append(element).append("\n");
+                    if (--count <= 0) break;
+                }
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error collecting code pieces", e);
+            codePieces.append("Error retrieving code pieces: ").append(e.getMessage());
+        }
+        
+        return codePieces.toString();
+    }
+
+    /**
+     * Gets the full code for a given element reference using PSI.
+     */
+    private String getFullCodeForElement(String elementRef) {
+        return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+            try {
+                // Handle different reference formats
+                // Format 1: ClassName#methodName
+                // Format 2: com.package.ClassName
+                // Format 3: ClassName.methodName
+                
+                String className = null;
+                String methodName = null;
+                
+                if (elementRef.contains("#")) {
+                    String[] parts = elementRef.split("#");
+                    className = parts[0];
+                    if (parts.length > 1) {
+                        methodName = parts[1].replaceAll("\\(.*\\)", ""); // Remove parameters
+                    }
+                } else if (elementRef.contains("(")) {
+                    // Method with parameters
+                    int parenIndex = elementRef.indexOf("(");
+                    String beforeParen = elementRef.substring(0, parenIndex);
+                    int lastDot = beforeParen.lastIndexOf(".");
+                    if (lastDot > 0) {
+                        className = beforeParen.substring(0, lastDot);
+                        methodName = beforeParen.substring(lastDot + 1);
+                    }
+                } else if (elementRef.matches(".*\\.[a-z][a-zA-Z0-9_]*$")) {
+                    // Likely a method reference (lowercase after last dot)
+                    int lastDot = elementRef.lastIndexOf(".");
+                    className = elementRef.substring(0, lastDot);
+                    methodName = elementRef.substring(lastDot + 1);
+                } else {
+                    // Assume it's a class name
+                    className = elementRef;
+                }
+                
+                // Find the class
+                PsiClass psiClass = findClassByName(className);
+                if (psiClass == null) {
+                    return null;
+                }
+                
+                // If method name specified, find and return the method
+                if (methodName != null) {
+                    for (PsiMethod method : psiClass.getMethods()) {
+                        if (method.getName().equals(methodName)) {
+                            return ClassAnalyzer.getTextOfPsiElement(method);
+                        }
+                    }
+                }
+                
+                // Return class structure if no method specified or method not found
+                StringBuilder classStructure = new StringBuilder();
+                ClassAnalyzer.appendClassStructure(classStructure, psiClass);
+                return classStructure.toString();
+                
+            } catch (Exception e) {
+                LOG.warn("Failed to get code for element: " + elementRef, e);
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Finds a class by name (simple or qualified).
+     */
+    private PsiClass findClassByName(String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        
+        // Try as qualified name first
+        JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+        PsiClass psiClass = facade.findClass(name, GlobalSearchScope.projectScope(project));
+        
+        if (psiClass == null && !name.contains(".")) {
+            // Try as simple name
+            PsiShortNamesCache cache = PsiShortNamesCache.getInstance(project);
+            PsiClass[] classes = cache.getClassesByName(name, GlobalSearchScope.projectScope(project));
+            if (classes.length > 0) {
+                psiClass = classes[0]; // Take the first match
+            }
+        }
+        
+        return psiClass;
+    }
+
+    /**
+     * Extracts code references (class names, method names) from text.
+     */
+    private Set<String> extractCodeReferences(String text) {
+        Set<String> references = new HashSet<>();
+        
+        // Pattern to match Java class/method references
+        // Matches patterns like: ClassName#methodName, package.ClassName, ClassName.methodName
+        Pattern classMethodPattern = Pattern.compile(
+            "\\b([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:#|\\.))[a-zA-Z_][a-zA-Z0-9_]*\\b|" +
+            "\\b[A-Z][a-zA-Z0-9_]*(?:\\.[A-Z][a-zA-Z0-9_]*)*\\b"
+        );
+        
+        Matcher matcher = classMethodPattern.matcher(text);
+        while (matcher.find()) {
+            String ref = matcher.group();
+            // Filter out common words that might match pattern but aren't code
+            if (!isCommonWord(ref) && (ref.contains(".") || ref.contains("#"))) {
+                references.add(ref);
+            }
+        }
+        
+        return references;
+    }
+
+    /**
+     * Checks if a string is a common word that shouldn't be treated as a code reference.
+     */
+    private boolean isCommonWord(String word) {
+        Set<String> commonWords = Set.of(
+            "Question", "Answer", "From", "The", "This", "That",
+            "What", "How", "Why", "Where", "When", "Should", "Could",
+            "Would", "Can", "Is", "Are", "Do", "Does"
+        );
+        return commonWords.contains(word);
     }
 
     /**
@@ -366,6 +561,7 @@ public final class AutonomousCodeExplorationAgent {
         private final Set<String> askedQuestions = new HashSet<>();
         private final Map<String, String> knowledge = new HashMap<>();
         private final List<String> topics = new ArrayList<>();
+        private final Set<String> codeReferences = new HashSet<>();
 
         public ExplorationSession(String initialQuery) {
             this.initialQuery = initialQuery;
@@ -396,6 +592,23 @@ public final class AutonomousCodeExplorationAgent {
 
         public void addKnowledge(String question, String answer) {
             knowledge.put(question, answer);
+            // Extract code references from the answer
+            extractAndAddCodeReferences(answer);
+        }
+
+        private void extractAndAddCodeReferences(String text) {
+            // Pattern to match code references like ClassName#methodName, com.package.ClassName
+            Pattern pattern = Pattern.compile(
+                "\\b([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:#|\\.)[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?)\\b"
+            );
+            Matcher matcher = pattern.matcher(text);
+            while (matcher.find()) {
+                codeReferences.add(matcher.group(1));
+            }
+        }
+
+        public Set<String> getCodeReferences() {
+            return new HashSet<>(codeReferences);
         }
 
         public String getRelevantKnowledge(String question) {

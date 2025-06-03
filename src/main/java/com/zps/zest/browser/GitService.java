@@ -21,6 +21,7 @@ import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.CodeContext;
 import com.zps.zest.browser.utils.GitCommandExecutor;
 import org.jetbrains.annotations.NotNull;
+import com.intellij.util.ui.UIUtil;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -134,6 +135,9 @@ public class GitService {
                         // Show success message and notify UI
                         showStatusMessage(project, "Commit completed successfully!");
                         notifyUI(project, "GitUI.showCommitSuccess()");
+                        
+                        // Refresh the git file list in the browser after a short delay
+                        refreshGitFileListDelayed();
                     } catch (Exception e) {
                         LOG.error("Error during commit operation", e);
                         
@@ -221,6 +225,9 @@ public class GitService {
                     // Show success message and notify UI
                     showStatusMessage(project, "Push completed successfully!");
                     notifyUI(project, "GitUI.showPushSuccess()");
+                    
+                    // Refresh the git file list in the browser after a short delay
+                    refreshGitFileListDelayed();
                 } catch (Exception e) {
                     LOG.error("Error during push operation", e);
                     
@@ -647,6 +654,161 @@ public class GitService {
         response.addProperty("success", false);
         response.addProperty("error", errorMessage);
         return gson.toJson(response);
+    }
+    
+    /**
+     * Refreshes the git file list in the browser UI after a delay to ensure git operations are complete
+     */
+    private void refreshGitFileListDelayed() {
+        // Use a timer to delay the refresh to ensure git operations are fully completed
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                refreshGitFileList();
+            }
+        }, 1000); // 1 second delay
+    }
+    
+    /**
+     * Refreshes the git file list in the browser UI
+     */
+    private void refreshGitFileList() {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            try {
+                String projectPath = project.getBasePath();
+                if (projectPath == null) {
+                    LOG.warn("Project path not found for git refresh");
+                    return;
+                }
+                
+                // Get the updated list of changed files using the same format as the original
+                // This ensures compatibility with existing GitUtils.parseChangedFiles
+                String changedFiles = "";
+                String stagedFiles = "";
+                String untrackedFiles = "";
+                
+                try {
+                    changedFiles = executeGitCommand(projectPath, "git diff --name-status");
+                } catch (Exception e) {
+                    LOG.warn("Error getting unstaged changes: " + e.getMessage());
+                }
+                
+                try {
+                    stagedFiles = executeGitCommand(projectPath, "git diff --cached --name-status");
+                } catch (Exception e) {
+                    LOG.warn("Error getting staged changes: " + e.getMessage());
+                }
+                
+                try {
+                    untrackedFiles = executeGitCommand(projectPath, "git ls-files --others --exclude-standard");
+                } catch (Exception e) {
+                    LOG.warn("Error getting untracked files: " + e.getMessage());
+                }
+                
+                // Combine all changes in the same format expected by GitUtils.parseChangedFiles
+                StringBuilder allChanges = new StringBuilder();
+                
+                // Add staged files first (they take precedence)
+                if (!stagedFiles.trim().isEmpty()) {
+                    allChanges.append(stagedFiles);
+                    if (!allChanges.toString().endsWith("\n")) {
+                        allChanges.append("\n");
+                    }
+                }
+                
+                // Add unstaged files
+                if (!changedFiles.trim().isEmpty()) {
+                    // Filter out files that are already in staged
+                    String[] changedLines = changedFiles.split("\n");
+                    for (String line : changedLines) {
+                        if (!line.trim().isEmpty() && !stagedFiles.contains(line.substring(2))) {
+                            allChanges.append(line).append("\n");
+                        }
+                    }
+                }
+                
+                // Add untracked files with 'A' status (using tab separator as expected)
+                if (!untrackedFiles.trim().isEmpty()) {
+                    String[] untracked = untrackedFiles.split("\n");
+                    for (String file : untracked) {
+                        if (!file.trim().isEmpty()) {
+                            allChanges.append("A\t").append(file).append("\n");
+                        }
+                    }
+                }
+                
+                String updatedFileList = allChanges.toString();
+                
+                // Log in the same format for debugging
+                LOG.info("Refreshed git file list:");
+                if (updatedFileList.trim().isEmpty()) {
+                    LOG.info("  No files found");
+                } else {
+                    String[] lines = updatedFileList.split("\n");
+                    LOG.info("  Total lines: " + lines.length);
+                    for (int i = 0; i < Math.min(5, lines.length); i++) {
+                        LOG.info("  Line " + i + ": " + lines[i]);
+                    }
+                    if (lines.length > 5) {
+                        LOG.info("  ... and " + (lines.length - 5) + " more lines");
+                    }
+                }
+                
+                // Build JavaScript to refresh the UI
+                String jsCommand;
+                if (updatedFileList.trim().isEmpty()) {
+                    // No more files - hide the modal
+                    jsCommand = "if (window.GitModal && window.GitModal.hideModal) { " +
+                               "  window.GitModal.hideModal(); " +
+                               "} else if (document.getElementById('git-file-selection-modal')) { " +
+                               "  document.getElementById('git-file-selection-modal').remove(); " +
+                               "}";
+                    LOG.info("No more files to commit - closing modal");
+                } else {
+                    // Update the file list - ensure we escape the string properly
+                    boolean isDark = isDarkTheme();
+                    
+                    // Make sure the file list string is properly escaped for JavaScript
+                    String escapedFileList = escapeJsString(updatedFileList);
+                    
+                    jsCommand = String.format(
+                        "(function() { " +
+                        "  console.log('Refreshing git file list...'); " +
+                        "  var fileList = '%s'; " +
+                        "  console.log('File list to refresh:', fileList); " +
+                        "  if (window.GitModal && window.GitModal.populateFileList) { " +
+                        "    window.GitModal.populateFileList(fileList, %s); " +
+                        "  } else if (window.GitModal && window.GitModal.showFileSelectionModal) { " +
+                        "    console.log('populateFileList not found, refreshing entire modal'); " +
+                        "    window.GitModal.showFileSelectionModal(fileList); " +
+                        "  } else { " +
+                        "    console.error('GitModal not found or does not have required methods'); " +
+                        "  } " +
+                        "})();",
+                        escapedFileList,
+                        isDark ? "true" : "false"
+                    );
+                }
+                
+                WebBrowserService.getInstance(project).executeJavaScript(jsCommand);
+                LOG.info("Sent refresh command to browser UI");
+                
+            } catch (Exception e) {
+                LOG.error("Error refreshing git file list in browser", e);
+            }
+        });
+    }
+    
+    /**
+     * Check if IDE is in dark theme
+     */
+    private boolean isDarkTheme() {
+        try {
+            return com.intellij.util.ui.UIUtil.isUnderDarcula();
+        } catch (Exception e) {
+            LOG.warn("Error checking theme, defaulting to light", e);
+            return false;
+        }
     }
     
     /**

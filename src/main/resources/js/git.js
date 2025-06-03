@@ -687,12 +687,14 @@ const GitModal = {
      */
     getAuthTokenFromCookie: function() {
         // OpenWebUI typically stores the token in a cookie named 'token' or similar
+        if (document.cookie){
         const cookies = document.cookie.split(';');
         for (const cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
             if (name === 'token' || name === 'auth-token' || name === 'authorization') {
                 return decodeURIComponent(value);
             }
+        }
         }
 
         // Also check localStorage as some implementations use it
@@ -913,5 +915,19 @@ const GitStatus = {
 // Global API exposure
 window.showFileSelectionModal = GitModal.showFileSelectionModal.bind(GitModal);
 window.showStatusMessage = GitStatus.showMessage.bind(GitStatus);
+// 2. At the very end of your file, ADD these lines to ensure global accessibility:
+// Make sure GitModal methods are accessible globally
+window.GitModal = GitModal;
 
+// Explicitly expose methods for the Java bridge
+window.GitModal.populateFileList = GitModal.populateFileList.bind(GitModal);
+window.GitModal.hideModal = GitModal.hideModal.bind(GitModal);
+
+// 3. Optional: Add a method to check if the modal is currently open
+GitModal.isOpen = function() {
+    const modal = document.getElementById('git-file-selection-modal');
+    return modal && modal.style.display !== 'none';
+};
+
+window.GitModal.isOpen = GitModal.isOpen.bind(GitModal);
 console.log('Git integration module loaded successfully');

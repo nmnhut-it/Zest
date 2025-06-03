@@ -85,6 +85,7 @@
         <!-- Register LangChain4j services -->
         <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>
         <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent"/>
+        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent"/>
         <projectService serviceImplementation="com.zps.zest.langchain4j.agent.CodingTaskAgent"/>
         
         <!-- Register the diff highlighter -->
@@ -289,12 +290,20 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>
         </action>
         
+        <!-- Test Improved Tool-Calling Agent -->
+        <action id="Zest.TestImprovedToolCallingAgent"
+                class="com.zps.zest.langchain4j.TestImprovedToolCallingAgentAction"
+                text="Test Improved Tool-Calling Agent"
+                description="Test the improved tool-calling autonomous code exploration agent with proper feedback loop">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestToolCallingAgent"/>
+        </action>
+        
         <!-- Code Explorer & Assistant -->
         <action id="Zest.OpenCodeExploration"
                 class="com.zps.zest.langchain4j.OpenCodeExplorationAction"
                 text="Code Explorer and Assistant"
                 description="Open the AI-powered code exploration and coding assistant">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestToolCallingAgent"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift E"/>
         </action>
         

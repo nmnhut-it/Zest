@@ -23,7 +23,7 @@ import com.intellij.util.ui.UIUtil;
 import com.zps.zest.langchain4j.agent.CodeExplorationReport;
 import com.zps.zest.langchain4j.agent.CodeExplorationReportGenerator;
 import com.zps.zest.langchain4j.agent.CodingTaskAgent;
-import com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent;
+import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -219,11 +219,11 @@ public class CodeExplorationAndCodingPanel extends JPanel {
         tabs.select(tabs.getTabAt(0), true);
         
         // Start exploration
-        ToolCallingAutonomousAgent agent = project.getService(ToolCallingAutonomousAgent.class);
+        ImprovedToolCallingAutonomousAgent agent = project.getService(ImprovedToolCallingAutonomousAgent.class);
         
-        currentExploration = agent.exploreWithToolsAsync(query, new ToolCallingAutonomousAgent.ProgressCallback() {
+        currentExploration = agent.exploreWithToolsAsync(query, new ImprovedToolCallingAutonomousAgent.ProgressCallback() {
             @Override
-            public void onToolExecution(ToolCallingAutonomousAgent.ToolExecution execution) {
+            public void onToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
                 SwingUtilities.invokeLater(() -> {
                     progressPanel.addToolExecution(execution);
                     statusLabel.setText("Executing: " + execution.getToolName());
@@ -231,14 +231,14 @@ public class CodeExplorationAndCodingPanel extends JPanel {
             }
             
             @Override
-            public void onRoundComplete(ToolCallingAutonomousAgent.ExplorationRound round) {
+            public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
                 SwingUtilities.invokeLater(() -> {
                     progressPanel.completeRound(round.getName());
                 });
             }
             
             @Override
-            public void onExplorationComplete(ToolCallingAutonomousAgent.ExplorationResult result) {
+            public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
                 // Will be handled in the future completion
             }
         }).thenAccept(result -> {
@@ -387,7 +387,7 @@ public class CodeExplorationAndCodingPanel extends JPanel {
             detailsArea.setText("");
         }
         
-        public void addToolExecution(ToolCallingAutonomousAgent.ToolExecution execution) {
+        public void addToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
             model.addElement(new ToolExecutionItem(execution, new Date()));
             
             // Auto-scroll to latest
@@ -663,10 +663,10 @@ public class CodeExplorationAndCodingPanel extends JPanel {
     // Helper classes
     
     private static class ToolExecutionItem {
-        final ToolCallingAutonomousAgent.ToolExecution execution;
+        final ImprovedToolCallingAutonomousAgent.ToolExecution execution;
         final Date timestamp;
         
-        ToolExecutionItem(ToolCallingAutonomousAgent.ToolExecution execution, Date timestamp) {
+        ToolExecutionItem(ImprovedToolCallingAutonomousAgent.ToolExecution execution, Date timestamp) {
             this.execution = execution;
             this.timestamp = timestamp;
         }

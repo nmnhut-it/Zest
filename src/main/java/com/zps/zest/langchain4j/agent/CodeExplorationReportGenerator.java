@@ -29,10 +29,31 @@ public class CodeExplorationReportGenerator {
     
     /**
      * Generates a comprehensive report from exploration results.
+     * Works with both original and improved ToolCallingAutonomousAgent.
      */
     public CodeExplorationReport generateReport(
             String originalQuery,
             ToolCallingAutonomousAgent.ExplorationResult explorationResult) {
+        return generateReportInternal(originalQuery, 
+            new OriginalExplorationResultAdapter(explorationResult));
+    }
+    
+    /**
+     * Generates a comprehensive report from improved agent exploration results.
+     */
+    public CodeExplorationReport generateReport(
+            String originalQuery,
+            ImprovedToolCallingAutonomousAgent.ExplorationResult explorationResult) {
+        return generateReportInternal(originalQuery, 
+            new ImprovedExplorationResultAdapter(explorationResult));
+    }
+    
+    /**
+     * Internal method that works with the adapter interface.
+     */
+    private CodeExplorationReport generateReportInternal(
+            String originalQuery,
+            ExplorationResultAdapter explorationResult) {
         
         CodeExplorationReport report = new CodeExplorationReport();
         report.setOriginalQuery(originalQuery);
@@ -67,11 +88,11 @@ public class CodeExplorationReportGenerator {
     /**
      * Extracts all discovered code elements from exploration results.
      */
-    private Set<String> extractDiscoveredElements(ToolCallingAutonomousAgent.ExplorationResult result) {
+    private Set<String> extractDiscoveredElements(ExplorationResultAdapter result) {
         Set<String> elements = new HashSet<>();
         
-        for (ToolCallingAutonomousAgent.ExplorationRound round : result.getRounds()) {
-            for (ToolCallingAutonomousAgent.ToolExecution execution : round.getToolExecutions()) {
+        for (ExplorationRoundAdapter round : result.getRounds()) {
+            for (ToolExecutionAdapter execution : round.getToolExecutions()) {
                 if (execution.isSuccess() && execution.getResult() != null) {
                     // Extract class names, method signatures, etc.
                     elements.addAll(extractElementsFromText(execution.getResult()));
@@ -85,11 +106,11 @@ public class CodeExplorationReportGenerator {
     /**
      * Collects all code pieces discovered during exploration.
      */
-    private List<CodeExplorationReport.CodePiece> collectCodePieces(ToolCallingAutonomousAgent.ExplorationResult result) {
+    private List<CodeExplorationReport.CodePiece> collectCodePieces(ExplorationResultAdapter result) {
         Map<String, CodeExplorationReport.CodePiece> codePieceMap = new HashMap<>();
         
-        for (ToolCallingAutonomousAgent.ExplorationRound round : result.getRounds()) {
-            for (ToolCallingAutonomousAgent.ToolExecution execution : round.getToolExecutions()) {
+        for (ExplorationRoundAdapter round : result.getRounds()) {
+            for (ToolExecutionAdapter execution : round.getToolExecutions()) {
                 if (!execution.isSuccess()) continue;
                 
                 String toolName = execution.getToolName();
@@ -120,7 +141,7 @@ public class CodeExplorationReportGenerator {
     /**
      * Extracts file content from read_file tool execution.
      */
-    private void extractFileContent(ToolCallingAutonomousAgent.ToolExecution execution, 
+    private void extractFileContent(ToolExecutionAdapter execution, 
                                   Map<String, CodeExplorationReport.CodePiece> codePieceMap) {
         JsonObject params = execution.getParameters();
         String filePath = params.has("filePath") ? params.get("filePath").getAsString() : null;
@@ -143,7 +164,7 @@ public class CodeExplorationReportGenerator {
     /**
      * Extracts method signatures from find_methods tool execution.
      */
-    private void extractMethodSignatures(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void extractMethodSignatures(ToolExecutionAdapter execution,
                                        Map<String, CodeExplorationReport.CodePiece> codePieceMap) {
         String result = execution.getResult();
         String className = extractClassNameFromResult(result);
@@ -170,7 +191,7 @@ public class CodeExplorationReportGenerator {
     /**
      * Extracts code from search results.
      */
-    private void extractSearchResults(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void extractSearchResults(ToolExecutionAdapter execution,
                                     Map<String, CodeExplorationReport.CodePiece> codePieceMap) {
         String result = execution.getResult();
         
@@ -201,7 +222,7 @@ public class CodeExplorationReportGenerator {
     /**
      * Extracts class information.
      */
-    private void extractClassInfo(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void extractClassInfo(ToolExecutionAdapter execution,
                                 Map<String, CodeExplorationReport.CodePiece> codePieceMap) {
         JsonObject params = execution.getParameters();
         String className = params.has("className") ? params.get("className").getAsString() : null;
@@ -222,11 +243,11 @@ public class CodeExplorationReportGenerator {
      * Extracts relationships between code elements.
      */
     private Map<String, List<String>> extractRelationships(
-            ToolCallingAutonomousAgent.ExplorationResult result) {
+            ExplorationResultAdapter result) {
         Map<String, List<String>> relationships = new HashMap<>();
         
-        for (ToolCallingAutonomousAgent.ExplorationRound round : result.getRounds()) {
-            for (ToolCallingAutonomousAgent.ToolExecution execution : round.getToolExecutions()) {
+        for (ExplorationRoundAdapter round : result.getRounds()) {
+            for (ToolExecutionAdapter execution : round.getToolExecutions()) {
                 if (execution.getToolName().equals("find_relationships") && execution.isSuccess()) {
                     parseRelationships(execution, relationships);
                 } else if (execution.getToolName().equals("find_callers") && execution.isSuccess()) {
@@ -517,7 +538,7 @@ public class CodeExplorationReportGenerator {
         return null;
     }
     
-    private void parseRelationships(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void parseRelationships(ToolExecutionAdapter execution,
                                   Map<String, List<String>> relationships) {
         JsonObject params = execution.getParameters();
         String elementId = params.has("elementId") ? params.get("elementId").getAsString() : null;
@@ -535,7 +556,7 @@ public class CodeExplorationReportGenerator {
         }
     }
     
-    private void parseCallers(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void parseCallers(ToolExecutionAdapter execution,
                             Map<String, List<String>> relationships) {
         JsonObject params = execution.getParameters();
         String methodId = params.has("methodId") ? params.get("methodId").getAsString() : null;
@@ -554,7 +575,7 @@ public class CodeExplorationReportGenerator {
         }
     }
     
-    private void parseImplementations(ToolCallingAutonomousAgent.ToolExecution execution,
+    private void parseImplementations(ToolExecutionAdapter execution,
                                     Map<String, List<String>> relationships) {
         JsonObject params = execution.getParameters();
         String elementId = params.has("elementId") ? params.get("elementId").getAsString() : null;
@@ -571,5 +592,140 @@ public class CodeExplorationReportGenerator {
                 }
             }
         }
+    }
+    
+    // Adapter interfaces and implementations to work with both agent types
+    
+    private interface ExplorationResultAdapter {
+        List<ExplorationRoundAdapter> getRounds();
+        String getSummary();
+    }
+    
+    private interface ExplorationRoundAdapter {
+        String getName();
+        List<ToolExecutionAdapter> getToolExecutions();
+    }
+    
+    private interface ToolExecutionAdapter {
+        String getToolName();
+        JsonObject getParameters();
+        String getResult();
+        boolean isSuccess();
+    }
+    
+    // Adapter for original ToolCallingAutonomousAgent
+    private static class OriginalExplorationResultAdapter implements ExplorationResultAdapter {
+        private final ToolCallingAutonomousAgent.ExplorationResult result;
+        
+        OriginalExplorationResultAdapter(ToolCallingAutonomousAgent.ExplorationResult result) {
+            this.result = result;
+        }
+        
+        @Override
+        public List<ExplorationRoundAdapter> getRounds() {
+            return result.getRounds().stream()
+                .map(RoundAdapter::new)
+                .collect(Collectors.toList());
+        }
+        
+        @Override
+        public String getSummary() {
+            return result.getSummary();
+        }
+    }
+    
+    private static class RoundAdapter implements ExplorationRoundAdapter {
+        private final ToolCallingAutonomousAgent.ExplorationRound round;
+        
+        RoundAdapter(ToolCallingAutonomousAgent.ExplorationRound round) {
+            this.round = round;
+        }
+        
+        @Override
+        public String getName() {
+            return round.getName();
+        }
+        
+        @Override
+        public List<ToolExecutionAdapter> getToolExecutions() {
+            return round.getToolExecutions().stream()
+                .map(ExecutionAdapter::new)
+                .collect(Collectors.toList());
+        }
+    }
+    
+    private static class ExecutionAdapter implements ToolExecutionAdapter {
+        private final ToolCallingAutonomousAgent.ToolExecution execution;
+        
+        ExecutionAdapter(ToolCallingAutonomousAgent.ToolExecution execution) {
+            this.execution = execution;
+        }
+        
+        @Override
+        public String getToolName() { return execution.getToolName(); }
+        @Override
+        public JsonObject getParameters() { return execution.getParameters(); }
+        @Override
+        public String getResult() { return execution.getResult(); }
+        @Override
+        public boolean isSuccess() { return execution.isSuccess(); }
+    }
+    
+    // Adapter for ImprovedToolCallingAutonomousAgent
+    private static class ImprovedExplorationResultAdapter implements ExplorationResultAdapter {
+        private final ImprovedToolCallingAutonomousAgent.ExplorationResult result;
+        
+        ImprovedExplorationResultAdapter(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
+            this.result = result;
+        }
+        
+        @Override
+        public List<ExplorationRoundAdapter> getRounds() {
+            return result.getRounds().stream()
+                .map(ImprovedRoundAdapter::new)
+                .collect(Collectors.toList());
+        }
+        
+        @Override
+        public String getSummary() {
+            return result.getSummary();
+        }
+    }
+    
+    private static class ImprovedRoundAdapter implements ExplorationRoundAdapter {
+        private final ImprovedToolCallingAutonomousAgent.ExplorationRound round;
+        
+        ImprovedRoundAdapter(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
+            this.round = round;
+        }
+        
+        @Override
+        public String getName() {
+            return round.getName();
+        }
+        
+        @Override
+        public List<ToolExecutionAdapter> getToolExecutions() {
+            return round.getToolExecutions().stream()
+                .map(ImprovedExecutionAdapter::new)
+                .collect(Collectors.toList());
+        }
+    }
+    
+    private static class ImprovedExecutionAdapter implements ToolExecutionAdapter {
+        private final ImprovedToolCallingAutonomousAgent.ToolExecution execution;
+        
+        ImprovedExecutionAdapter(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
+            this.execution = execution;
+        }
+        
+        @Override
+        public String getToolName() { return execution.getToolName(); }
+        @Override
+        public JsonObject getParameters() { return execution.getParameters(); }
+        @Override
+        public String getResult() { return execution.getResult(); }
+        @Override
+        public boolean isSuccess() { return execution.isSuccess(); }
     }
 }

@@ -223,11 +223,13 @@ public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
         
         if (statement != null) {
             String text = statement.getText();
-            // Limit length and clean up
-            if (text.length() > 100) {
-                text = text.substring(0, 100) + "...";
+            if (text != null) {
+                // Limit length and clean up
+                if (text.length() > 100) {
+                    text = text.substring(0, 100) + "...";
+                }
+                return text.trim().replaceAll("\\s+", " ");
             }
-            return text.trim().replaceAll("\\s+", " ");
         }
         
         return "";

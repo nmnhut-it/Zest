@@ -31,7 +31,7 @@ public final class CodeSearchUtility {
     private final HybridIndexManager indexManager;
     private final RelatedCodeFinder relatedCodeFinder;
     private final UnifiedSearchService searchService;
-    private final SearchConfiguration config;
+    private SearchConfiguration config;  // Remove final modifier
     
     public CodeSearchUtility(Project project) {
         this.project = project;
@@ -66,7 +66,7 @@ public final class CodeSearchUtility {
             .thenApply(hybridResults -> {
                 if (hybridResults.isEmpty()) {
                     LOG.info("No results found");
-                    return Collections.emptyList();
+                    return Collections.<EnrichedSearchResult>emptyList();
                 }
                 
                 // Phase 2: Enrich with related code
@@ -77,7 +77,7 @@ public final class CodeSearchUtility {
             })
             .exceptionally(e -> {
                 LOG.error("Error during hybrid search", e);
-                return Collections.emptyList();
+                return Collections.<EnrichedSearchResult>emptyList();
             });
     }
     

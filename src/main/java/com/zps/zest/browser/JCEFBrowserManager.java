@@ -6,6 +6,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.browser.jcef.JCEFInitializer;
 import org.cef.CefApp;
 import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
@@ -25,8 +26,12 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  */
 @SuppressWarnings("removal")
 public class JCEFBrowserManager {
+    // Static initializer to ensure CEF is configured before any usage
+    static {
+        JCEFInitializer.initialize();
+    }
+    
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
-    private static boolean cefInitialized = false;
 
     private final JBCefBrowser browser;
     private final Project project;
@@ -43,8 +48,8 @@ public class JCEFBrowserManager {
     public JCEFBrowserManager(Project project) {
         this.project = project;
 
-        // Initialize CEF with persistent cache if not already done
-        initializeCefWithPersistentCache();
+        // Ensure JCEF is initialized with proper cache settings
+        JCEFInitializer.initialize();
 
         // Check if JCEF is supported
         if (!JBCefApp.isSupported()) {
@@ -52,14 +57,20 @@ public class JCEFBrowserManager {
             throw new UnsupportedOperationException("JCEF is not supported in this IDE environment");
         }
 
-        // Create browser with cookies enabled
+        // Create browser with cookies enabled and proper settings
         JBCefClient client = JBCefApp.getInstance().createClient();
         client.setProperty(JS_QUERY_POOL_SIZE, 10);
-
-        browser = new JBCefBrowserBuilder()
+        
+        // Enable cookies in browser settings
+        JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
                 .setClient(client)
-                .setOffScreenRendering(false)
-                .build();
+                .setOffScreenRendering(false);
+        
+        // Set the initial URL with cookie persistence flag
+        String initialUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        browserBuilder.setUrl(initialUrl);
+        
+        browser = browserBuilder.build();
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -82,73 +93,60 @@ public class JCEFBrowserManager {
 
         addNetworkMonitorAndRequestModifier();
 
-        // Load default URL
-        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
-        loadURL(url);
         LOG.info("JCEFBrowserManager initialized with persistent cookies enabled");
     }
 
-    /**
-     * Initialize CEF with persistent cache settings.
-     * This should only be done once per application instance.
-     */
-    private static synchronized void initializeCefWithPersistentCache() {
-        if (cefInitialized) {
-            return;
-        }
-
-        try {
-            // Create a cache directory in the user's home directory
-            File cacheDir = new File(System.getProperty("user.home"), ".intellij-zest-cache");
-            if (!cacheDir.exists()) {
-                if (!cacheDir.mkdirs()) {
-                    LOG.warn("Failed to create cache directory: " + cacheDir.getAbsolutePath());
-                }
-            }
-
-            // Get the existing JBCefApp instance or create with settings
-//            CefApp cefApp = JBCefApp.getInstance().
-
-                CefSettings settings = JBCefApp.getInstance().getCefSettings();
-                if (settings != null) {
-                    // Set cache path for persistent storage
-                    settings.cache_path = cacheDir.getAbsolutePath();
-                    settings.persist_session_cookies = true;
-
-                    // Optional: Set user agent if needed
-                    // settings.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-
-                    LOG.info("JCEF cache directory set to: " + cacheDir.getAbsolutePath());
-                }
-
-
-            cefInitialized = true;
-        } catch (Exception e) {
-            LOG.error("Failed to initialize CEF with persistent cache", e);
-        }
-    }
 
     /**
-     * Alternative method to ensure cookies persist by injecting JavaScript
-     * This can be called after page load if needed
+     * Alternative method to ensure cookies persist by setting proper cookie attributes
      */
     private void ensureCookiePersistence() {
         String script = """
-            // Ensure cookies are set with appropriate expiration
+            // Ensure cookies are set with appropriate expiration and security settings
             (function() {
-                // Override document.cookie setter to ensure cookies persist
-                const originalCookieSetter = document.__lookupSetter__('cookie');
-                if (originalCookieSetter) {
-                    document.__defineSetter__('cookie', function(val) {
-                        // If cookie doesn't have explicit expiration, add one year
-                        if (val && !val.includes('expires=') && !val.includes('max-age=')) {
-                            const oneYear = new Date();
-                            oneYear.setFullYear(oneYear.getFullYear() + 1);
-                            val += '; expires=' + oneYear.toUTCString();
+                console.log('Installing cookie persistence handler...');
+                
+                // Store original cookie setter
+                const originalCookieSetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').set;
+                const originalCookieGetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').get;
+                
+                // Override cookie setter
+                Object.defineProperty(document, 'cookie', {
+                    get: function() {
+                        return originalCookieGetter.call(this);
+                    },
+                    set: function(val) {
+                        if (val && typeof val === 'string') {
+                            // Parse the cookie string
+                            const parts = val.split(';').map(p => p.trim());
+                            const cookieName = parts[0].split('=')[0];
+                            
+                            // Check if it's an auth-related cookie
+                            const isAuthCookie = cookieName.includes('token') || 
+                                               cookieName.includes('auth') || 
+                                               cookieName.includes('session');
+                            
+                            // If no expiration is set and it's important, add one
+                            const hasExpiration = parts.some(p => 
+                                p.toLowerCase().startsWith('expires') || 
+                                p.toLowerCase().startsWith('max-age')
+                            );
+                            
+                            if (!hasExpiration && isAuthCookie) {
+                                // Add 30 days expiration for auth cookies
+                                const expires = new Date();
+                                expires.setDate(expires.getDate() + 30);
+                                val += '; expires=' + expires.toUTCString();
+                                val += '; SameSite=Lax'; // Add SameSite for security
+                                console.log('Enhanced cookie:', cookieName, 'with 30-day expiration');
+                            }
                         }
-                        return originalCookieSetter.call(document, val);
-                    });
-                }
+                        return originalCookieSetter.call(this, val);
+                    },
+                    configurable: true
+                });
+                
+                console.log('Cookie persistence handler installed successfully');
             })();
             """;
 

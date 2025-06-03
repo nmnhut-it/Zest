@@ -132,9 +132,34 @@ ExplorationResult result = agent.exploreWithTools("How does authentication work?
 ## Technical Notes
 
 - All tools are project-scoped services
-- Tool execution is thread-safe
+- Tool execution is thread-safe with proper IntelliJ threading:
+  - PSI access wrapped in read actions
+  - Index access checks for dumb mode
+  - UI updates use EDT via `SwingUtilities.invokeLater()`
+  - Long operations use `ProgressManager`
 - Results are cached during exploration
 - LLM prompts are optimized for tool generation
 - Error handling prevents exploration failure
 
-This implementation provides a solid foundation for intelligent code exploration that produces actionable insights and concrete results.
+## Threading Safety
+
+The implementation follows IntelliJ's threading rules:
+
+1. **Thread-Safe Base Classes**:
+   - `ThreadSafeCodeExplorationTool` - Handles read action wrapping
+   - `ThreadSafeIndexTool` - Ensures index readiness
+
+2. **Progress Tracking**:
+   - Async exploration with `ProgressIndicator`
+   - Cancellation support
+   - Real-time UI updates on EDT
+
+3. **Key Safety Features**:
+   - Automatic read action wrapping for PSI access
+   - Dumb mode detection before index operations
+   - Background execution for long operations
+   - Proper EDT handling for UI updates
+
+See `docs/tool-calling-agent-threading.md` for detailed threading guidelines.
+
+This implementation provides a solid foundation for intelligent code exploration that produces actionable insights and concrete results while maintaining UI responsiveness and thread safety.

@@ -4,13 +4,13 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
+import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * Tool for getting detailed information about a class or interface.
  */
-public class GetClassInfoTool extends BaseCodeExplorationTool {
+public class GetClassInfoTool extends ThreadSafeCodeExplorationTool {
     
     public GetClassInfoTool(@NotNull Project project) {
         super(project, "get_class_info", "Get detailed information about a class or interface including fields, methods summary, and hierarchy");
@@ -33,7 +33,12 @@ public class GetClassInfoTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected boolean requiresReadAction() {
+        return true; // PSI access requires read action
+    }
+    
+    @Override
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String className = getRequiredString(parameters, "className");
         
         try {

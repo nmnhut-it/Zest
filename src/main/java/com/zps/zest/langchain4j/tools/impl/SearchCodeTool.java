@@ -3,7 +3,7 @@ package com.zps.zest.langchain4j.tools.impl;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.CodeSearchUtility;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
+import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Tool for searching code using the hybrid search system.
  */
-public class SearchCodeTool extends BaseCodeExplorationTool {
+public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     
     private final CodeSearchUtility searchUtility;
     
@@ -46,7 +46,13 @@ public class SearchCodeTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected boolean requiresReadAction() {
+        // Search itself doesn't require read action, but might access indices
+        return false;
+    }
+    
+    @Override
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String query = getRequiredString(parameters, "query");
         int maxResults = getOptionalInt(parameters, "maxResults", 10);
         

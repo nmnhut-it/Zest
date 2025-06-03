@@ -6,7 +6,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.usageView.UsageInfo;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
+import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * Tool for finding usages of a code element.
  */
-public class FindUsagesTool extends BaseCodeExplorationTool {
+public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
     
     public FindUsagesTool(@NotNull Project project) {
         super(project, "find_usages", "Find all usages of a class, method, or field");
@@ -46,7 +46,12 @@ public class FindUsagesTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected boolean requiresReadAction() {
+        return true; // PSI and reference search require read action
+    }
+    
+    @Override
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String elementId = getRequiredString(parameters, "elementId");
         boolean includeTests = !parameters.has("includeTests") || parameters.get("includeTests").getAsBoolean();
         

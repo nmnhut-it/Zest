@@ -5,7 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.AllClassesSearch;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
+import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -14,7 +14,7 @@ import java.util.List;
 /**
  * Tool for finding methods in a class or interface.
  */
-public class FindMethodsTool extends BaseCodeExplorationTool {
+public class FindMethodsTool extends ThreadSafeCodeExplorationTool {
     
     public FindMethodsTool(@NotNull Project project) {
         super(project, "find_methods", "Find all methods in a class or interface");
@@ -43,7 +43,13 @@ public class FindMethodsTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected boolean requiresReadAction() {
+        // PSI access requires read action
+        return true;
+    }
+    
+    @Override
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String className = getRequiredString(parameters, "className");
         boolean includeInherited = parameters.has("includeInherited") && 
                                   parameters.get("includeInherited").getAsBoolean();

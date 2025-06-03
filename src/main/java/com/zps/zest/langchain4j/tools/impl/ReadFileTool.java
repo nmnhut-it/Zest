@@ -6,7 +6,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
+import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * Tool for reading file contents.
  */
-public class ReadFileTool extends BaseCodeExplorationTool {
+public class ReadFileTool extends ThreadSafeCodeExplorationTool {
     
     public ReadFileTool(@NotNull Project project) {
         super(project, "read_file", "Read the contents of a file");
@@ -37,7 +37,13 @@ public class ReadFileTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected boolean requiresReadAction() {
+        // Reading files and PSI access requires read action
+        return true;
+    }
+    
+    @Override
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String filePath = getRequiredString(parameters, "filePath");
         
         try {

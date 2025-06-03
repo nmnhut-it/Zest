@@ -1,8 +1,12 @@
 package com.zps.zest.langchain4j.agent;
 
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
@@ -11,7 +15,8 @@ import com.zps.zest.langchain4j.util.LLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
-
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 /**
  * Enhanced autonomous code exploration agent that uses tool calls instead of questions.
  */
@@ -38,6 +43,7 @@ public final class ToolCallingAutonomousAgent {
     
     /**
      * Starts an autonomous exploration session using tool calls.
+     * This method is thread-safe and can be called from any thread.
      */
     public ExplorationResult exploreWithTools(String userQuery) {
         LOG.info("Starting tool-based exploration for: " + userQuery);
@@ -46,7 +52,7 @@ public final class ToolCallingAutonomousAgent {
         ExplorationResult result = new ExplorationResult();
         
         try {
-            // Initial planning phase
+            // Initial planning phase - can be done in any thread
             String planningPrompt = buildPlanningPrompt(userQuery, context);
             String planningResponse = llmService.query(planningPrompt);
             
@@ -118,6 +124,146 @@ public final class ToolCallingAutonomousAgent {
             }
             
             result.setSuccess(true);
+            
+        } catch (Exception e) {
+            LOG.error("Error during tool-based exploration", e);
+            result.addError("Exploration error: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Starts an autonomous exploration session with progress tracking.
+     * This method handles IntelliJ's progress API properly.
+     */
+    public CompletableFuture<ExplorationResult> exploreWithToolsAsync(String userQuery, 
+                                                                     ProgressCallback callback) {
+        CompletableFuture<ExplorationResult> future = new CompletableFuture<>();
+        
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, 
+                "Code Exploration: " + userQuery, true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    indicator.setText("Starting exploration...");
+                    ExplorationResult result = exploreWithToolsWithProgress(userQuery, indicator, callback);
+                    future.complete(result);
+                } catch (Exception e) {
+                    LOG.error("Error in async exploration", e);
+                    ExplorationResult errorResult = new ExplorationResult();
+                    errorResult.addError("Exploration failed: " + e.getMessage());
+                    future.complete(errorResult);
+                }
+            }
+        });
+        
+        return future;
+    }
+    
+    /**
+     * Internal method that handles progress updates.
+     */
+    private ExplorationResult exploreWithToolsWithProgress(String userQuery, 
+                                                          ProgressIndicator indicator,
+                                                          ProgressCallback callback) {
+        ExplorationContext context = new ExplorationContext(userQuery);
+        ExplorationResult result = new ExplorationResult();
+        
+        try {
+            // Planning phase
+            indicator.setText("Planning exploration strategy...");
+            String planningPrompt = buildPlanningPrompt(userQuery, context);
+            String planningResponse = llmService.query(planningPrompt);
+            
+            if (planningResponse == null) {
+                result.addError("Failed to get initial planning response from LLM");
+                return result;
+            }
+            
+            result.addRound(new ExplorationRound("Planning", planningResponse, Collections.emptyList()));
+            
+            // Extract initial tool calls
+            List<ToolCallParser.ToolCall> plannedCalls = toolCallParser.parseToolCalls(planningResponse);
+            context.addPlannedTools(plannedCalls);
+            
+            // Exploration rounds
+            int round = 0;
+            while (round < MAX_ROUNDS && context.hasMoreToExplore() && !indicator.isCanceled()) {
+                round++;
+                
+                indicator.setText("Exploration round " + round + "...");
+                ExplorationRound explorationRound = new ExplorationRound("Round " + round);
+                
+                // Get next batch of tool calls
+                String explorationPrompt = buildExplorationPrompt(context);
+                String llmResponse = llmService.query(explorationPrompt);
+                
+                if (llmResponse == null) {
+                    explorationRound.setLlmResponse("Failed to get response from LLM");
+                    result.addRound(explorationRound);
+                    break;
+                }
+                
+                explorationRound.setLlmResponse(llmResponse);
+                
+                // Parse and execute tool calls
+                List<ToolCallParser.ToolCall> toolCalls = toolCallParser.parseToolCalls(llmResponse);
+                
+                for (ToolCallParser.ToolCall toolCall : toolCalls) {
+                    if (indicator.isCanceled()) {
+                        break;
+                    }
+                    
+                    if (context.getToolCallCount() >= MAX_TOOL_CALLS) {
+                        explorationRound.addToolExecution(new ToolExecution(
+                            toolCall.getToolName(),
+                            toolCall.getParameters(),
+                            "Skipped: Maximum tool calls reached",
+                            false
+                        ));
+                        break;
+                    }
+                    
+                    indicator.setText2("Executing: " + toolCall.getToolName());
+                    
+                    // Execute tool call
+                    ToolExecution execution = executeToolCall(toolCall);
+                    explorationRound.addToolExecution(execution);
+                    context.addToolExecution(execution);
+                    
+                    // Notify callback if provided
+                    if (callback != null) {
+                        ApplicationManager.getApplication().invokeLater(() -> 
+                            callback.onToolExecution(execution));
+                    }
+                    
+                    // Update progress
+                    double progress = (double) context.getToolCallCount() / MAX_TOOL_CALLS;
+                    indicator.setFraction(progress);
+                }
+                
+                result.addRound(explorationRound);
+                
+                if (toolCalls.isEmpty() || context.getToolCallCount() >= MAX_TOOL_CALLS) {
+                    break;
+                }
+            }
+            
+            // Generate summary
+            if (!indicator.isCanceled()) {
+                indicator.setText("Generating summary...");
+                String summaryPrompt = buildSummaryPrompt(context);
+                String summary = llmService.query(summaryPrompt);
+                
+                if (summary != null) {
+                    result.setSummary(summary);
+                } else {
+                    result.setSummary("Failed to generate summary");
+                }
+            }
+            
+            result.setSuccess(!indicator.isCanceled());
             
         } catch (Exception e) {
             LOG.error("Error during tool-based exploration", e);
@@ -267,6 +413,15 @@ public final class ToolCallingAutonomousAgent {
         if (text == null) return "";
         if (text.length() <= maxLength) return text;
         return text.substring(0, maxLength) + "...";
+    }
+    
+    /**
+     * Callback interface for progress updates.
+     */
+    public interface ProgressCallback {
+        void onToolExecution(ToolExecution execution);
+        void onRoundComplete(ExplorationRound round);
+        void onExplorationComplete(ExplorationResult result);
     }
     
     /**

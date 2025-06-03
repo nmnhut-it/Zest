@@ -140,33 +140,58 @@ public class TestToolCallingAgentAction extends AnAction {
         }
         
         public void startExploration() {
-            // Run exploration in background thread
-            new Thread(() -> {
-                try {
-                    // Get the tool-calling agent
-                    ToolCallingAutonomousAgent agent = project.getService(ToolCallingAutonomousAgent.class);
-                    
-                    // Update UI
+            // Use IntelliJ's progress API for proper threading
+            ToolCallingAutonomousAgent agent = project.getService(ToolCallingAutonomousAgent.class);
+            
+            // Create progress callback
+            ToolCallingAutonomousAgent.ProgressCallback callback = new ToolCallingAutonomousAgent.ProgressCallback() {
+                @Override
+                public void onToolExecution(ToolCallingAutonomousAgent.ToolExecution execution) {
                     SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("Starting exploration...");
-                        outputArea.append("=== Tool-Calling Autonomous Code Exploration ===\n\n");
-                        outputArea.append("Query: " + query + "\n\n");
+                        String toolEntry = execution.getToolName() + " - " + 
+                                         (execution.isSuccess() ? "✓" : "✗");
+                        toolListModel.addElement(toolEntry);
+                        
+                        outputArea.append("\nTool: " + execution.getToolName() + "\n");
+                        outputArea.append("Status: " + (execution.isSuccess() ? "Success" : "Failed") + "\n");
+                        outputArea.append("Result: " + execution.getResult() + "\n");
+                        outputArea.append("-".repeat(40) + "\n");
                     });
-                    
-                    // Start exploration
-                    ToolCallingAutonomousAgent.ExplorationResult result = agent.exploreWithTools(query);
-                    
-                    // Update UI with results
+                }
+                
+                @Override
+                public void onRoundComplete(ToolCallingAutonomousAgent.ExplorationRound round) {
+                    SwingUtilities.invokeLater(() -> {
+                        outputArea.append("\n=== " + round.getName() + " Complete ===\n");
+                    });
+                }
+                
+                @Override
+                public void onExplorationComplete(ToolCallingAutonomousAgent.ExplorationResult result) {
                     SwingUtilities.invokeLater(() -> displayResults(result));
-                    
-                } catch (Exception ex) {
+                }
+            };
+            
+            // Update UI
+            SwingUtilities.invokeLater(() -> {
+                statusLabel.setText("Starting exploration...");
+                outputArea.append("=== Tool-Calling Autonomous Code Exploration ===\n\n");
+                outputArea.append("Query: " + query + "\n\n");
+            });
+            
+            // Start exploration with async method
+            agent.exploreWithToolsAsync(query, callback)
+                .thenAccept(result -> {
+                    SwingUtilities.invokeLater(() -> displayResults(result));
+                })
+                .exceptionally(ex -> {
                     SwingUtilities.invokeLater(() -> {
                         progressBar.setIndeterminate(false);
                         statusLabel.setText("Error: " + ex.getMessage());
                         outputArea.append("\n\nERROR: " + ex.getMessage() + "\n");
                     });
-                }
-            }).start();
+                    return null;
+                });
         }
         
         private void displayResults(ToolCallingAutonomousAgent.ExplorationResult result) {

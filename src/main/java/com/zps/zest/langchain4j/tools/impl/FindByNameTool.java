@@ -4,7 +4,6 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.HybridIndexManager;
 import com.zps.zest.langchain4j.index.NameIndex;
-import com.zps.zest.langchain4j.tools.BaseCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -12,7 +11,7 @@ import java.util.List;
 /**
  * Tool for finding code elements by name using the NameIndex.
  */
-public class FindByNameTool extends BaseCodeExplorationTool {
+public class FindByNameTool extends ThreadSafeIndexTool {
     
     private final HybridIndexManager indexManager;
     
@@ -44,11 +43,11 @@ public class FindByNameTool extends BaseCodeExplorationTool {
     }
     
     @Override
-    protected ToolResult doExecute(JsonObject parameters) {
+    protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String name = getRequiredString(parameters, "name");
         int maxResults = getOptionalInt(parameters, "maxResults", 10);
         
-        try {
+        return executeWithIndices(() -> {
             NameIndex nameIndex = indexManager.getNameIndex();
             List<NameIndex.SearchResult> results = nameIndex.search(name, maxResults);
             
@@ -76,9 +75,6 @@ public class FindByNameTool extends BaseCodeExplorationTool {
             }
             
             return ToolResult.success(content.toString(), metadata);
-            
-        } catch (Exception e) {
-            return ToolResult.error("Name search failed: " + e.getMessage());
-        }
+        });
     }
 }

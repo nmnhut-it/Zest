@@ -10,6 +10,8 @@ import com.zps.zest.rag.CodeSignature;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -67,9 +69,9 @@ public final class CodeSearchUtility {
                 LOG.error("Error during hybrid search", e);
                 return Collections.emptyList();
             }
-        });
+        }, EXECUTOR);
     }
-    
+    static ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
     /**
      * Performs search across all three indices and combines results.
      */

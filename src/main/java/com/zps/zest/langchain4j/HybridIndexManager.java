@@ -162,6 +162,12 @@ public final class HybridIndexManager {
                 
                 for (CodeSignature signature : signatures) {
                     try {
+                        // Skip signatures with null ID
+                        if (signature.getId() == null) {
+                            LOG.warn("Skipping signature with null ID in file: " + file.getName());
+                            continue;
+                        }
+                        
                         // Find corresponding PSI element
                         PsiElement psiElement = findPsiElement(signature.getId(), psiFile);
                         
@@ -204,6 +210,12 @@ public final class HybridIndexManager {
      * Indexes in the name-based index.
      */
     private void indexInNameIndex(CodeSignature signature, VirtualFile file) throws IOException {
+        // Skip if ID is null
+        if (signature.getId() == null) {
+            LOG.warn("Cannot index signature with null ID");
+            return;
+        }
+        
         Map<String, String> additionalFields = new HashMap<>();
         
         // Extract additional metadata
@@ -237,6 +249,12 @@ public final class HybridIndexManager {
      * Indexes in the semantic index with embeddings.
      */
     private void indexInSemanticIndex(CodeSignature signature, PsiElement psiElement) {
+        // Skip if ID is null
+        if (signature.getId() == null) {
+            LOG.warn("Cannot index signature with null ID in semantic index");
+            return;
+        }
+        
         // Generate rich embedding content
         CodeEmbeddingGenerator.EmbeddingContent content = 
             embeddingGenerator.generateEmbedding(signature, psiElement);
@@ -280,6 +298,12 @@ public final class HybridIndexManager {
      * Indexes structural relationships.
      */
     private void indexInStructuralIndex(CodeSignature signature, PsiElement element) {
+        // Skip if ID is null
+        if (signature.getId() == null) {
+            LOG.warn("Cannot index signature with null ID in structural index");
+            return;
+        }
+        
         String type = extractSignatureType(signature);
         StructuralIndex.ElementStructure structure = 
             new StructuralIndex.ElementStructure(signature.getId(), type);
@@ -367,6 +391,12 @@ public final class HybridIndexManager {
      * Finds PSI element for a signature ID.
      */
     private PsiElement findPsiElement(String signatureId, PsiFile file) {
+        // Add null check for signatureId
+        if (signatureId == null || signatureId.isEmpty()) {
+            LOG.warn("Cannot find PSI element for null or empty signature ID");
+            return null;
+        }
+        
         // This is a simplified version - in practice, you'd need more robust matching
         if (signatureId.contains("#")) {
             // Method

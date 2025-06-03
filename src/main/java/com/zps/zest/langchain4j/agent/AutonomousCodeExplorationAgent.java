@@ -21,30 +21,30 @@ import java.util.regex.Pattern;
  */
 @Service(Service.Level.PROJECT)
 public final class AutonomousCodeExplorationAgent {
-    
+
     private static final Logger LOG = Logger.getInstance(AutonomousCodeExplorationAgent.class);
-    
+
     private final Project project;
     private final QueryAugmentationAgent augmentationAgent;
     private final LlmApiCallStage llmService;
-    
+
     // Exploration configuration
     private static final int MAX_EXPLORATION_DEPTH = 5;
     private static final int MAX_QUESTIONS_PER_TOPIC = 3;
-    
+
     // Pattern for extracting questions from LLM responses
     private static final Pattern QUESTION_PATTERN = Pattern.compile(
-        "(?:Question:|Q:|\\?|What|How|Why|Where|When|Should|Could|Would|Can|Is|Are|Do|Does)" +
-        "([^.!?]+[?])", Pattern.CASE_INSENSITIVE
+            "(?:Question:|Q:|\\?|What|How|Why|Where|When|Should|Could|Would|Can|Is|Are|Do|Does)" +
+                    "([^.!?]+[?])", Pattern.CASE_INSENSITIVE
     );
-    
+
     public AutonomousCodeExplorationAgent(@NotNull Project project) {
         this.project = project;
         this.augmentationAgent = project.getService(QueryAugmentationAgent.class);
         this.llmService = new LlmApiCallStage();
         LOG.info("Initialized AutonomousCodeExplorationAgent");
     }
-    
+
     /**
      * Starts an autonomous exploration session based on an initial query.
      * The agent will ask itself questions and explore the codebase autonomously.
@@ -53,33 +53,33 @@ public final class AutonomousCodeExplorationAgent {
     public String startAutonomousExploration(String initialQuery) {
         try {
             LOG.info("Starting autonomous exploration for: " + initialQuery);
-            
+
             ExplorationSession session = new ExplorationSession(initialQuery);
             StringBuilder explorationLog = new StringBuilder();
-            
+
             explorationLog.append("# Autonomous Code Exploration Session\n\n");
             explorationLog.append("## Initial Query: ").append(initialQuery).append("\n\n");
-            
+
             // Initial analysis
             String initialAnalysis = performInitialAnalysis(initialQuery, session);
             explorationLog.append("## Initial Analysis\n").append(initialAnalysis).append("\n\n");
-            
+
             // Autonomous exploration loop
             int depth = 0;
             while (depth < MAX_EXPLORATION_DEPTH && session.hasUnansweredQuestions()) {
                 depth++;
                 explorationLog.append("## Exploration Round ").append(depth).append("\n\n");
-                
+
                 // Get next question to explore
                 String nextQuestion = session.getNextQuestion();
                 if (nextQuestion == null) break;
-                
+
                 explorationLog.append("### Question: ").append(nextQuestion).append("\n\n");
-                
+
                 // Explore the question
                 ExplorationResult result = exploreQuestion(nextQuestion, session);
                 explorationLog.append("#### Answer:\n").append(result.answer).append("\n\n");
-                
+
                 // Extract and add new questions
                 if (!result.newQuestions.isEmpty()) {
                     explorationLog.append("#### New Questions Discovered:\n");
@@ -89,7 +89,7 @@ public final class AutonomousCodeExplorationAgent {
                     }
                     explorationLog.append("\n");
                 }
-                
+
                 // Add insights
                 if (!result.insights.isEmpty()) {
                     explorationLog.append("#### Insights:\n");
@@ -98,23 +98,23 @@ public final class AutonomousCodeExplorationAgent {
                     }
                     explorationLog.append("\n");
                 }
-                
+
                 // Mark question as answered
                 session.markQuestionAnswered(nextQuestion);
             }
-            
+
             // Generate final summary
             String summary = generateExplorationSummary(session);
             explorationLog.append("## Exploration Summary\n").append(summary);
-            
+
             return explorationLog.toString();
-            
+
         } catch (Exception e) {
             LOG.error("Error during autonomous exploration", e);
             return "Error during exploration: " + e.getMessage();
         }
     }
-    
+
     /**
      * Performs initial analysis of the query to generate starting questions.
      */
@@ -122,55 +122,58 @@ public final class AutonomousCodeExplorationAgent {
         try {
             // Get augmented context for the initial query
             String augmentedContext = augmentationAgent.augmentQuery(query);
-            
+
             // Create prompt for initial analysis
             String analysisPrompt = buildInitialAnalysisPrompt(query, augmentedContext);
-            
+
             // Call LLM for initial analysis
             CodeContext context = new CodeContext();
+            context.setProject(project);
+            context.setConfig(ConfigurationManager.getInstance(project));
             context.setPrompt(analysisPrompt);
             llmService.process(context);
-            
+
             String response = context.getApiResponse();
-            
+
             // Extract questions from the response
             List<String> questions = extractQuestions(response);
             for (String question : questions) {
                 session.addQuestion(question);
             }
-            
+
             // Extract key topics
             session.addTopics(extractTopics(response));
-            
+
             return response;
-            
+
         } catch (Exception e) {
             LOG.error("Error in initial analysis", e);
             return "Failed to perform initial analysis: " + e.getMessage();
         }
     }
-    
+
     /**
      * Explores a specific question autonomously.
      */
     private ExplorationResult exploreQuestion(String question, ExplorationSession session) {
         ExplorationResult result = new ExplorationResult();
-        
+
         try {
             // Get augmented context for this question
             String augmentedContext = augmentationAgent.augmentQuery(question);
-            
+
             // Build exploration prompt
             String explorationPrompt = buildExplorationPrompt(question, augmentedContext, session);
-            
+
             // Call LLM
-            CodeContext context = new CodeContext( );
+            CodeContext context = new CodeContext();
+            context.setProject(project);
             context.setPrompt(explorationPrompt);
             llmService.process(context);
-            
+
             String response = context.getApiResponse();
             result.answer = response;
-            
+
             // Extract new questions (limit to avoid infinite exploration)
             List<String> newQuestions = extractQuestions(response);
             for (String q : newQuestions) {
@@ -178,123 +181,125 @@ public final class AutonomousCodeExplorationAgent {
                     result.newQuestions.add(q);
                 }
             }
-            
+
             // Extract insights
             result.insights = extractInsights(response);
-            
+
             // Update session knowledge
             session.addKnowledge(question, response);
-            
+
         } catch (Exception e) {
             LOG.error("Error exploring question: " + question, e);
             result.answer = "Failed to explore: " + e.getMessage();
         }
-        
+
         return result;
     }
-    
+
     /**
      * Builds the initial analysis prompt.
      */
     private String buildInitialAnalysisPrompt(String query, String augmentedContext) {
         return String.format("""
-            You are an autonomous code exploration agent. Analyze this initial request and generate questions to explore the codebase.
-            
-            User Query: %s
-            
-            Code Context:
-            %s
-            
-            Please:
-            1. Identify the main topics and components involved
-            2. Generate 3-5 specific questions that would help understand the code better
-            3. Prioritize questions that reveal architecture, patterns, and relationships
-            4. Format questions clearly with "Question:" prefix
-            
-            Focus on questions that will help build a comprehensive understanding of the requested area.
-            """, query, augmentedContext);
+                You are an autonomous code exploration agent. Analyze this initial request and generate questions to explore the codebase.
+                
+                User Query: %s
+                
+                Code Context:
+                %s
+                
+                Please:
+                1. Identify the main topics and components involved
+                2. Generate 3-5 specific questions that would help understand the code better
+                3. Prioritize questions that reveal architecture, patterns, and relationships
+                4. Format questions clearly with "Question:" prefix
+                
+                Focus on questions that will help build a comprehensive understanding of the requested area.
+                """, query, augmentedContext);
     }
-    
+
     /**
      * Builds the exploration prompt for a specific question.
      */
     private String buildExplorationPrompt(String question, String augmentedContext, ExplorationSession session) {
         StringBuilder prompt = new StringBuilder();
-        
+
         prompt.append("You are exploring a codebase autonomously. Answer this question based on the provided context.\n\n");
         prompt.append("Current Question: ").append(question).append("\n\n");
-        
+
         // Add relevant prior knowledge
         String priorKnowledge = session.getRelevantKnowledge(question);
         if (!priorKnowledge.isEmpty()) {
             prompt.append("Prior Knowledge:\n").append(priorKnowledge).append("\n\n");
         }
-        
+
         prompt.append("Code Context:\n").append(augmentedContext).append("\n\n");
-        
+
         prompt.append("""
-            Please:
-            1. Answer the question thoroughly based on the code context
-            2. Identify any follow-up questions that would deepen understanding (prefix with "Question:")
-            3. Note any important insights or patterns discovered (prefix with "Insight:")
-            4. Reference specific code elements when possible
-            
-            Be concise but comprehensive. Focus on building actionable knowledge.
-            """);
-        
+                Please:
+                1. Answer the question thoroughly based on the code context
+                2. Identify any follow-up questions that would deepen understanding (prefix with "Question:")
+                3. Note any important insights or patterns discovered (prefix with "Insight:")
+                4. Reference specific code elements when possible
+                
+                Be concise but comprehensive. Focus on building actionable knowledge.
+                """);
+
         return prompt.toString();
     }
-    
+
     /**
      * Generates a final summary of the exploration session.
      */
     private String generateExplorationSummary(ExplorationSession session) {
         try {
             String summaryPrompt = String.format("""
-                Summarize this autonomous code exploration session:
-                
-                Initial Query: %s
-                
-                Topics Explored: %s
-                
-                Questions Asked: %d
-                Questions Answered: %d
-                
-                Key Knowledge Discovered:
-                %s
-                
-                Please provide:
-                1. A concise summary of what was learned
-                2. Key architectural insights
-                3. Important patterns or conventions discovered
-                4. Recommendations for further exploration
-                5. Any potential issues or concerns identified
-                """,
-                session.getInitialQuery(),
-                String.join(", ", session.getTopics()),
-                session.getTotalQuestions(),
-                session.getAnsweredQuestions(),
-                session.getKnowledgeSummary()
+                            Summarize this autonomous code exploration session:
+                            
+                            Initial Query: %s
+                            
+                            Topics Explored: %s
+                            
+                            Questions Asked: %d
+                            Questions Answered: %d
+                            
+                            Key Knowledge Discovered:
+                            %s
+                            
+                            Please provide:
+                            1. A concise summary of what was learned
+                            2. Key architectural insights
+                            3. Important patterns or conventions discovered
+                            4. Recommendations for further exploration
+                            5. Any potential issues or concerns identified
+                            """,
+                    session.getInitialQuery(),
+                    String.join(", ", session.getTopics()),
+                    session.getTotalQuestions(),
+                    session.getAnsweredQuestions(),
+                    session.getKnowledgeSummary()
             );
-            
-            CodeContext context = new CodeContext( );
+
+            CodeContext context = new CodeContext();
+            context.setProject(project);
+            context.setConfig(ConfigurationManager.getInstance(project));
             context.setPrompt(summaryPrompt);
             llmService.process(context);
-            
+
             return context.getApiResponse();
-            
+
         } catch (Exception e) {
             LOG.error("Error generating summary", e);
             return "Failed to generate summary: " + e.getMessage();
         }
     }
-    
+
     /**
      * Extracts questions from LLM response.
      */
     private List<String> extractQuestions(String response) {
         List<String> questions = new ArrayList<>();
-        
+
         // Look for explicit questions
         String[] lines = response.split("\n");
         for (String line : lines) {
@@ -302,7 +307,7 @@ public final class AutonomousCodeExplorationAgent {
                 questions.add(line.substring(line.indexOf(":") + 1).trim());
             }
         }
-        
+
         // Also find questions using pattern matching
         Matcher matcher = QUESTION_PATTERN.matcher(response);
         while (matcher.find() && questions.size() < 10) {
@@ -311,44 +316,44 @@ public final class AutonomousCodeExplorationAgent {
                 questions.add(question);
             }
         }
-        
+
         return questions;
     }
-    
+
     /**
      * Extracts insights from LLM response.
      */
     private List<String> extractInsights(String response) {
         List<String> insights = new ArrayList<>();
-        
+
         String[] lines = response.split("\n");
         for (String line : lines) {
             if (line.trim().toLowerCase().startsWith("insight:")) {
                 insights.add(line.substring(line.indexOf(":") + 1).trim());
             }
         }
-        
+
         return insights;
     }
-    
+
     /**
      * Extracts topics from the response.
      */
     private List<String> extractTopics(String response) {
         List<String> topics = new ArrayList<>();
-        
+
         // Simple extraction based on common patterns
-        Pattern topicPattern = Pattern.compile("(?:topic|component|module|layer|pattern):\\s*([^,\n]+)", 
-            Pattern.CASE_INSENSITIVE);
+        Pattern topicPattern = Pattern.compile("(?:topic|component|module|layer|pattern):\\s*([^,\n]+)",
+                Pattern.CASE_INSENSITIVE);
         Matcher matcher = topicPattern.matcher(response);
-        
+
         while (matcher.find()) {
             topics.add(matcher.group(1).trim());
         }
-        
+
         return topics;
     }
-    
+
     /**
      * Container for exploration results.
      */
@@ -357,7 +362,7 @@ public final class AutonomousCodeExplorationAgent {
         List<String> newQuestions = new ArrayList<>();
         List<String> insights = new ArrayList<>();
     }
-    
+
     /**
      * Manages the exploration session state.
      */
@@ -367,43 +372,43 @@ public final class AutonomousCodeExplorationAgent {
         private final Set<String> askedQuestions = new HashSet<>();
         private final Map<String, String> knowledge = new HashMap<>();
         private final List<String> topics = new ArrayList<>();
-        
+
         public ExplorationSession(String initialQuery) {
             this.initialQuery = initialQuery;
         }
-        
+
         public void addQuestion(String question) {
             if (!askedQuestions.contains(question)) {
                 unansweredQuestions.offer(question);
                 askedQuestions.add(question);
             }
         }
-        
+
         public String getNextQuestion() {
             return unansweredQuestions.poll();
         }
-        
+
         public boolean hasUnansweredQuestions() {
             return !unansweredQuestions.isEmpty();
         }
-        
+
         public boolean hasAskedQuestion(String question) {
             return askedQuestions.contains(question);
         }
-        
+
         public void markQuestionAnswered(String question) {
             // Already removed from queue when getNextQuestion was called
         }
-        
+
         public void addKnowledge(String question, String answer) {
             knowledge.put(question, answer);
         }
-        
+
         public String getRelevantKnowledge(String question) {
             // Simple relevance: return knowledge from questions with overlapping keywords
             StringBuilder relevant = new StringBuilder();
             String[] keywords = question.toLowerCase().split("\\s+");
-            
+
             for (Map.Entry<String, String> entry : knowledge.entrySet()) {
                 String prevQuestion = entry.getKey().toLowerCase();
                 for (String keyword : keywords) {
@@ -415,38 +420,38 @@ public final class AutonomousCodeExplorationAgent {
                     }
                 }
             }
-            
+
             return relevant.toString();
         }
-        
+
         public void addTopics(List<String> newTopics) {
             topics.addAll(newTopics);
         }
-        
+
         public String getInitialQuery() {
             return initialQuery;
         }
-        
+
         public List<String> getTopics() {
             return topics;
         }
-        
+
         public int getTotalQuestions() {
             return askedQuestions.size();
         }
-        
+
         public int getAnsweredQuestions() {
             return knowledge.size();
         }
-        
+
         public String getKnowledgeSummary() {
             StringBuilder summary = new StringBuilder();
             int count = 0;
             for (Map.Entry<String, String> entry : knowledge.entrySet()) {
                 if (count++ > 5) break; // Limit to avoid huge prompts
                 summary.append("Q: ").append(entry.getKey()).append("\n");
-                summary.append("A: ").append(entry.getValue().substring(0, 
-                    Math.min(150, entry.getValue().length()))).append("...\n\n");
+                summary.append("A: ").append(entry.getValue().substring(0,
+                        Math.min(150, entry.getValue().length()))).append("...\n\n");
             }
             return summary.toString();
         }

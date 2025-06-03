@@ -36,7 +36,10 @@ public class SignatureExtractor {
             
             @Override
             public void visitMethod(PsiMethod method) {
-                if (!method.isConstructor()) {
+                // Include constructors and regular methods
+                if (method.isConstructor()) {
+                    signatures.add(extractJavaConstructorSignature(method));
+                } else {
                     signatures.add(extractJavaMethodSignature(method));
                 }
                 super.visitMethod(method);
@@ -44,8 +47,19 @@ public class SignatureExtractor {
             
             @Override
             public void visitField(PsiField field) {
-                signatures.add(extractJavaFieldSignature(field));
+                // Handle enum constants specially
+                if (field instanceof PsiEnumConstant) {
+                    signatures.add(extractJavaEnumConstantSignature((PsiEnumConstant) field));
+                } else {
+                    signatures.add(extractJavaFieldSignature(field));
+                }
                 super.visitField(field);
+            }
+            
+            @Override
+            public void visitClassInitializer(PsiClassInitializer initializer) {
+                signatures.add(extractJavaInitializerSignature(initializer));
+                super.visitClassInitializer(initializer);
             }
         });
     }
@@ -69,12 +83,49 @@ public class SignatureExtractor {
         
         String signature = buildJavaClassSignature(clazz);
         
+        // Generate ID - handle cases where getQualifiedName() returns null
+        String id = generateClassId(clazz);
+        
         return new CodeSignature(
-            clazz.getQualifiedName(),
+            id,
             signature,
             metadata.toString(),
             clazz.getContainingFile().getVirtualFile().getPath()
         );
+    }
+    
+    private String generateClassId(PsiClass clazz) {
+        // Try qualified name first
+        String qualifiedName = clazz.getQualifiedName();
+        if (qualifiedName != null && !qualifiedName.isEmpty()) {
+            return qualifiedName;
+        }
+        
+        // For anonymous classes, generate based on location
+        if (clazz.getName() == null) {
+            PsiElement parent = clazz.getParent();
+            if (parent instanceof PsiNewExpression) {
+                PsiType type = ((PsiNewExpression) parent).getType();
+                if (type != null) {
+                    return "anonymous:" + type.getPresentableText() + "@" + clazz.hashCode();
+                }
+            }
+            return "anonymous:class@" + clazz.hashCode();
+        }
+        
+        // For local classes, use containing method/class info
+        PsiMethod containingMethod = PsiTreeUtil.getParentOfType(clazz, PsiMethod.class);
+        if (containingMethod != null) {
+            PsiClass containingClass = containingMethod.getContainingClass();
+            if (containingClass != null && containingClass.getQualifiedName() != null) {
+                return containingClass.getQualifiedName() + "$" + containingMethod.getName() + "$" + clazz.getName();
+            }
+        }
+        
+        // For classes in default package or other edge cases
+        PsiFile file = clazz.getContainingFile();
+        String fileName = file.getName().replace(".java", "");
+        return fileName + "." + clazz.getName();
     }
     
     private CodeSignature extractJavaMethodSignature(PsiMethod method) {
@@ -96,9 +147,8 @@ public class SignatureExtractor {
         
         String signature = buildJavaMethodSignature(method);
         
-        String id = containingClass != null 
-            ? containingClass.getQualifiedName() + "#" + method.getName()
-            : method.getName();
+        // Generate ID - handle cases where containing class might be null or anonymous
+        String id = generateMethodId(method, containingClass);
             
         return new CodeSignature(
             id,
@@ -106,6 +156,18 @@ public class SignatureExtractor {
             metadata.toString(),
             method.getContainingFile().getVirtualFile().getPath()
         );
+    }
+    
+    private String generateMethodId(PsiMethod method, PsiClass containingClass) {
+        if (containingClass != null) {
+            String classId = generateClassId(containingClass);
+            return classId + "#" + method.getName();
+        }
+        
+        // Fallback for methods without containing class (shouldn't normally happen)
+        PsiFile file = method.getContainingFile();
+        String fileName = file.getName().replace(".java", "");
+        return fileName + "#" + method.getName();
     }
     
     private CodeSignature extractJavaFieldSignature(PsiField field) {
@@ -127,9 +189,8 @@ public class SignatureExtractor {
         
         String signature = buildJavaFieldSignature(field);
         
-        String id = containingClass != null 
-            ? containingClass.getQualifiedName() + "." + field.getName()
-            : field.getName();
+        // Generate ID - handle cases where containing class might be null or anonymous
+        String id = generateFieldId(field, containingClass);
             
         return new CodeSignature(
             id,
@@ -137,6 +198,149 @@ public class SignatureExtractor {
             metadata.toString(),
             field.getContainingFile().getVirtualFile().getPath()
         );
+    }
+    
+    private String generateFieldId(PsiField field, PsiClass containingClass) {
+        if (containingClass != null) {
+            String classId = generateClassId(containingClass);
+            return classId + "." + field.getName();
+        }
+        
+        // Fallback for fields without containing class (shouldn't normally happen)
+        PsiFile file = field.getContainingFile();
+        String fileName = file.getName().replace(".java", "");
+        return fileName + "." + field.getName();
+    }
+    
+    private CodeSignature extractJavaConstructorSignature(PsiMethod constructor) {
+        PsiClass containingClass = constructor.getContainingClass();
+        
+        JsonObject metadata = new JsonObject();
+        metadata.addProperty("type", "constructor");
+        metadata.addProperty("name", constructor.getName());
+        metadata.addProperty("class", containingClass != null ? containingClass.getQualifiedName() : "");
+        
+        // Add javadoc if present
+        String javadoc = extractJavadoc(constructor);
+        if (javadoc != null) {
+            metadata.addProperty("javadoc", javadoc);
+        }
+        
+        String signature = buildJavaConstructorSignature(constructor);
+        
+        // Generate ID for constructor
+        String id = generateConstructorId(constructor, containingClass);
+        
+        return new CodeSignature(
+            id,
+            signature,
+            metadata.toString(),
+            constructor.getContainingFile().getVirtualFile().getPath()
+        );
+    }
+    
+    private String generateConstructorId(PsiMethod constructor, PsiClass containingClass) {
+        if (containingClass != null) {
+            String classId = generateClassId(containingClass);
+            // Include parameter count to handle overloaded constructors
+            int paramCount = constructor.getParameterList().getParametersCount();
+            return classId + "#<init>" + paramCount;
+        }
+        return "unknown#<init>";
+    }
+    
+    private String buildJavaConstructorSignature(PsiMethod constructor) {
+        StringBuilder sb = new StringBuilder();
+        
+        // Modifiers
+        if (constructor.hasModifierProperty(PsiModifier.PUBLIC)) sb.append("public ");
+        if (constructor.hasModifierProperty(PsiModifier.PROTECTED)) sb.append("protected ");
+        if (constructor.hasModifierProperty(PsiModifier.PRIVATE)) sb.append("private ");
+        
+        // Constructor name (class name)
+        sb.append(constructor.getName());
+        
+        // Parameters
+        sb.append("(");
+        PsiParameter[] parameters = constructor.getParameterList().getParameters();
+        for (int i = 0; i < parameters.length; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(parameters[i].getType().getPresentableText());
+            sb.append(" ");
+            sb.append(parameters[i].getName());
+        }
+        sb.append(")");
+        
+        // Throws clause
+        PsiClassType[] throwsTypes = constructor.getThrowsList().getReferencedTypes();
+        if (throwsTypes.length > 0) {
+            sb.append(" throws ");
+            for (int i = 0; i < throwsTypes.length; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(throwsTypes[i].getPresentableText());
+            }
+        }
+        
+        return sb.toString();
+    }
+    
+    private CodeSignature extractJavaEnumConstantSignature(PsiEnumConstant enumConstant) {
+        PsiClass containingClass = enumConstant.getContainingClass();
+        
+        JsonObject metadata = new JsonObject();
+        metadata.addProperty("type", "enum_constant");
+        metadata.addProperty("name", enumConstant.getName());
+        metadata.addProperty("class", containingClass != null ? containingClass.getQualifiedName() : "");
+        
+        // Add javadoc if present
+        String javadoc = extractJavadoc(enumConstant);
+        if (javadoc != null) {
+            metadata.addProperty("javadoc", javadoc);
+        }
+        
+        String signature = "enum constant " + enumConstant.getName();
+        
+        String id = generateFieldId(enumConstant, containingClass);
+        
+        return new CodeSignature(
+            id,
+            signature,
+            metadata.toString(),
+            enumConstant.getContainingFile().getVirtualFile().getPath()
+        );
+    }
+    
+    private CodeSignature extractJavaInitializerSignature(PsiClassInitializer initializer) {
+        PsiClass containingClass = PsiTreeUtil.getParentOfType(initializer, PsiClass.class);
+        
+        JsonObject metadata = new JsonObject();
+        metadata.addProperty("type", "initializer");
+        metadata.addProperty("isStatic", initializer.hasModifierProperty(PsiModifier.STATIC));
+        metadata.addProperty("class", containingClass != null ? containingClass.getQualifiedName() : "");
+        
+        String signature = initializer.hasModifierProperty(PsiModifier.STATIC) 
+            ? "static { ... }" 
+            : "{ ... }";
+        
+        // Generate ID for initializer
+        String id = generateInitializerId(initializer, containingClass);
+        
+        return new CodeSignature(
+            id,
+            signature,
+            metadata.toString(),
+            initializer.getContainingFile().getVirtualFile().getPath()
+        );
+    }
+    
+    private String generateInitializerId(PsiClassInitializer initializer, PsiClass containingClass) {
+        if (containingClass != null) {
+            String classId = generateClassId(containingClass);
+            String type = initializer.hasModifierProperty(PsiModifier.STATIC) ? "static" : "instance";
+            // Use text offset to differentiate multiple initializers
+            return classId + "#<" + type + "-init-" + initializer.getTextOffset() + ">";
+        }
+        return "unknown#<init>";
     }
 
     private String getClassType(PsiClass clazz) {

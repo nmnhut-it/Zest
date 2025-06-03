@@ -8,6 +8,8 @@ import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
 import com.zps.zest.rag.CodeSignature;
 import com.zps.zest.langchain4j.util.CodeSearchUtils;
+import com.zps.zest.langchain4j.search.UnifiedSearchService;
+import com.zps.zest.langchain4j.config.SearchConfiguration;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -28,14 +30,18 @@ public final class CodeSearchUtility {
     private final Project project;
     private final HybridIndexManager indexManager;
     private final RelatedCodeFinder relatedCodeFinder;
-    
-    // Search configuration
-    private SearchConfig config = new SearchConfig();
+    private final UnifiedSearchService searchService;
+    private final SearchConfiguration config;
     
     public CodeSearchUtility(Project project) {
         this.project = project;
         this.indexManager = project.getService(HybridIndexManager.class);
         this.relatedCodeFinder = new RelatedCodeFinder(project);
+        this.config = new SearchConfiguration();
+        
+        // Create search service with appropriate embedding service
+        LocalEmbeddingService embeddingService = new LocalEmbeddingService();
+        this.searchService = new UnifiedSearchService(embeddingService, config);
         
         LOG.info("Initialized CodeSearchUtility for project: " + project.getName());
     }
@@ -50,11 +56,14 @@ public final class CodeSearchUtility {
     public CompletableFuture<List<EnrichedSearchResult>> searchRelatedCode(String query, int maxResults) {
         LOG.info("Starting hybrid search for query: " + query);
         
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Phase 1: Search across all indices
-                HybridSearchResults hybridResults = performHybridSearch(query, maxResults * 3);
-                
+        return searchService.hybridSearch(
+                query, 
+                maxResults * 3,
+                indexManager.getNameIndex(),
+                indexManager.getSemanticIndex(),
+                indexManager.getStructuralIndex()
+            )
+            .thenApply(hybridResults -> {
                 if (hybridResults.isEmpty()) {
                     LOG.info("No results found");
                     return Collections.emptyList();
@@ -65,153 +74,47 @@ public final class CodeSearchUtility {
                 
                 LOG.info("Search complete. Found " + enrichedResults.size() + " enriched results");
                 return enrichedResults;
-                
-            } catch (Exception e) {
+            })
+            .exceptionally(e -> {
                 LOG.error("Error during hybrid search", e);
                 return Collections.emptyList();
-            }
-        }, EXECUTOR);
-    }
-    static ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
-    /**
-     * Performs search across all three indices and combines results.
-     */
-    private HybridSearchResults performHybridSearch(String query, int limit) {
-        HybridSearchResults results = new HybridSearchResults();
-        
-        try {
-            // 1. Name-based search (highest priority for exact matches)
-            List<NameIndex.SearchResult> nameResults = indexManager.getNameIndex()
-                .search(query, limit);
-            
-            for (NameIndex.SearchResult nameResult : nameResults) {
-                results.addResult(new CombinedSearchResult(
-                    nameResult.getId(),
-                    nameResult.getSignature(),
-                    nameResult.getType(),
-                    nameResult.getFilePath(),
-                    nameResult.getScore() * config.nameWeight,
-                    SearchSource.NAME
-                ));
-            }
-            
-            // 2. Semantic search
-            List<String> keywords = CodeSearchUtils.extractKeywords(query);
-            List<SemanticIndex.SearchResult> semanticResults = indexManager.getSemanticIndex()
-                .hybridSearch(query, keywords, limit, config.semanticVectorWeight);
-            
-            for (SemanticIndex.SearchResult semanticResult : semanticResults) {
-                results.addOrMergeResult(new CombinedSearchResult(
-                    semanticResult.getId(),
-                    semanticResult.getContent(),
-                    (String) semanticResult.getMetadata().get("type"),
-                    (String) semanticResult.getMetadata().get("file_path"),
-                    semanticResult.getScore() * config.semanticWeight,
-                    SearchSource.SEMANTIC
-                ));
-            }
-            
-            // 3. Structural search (if query suggests relationships)
-            if (CodeSearchUtils.suggestsStructuralSearch(query)) {
-                addStructuralResults(query, results, limit);
-            }
-            
-        } catch (Exception e) {
-            LOG.error("Error in hybrid search", e);
-        }
-        
-        return results;
-    }
-    
-    /**
-     * Adds structural search results based on query intent.
-     */
-    private void addStructuralResults(String query, HybridSearchResults results, int limit) {
-        StructuralIndex structuralIndex = indexManager.getStructuralIndex();
-        
-        // Detect relationship keywords
-        String lowerQuery = query.toLowerCase();
-        
-        if (lowerQuery.contains("calls") || lowerQuery.contains("uses")) {
-            // Find methods that call specific patterns
-            for (CombinedSearchResult existing : results.getTopResults(5)) {
-                List<String> callers = structuralIndex.findCallers(existing.getId());
-                for (String caller : callers) {
-                    results.addOrMergeResult(new CombinedSearchResult(
-                        caller,
-                        "Calls " + existing.getId(),
-                        "method",
-                        "",
-                        config.structuralWeight * 0.8,
-                        SearchSource.STRUCTURAL
-                    ));
-                }
-            }
-        }
-        
-        if (lowerQuery.contains("extends") || lowerQuery.contains("implements")) {
-            // Find inheritance relationships
-            for (CombinedSearchResult existing : results.getTopResults(5)) {
-                if ("class".equals(existing.getType()) || "interface".equals(existing.getType())) {
-                    List<String> subclasses = structuralIndex.findSubclasses(existing.getId());
-                    List<String> implementations = structuralIndex.findImplementations(existing.getId());
-                    
-                    for (String subclass : subclasses) {
-                        results.addOrMergeResult(new CombinedSearchResult(
-                            subclass,
-                            "Extends " + existing.getId(),
-                            "class",
-                            "",
-                            config.structuralWeight * 0.7,
-                            SearchSource.STRUCTURAL
-                        ));
-                    }
-                    
-                    for (String impl : implementations) {
-                        results.addOrMergeResult(new CombinedSearchResult(
-                            impl,
-                            "Implements " + existing.getId(),
-                            "class",
-                            "",
-                            config.structuralWeight * 0.7,
-                            SearchSource.STRUCTURAL
-                        ));
-                    }
-                }
-            }
-        }
+            });
     }
     
     /**
      * Enriches search results with related code and context.
      */
-    private List<EnrichedSearchResult> enrichResults(HybridSearchResults hybridResults, int maxResults) {
+    private List<EnrichedSearchResult> enrichResults(UnifiedSearchService.HybridSearchResults hybridResults, int maxResults) {
         List<EnrichedSearchResult> enrichedResults = new ArrayList<>();
         
         // Get top results
-        List<CombinedSearchResult> topResults = hybridResults.getTopResults(maxResults * 2);
+        List<UnifiedSearchService.HybridSearchResult> topResults = hybridResults.getTopResults(maxResults * 2);
         
         // Group by file for context
-        Map<String, List<CombinedSearchResult>> byFile = topResults.stream()
+        Map<String, List<UnifiedSearchService.HybridSearchResult>> byFile = topResults.stream()
             .collect(Collectors.groupingBy(r -> r.getFilePath() != null ? r.getFilePath() : "unknown"));
         
-        for (Map.Entry<String, List<CombinedSearchResult>> entry : byFile.entrySet()) {
-            List<CombinedSearchResult> fileResults = entry.getValue();
+        for (Map.Entry<String, List<UnifiedSearchService.HybridSearchResult>> entry : byFile.entrySet()) {
+            List<UnifiedSearchService.HybridSearchResult> fileResults = entry.getValue();
             
             // Find primary result for this file
-            CombinedSearchResult primary = fileResults.stream()
-                .max(Comparator.comparing(CombinedSearchResult::getCombinedScore))
+            UnifiedSearchService.HybridSearchResult primary = fileResults.stream()
+                .max(Comparator.comparing(UnifiedSearchService.HybridSearchResult::getCombinedScore))
                 .orElse(null);
                 
             if (primary == null) continue;
             
-            // Create enriched result
+            // Create enriched result - map SearchSource types
+            Set<SearchSource> mappedSources = primary.getSources().stream()
+                .map(this::mapSearchSource)
+                .collect(Collectors.toSet());
+            
             EnrichedSearchResult enriched = new EnrichedSearchResult(
                 primary.getId(),
                 primary.getContent(),
                 primary.getCombinedScore(),
                 primary.getFilePath(),
-                primary.getSources()
+                mappedSources
             );
             
             // Add structural relationships
@@ -222,7 +125,7 @@ public final class CodeSearchUtility {
             
             // Find similar code using semantic index
             List<SemanticIndex.SearchResult> similar = indexManager.getSemanticIndex()
-                .findSimilar(primary.getId(), config.maxRelatedCodePerResult);
+                .findSimilar(primary.getId(), config.getMaxRelatedCodePerResult());
             
             for (SemanticIndex.SearchResult sim : similar) {
                 enriched.addSimilarCode(new SimilarCode(
@@ -234,7 +137,7 @@ public final class CodeSearchUtility {
             }
             
             // Add other results from same file
-            for (CombinedSearchResult other : fileResults) {
+            for (UnifiedSearchService.HybridSearchResult other : fileResults) {
                 if (!other.getId().equals(primary.getId())) {
                     enriched.addRelatedInFile(new RelatedInFile(
                         other.getId(),
@@ -257,122 +160,27 @@ public final class CodeSearchUtility {
     }
     
     /**
+     * Maps UnifiedSearchService.SearchSource to local SearchSource enum.
+     */
+    private SearchSource mapSearchSource(UnifiedSearchService.SearchSource source) {
+        switch (source) {
+            case NAME:
+                return SearchSource.NAME;
+            case SEMANTIC:
+                return SearchSource.SEMANTIC;
+            case STRUCTURAL:
+                return SearchSource.STRUCTURAL;
+            default:
+                return SearchSource.SEMANTIC; // Default fallback
+        }
+    }
+    
+    /**
      * Configures the search behavior.
      */
-    public void configure(SearchConfig config) {
+    public void configure(SearchConfiguration config) {
         this.config = config;
         LOG.info("Updated search configuration: " + config);
-    }
-    
-    /**
-     * Search configuration.
-     */
-    public static class SearchConfig {
-        private double nameWeight = 2.0;
-        private double semanticWeight = 1.5;
-        private double structuralWeight = 1.0;
-        private double semanticVectorWeight = 0.7;
-        private int maxRelatedCodePerResult = 5;
-        private double relevanceThreshold = 0.3;
-        
-        // Getters and setters
-        public double getNameWeight() { return nameWeight; }
-        public void setNameWeight(double nameWeight) { this.nameWeight = nameWeight; }
-        
-        public double getSemanticWeight() { return semanticWeight; }
-        public void setSemanticWeight(double semanticWeight) { this.semanticWeight = semanticWeight; }
-        
-        public double getStructuralWeight() { return structuralWeight; }
-        public void setStructuralWeight(double structuralWeight) { this.structuralWeight = structuralWeight; }
-        
-        public double getSemanticVectorWeight() { return semanticVectorWeight; }
-        public void setSemanticVectorWeight(double semanticVectorWeight) { this.semanticVectorWeight = semanticVectorWeight; }
-        
-        public int getMaxRelatedCodePerResult() { return maxRelatedCodePerResult; }
-        public void setMaxRelatedCodePerResult(int maxRelatedCodePerResult) { this.maxRelatedCodePerResult = maxRelatedCodePerResult; }
-        
-        public double getRelevanceThreshold() { return relevanceThreshold; }
-        public void setRelevanceThreshold(double relevanceThreshold) { this.relevanceThreshold = relevanceThreshold; }
-        
-        @Override
-        public String toString() {
-            return "SearchConfig{" +
-                   "nameWeight=" + nameWeight +
-                   ", semanticWeight=" + semanticWeight +
-                   ", structuralWeight=" + structuralWeight +
-                   ", semanticVectorWeight=" + semanticVectorWeight +
-                   ", maxRelatedCodePerResult=" + maxRelatedCodePerResult +
-                   ", relevanceThreshold=" + relevanceThreshold +
-                   '}';
-        }
-    }
-    
-    /**
-     * Container for results from all indices.
-     */
-    private static class HybridSearchResults {
-        private final Map<String, CombinedSearchResult> results = new HashMap<>();
-        
-        public void addResult(CombinedSearchResult result) {
-            results.put(result.getId(), result);
-        }
-        
-        public void addOrMergeResult(CombinedSearchResult result) {
-            results.merge(result.getId(), result, (existing, newResult) -> {
-                // Combine scores from different sources
-                existing.addSource(newResult.getSources().iterator().next(), newResult.getCombinedScore());
-                return existing;
-            });
-        }
-        
-        public boolean isEmpty() {
-            return results.isEmpty();
-        }
-        
-        public List<CombinedSearchResult> getTopResults(int limit) {
-            return results.values().stream()
-                .sorted((a, b) -> Double.compare(b.getCombinedScore(), a.getCombinedScore()))
-                .limit(limit)
-                .collect(Collectors.toList());
-        }
-    }
-    
-    /**
-     * Combined search result from multiple indices.
-     */
-    private static class CombinedSearchResult {
-        private final String id;
-        private final String content;
-        private final String type;
-        private final String filePath;
-        private final Map<SearchSource, Double> sourceScores = new EnumMap<>(SearchSource.class);
-        
-        public CombinedSearchResult(String id, String content, String type, String filePath, 
-                                   double score, SearchSource source) {
-            this.id = id;
-            this.content = content;
-            this.type = type;
-            this.filePath = filePath;
-            this.sourceScores.put(source, score);
-        }
-        
-        public void addSource(SearchSource source, double score) {
-            sourceScores.merge(source, score, Double::sum);
-        }
-        
-        public double getCombinedScore() {
-            return sourceScores.values().stream().mapToDouble(Double::doubleValue).sum();
-        }
-        
-        public Set<SearchSource> getSources() {
-            return sourceScores.keySet();
-        }
-        
-        // Getters
-        public String getId() { return id; }
-        public String getContent() { return content; }
-        public String getType() { return type; }
-        public String getFilePath() { return filePath; }
     }
     
     /**

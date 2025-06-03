@@ -12,6 +12,7 @@ import com.intellij.psi.*;
 import com.zps.zest.langchain4j.index.NameIndex;
 import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
+import com.zps.zest.langchain4j.index.BatchIndexingCoordinator;
 import com.zps.zest.rag.CodeSignature;
 import com.zps.zest.rag.SignatureExtractor;
 import com.zps.zest.rag.ProjectInfoExtractor;
@@ -35,6 +36,7 @@ public final class HybridIndexManager {
     private final SignatureExtractor signatureExtractor;
     private final CodeEmbeddingGenerator embeddingGenerator;
     private final ProjectInfoExtractor projectInfoExtractor;
+    private final BatchIndexingCoordinator batchCoordinator;
     
     // The three indices
     private NameIndex nameIndex;
@@ -54,6 +56,7 @@ public final class HybridIndexManager {
         this.signatureExtractor = new SignatureExtractor();
         this.embeddingGenerator = new CodeEmbeddingGenerator();
         this.projectInfoExtractor = new ProjectInfoExtractor(project);
+        this.batchCoordinator = new BatchIndexingCoordinator(project);
         
         initializeIndices();
         LOG.info("Initialized HybridIndexManager for project: " + project.getName());
@@ -84,7 +87,7 @@ public final class HybridIndexManager {
             public void run(@NotNull ProgressIndicator indicator) {
                 try {
                     isIndexing = true;
-                    performIndexing(indicator, forceReindex);
+                    performBatchIndexing(indicator, forceReindex);
                 } catch (Exception e) {
                     LOG.error("Error during indexing", e);
                 } finally {
@@ -95,38 +98,24 @@ public final class HybridIndexManager {
     }
     
     /**
-     * Performs the actual indexing.
+     * Performs batch indexing using the coordinator.
      */
-    private void performIndexing(ProgressIndicator indicator, boolean forceReindex) {
-        indicator.setText("Preparing for indexing...");
-        
+    private void performBatchIndexing(ProgressIndicator indicator, boolean forceReindex) {
         // Get all source files
         List<VirtualFile> sourceFiles = ReadAction.compute(() -> 
             projectInfoExtractor.findAllSourceFiles()
         );
         
-        indicator.setText("Indexing " + sourceFiles.size() + " source files...");
+        // Create indexing strategy
+        BatchIndexingCoordinator.IndexingStrategy strategy = new HybridIndexingStrategy(forceReindex);
         
-        int total = sourceFiles.size();
-        int current = 0;
+        // Perform batch indexing
+        BatchIndexingCoordinator.BatchIndexingResult result = 
+            batchCoordinator.indexFiles(sourceFiles, strategy, indicator);
         
-        for (VirtualFile file : sourceFiles) {
-            if (indicator.isCanceled()) {
-                break;
-            }
-            
-            current++;
-            indicator.setText2("Processing " + file.getName() + " (" + current + "/" + total + ")");
-            indicator.setFraction((double) current / total);
-            
-            // Check if file needs indexing
-            if (!forceReindex && !needsReindex(file)) {
-                LOG.debug("Skipping already indexed file: " + file.getName());
-                continue;
-            }
-            
-            indexFile(file);
-        }
+        // Update statistics
+        totalFilesIndexed.addAndGet(result.getFilesProcessed());
+        totalSignaturesIndexed.addAndGet(result.getSignaturesIndexed());
         
         // Commit changes
         try {
@@ -135,8 +124,7 @@ public final class HybridIndexManager {
             LOG.error("Failed to commit name index", e);
         }
         
-        indicator.setText("Indexing complete");
-        LOG.info("Completed indexing. Stats: " + getStatistics());
+        LOG.info("Batch indexing complete: " + result);
     }
     
     /**
@@ -489,4 +477,72 @@ public final class HybridIndexManager {
     public NameIndex getNameIndex() { return nameIndex; }
     public SemanticIndex getSemanticIndex() { return semanticIndex; }
     public StructuralIndex getStructuralIndex() { return structuralIndex; }
+    
+    /**
+     * Indexing strategy for hybrid indexing across all three indices.
+     */
+    private class HybridIndexingStrategy implements BatchIndexingCoordinator.IndexingStrategy {
+        private final boolean forceReindex;
+        
+        public HybridIndexingStrategy(boolean forceReindex) {
+            this.forceReindex = forceReindex;
+        }
+        
+        @Override
+        public boolean shouldIndex(VirtualFile file, Long lastIndexTime) {
+            if (!isSourceFile(file)) {
+                return false;
+            }
+            if (forceReindex) {
+                return true;
+            }
+            return lastIndexTime == null || lastIndexTime < file.getModificationStamp();
+        }
+        
+        @Override
+        public List<CodeSignature> extractSignatures(PsiFile file) {
+            return signatureExtractor.extractFromFile(file);
+        }
+        
+        @Override
+        public int indexSignatures(List<CodeSignature> signatures, PsiFile psiFile, VirtualFile file) {
+            int indexedCount = 0;
+            
+            for (CodeSignature signature : signatures) {
+                try {
+                    // Skip invalid signatures
+                    if (!CodeSearchUtils.isValidForIndexing(signature)) {
+                        LOG.warn("Skipping invalid signature in file: " + file.getName());
+                        continue;
+                    }
+                    
+                    // Find corresponding PSI element
+                    PsiElement psiElement = findPsiElement(signature.getId(), psiFile);
+                    
+                    // 1. Index in NameIndex
+                    indexInNameIndex(signature, file);
+                    
+                    // 2. Generate embedding and index in SemanticIndex
+                    if (psiElement != null) {
+                        indexInSemanticIndex(signature, psiElement);
+                    }
+                    
+                    // 3. Extract and index structural information
+                    if (psiElement != null) {
+                        indexInStructuralIndex(signature, psiElement);
+                    }
+                    
+                    indexedCount++;
+                    
+                } catch (Exception e) {
+                    LOG.error("Failed to index signature: " + signature.getId(), e);
+                }
+            }
+            
+            // Mark file as indexed
+            indexedFiles.put(file.getPath(), file.getModificationStamp());
+            
+            return indexedCount;
+        }
+    }
 }

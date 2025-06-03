@@ -54,7 +54,7 @@ public final class LLMService {
      */
     @Nullable
     public String query(@NotNull String prompt) {
-        return query(prompt, config.getCodeModel());
+        return query(prompt, "Qwen2.5-Coder-7B");
     }
     
     /**

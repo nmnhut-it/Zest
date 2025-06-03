@@ -29,18 +29,16 @@ public final class CodeSearchUtility {
     
     private final Project project;
     private final HybridIndexManager indexManager;
-    private final RelatedCodeFinder relatedCodeFinder;
-    private final UnifiedSearchService searchService;
-    private SearchConfiguration config;  // Remove final modifier
+    private UnifiedSearchService searchService;
+    private SearchConfiguration config;
     
     public CodeSearchUtility(Project project) {
         this.project = project;
         this.indexManager = project.getService(HybridIndexManager.class);
-        this.relatedCodeFinder = new RelatedCodeFinder(project);
         this.config = new SearchConfiguration();
         
         // Create search service with appropriate embedding service
-        LocalEmbeddingService embeddingService = new LocalEmbeddingService();
+        EmbeddingService embeddingService = new LocalEmbeddingService();
         this.searchService = new UnifiedSearchService(embeddingService, config);
         
         LOG.info("Initialized CodeSearchUtility for project: " + project.getName());
@@ -180,6 +178,9 @@ public final class CodeSearchUtility {
      */
     public void configure(SearchConfiguration config) {
         this.config = config;
+        // Re-create search service with new configuration
+        EmbeddingService embeddingService = new LocalEmbeddingService();
+        this.searchService = new UnifiedSearchService(embeddingService, config);
         LOG.info("Updated search configuration: " + config);
     }
     

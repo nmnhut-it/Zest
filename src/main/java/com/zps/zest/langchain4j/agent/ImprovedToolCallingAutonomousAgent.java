@@ -262,8 +262,7 @@ public final class ImprovedToolCallingAutonomousAgent {
             ## Implementation Details
             [Critical implementation details and dependencies]
             
-            ## Recommendations
-            [Next steps for further exploration or development]
+           
             """);
         
         return prompt.toString();

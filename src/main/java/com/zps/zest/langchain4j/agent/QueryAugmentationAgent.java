@@ -430,7 +430,7 @@ public final class QueryAugmentationAgent {
                     searchUtility.searchRelatedCode(query, 20);
 
             List<CodeSearchUtility.EnrichedSearchResult> results =
-                    searchFuture.get(5, TimeUnit.SECONDS);
+                    searchFuture.get(50, TimeUnit.SECONDS);
 
             // If patterns detected, boost pattern-matching results
             if (!analysis.detectedPatterns.isEmpty()) {

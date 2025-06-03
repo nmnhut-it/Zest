@@ -7,6 +7,7 @@ import com.zps.zest.langchain4j.index.NameIndex;
 import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
 import com.zps.zest.rag.CodeSignature;
+import com.zps.zest.langchain4j.util.CodeSearchUtils;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -95,7 +96,7 @@ public final class CodeSearchUtility {
             }
             
             // 2. Semantic search
-            List<String> keywords = extractKeywords(query);
+            List<String> keywords = CodeSearchUtils.extractKeywords(query);
             List<SemanticIndex.SearchResult> semanticResults = indexManager.getSemanticIndex()
                 .hybridSearch(query, keywords, limit, config.semanticVectorWeight);
             
@@ -111,7 +112,7 @@ public final class CodeSearchUtility {
             }
             
             // 3. Structural search (if query suggests relationships)
-            if (shouldPerformStructuralSearch(query)) {
+            if (CodeSearchUtils.suggestsStructuralSearch(query)) {
                 addStructuralResults(query, results, limit);
             }
             
@@ -253,37 +254,6 @@ public final class CodeSearchUtility {
         return enrichedResults.stream()
             .limit(maxResults)
             .collect(Collectors.toList());
-    }
-    
-    /**
-     * Determines if structural search should be performed based on query.
-     */
-    private boolean shouldPerformStructuralSearch(String query) {
-        String lower = query.toLowerCase();
-        return lower.contains("call") || lower.contains("use") || 
-               lower.contains("extend") || lower.contains("implement") ||
-               lower.contains("override") || lower.contains("inherit") ||
-               lower.contains("depend");
-    }
-    
-    /**
-     * Extracts keywords from query for hybrid search.
-     */
-    private List<String> extractKeywords(String query) {
-        // Simple keyword extraction
-        return Arrays.stream(query.toLowerCase().split("\\s+"))
-            .filter(word -> word.length() > 2)
-            .filter(word -> !isStopWord(word))
-            .distinct()
-            .collect(Collectors.toList());
-    }
-    
-    private boolean isStopWord(String word) {
-        Set<String> stopWords = Set.of(
-            "the", "and", "for", "with", "from", "that", "this", "what", "where",
-            "how", "when", "which", "who", "why", "are", "was", "were", "been"
-        );
-        return stopWords.contains(word);
     }
     
     /**

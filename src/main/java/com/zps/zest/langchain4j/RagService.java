@@ -8,6 +8,8 @@ import com.intellij.psi.PsiFile;
 import com.zps.zest.rag.CodeSignature;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;
+import com.zps.zest.langchain4j.util.CodeSearchUtils;
+import com.zps.zest.langchain4j.util.SearchResultConverter;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -102,7 +104,12 @@ public final class RagService {
      * @param signature The code signature to index
      */
     public void indexCodeSignature(CodeSignature signature) {
-        String content = buildSignatureContent(signature);
+        if (!CodeSearchUtils.isValidForIndexing(signature)) {
+            LOG.warn("Invalid signature for indexing: " + signature);
+            return;
+        }
+        
+        String content = CodeSearchUtils.buildSignatureContent(signature);
         
         // Create metadata map for the segment
         Map<String, String> segmentMetadata = new HashMap<>();
@@ -114,33 +121,10 @@ public final class RagService {
         
         float[] embedding = embeddingService.embed(content);
         
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("type", "signature");
-        metadata.put("signature_id", signature.getId());
-        metadata.put("signature_type", extractSignatureType(signature));
-        metadata.put("file_path", signature.getFilePath());
-        
-        // Add additional metadata from signature
-        try {
-            com.google.gson.JsonObject sigMetadata = com.google.gson.JsonParser
-                .parseString(signature.getMetadata())
-                .getAsJsonObject();
-            
-            if (sigMetadata.has("qualifiedName")) {
-                metadata.put("qualified_name", sigMetadata.get("qualifiedName").getAsString());
-            }
-            if (sigMetadata.has("package")) {
-                metadata.put("package", sigMetadata.get("package").getAsString());
-            }
-            if (sigMetadata.has("class")) {
-                metadata.put("class_name", sigMetadata.get("class").getAsString());
-            }
-            if (sigMetadata.has("name")) {
-                metadata.put("element_name", sigMetadata.get("name").getAsString());
-            }
-        } catch (Exception e) {
-            // Ignore metadata parsing errors
-        }
+        Map<String, Object> metadata = CodeSearchUtils.createVectorMetadata(signature, Map.of(
+            "type", "signature",
+            "signature_type", CodeSearchUtils.extractSignatureType(signature)
+        ));
         
         vectorStore.store(signature.getId(), embedding, segment, metadata);
     }
@@ -162,7 +146,7 @@ public final class RagService {
                 
                 if (useHybridSearch) {
                     // Extract keywords from query
-                    List<String> keywords = extractKeywords(query);
+                    List<String> keywords = CodeSearchUtils.extractKeywords(query);
                     results = vectorStore.hybridSearch(queryEmbedding, keywords, limit, hybridSearchVectorWeight);
                 } else {
                     results = vectorStore.search(queryEmbedding, limit);
@@ -170,7 +154,7 @@ public final class RagService {
                 
                 // Convert to our SearchResult format
                 return results.stream()
-                    .map(this::convertSearchResult)
+                    .map(SearchResultConverter::fromVectorStoreResult)
                     .collect(Collectors.toList());
                     
             } catch (Exception e) {
@@ -200,7 +184,7 @@ public final class RagService {
                 );
                 
                 return results.stream()
-                    .map(this::convertSearchResult)
+                    .map(SearchResultConverter::fromVectorStoreResult)
                     .collect(Collectors.toList());
                     
             } catch (Exception e) {
@@ -222,12 +206,6 @@ public final class RagService {
         return stats;
     }
     
-    private void convertMetadata(Metadata from, Map<String, Object> to) {
-        // Convert LangChain4j Metadata to our Map format
-        for (String key : from.toMap().keySet()) {
-            to.put(key, from.get(key));
-        }
-    }
     
     /**
      * Clears all indexed content.
@@ -243,67 +221,6 @@ public final class RagService {
     public void configureSearch(boolean useHybridSearch, double hybridSearchVectorWeight) {
         this.useHybridSearch = useHybridSearch;
         this.hybridSearchVectorWeight = Math.max(0, Math.min(1, hybridSearchVectorWeight));
-    }
-    
-    private String buildSignatureContent(CodeSignature signature) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(signature.getSignature()).append("\n");
-        sb.append("ID: ").append(signature.getId()).append("\n");
-        
-        // Parse metadata to add more context
-        try {
-            com.google.gson.JsonObject metadata = com.google.gson.JsonParser
-                .parseString(signature.getMetadata())
-                .getAsJsonObject();
-                
-            if (metadata.has("javadoc")) {
-                String javadoc = metadata.get("javadoc").getAsString();
-                if (javadoc != null && !javadoc.isEmpty()) {
-                    sb.append("\n").append(javadoc);
-                }
-            }
-        } catch (Exception e) {
-            // Ignore metadata parsing errors
-        }
-        
-        return sb.toString();
-    }
-    
-    private String extractSignatureType(CodeSignature signature) {
-        try {
-            com.google.gson.JsonObject metadata = com.google.gson.JsonParser
-                .parseString(signature.getMetadata())
-                .getAsJsonObject();
-            return metadata.has("type") ? metadata.get("type").getAsString() : "unknown";
-        } catch (Exception e) {
-            return "unknown";
-        }
-    }
-    
-    private List<String> extractKeywords(String query) {
-        // Simple keyword extraction - can be improved with NLP
-        return Arrays.stream(query.toLowerCase().split("\\s+"))
-            .filter(word -> word.length() > 2)
-            .filter(word -> !isStopWord(word))
-            .distinct()
-            .collect(Collectors.toList());
-    }
-    
-    private boolean isStopWord(String word) {
-        Set<String> stopWords = Set.of(
-            "the", "and", "for", "with", "from", "that", "this", "what", "where",
-            "how", "when", "which", "who", "why", "are", "was", "were", "been"
-        );
-        return stopWords.contains(word);
-    }
-    
-    private SearchResult convertSearchResult(VectorStore.SearchResult result) {
-        return new SearchResult(
-            result.getId(),
-            result.getTextSegment().text(),
-            result.getMetadata(),
-            result.getScore()
-        );
     }
     
     /**

@@ -15,6 +15,7 @@ import com.zps.zest.langchain4j.index.StructuralIndex;
 import com.zps.zest.rag.CodeSignature;
 import com.zps.zest.rag.SignatureExtractor;
 import com.zps.zest.rag.ProjectInfoExtractor;
+import com.zps.zest.langchain4j.util.CodeSearchUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -162,9 +163,9 @@ public final class HybridIndexManager {
                 
                 for (CodeSignature signature : signatures) {
                     try {
-                        // Skip signatures with null ID
-                        if (signature.getId() == null) {
-                            LOG.warn("Skipping signature with null ID in file: " + file.getName());
+                        // Skip invalid signatures
+                        if (!CodeSearchUtils.isValidForIndexing(signature)) {
+                            LOG.warn("Skipping invalid signature in file: " + file.getName());
                             continue;
                         }
                         
@@ -210,31 +211,8 @@ public final class HybridIndexManager {
      * Indexes in the name-based index.
      */
     private void indexInNameIndex(CodeSignature signature, VirtualFile file) throws IOException {
-        // Skip if ID is null
-        if (signature.getId() == null) {
-            LOG.warn("Cannot index signature with null ID");
-            return;
-        }
-        
-        Map<String, String> additionalFields = new HashMap<>();
-        
-        // Extract additional metadata
-        try {
-            com.google.gson.JsonObject metadata = com.google.gson.JsonParser
-                .parseString(signature.getMetadata())
-                .getAsJsonObject();
-                
-            if (metadata.has("javadoc")) {
-                additionalFields.put("javadoc", metadata.get("javadoc").getAsString());
-            }
-            if (metadata.has("package")) {
-                additionalFields.put("package_name", metadata.get("package").getAsString());
-            }
-        } catch (Exception e) {
-            // Ignore metadata parsing errors
-        }
-        
-        String type = extractSignatureType(signature);
+        Map<String, String> additionalFields = CodeSearchUtils.extractSignatureMetadata(signature);
+        String type = CodeSearchUtils.extractSignatureType(signature);
         
         nameIndex.indexElement(
             signature.getId(),
@@ -249,42 +227,36 @@ public final class HybridIndexManager {
      * Indexes in the semantic index with embeddings.
      */
     private void indexInSemanticIndex(CodeSignature signature, PsiElement psiElement) {
-        // Skip if ID is null
-        if (signature.getId() == null) {
-            LOG.warn("Cannot index signature with null ID in semantic index");
-            return;
-        }
-        
         // Generate rich embedding content
         CodeEmbeddingGenerator.EmbeddingContent content = 
             embeddingGenerator.generateEmbedding(signature, psiElement);
         
-        // Create metadata
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("signature_id", signature.getId());
-        metadata.put("type", content.getElementType());
-        metadata.put("file_path", signature.getFilePath());
+        // Create metadata using utility
+        Map<String, Object> additionalMetadata = new HashMap<>();
+        additionalMetadata.put("type", content.getElementType());
         
         // Add context metadata
         if (content.getContext() != null) {
             CodeEmbeddingGenerator.ContextInfo ctx = content.getContext();
             if (ctx.getPackageName() != null) {
-                metadata.put("package", ctx.getPackageName());
+                additionalMetadata.put("package", ctx.getPackageName());
             }
             if (ctx.getContainingClass() != null) {
-                metadata.put("class_name", ctx.getContainingClass());
+                additionalMetadata.put("class_name", ctx.getContainingClass());
             }
             if (ctx.getReturnType() != null) {
-                metadata.put("return_type", ctx.getReturnType());
+                additionalMetadata.put("return_type", ctx.getReturnType());
             }
         }
         
         // Add metrics
         if (content.getMetrics() != null) {
             CodeEmbeddingGenerator.CodeMetrics metrics = content.getMetrics();
-            metadata.put("loc", metrics.getLinesOfCode());
-            metadata.put("complexity", metrics.getCyclomaticComplexity());
+            additionalMetadata.put("loc", metrics.getLinesOfCode());
+            additionalMetadata.put("complexity", metrics.getCyclomaticComplexity());
         }
+        
+        Map<String, Object> metadata = CodeSearchUtils.createVectorMetadata(signature, additionalMetadata);
         
         // Index in semantic index
         semanticIndex.indexElement(
@@ -298,13 +270,7 @@ public final class HybridIndexManager {
      * Indexes structural relationships.
      */
     private void indexInStructuralIndex(CodeSignature signature, PsiElement element) {
-        // Skip if ID is null
-        if (signature.getId() == null) {
-            LOG.warn("Cannot index signature with null ID in structural index");
-            return;
-        }
-        
-        String type = extractSignatureType(signature);
+        String type = CodeSearchUtils.extractSignatureType(signature);
         StructuralIndex.ElementStructure structure = 
             new StructuralIndex.ElementStructure(signature.getId(), type);
         
@@ -470,20 +436,6 @@ public final class HybridIndexManager {
         }
         String name = file.getName();
         return name.endsWith(".java") || name.endsWith(".kt") || name.endsWith(".kts");
-    }
-    
-    /**
-     * Extracts signature type from metadata.
-     */
-    private String extractSignatureType(CodeSignature signature) {
-        try {
-            com.google.gson.JsonObject metadata = com.google.gson.JsonParser
-                .parseString(signature.getMetadata())
-                .getAsJsonObject();
-            return metadata.has("type") ? metadata.get("type").getAsString() : "unknown";
-        } catch (Exception e) {
-            return "unknown";
-        }
     }
     
     /**

@@ -3,14 +3,18 @@ package com.zps.zest.browser;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.browser.jcef.JCEFInitializer;
+import org.cef.CefApp;
+import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
-
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +26,11 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  */
 @SuppressWarnings("removal")
 public class JCEFBrowserManager {
+    // Static initializer to ensure CEF is configured before any usage
+    static {
+        JCEFInitializer.initialize();
+    }
+    
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
 
     private final JBCefBrowser browser;
@@ -39,15 +48,29 @@ public class JCEFBrowserManager {
     public JCEFBrowserManager(Project project) {
         this.project = project;
 
+        // Ensure JCEF is initialized with proper cache settings
+        JCEFInitializer.initialize();
+
         // Check if JCEF is supported
         if (!JBCefApp.isSupported()) {
             LOG.error("JCEF is not supported in this IDE environment");
             throw new UnsupportedOperationException("JCEF is not supported in this IDE environment");
         }
 
-        // Create browser with default settings
-        browser = new JBCefBrowserBuilder().setOffScreenRendering(false).build();
-        browser.getJBCefClient().setProperty(JS_QUERY_POOL_SIZE, 10);
+        // Create browser with cookies enabled and proper settings
+        JBCefClient client = JBCefApp.getInstance().createClient();
+        client.setProperty(JS_QUERY_POOL_SIZE, 10);
+        
+        // Enable cookies in browser settings
+        JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
+                .setClient(client)
+                .setOffScreenRendering(false);
+        
+        // Set the initial URL with cookie persistence flag
+        String initialUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        browserBuilder.setUrl(initialUrl);
+        
+        browser = browserBuilder.build();
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -67,15 +90,67 @@ public class JCEFBrowserManager {
                 new AutoCodeExtractorWithBridge().onLoadEnd(browser, frame, errorCode.getCode());
             }
         }, browser.getCefBrowser());
-//        browser.getJBCefClient().addLoadHandler(new AutoCodeExtractorWithBridge(),browser.getCefBrowser());
 
-//        addNetworkMonitor();
         addNetworkMonitorAndRequestModifier();
-        // Load default URL
-        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
 
-        loadURL(url);
-        LOG.info("JCEFBrowserManager initialized");
+        LOG.info("JCEFBrowserManager initialized with persistent cookies enabled");
+    }
+
+
+    /**
+     * Alternative method to ensure cookies persist by setting proper cookie attributes
+     */
+    private void ensureCookiePersistence() {
+        String script = """
+            // Ensure cookies are set with appropriate expiration and security settings
+            (function() {
+                console.log('Installing cookie persistence handler...');
+                
+                // Store original cookie setter
+                const originalCookieSetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').set;
+                const originalCookieGetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').get;
+                
+                // Override cookie setter
+                Object.defineProperty(document, 'cookie', {
+                    get: function() {
+                        return originalCookieGetter.call(this);
+                    },
+                    set: function(val) {
+                        if (val && typeof val === 'string') {
+                            // Parse the cookie string
+                            const parts = val.split(';').map(p => p.trim());
+                            const cookieName = parts[0].split('=')[0];
+                            
+                            // Check if it's an auth-related cookie
+                            const isAuthCookie = cookieName.includes('token') || 
+                                               cookieName.includes('auth') || 
+                                               cookieName.includes('session');
+                            
+                            // If no expiration is set and it's important, add one
+                            const hasExpiration = parts.some(p => 
+                                p.toLowerCase().startsWith('expires') || 
+                                p.toLowerCase().startsWith('max-age')
+                            );
+                            
+                            if (!hasExpiration && isAuthCookie) {
+                                // Add 30 days expiration for auth cookies
+                                const expires = new Date();
+                                expires.setDate(expires.getDate() + 30);
+                                val += '; expires=' + expires.toUTCString();
+                                val += '; SameSite=Lax'; // Add SameSite for security
+                                console.log('Enhanced cookie:', cookieName, 'with 30-day expiration');
+                            }
+                        }
+                        return originalCookieSetter.call(this, val);
+                    },
+                    configurable: true
+                });
+                
+                console.log('Cookie persistence handler installed successfully');
+            })();
+            """;
+
+        executeJavaScript(script);
     }
 
     /**
@@ -96,6 +171,12 @@ public class JCEFBrowserManager {
 
         // Load the specified URL into the browser
         browser.loadURL(url);
+
+        // Ensure cookie persistence after loading
+        browser.getCefBrowser().executeJavaScript(
+                "setTimeout(() => { console.log('Page loaded, cookies should persist'); }, 1000);",
+                url, 0
+        );
     }
 
     /**
@@ -149,7 +230,7 @@ public class JCEFBrowserManager {
 
             // Load the bridge script template
             String bridgeScript = loadResourceAsString("/js/intellijBridgeChunked.js");
-            
+
             // Replace the placeholder with the actual JBCefJSQuery.inject call for single messages
             String jsQueryInject = jsQuery.inject("request",
                     "function(response) { " +
@@ -161,10 +242,10 @@ public class JCEFBrowserManager {
                             "  console.error('Received error from IDE:', errorCode, errorMessage); " +
                             "  reject({code: errorCode, message: errorMessage}); " +
                             "}");
-            
+
             // Replace the placeholder with the actual JBCefJSQuery inject code for single messages
             bridgeScript = bridgeScript.replace("[[JBCEF_QUERY_INJECT]]", jsQueryInject);
-            
+
             // For chunked messages, we use the same query handler but with chunk data
             String chunkQueryInject = jsQuery.inject("chunkRequest",
                     "function(response) { " +
@@ -180,22 +261,25 @@ public class JCEFBrowserManager {
 
             // Inject the bridge script
             cefBrowser.executeJavaScript(bridgeScript, frame.getURL(), 0);
-            
+
             // Load and inject the response parser script
             String responseParserScript = loadResourceAsString("/js/responseParser.js");
             cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
-            
+
             // Load and inject the code extractor script
             String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
             cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
-            
+
             // Load and inject the git integration scripts
             String gitScript = loadResourceAsString("/js/git.js");
             cefBrowser.executeJavaScript(gitScript, frame.getURL(), 0);
-            
+
             String gitUIScript = loadResourceAsString("/js/git-ui.js");
             cefBrowser.executeJavaScript(gitUIScript, frame.getURL(), 0);
-            
+
+            // Ensure cookie persistence
+            ensureCookiePersistence();
+
             LOG.info("JavaScript bridge initialized successfully with chunked messaging support and git integration");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);

@@ -266,6 +266,14 @@
                 description="Test the autonomous code exploration agent">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQueryAugmentation"/>
         </action>
+        
+        <!-- Test Streaming LLM -->
+        <action id="Zest.TestStreamingLLM"
+                class="com.zps.zest.langchain4j.TestStreamingLLMAction"
+                text="Test Streaming LLM"
+                description="Test the streaming LLM service">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>
+        </action>
 
         <!-- DEVELOPER TOOLS -->
         

@@ -9,14 +9,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.zps.zest.CodeContext;
-import com.zps.zest.ConfigurationManager;
-import com.zps.zest.LlmApiCallStage;
 import com.zps.zest.langchain4j.CodeSearchUtility;
 import com.zps.zest.langchain4j.HybridIndexManager;
 import com.zps.zest.langchain4j.index.NameIndex;
 import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
+import com.zps.zest.langchain4j.util.LLMService;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,6 +38,7 @@ public final class QueryAugmentationAgent {
     private final Project project;
     private final HybridIndexManager indexManager;
     private final CodeSearchUtility searchUtility;
+    private final LLMService llmService;
 
     // Common code patterns to look for
     private static final Map<String, List<String>> PATTERN_KEYWORDS = Map.of(
@@ -80,6 +79,7 @@ public final class QueryAugmentationAgent {
         this.project = project;
         this.indexManager = project.getService(HybridIndexManager.class);
         this.searchUtility = project.getService(CodeSearchUtility.class);
+        this.llmService = project.getService(LLMService.class);
         LOG.info("Initialized QueryAugmentationAgent for project: " + project.getName());
     }
 
@@ -167,8 +167,7 @@ public final class QueryAugmentationAgent {
      */
     private String generateSmartQuestions(String userQuery, QueryAnalysis analysis) {
         try {
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            if (config.getApiUrl() == null || config.getApiUrl().isEmpty()) {
+            if (!llmService.isConfigured()) {
                 // Fallback to rule-based questions if no LLM configured
                 return formatReflectiveQuestions(generateReflectiveQuestions(userQuery, analysis));
             }
@@ -198,16 +197,9 @@ public final class QueryAugmentationAgent {
                     getAmbiguityReasons(userQuery, analysis)
             );
 
-            // Call LLM
-            CodeContext context = new CodeContext();
-            context.setProject(project);
-            context.setConfig(ConfigurationManager.getInstance(project));
-            context.setPrompt(prompt);  // This was missing!
-
-            LlmApiCallStage llmStage = new LlmApiCallStage();
-            llmStage.process(context);
-
-            String response = context.getApiResponse();
+            // Call LLM using the new service
+            String response = llmService.query(prompt);
+            
             if (response != null && !response.isEmpty()) {
                 return "The agent needs clarification:\n" + response;
             }
@@ -225,8 +217,7 @@ public final class QueryAugmentationAgent {
      */
     private String performQuickExploration(String userQuery, String codeContext) {
         try {
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            if (config.getApiUrl() == null || config.getApiUrl().isEmpty()) {
+            if (!llmService.isConfigured()) {
                 return ""; // No LLM available
             }
 
@@ -250,16 +241,9 @@ public final class QueryAugmentationAgent {
                     codeContext.length() > 1000 ? codeContext.substring(0, 1000) + "..." : codeContext
             );
 
-            // Call LLM
-            CodeContext context = new CodeContext();
-            context.setProject(project);
-            context.setConfig(ConfigurationManager.getInstance(project));
-            context.setPrompt(prompt);
-
-            LlmApiCallStage llmStage = new LlmApiCallStage();
-            llmStage.process(context);
-
-            String response = context.getApiResponse();
+            // Call LLM using the new service
+            String response = llmService.query(prompt);
+            
             if (response != null && !response.isEmpty()) {
                 return response;
             }

@@ -3,15 +3,11 @@ package com.zps.zest.langchain4j.agent;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.CodeContext;
-import com.zps.zest.ConfigurationManager;
-import com.zps.zest.LlmApiCallStage;
-import com.zps.zest.PipelineExecutionException;
+import com.zps.zest.langchain4j.util.LLMService;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,7 +22,7 @@ public final class AutonomousCodeExplorationAgent {
 
     private final Project project;
     private final QueryAugmentationAgent augmentationAgent;
-    private final LlmApiCallStage llmService;
+    private final LLMService llmService;
 
     // Exploration configuration
     private static final int MAX_EXPLORATION_DEPTH = 5;
@@ -41,7 +37,7 @@ public final class AutonomousCodeExplorationAgent {
     public AutonomousCodeExplorationAgent(@NotNull Project project) {
         this.project = project;
         this.augmentationAgent = project.getService(QueryAugmentationAgent.class);
-        this.llmService = new LlmApiCallStage();
+        this.llmService = project.getService(LLMService.class);
         LOG.info("Initialized AutonomousCodeExplorationAgent");
     }
 
@@ -129,13 +125,11 @@ public final class AutonomousCodeExplorationAgent {
             String analysisPrompt = buildInitialAnalysisPrompt(query, augmentedContext);
 
             // Call LLM for initial analysis
-            CodeContext context = new CodeContext();
-            context.setProject(project);
-            context.setConfig(ConfigurationManager.getInstance(project));
-            context.setPrompt(analysisPrompt);
-            llmService.process(context);
-
-            String response = context.getApiResponse();
+            String response = llmService.query(analysisPrompt);
+            
+            if (response == null) {
+                return "Failed to get response from LLM";
+            }
 
             // Extract questions from the response
             List<String> questions = extractQuestions(response);
@@ -170,13 +164,13 @@ public final class AutonomousCodeExplorationAgent {
             String explorationPrompt = buildExplorationPrompt(question, augmentedContext, session);
 
             // Call LLM
-            CodeContext context = new CodeContext();
-            context.setProject(project);
-            context.setConfig(ConfigurationManager.getInstance(project));
-            context.setPrompt(explorationPrompt);
-            llmService.process(context);
-
-            String response = context.getApiResponse();
+            String response = llmService.query(explorationPrompt);
+            
+            if (response == null) {
+                result.answer = "Failed to get response from LLM";
+                return result;
+            }
+            
             result.answer = response;
 
             // Extract new questions (limit to avoid infinite exploration)
@@ -285,13 +279,8 @@ public final class AutonomousCodeExplorationAgent {
                     session.getKnowledgeSummary()
             );
 
-            CodeContext context = new CodeContext();
-            context.setProject(project);
-            context.setConfig(ConfigurationManager.getInstance(project));
-            context.setPrompt(summaryPrompt);
-            llmService.process(context);
-
-            return context.getApiResponse();
+            String response = llmService.query(summaryPrompt);
+            return response != null ? response : "Failed to generate summary";
 
         } catch (Exception e) {
             LOG.error("Error generating summary", e);

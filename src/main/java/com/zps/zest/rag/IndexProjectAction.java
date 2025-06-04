@@ -30,8 +30,8 @@ public class IndexProjectAction extends AnAction {
         );
         
         if (result == Messages.YES) {
-            RagAgent ragAgent = RagAgent.getInstance(project);
-            ragAgent.indexProject(true);
+            OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+            openWebUIRagAgent.indexProject(true);
             
             Messages.showInfoMessage(
                 "Project indexing started in background.\n" +

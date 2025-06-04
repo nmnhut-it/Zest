@@ -7,7 +7,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.rag.RagAgent;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 import com.zps.zest.rag.models.KnowledgeCollection;
 import org.jetbrains.annotations.NotNull;
 
@@ -226,10 +226,10 @@ public class JavaScriptBridgeActions {
             String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
             if (knowledgeId != null && !knowledgeId.isEmpty()) {
                 // Get the RAG agent instance
-                RagAgent ragAgent = RagAgent.getInstance(project);
+                OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
                 
                 // Fetch the complete knowledge collection
-                KnowledgeCollection collection = ragAgent.getKnowledgeCollection(knowledgeId);
+                KnowledgeCollection collection = openWebUIRagAgent.getKnowledgeCollection(knowledgeId);
                 
                 if (collection != null) {
                     response.addProperty("success", true);

@@ -7,7 +7,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent.*;
-import com.zps.zest.rag.RagAgent;
+import com.zps.zest.langchain4j.HybridIndexManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -33,14 +33,12 @@ public class ExplorationService {
     }
     
     /**
-     * Checks if the project has a local RAG index (separate from OpenWebUI knowledge).
-     * This is used by the exploration agent's tools.
+     * Checks if the project has been indexed for code exploration.
+     * This uses the HybridIndexManager which provides the indices for search tools.
      */
-    private boolean checkLocalRagIndex() {
-        // Check if the RagAgent has built a local index
-        // This could be checking for cached signatures or a local index file
-        RagAgent ragAgent = RagAgent.getInstance(project);
-        return ragAgent.hasLocalIndex();
+    private boolean checkHybridIndex() {
+        HybridIndexManager hybridIndexManager = project.getService(HybridIndexManager.class);
+        return hybridIndexManager.hasIndex();
     }
     
     /**
@@ -48,37 +46,51 @@ public class ExplorationService {
      */
     public String startExploration(JsonObject data) {
         try {
-            // Check if project has local RAG index (not OpenWebUI knowledge)
-            boolean hasLocalIndex = checkLocalRagIndex();
-            if (!hasLocalIndex) {
-                LOG.info("Project not indexed locally - triggering automatic local indexing");
+            // Check if project has hybrid index for code exploration
+            boolean hasIndex = checkHybridIndex();
+            if (!hasIndex) {
+                LOG.info("Project not indexed - triggering automatic hybrid indexing");
                 
                 // Notify browser that indexing is starting
                 JsonObject indexingResponse = new JsonObject();
                 indexingResponse.addProperty("success", false);
                 indexingResponse.addProperty("indexing", true);
-                indexingResponse.addProperty("message", "Building local code index for exploration...");
+                indexingResponse.addProperty("message", "Building hybrid code index for exploration...");
                 
-                // Start local indexing asynchronously
+                // Start hybrid indexing asynchronously
                 ApplicationManager.getApplication().executeOnPooledThread(() -> {
                     try {
-                        // Trigger local indexing (this builds the local index for agent tools)
-                        RagAgent ragAgent = RagAgent.getInstance(project);
-                        ragAgent.buildLocalIndex(); // New method for local-only indexing
+                        // Trigger hybrid indexing (this builds the indices for search tools)
+                        HybridIndexManager hybridIndexManager = project.getService(HybridIndexManager.class);
+                        CompletableFuture<Boolean> indexingFuture = hybridIndexManager.indexProjectAsync(false);
                         
-                        LOG.info("Local project index built successfully");
-                        
-                        // Notify browser that indexing is complete
-                        ApplicationManager.getApplication().invokeLater(() -> {
-                            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
-                            if (browserPanel != null) {
-                                String script = "if (window.handleIndexingComplete) { window.handleIndexingComplete(); }";
-                                browserPanel.executeJavaScript(script);
+                        indexingFuture.thenAccept(success -> {
+                            if (success) {
+                                LOG.info("Hybrid project index built successfully");
+                                
+                                // Notify browser that indexing is complete
+                                ApplicationManager.getApplication().invokeLater(() -> {
+                                    WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                                    if (browserPanel != null) {
+                                        String script = "if (window.handleIndexingComplete) { window.handleIndexingComplete(); }";
+                                        browserPanel.executeJavaScript(script);
+                                    }
+                                });
+                            } else {
+                                LOG.error("Failed to build hybrid index");
+                                // Notify browser of indexing failure
+                                ApplicationManager.getApplication().invokeLater(() -> {
+                                    WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                                    if (browserPanel != null) {
+                                        String script = "if (window.handleIndexingError) { window.handleIndexingError('Failed to build hybrid index'); }";
+                                        browserPanel.executeJavaScript(script);
+                                    }
+                                });
                             }
                         });
                         
                     } catch (Exception e) {
-                        LOG.error("Error during local indexing", e);
+                        LOG.error("Error during hybrid indexing", e);
                         // Notify browser of indexing error
                         ApplicationManager.getApplication().invokeLater(() -> {
                             WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();

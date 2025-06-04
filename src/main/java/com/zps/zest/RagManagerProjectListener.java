@@ -5,7 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
-import com.zps.zest.rag.RagAgent;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -44,8 +44,8 @@ public class RagManagerProjectListener implements ProjectManagerListener {
                     );
                     
                     if (result == Messages.YES) {
-                        RagAgent ragAgent = RagAgent.getInstance(project);
-                        ragAgent.indexProject(false);
+                        OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+                        openWebUIRagAgent.indexProject(false);
                     }
                 });
             }

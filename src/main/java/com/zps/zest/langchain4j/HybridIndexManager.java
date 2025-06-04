@@ -21,6 +21,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -95,6 +96,38 @@ public final class HybridIndexManager {
                 }
             }
         });
+    }
+    
+    /**
+     * Indexes the entire project and returns a CompletableFuture.
+     * @return CompletableFuture that completes when indexing is done
+     */
+    public CompletableFuture<Boolean> indexProjectAsync(boolean forceReindex) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        
+        if (isIndexing) {
+            LOG.info("Indexing already in progress");
+            future.complete(false);
+            return future;
+        }
+        
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    isIndexing = true;
+                    performBatchIndexing(indicator, forceReindex);
+                    future.complete(true);
+                } catch (Exception e) {
+                    LOG.error("Error during indexing", e);
+                    future.complete(false);
+                } finally {
+                    isIndexing = false;
+                }
+            }
+        });
+        
+        return future;
     }
     
     /**
@@ -445,6 +478,22 @@ public final class HybridIndexManager {
         stats.put("structural_index", structuralIndex != null ? structuralIndex.getStatistics() : Map.of("ready", false));
         
         return stats;
+    }
+    
+    /**
+     * Checks if the project has been indexed.
+     * @return true if the project has indexed files and signatures, false otherwise
+     */
+    public boolean hasIndex() {
+        return totalFilesIndexed.get() > 0 && totalSignaturesIndexed.get() > 0 && !indexedFiles.isEmpty();
+    }
+    
+    /**
+     * Checks if indexing is currently in progress.
+     * @return true if indexing is running, false otherwise
+     */
+    public boolean isIndexing() {
+        return isIndexing;
     }
     
     /**

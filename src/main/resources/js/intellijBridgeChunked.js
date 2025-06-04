@@ -11,7 +11,7 @@ window.intellijBridge = {
   config: {
     maxChunkSize: 1400,  // Maximum size per chunk (under 1.4KB limit)
     chunkPrefix: '__CHUNK__',
-    sessionTimeout: 60000  // 60 seconds timeout for chunked sessions
+    sessionTimeout: 600000  // 60 seconds timeout for chunked sessions
   },
   
   // Active chunked message sessions

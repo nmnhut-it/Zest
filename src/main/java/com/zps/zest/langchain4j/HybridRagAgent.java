@@ -5,7 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.zps.zest.rag.CodeSignature;
-import com.zps.zest.rag.RagAgent;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -20,7 +20,7 @@ public final class HybridRagAgent {
     private static final Logger LOG = Logger.getInstance(HybridRagAgent.class);
     
     private final Project project;
-    private final RagAgent openWebUIAgent;
+    private final OpenWebUIRagAgent openWebUIAgent;
     private final RagService langChainService;
     
     // Configuration
@@ -29,7 +29,7 @@ public final class HybridRagAgent {
     
     public HybridRagAgent(Project project) {
         this.project = project;
-        this.openWebUIAgent = RagAgent.getInstance(project);
+        this.openWebUIAgent = OpenWebUIRagAgent.getInstance(project);
         this.langChainService = project.getService(RagService.class);
         
         LOG.info("Initialized Hybrid RAG Agent combining LangChain4j and OpenWebUI");
@@ -69,7 +69,7 @@ public final class HybridRagAgent {
         CompletableFuture<List<RagService.SearchResult>> localSearchFuture = 
             langChainService.search(query, limit * 2);
             
-        CompletableFuture<List<RagAgent.CodeMatch>> cloudSearchFuture = 
+        CompletableFuture<List<OpenWebUIRagAgent.CodeMatch>> cloudSearchFuture =
             openWebUIAgent.findRelatedCode(query);
         
         // Combine results when both complete
@@ -89,7 +89,7 @@ public final class HybridRagAgent {
             
             // Convert cloud results
             double cloudWeight = 1.0 - localWeight;
-            for (RagAgent.CodeMatch cloud : cloudResults) {
+            for (OpenWebUIRagAgent.CodeMatch cloud : cloudResults) {
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("signature_id", cloud.getSignature().getId());
                 metadata.put("file_path", cloud.getSignature().getFilePath());

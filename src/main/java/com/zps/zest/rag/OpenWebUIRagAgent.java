@@ -84,11 +84,15 @@ public final class RagAgent {
     /**
      * Builds a local index for the exploration agent tools (separate from OpenWebUI).
      * This index is used by the ImprovedToolCallingAutonomousAgent's RAG search tool.
+     * @return CompletableFuture that completes with true if successful, false otherwise
      */
-    public void buildLocalIndex() {
+    public CompletableFuture<Boolean> buildLocalIndex() {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        
         if (isIndexing) {
             LOG.info("Local indexing already in progress");
-            return;
+            future.complete(false);
+            return future;
         }
 
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Building Local Code Index", true) {
@@ -98,14 +102,18 @@ public final class RagAgent {
                     isIndexing = true;
                     performLocalIndexing(indicator);
                     hasLocalIndex = true;
+                    future.complete(true);
                 } catch (Exception e) {
                     LOG.error("Error during local indexing", e);
                     hasLocalIndex = false;
+                    future.complete(false);
                 } finally {
                     isIndexing = false;
                 }
             }
         });
+        
+        return future;
     }
     
     /**
@@ -205,11 +213,15 @@ public final class RagAgent {
 
     /**
      * Indexes the entire project.
+     * @return CompletableFuture that completes with true if successful, false otherwise
      */
-    public void indexProject(boolean forceRefresh) {
+    public CompletableFuture<Boolean> indexProject(boolean forceRefresh) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        
         if (isIndexing) {
             LOG.info("Indexing already in progress");
-            return;
+            future.complete(false);
+            return future;
         }
 
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Indexing Project for RAG", true) {
@@ -218,13 +230,17 @@ public final class RagAgent {
                 try {
                     isIndexing = true;
                     performIndexing(indicator, forceRefresh);
+                    future.complete(true);
                 } catch (Exception e) {
                     LOG.error("Error during indexing", e);
+                    future.complete(false);
                 } finally {
                     isIndexing = false;
                 }
             }
         });
+        
+        return future;
     }
     
     /**

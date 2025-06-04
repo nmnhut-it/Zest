@@ -2,9 +2,7 @@ package com.zps.zest.rag;
 
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.tools.AgentTool;
 import com.zps.zest.tools.BaseAgentTool;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -49,10 +47,10 @@ public class RagSearchTool extends BaseAgentTool {
         }
 
         try {
-            RagAgent ragAgent = RagAgent.getInstance(project);
+            OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
 
             // Search for related code
-            List<RagAgent.CodeMatch> matches = ragAgent.findRelatedCode(query)
+            List<OpenWebUIRagAgent.CodeMatch> matches = openWebUIRagAgent.findRelatedCode(query)
                     .get(30, TimeUnit.SECONDS);
 
             if (matches.isEmpty()) {
@@ -63,7 +61,7 @@ public class RagSearchTool extends BaseAgentTool {
             result.append("Found ").append(matches.size()).append(" relevant code elements:\n\n");
 
             int count = 0;
-            for (RagAgent.CodeMatch match : matches) {
+            for (OpenWebUIRagAgent.CodeMatch match : matches) {
                 if (count >= maxResults) break;
 
                 CodeSignature sig = match.getSignature();
@@ -74,7 +72,7 @@ public class RagSearchTool extends BaseAgentTool {
 
                 // Get full code if it's highly relevant
                 if (match.getRelevance() > 0.5) {
-                    String fullCode = ragAgent.getFullCode(sig.getId());
+                    String fullCode = openWebUIRagAgent.getFullCode(sig.getId());
                     if (fullCode != null && !fullCode.isEmpty()) {
                         result.append("\n```java\n");
                         // Limit code length for readability

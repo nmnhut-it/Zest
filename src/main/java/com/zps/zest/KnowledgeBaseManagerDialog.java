@@ -14,7 +14,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBUI;
-import com.zps.zest.rag.RagAgent;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -231,8 +231,8 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         );
         
         if (result == Messages.YES) {
-            RagAgent ragAgent = RagAgent.getInstance(project);
-            ragAgent.indexProject(false);
+            OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+            openWebUIRagAgent.indexProject(false);
             
             Messages.showInfoMessage(
                 "Project indexing started in background.\n" +
@@ -255,8 +255,8 @@ public class KnowledgeBaseManagerDialog extends DialogWrapper {
         );
         
         if (result == Messages.YES) {
-            RagAgent ragAgent = RagAgent.getInstance(project);
-            ragAgent.indexProject(true);
+            OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+            openWebUIRagAgent.indexProject(true);
             
             Messages.showInfoMessage(
                 "Project re-indexing started in background.",

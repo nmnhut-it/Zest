@@ -47,11 +47,77 @@
   };
 
   /**
+   * Handles exploration for Agent Mode
+   * @param {Object} data - The request data
+   * @returns {Promise} Promise that resolves when exploration is complete
+   */
+  async function handleAgentModeExploration(data) {
+    // Find the latest user message
+    let userMessage = null;
+    for (let i = data.messages.length - 1; i >= 0; i--) {
+      if (data.messages[i].role === 'user') {
+        userMessage = data.messages[i].content;
+        break;
+      }
+    }
+    
+    if (!userMessage) {
+      console.log('No user message found for exploration');
+      return;
+    }
+    
+    // Extract the actual query (remove project info if present)
+    const infoEndIndex = userMessage.indexOf('</info>');
+    const actualQuery = infoEndIndex >= 0 
+      ? userMessage.substring(infoEndIndex + 7).trim()
+      : userMessage;
+    
+    console.log('Starting exploration for query:', actualQuery);
+    
+    // Start exploration
+    if (window.startExploration) {
+      const sessionId = await window.startExploration(actualQuery);
+      
+      if (sessionId) {
+        // Wait for exploration to complete (with timeout)
+        const maxWaitTime = 30000; // 30 seconds
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < maxWaitTime) {
+          // Check if exploration is complete
+          if (window.__exploration_result__) {
+            console.log('Exploration complete, enhancing system prompt');
+            
+            // Add exploration results to system prompt
+            const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
+            
+            const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
+            if (systemMsgIndex >= 0) {
+              data.messages[systemMsgIndex].content += explorationContext;
+            }
+            
+            // Clear the result
+            window.__exploration_result__ = null;
+            break;
+          }
+          
+          // Wait a bit before checking again
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        if (Date.now() - startTime >= maxWaitTime) {
+          console.warn('Exploration timed out');
+        }
+      }
+    }
+  }
+
+  /**
    * Enhances request body with real-time project info and dynamic model selection
    * @param {string} body - The original request body
-   * @returns {string} The modified request body
+   * @returns {Promise<string>} The modified request body
    */
-  function enhanceRequestBody(body) {
+  async function enhanceRequestBody(body) {
     if (!body) return body;
 
     try {
@@ -69,6 +135,11 @@
 
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
+        // Handle Agent Mode exploration first
+        if (window.__zest_mode__ === 'Agent Mode' && window.startExploration) {
+          await handleAgentModeExploration(data);
+        }
+        
         // Handle Project Mode enhancement
         if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
           window.enhanceWithProjectKnowledge(data);
@@ -215,11 +286,11 @@
       }
 
       return window.updateProjectInfo()
-        .then(() => {
+        .then(async () => {
           if (newInit.body) {
             const originalBody = newInit.body;
             if (typeof originalBody === 'string') {
-              newInit.body = enhanceRequestBody(originalBody);
+              newInit.body = await enhanceRequestBody(originalBody);
               console.log('Modified string request body');
               return originalFetch(input, newInit).then(handleResponse);
             } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {
@@ -228,12 +299,16 @@
             } else if (originalBody instanceof Blob) {
               return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = function() {
-                  const bodyText = reader.result;
-                  const modifiedBody = enhanceRequestBody(bodyText);
-                  newInit.body = modifiedBody;
-                  resolve(originalFetch(input, newInit)
-                    .then(handleResponse));
+                reader.onload = async function() {
+                  try {
+                    const bodyText = reader.result;
+                    const modifiedBody = await enhanceRequestBody(bodyText);
+                    newInit.body = modifiedBody;
+                    resolve(originalFetch(input, newInit)
+                      .then(handleResponse));
+                  } catch (error) {
+                    reject(error);
+                  }
                 };
                 reader.onerror = function() {
                   reject(reader.error);
@@ -242,8 +317,8 @@
               });
             }
           } else if (input instanceof Request) {
-            return input.clone().text().then(body => {
-              const modifiedBody = enhanceRequestBody(body);
+            return input.clone().text().then(async body => {
+              const modifiedBody = await enhanceRequestBody(body);
               const newRequest = new Request(input, {
                 method: input.method,
                 headers: input.headers,

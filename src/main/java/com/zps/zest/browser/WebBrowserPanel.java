@@ -11,7 +11,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.ProjectModePromptBuilder;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -143,22 +142,6 @@ public class WebBrowserPanel {
                 AllIcons.Actions.IntentionBulb,
                 "It's like you have boss behind your back",
                 p -> ConfigurationManager.getInstance(p).getBossPrompt()
-        ));
-
-        // Add Project Mode
-        browserModes.add(new BrowserMode(
-                "Project Mode",
-                AllIcons.Nodes.Package,
-                "Enhanced project understanding with RAG",
-                p -> new ProjectModePromptBuilder(p).buildPrompt()
-        ));
-
-        // Add Augmented Mode
-        browserModes.add(new BrowserMode(
-                "Augmented Mode",
-                AllIcons.Nodes.Module,
-                "Intelligently augmented queries with relevant code context",
-                p -> "You are an AI assistant with intelligently augmented code context. User queries will include relevant code patterns and relationships discovered automatically."
         ));
 
         // Add Agent Mode

@@ -1,7 +1,6 @@
 package com.zps.zest.browser;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.openapi.application.ApplicationManager;
@@ -10,7 +9,6 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.rag.RagAgent;
 import com.zps.zest.rag.models.KnowledgeCollection;
-import com.zps.zest.langchain4j.QueryAugmentationService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -28,8 +26,7 @@ public class JavaScriptBridgeActions {
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
-    private final QueryAugmentationService queryAugmentationService;
-    private final com.zps.zest.langchain4j.AgentModeAugmentationService agentModeAugmentationService;
+    private final ExplorationService explorationService;
     
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -39,8 +36,7 @@ public class JavaScriptBridgeActions {
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
         this.gitService = new GitService(project);
-        this.queryAugmentationService = project.getService(QueryAugmentationService.class);
-        this.agentModeAugmentationService = project.getService(com.zps.zest.langchain4j.AgentModeAugmentationService.class);
+        this.explorationService = new ExplorationService(project);
     }
     
     /**
@@ -110,12 +106,7 @@ public class JavaScriptBridgeActions {
                     
                 case "getProjectKnowledgeCollection":
                     return getProjectKnowledgeCollection();
-                    
-                case "augmentQuery":
-                    return handleAugmentQuery(data);
-                    
-                case "augmentQueryWithExploration":
-                    return handleAugmentQueryWithExploration(data);
+
                     
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
@@ -147,6 +138,13 @@ public class JavaScriptBridgeActions {
                 case "contentUpdated":
                     return handleContentUpdated(data);
                 
+                // Exploration actions
+                case "startExploration":
+                    return explorationService.startExploration(data);
+                    
+                case "getExplorationStatus":
+                    return explorationService.getExplorationStatus(data);
+                
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -167,74 +165,7 @@ public class JavaScriptBridgeActions {
             return gson.toJson(errorResponse);
         }
     }
-    
-    /**
-     * Handles query augmentation requests.
-     */
-    private String handleAugmentQuery(JsonObject data) {
-        JsonObject response = new JsonObject();
-        try {
-            String query = data.has("query") ? data.get("query").getAsString() : "";
-            if (query.isEmpty()) {
-                response.addProperty("success", false);
-                response.addProperty("error", "Query is required");
-                return gson.toJson(response);
-            }
-            
-            String augmentedContext = queryAugmentationService.augmentQuery(query);
-            response.addProperty("success", true);
-            response.addProperty("result", augmentedContext);
-            
-        } catch (Exception e) {
-            LOG.error("Error augmenting query", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
-    
-    /**
-     * Handles query augmentation with exploration for Agent Mode and Project Mode.
-     */
-    private String handleAugmentQueryWithExploration(JsonObject data) {
-        JsonObject response = new JsonObject();
-        try {
-            String query = data.has("query") ? data.get("query").getAsString() : "";
-            String mode = data.has("mode") ? data.get("mode").getAsString() : "Agent Mode";
-            
-            if (query.isEmpty()) {
-                response.addProperty("success", false);
-                response.addProperty("error", "Query is required");
-                return gson.toJson(response);
-            }
-            
-            LOG.info("Starting exploration-based augmentation for query: " + query + " in mode: " + mode);
-            
-            // Start the augmentation process asynchronously
-            agentModeAugmentationService.augmentQueryWithExploration(query, mode)
-                .thenAccept(augmentedQuery -> {
-                    // This will be handled asynchronously
-                    LOG.info("Exploration-based augmentation completed");
-                })
-                .exceptionally(ex -> {
-                    LOG.error("Failed to augment query with exploration", ex);
-                    return null;
-                });
-            
-            // Return immediately with a placeholder response
-            // The actual augmented query will be sent via a different mechanism
-            response.addProperty("success", true);
-            response.addProperty("status", "processing");
-            response.addProperty("message", "Exploration started. Results will be provided asynchronously.");
-            
-        } catch (Exception e) {
-            LOG.error("Error starting exploration-based augmentation", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
-    
+
     /**
      * Handles content updated events - kept here as it's specific to browser integration.
      * ORIGINAL IMPLEMENTATION from JavaScriptBridge preserved.
@@ -337,5 +268,6 @@ public class JavaScriptBridgeActions {
         if (fileService != null) fileService.dispose();
         if (chatResponseService != null) chatResponseService.dispose();
         if (gitService != null) gitService.dispose();
+        if (explorationService != null) explorationService.dispose();
     }
 }

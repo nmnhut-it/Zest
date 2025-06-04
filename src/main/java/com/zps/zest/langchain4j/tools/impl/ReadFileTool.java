@@ -3,13 +3,17 @@ package com.zps.zest.langchain4j.tools.impl;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.search.FilenameIndex;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.langchain4j.tools.ThreadSafeCodeExplorationTool;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -21,7 +25,8 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         super(project, "read_file", 
             "Read the contents of a file. " +
             "Example: read_file({\"filePath\": \"src/main/java/User.java\"}) - returns the full content of User.java. " +
-            "Params: filePath (string, required, relative to project root or absolute path)");
+            "Supports: absolute paths, paths relative to project root, paths relative to source roots, and filename search. " +
+            "Params: filePath (string, required)");
     }
     
     @Override
@@ -31,7 +36,7 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         
         JsonObject filePath = new JsonObject();
         filePath.addProperty("type", "string");
-        filePath.addProperty("description", "Path to the file (relative to project root or absolute)");
+        filePath.addProperty("description", "Path to the file (absolute, relative to project root, relative to source roots, or just filename)");
         properties.add("filePath", filePath);
         
         schema.add("properties", properties);
@@ -56,7 +61,7 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
             VirtualFile file = findFile(filePath);
             if (file == null) {
                 return ToolResult.error("File not found: " + filePath + 
-                    ". Ensure path is relative to project root or is a valid absolute path.");
+                    ". Tried searching in: project root, source roots, and by filename index.");
             }
             
             if (file.isDirectory()) {
@@ -122,7 +127,37 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
             }
         }
         
-        return null;
+        // Try as relative path from source roots
+        for (VirtualFile sourceRoot : ProjectRootManager.getInstance(project).getContentSourceRoots()) {
+            file = sourceRoot.findFileByRelativePath(filePath);
+            if (file != null && file.exists()) {
+                return file;
+            }
+        }
+        
+        // If still not found, try to find by filename using index
+        String fileName = new File(filePath).getName();
+        PsiFile[] files = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project));
+        
+        if (files.length == 0) {
+            return null;
+        }
+        
+        // If multiple files with the same name exist, try to find the best match
+        if (files.length > 1 && filePath.contains("/")) {
+            for (PsiFile psiFile : files) {
+                VirtualFile vFile = psiFile.getVirtualFile();
+                if (vFile != null) {
+                    String fullPath = vFile.getPath();
+                    if (fullPath.endsWith(filePath) || fullPath.contains(filePath)) {
+                        return vFile;
+                    }
+                }
+            }
+        }
+        
+        // Return first matching file
+        return files[0].getVirtualFile();
     }
     
     private String getFileExtension(String fileName) {

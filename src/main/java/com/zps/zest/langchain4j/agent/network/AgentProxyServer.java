@@ -27,6 +27,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.UUID;
 
 /**
  * HTTP server that exposes the ImprovedToolCallingAutonomousAgent as a network service.
@@ -40,6 +43,49 @@ public class AgentProxyServer {
     private final int port;
     private final Project project;
     private final AgentProxyConfiguration config;
+    private final List<RequestListener> requestListeners = new ArrayList<>();
+    
+    /**
+     * Interface for monitoring requests.
+     */
+    public interface RequestListener {
+        void onRequestStarted(String requestId, String endpoint, String method);
+        void onRequestCompleted(String requestId, int statusCode, String response);
+        void onRequestFailed(String requestId, String error);
+        void onToolExecuted(String requestId, String toolName, boolean success, String result);
+    }
+    
+    public void addRequestListener(RequestListener listener) {
+        requestListeners.add(listener);
+    }
+    
+    public void removeRequestListener(RequestListener listener) {
+        requestListeners.remove(listener);
+    }
+    
+    private void notifyRequestStarted(String requestId, String endpoint, String method) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestStarted(requestId, endpoint, method);
+        }
+    }
+    
+    private void notifyRequestCompleted(String requestId, int statusCode, String response) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestCompleted(requestId, statusCode, response);
+        }
+    }
+    
+    private void notifyRequestFailed(String requestId, String error) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestFailed(requestId, error);
+        }
+    }
+    
+    private void notifyToolExecuted(String requestId, String toolName, boolean success, String result) {
+        for (RequestListener listener : requestListeners) {
+            listener.onToolExecuted(requestId, toolName, success, result);
+        }
+    }
     
     public AgentProxyServer(Project project, int port, AgentProxyConfiguration config) {
         this.project = project;
@@ -101,10 +147,14 @@ public class AgentProxyServer {
     private class ExploreHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+            
+            notifyRequestStarted(requestId, "/explore", "POST");
             
             try {
                 String requestBody = readRequestBody(exchange);
@@ -121,15 +171,19 @@ public class AgentProxyServer {
                 }
                 
                 // Execute exploration
-                CompletableFuture<JsonObject> future = exploreAsync(query, generateReport, requestConfig);
+                CompletableFuture<JsonObject> future = exploreAsync(query, generateReport, requestConfig, requestId);
                 
                 // Wait for completion with timeout
                 JsonObject result = future.get(requestConfig.getTimeoutSeconds(), TimeUnit.SECONDS);
                 sendJsonResponse(exchange, 200, result);
                 
+                notifyRequestCompleted(requestId, 200, result.toString());
+                
             } catch (Exception e) {
                 LOG.error("Error handling explore request", e);
-                sendError(exchange, 500, "Internal error: " + e.getMessage());
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
             }
         }
     }
@@ -140,10 +194,14 @@ public class AgentProxyServer {
     private class AugmentHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+            
+            notifyRequestStarted(requestId, "/augment", "POST");
             
             try {
                 String requestBody = readRequestBody(exchange);
@@ -152,15 +210,19 @@ public class AgentProxyServer {
                 String query = request.get("query").getAsString();
                 
                 // Execute augmentation
-                CompletableFuture<JsonObject> future = augmentQueryAsync(query);
+                CompletableFuture<JsonObject> future = augmentQueryAsync(query, requestId);
                 
                 // Wait for completion with timeout
                 JsonObject result = future.get(config.getTimeoutSeconds(), TimeUnit.SECONDS);
                 sendJsonResponse(exchange, 200, result);
                 
+                notifyRequestCompleted(requestId, 200, result.toString());
+                
             } catch (Exception e) {
                 LOG.error("Error handling augment request", e);
-                sendError(exchange, 500, "Internal error: " + e.getMessage());
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
             }
         }
     }
@@ -257,10 +319,14 @@ public class AgentProxyServer {
     private class ExecuteToolHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+            
+            notifyRequestStarted(requestId, "/execute-tool", "POST");
             
             try {
                 String requestBody = readRequestBody(exchange);
@@ -275,12 +341,18 @@ public class AgentProxyServer {
                 CodeExplorationTool tool = toolRegistry.getTool(toolName);
                 
                 if (tool == null) {
-                    sendError(exchange, 404, "Tool not found: " + toolName);
+                    String error = "Tool not found: " + toolName;
+                    sendError(exchange, 404, error);
+                    notifyRequestFailed(requestId, error);
                     return;
                 }
                 
                 // Execute tool
                 CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
                 
                 // Prepare response
                 JsonObject response = new JsonObject();
@@ -297,10 +369,13 @@ public class AgentProxyServer {
                 }
                 
                 sendJsonResponse(exchange, 200, response);
+                notifyRequestCompleted(requestId, 200, response.toString());
                 
             } catch (Exception e) {
                 LOG.error("Error executing tool", e);
-                sendError(exchange, 500, "Internal error: " + e.getMessage());
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
             }
         }
     }
@@ -309,18 +384,41 @@ public class AgentProxyServer {
      * Performs code exploration asynchronously.
      */
     private CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport, 
-                                                       AgentProxyConfiguration requestConfig) {
+                                                       AgentProxyConfiguration requestConfig,
+                                                       String requestId) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Create a configured agent
+                // Create a configured agent with progress callback
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(requestConfig);
+                
+                // Create progress callback to notify listeners
+                ImprovedToolCallingAutonomousAgent.ProgressCallback callback = new ImprovedToolCallingAutonomousAgent.ProgressCallback() {
+                    @Override
+                    public void onToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
+                        notifyToolExecuted(requestId, execution.getToolName(), 
+                                         execution.isSuccess(), execution.getResult());
+                    }
+                    
+                    @Override
+                    public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
+                        // Could notify round completion if needed
+                    }
+                    
+                    @Override
+                    public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
+                        // Could notify exploration completion if needed
+                    }
+                };
                 
                 JsonObject result = new JsonObject();
                 result.addProperty("query", query);
                 
                 if (generateReport) {
-                    // Generate full report
-                    CodeExplorationReport report = agent.exploreAndGenerateReport(query);
+                    // Generate full report with progress tracking
+                    CompletableFuture<CodeExplorationReport> reportFuture = 
+                        agent.exploreAndGenerateReportAsync(query, callback);
+                    
+                    CodeExplorationReport report = reportFuture.get(requestConfig.getTimeoutSeconds(), TimeUnit.SECONDS);
                     
                     result.addProperty("success", true);
                     result.add("report", reportToJson(report));
@@ -357,13 +455,35 @@ public class AgentProxyServer {
     /**
      * Augments a query with code context and rewrites it.
      */
-    private CompletableFuture<JsonObject> augmentQueryAsync(String query) {
+    private CompletableFuture<JsonObject> augmentQueryAsync(String query, String requestId) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(config);
                 
-                // First, explore the code
-                CodeExplorationReport report = agent.exploreAndGenerateReport(query);
+                // Create progress callback
+                ImprovedToolCallingAutonomousAgent.ProgressCallback callback = new ImprovedToolCallingAutonomousAgent.ProgressCallback() {
+                    @Override
+                    public void onToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
+                        notifyToolExecuted(requestId, execution.getToolName(), 
+                                         execution.isSuccess(), execution.getResult());
+                    }
+                    
+                    @Override
+                    public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
+                        // Optional: could notify round completion
+                    }
+                    
+                    @Override
+                    public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
+                        // Optional: could notify exploration completion
+                    }
+                };
+                
+                // First, explore the code with progress tracking
+                CompletableFuture<CodeExplorationReport> reportFuture = 
+                    agent.exploreAndGenerateReportAsync(query, callback);
+                    
+                CodeExplorationReport report = reportFuture.get(config.getTimeoutSeconds(), TimeUnit.SECONDS);
                 
                 // Then use LLM to rewrite the query with context
                 String augmentedQuery = rewriteQueryWithContext(query, report);

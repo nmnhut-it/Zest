@@ -17,6 +17,7 @@ import java.io.IOException;
 public class StartAgentProxyAction extends AnAction {
     
     private static AgentProxyServer currentServer;
+    private static AgentProxyMonitorWindow monitorWindow;
     
     public StartAgentProxyAction() {
         super("Start Agent Proxy Server", 
@@ -31,6 +32,13 @@ public class StartAgentProxyAction extends AnAction {
         
         // Check if server is already running
         if (currentServer != null) {
+            // Show existing monitor window if hidden
+            if (monitorWindow != null && !monitorWindow.isVisible()) {
+                monitorWindow.setVisible(true);
+                monitorWindow.toFront();
+                return;
+            }
+            
             int result = Messages.showYesNoDialog(
                 project,
                 "Agent Proxy Server is already running. Do you want to stop it?",
@@ -57,14 +65,16 @@ public class StartAgentProxyAction extends AnAction {
                     currentServer.start();
                     
                     SwingUtilities.invokeLater(() -> {
+                        // Show monitor window
+                        monitorWindow = new AgentProxyMonitorWindow(project, currentServer, port);
+                        monitorWindow.setVisible(true);
+                        
                         String message = String.format(
                             "Agent Proxy Server started successfully!\n\n" +
                             "Port: %d\n" +
-                            "Health check: http://localhost:%d/health\n" +
-                            "Explore endpoint: http://localhost:%d/explore\n" +
-                            "Augment endpoint: http://localhost:%d/augment\n\n" +
+                            "Monitor window is now open to track requests.\n\n" +
                             "You can now connect your MCP server to this proxy.",
-                            port, port, port, port
+                            port
                         );
                         
                         Messages.showInfoMessage(project, message, "Agent Proxy Server Started");
@@ -91,20 +101,24 @@ public class StartAgentProxyAction extends AnAction {
         e.getPresentation().setEnabled(enabled);
         
         if (currentServer != null) {
-            e.getPresentation().setText("Stop Agent Proxy Server");
-            e.getPresentation().setDescription("Stop the running agent proxy server");
+            e.getPresentation().setText("Show Agent Proxy Monitor");
+            e.getPresentation().setDescription("Show the agent proxy monitoring window");
         } else {
             e.getPresentation().setText("Start Agent Proxy Server");
             e.getPresentation().setDescription("Start a network proxy for the code exploration agent");
         }
     }
     
-    private void stopServer() {
+    private static void stopServer() {
         if (currentServer != null) {
             currentServer.stop();
             currentServer = null;
-            Messages.showInfoMessage("Agent Proxy Server stopped", "Server Stopped");
         }
+        if (monitorWindow != null) {
+            monitorWindow.dispose();
+            monitorWindow = null;
+        }
+        Messages.showInfoMessage("Agent Proxy Server stopped", "Server Stopped");
     }
     
     /**

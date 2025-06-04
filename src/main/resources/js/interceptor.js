@@ -47,36 +47,16 @@
   };
 
   /**
-   * Handles exploration for Agent Mode
-   * @param {Object} data - The request data
-   * @returns {Promise} Promise that resolves when exploration is complete
+   * Handles exploration for Agent Mode and returns the exploration context
+   * @param {string} query - The user's query
+   * @returns {Promise<string>} The exploration context to add to system prompt
    */
-  async function handleAgentModeExploration(data) {
-    // Find the latest user message
-    let userMessage = null;
-    for (let i = data.messages.length - 1; i >= 0; i--) {
-      if (data.messages[i].role === 'user') {
-        userMessage = data.messages[i].content;
-        break;
-      }
-    }
-    
-    if (!userMessage) {
-      console.log('No user message found for exploration');
-      return;
-    }
-    
-    // Extract the actual query (remove project info if present)
-    const infoEndIndex = userMessage.indexOf('</info>');
-    const actualQuery = infoEndIndex >= 0 
-      ? userMessage.substring(infoEndIndex + 7).trim()
-      : userMessage;
-    
-    console.log('Starting exploration for query:', actualQuery);
+  async function performExploration(query) {
+    console.log('Starting exploration for query:', query);
     
     // Start exploration
     if (window.startExploration) {
-      const sessionId = await window.startExploration(actualQuery);
+      const sessionId = await window.startExploration(query);
       
       if (sessionId) {
         // Wait for exploration to complete (with timeout)
@@ -86,15 +66,9 @@
         while (Date.now() - startTime < maxWaitTime) {
           // Check if exploration is complete
           if (window.__exploration_result__) {
-            console.log('Exploration complete, enhancing system prompt');
+            console.log('Exploration complete');
             
-            // Add exploration results to system prompt
             const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
-            
-            const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
-            if (systemMsgIndex >= 0) {
-              data.messages[systemMsgIndex].content += explorationContext;
-            }
             
             // Mark exploration as used (will close the UI)
             if (window.markExplorationUsed) {
@@ -103,7 +77,8 @@
             
             // Clear the result
             window.__exploration_result__ = null;
-            break;
+            
+            return explorationContext;
           }
           
           // Wait a bit before checking again
@@ -112,9 +87,12 @@
         
         if (Date.now() - startTime >= maxWaitTime) {
           console.warn('Exploration timed out');
+          return '\n\n# CODE EXPLORATION RESULTS\nExploration timed out.';
         }
       }
     }
+    
+    return '';
   }
 
   /**
@@ -140,11 +118,6 @@
 
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
-        // Handle Agent Mode exploration first
-        if (window.__zest_mode__ === 'Agent Mode' && window.startExploration) {
-          await handleAgentModeExploration(data);
-        }
-        
         // Handle Project Mode enhancement
         if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
           window.enhanceWithProjectKnowledge(data);
@@ -153,22 +126,24 @@
         // Handle system message based on mode
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
+          let systemPrompt = window.__injected_system_prompt__;
+          
+          // Add pending exploration context if available
+          if (window.__pending_exploration_context__) {
+            systemPrompt += window.__pending_exploration_context__;
+            window.__pending_exploration_context__ = null; // Clear after use
+            console.log('Added exploration context to system prompt');
+          }
+          
           if (systemMsgIndex >= 0) {
-            // Check if we already added exploration results
-            const hasExplorationResults = data.messages[systemMsgIndex].content.includes('# CODE EXPLORATION RESULTS');
-            if (hasExplorationResults) {
-              // Don't override, the exploration results are already there
-              console.log('Preserving system message with exploration results');
-            } else {
-              // Override existing system message
-              data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
-            }
+            // Override existing system message
+            data.messages[systemMsgIndex].content = systemPrompt;
           } else {
             // Add new system message at the beginning
-            console.log("Adding system message to the beginning of messages", window.__injected_system_prompt__);
+            console.log("Adding system message to the beginning of messages");
             data.messages.unshift({
               role: 'system',
-              content: window.__injected_system_prompt__
+              content: systemPrompt
             });
           }
         } else if (!data.messages.some(msg => msg.role === 'system') && window.__injected_system_prompt__) {
@@ -210,6 +185,12 @@
       // Knowledge collection integration if present
       if (data.files && Array.isArray(data.files)) {
         console.log('Request includes files/collections');
+      }
+
+      // Debug: Log the final system prompt
+      const systemMsg = data.messages.find(msg => msg.role === 'system');
+      if (systemMsg) {
+        console.log('Final system prompt:', systemMsg.content.substring(0, 500) + '...');
       }
 
       return JSON.stringify(data);
@@ -293,68 +274,132 @@
 
     if (isOpenWebUIEndpoint(url)) {
       console.log('Intercepting OpenWebUI API request:', url);
-      if (window.__zest_mode__ === 'Agent Mode') {
-        console.log('Agent Mode active: Adding project context to user message');
-      }
-
-      return window.updateProjectInfo()
-        .then(async () => {
-          if (newInit.body) {
-            const originalBody = newInit.body;
-            if (typeof originalBody === 'string') {
-              newInit.body = await enhanceRequestBody(originalBody);
-              console.log('Modified string request body');
-              return originalFetch(input, newInit).then(handleResponse);
-            } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {
-              console.log('FormData or URLSearchParams body not modified');
-              return originalFetch(input, newInit).then(handleResponse);
-            } else if (originalBody instanceof Blob) {
-              return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = async function() {
-                  try {
-                    const bodyText = reader.result;
-                    const modifiedBody = await enhanceRequestBody(bodyText);
-                    newInit.body = modifiedBody;
-                    resolve(originalFetch(input, newInit)
-                      .then(handleResponse));
-                  } catch (error) {
-                    reject(error);
-                  }
-                };
-                reader.onerror = function() {
-                  reject(reader.error);
-                };
-                reader.readAsText(originalBody);
-              });
-            }
+      
+      // For Agent Mode, we need to check if exploration is needed BEFORE processing
+      if (window.__zest_mode__ === 'Agent Mode' && window.startExploration) {
+        console.log('Agent Mode active: Checking if exploration is needed');
+        
+        // Parse the body to check if this is a new user message
+        let bodyPromise;
+        if (newInit.body) {
+          if (typeof newInit.body === 'string') {
+            bodyPromise = Promise.resolve(newInit.body);
+          } else if (newInit.body instanceof Blob) {
+            bodyPromise = newInit.body.text();
           } else if (input instanceof Request) {
-            return input.clone().text().then(async body => {
-              const modifiedBody = await enhanceRequestBody(body);
-              const newRequest = new Request(input, {
-                method: input.method,
-                headers: input.headers,
-                body: modifiedBody,
-                mode: input.mode,
-                credentials: input.credentials,
-                cache: input.cache,
-                redirect: input.redirect,
-                referrer: input.referrer,
-                integrity: input.integrity
-              });
-              return originalFetch(newRequest)
-                .then(handleResponse);
-            });
+            bodyPromise = input.clone().text();
+          } else {
+            bodyPromise = Promise.resolve(null);
           }
-
-          return originalFetch(input, newInit).then(handleResponse);
-        })
-        .catch(error => {
-          console.error('Error updating project info:', error);
-          return originalFetch(input, init).then(handleResponse);
+        } else if (input instanceof Request) {
+          bodyPromise = input.clone().text();
+        } else {
+          bodyPromise = Promise.resolve(null);
+        }
+        
+        return bodyPromise.then(async (bodyText) => {
+          let explorationContext = '';
+          
+          if (bodyText) {
+            try {
+              const data = JSON.parse(bodyText);
+              
+              // Check if this is a new user message (not a continuation)
+              if (data.messages && Array.isArray(data.messages)) {
+                const userMessages = data.messages.filter(msg => msg.role === 'user');
+                if (userMessages.length > 0) {
+                  // Get the latest user message
+                  const latestUserMsg = userMessages[userMessages.length - 1].content;
+                  
+                  // Extract the actual query (remove project info if present)
+                  const infoEndIndex = latestUserMsg.indexOf('</info>');
+                  const actualQuery = infoEndIndex >= 0 
+                    ? latestUserMsg.substring(infoEndIndex + 7).trim()
+                    : latestUserMsg;
+                  
+                  // Only explore if this is a new query (not empty)
+                  if (actualQuery.trim()) {
+                    explorationContext = await performExploration(actualQuery);
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('Error parsing body for exploration check:', e);
+            }
+          }
+          
+          // Store exploration context for later use
+          window.__pending_exploration_context__ = explorationContext;
+          
+          // Now continue with the normal flow
+          return processRequest(input, init, newInit, url);
         });
+      } else {
+        // Not Agent Mode, process normally
+        return processRequest(input, init, newInit, url);
+      }
     } else {
       return originalFetch(input, init).then(handleResponse);
     }
   };
+  
+  // Helper function to process the request after exploration check
+  function processRequest(input, init, newInit, url) {
+    return window.updateProjectInfo()
+      .then(async () => {
+        if (newInit.body) {
+          const originalBody = newInit.body;
+          if (typeof originalBody === 'string') {
+            newInit.body = await enhanceRequestBody(originalBody);
+            console.log('Modified string request body');
+            return originalFetch(input, newInit).then(handleResponse);
+          } else if (originalBody instanceof FormData || originalBody instanceof URLSearchParams) {
+            console.log('FormData or URLSearchParams body not modified');
+            return originalFetch(input, newInit).then(handleResponse);
+          } else if (originalBody instanceof Blob) {
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = async function() {
+                try {
+                  const bodyText = reader.result;
+                  const modifiedBody = await enhanceRequestBody(bodyText);
+                  newInit.body = modifiedBody;
+                  resolve(originalFetch(input, newInit)
+                    .then(handleResponse));
+                } catch (error) {
+                  reject(error);
+                }
+              };
+              reader.onerror = function() {
+                reject(reader.error);
+              };
+              reader.readAsText(originalBody);
+            });
+          }
+        } else if (input instanceof Request) {
+          return input.clone().text().then(async body => {
+            const modifiedBody = await enhanceRequestBody(body);
+            const newRequest = new Request(input, {
+              method: input.method,
+              headers: input.headers,
+              body: modifiedBody,
+              mode: input.mode,
+              credentials: input.credentials,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              integrity: input.integrity
+            });
+            return originalFetch(newRequest)
+              .then(handleResponse);
+          });
+        }
+
+        return originalFetch(input, newInit).then(handleResponse);
+      })
+      .catch(error => {
+        console.error('Error updating project info:', error);
+        return originalFetch(input, init).then(handleResponse);
+      });
+  }
 })();

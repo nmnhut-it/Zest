@@ -2,6 +2,7 @@ package com.zps.zest.langchain4j.tools.impl;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
@@ -35,97 +36,99 @@ public class GetCurrentContextTool extends BaseCodeExplorationTool {
     protected ToolResult doExecute(JsonObject parameters) {
         // No parameters needed, ignore any provided
         try {
-            FileEditorManager editorManager = FileEditorManager.getInstance(project);
-            VirtualFile[] openFiles = editorManager.getOpenFiles();
-            
-            StringBuilder content = new StringBuilder();
-            JsonObject metadata = createMetadata();
-            
-            content.append("# Current Context\n\n");
-            
-            if (openFiles.length == 0) {
-                content.append("No files are currently open.\n");
-                return ToolResult.success(content.toString(), metadata);
-            }
-            
-            // Get current file
-            VirtualFile currentFile = editorManager.getSelectedFiles()[0];
-            Editor editor = editorManager.getSelectedTextEditor();
-            
-            content.append("## Current File\n");
-            content.append("**Path:** `").append(currentFile.getPath()).append("`\n");
-            content.append("**Name:** ").append(currentFile.getName()).append("\n");
-            
-            metadata.addProperty("currentFile", currentFile.getPath());
-            metadata.addProperty("openFileCount", openFiles.length);
-            
-            // Get PSI information
-            PsiFile psiFile = PsiManager.getInstance(project).findFile(currentFile);
-            if (psiFile != null) {
-                content.append("**Language:** ").append(psiFile.getLanguage().getDisplayName()).append("\n");
-                content.append("**File Type:** ").append(psiFile.getFileType().getName()).append("\n");
+            return ReadAction.compute(() -> {
+                FileEditorManager editorManager = FileEditorManager.getInstance(project);
+                VirtualFile[] openFiles = editorManager.getOpenFiles();
                 
-                if (psiFile instanceof PsiJavaFile) {
-                    PsiJavaFile javaFile = (PsiJavaFile) psiFile;
-                    content.append("**Package:** `").append(javaFile.getPackageName()).append("`\n");
+                StringBuilder content = new StringBuilder();
+                JsonObject metadata = createMetadata();
+                
+                content.append("# Current Context\n\n");
+                
+                if (openFiles.length == 0) {
+                    content.append("No files are currently open.\n");
+                    return ToolResult.success(content.toString(), metadata);
+                }
+                
+                // Get current file
+                VirtualFile currentFile = editorManager.getSelectedFiles()[0];
+                Editor editor = editorManager.getSelectedTextEditor();
+                
+                content.append("## Current File\n");
+                content.append("**Path:** `").append(currentFile.getPath()).append("`\n");
+                content.append("**Name:** ").append(currentFile.getName()).append("\n");
+                
+                metadata.addProperty("currentFile", currentFile.getPath());
+                metadata.addProperty("openFileCount", openFiles.length);
+                
+                // Get PSI information
+                PsiFile psiFile = PsiManager.getInstance(project).findFile(currentFile);
+                if (psiFile != null) {
+                    content.append("**Language:** ").append(psiFile.getLanguage().getDisplayName()).append("\n");
+                    content.append("**File Type:** ").append(psiFile.getFileType().getName()).append("\n");
                     
-                    PsiClass[] classes = javaFile.getClasses();
-                    if (classes.length > 0) {
-                        content.append("\n### Classes in File\n");
-                        for (PsiClass psiClass : classes) {
-                            content.append("- ").append(psiClass.getQualifiedName()).append("\n");
+                    if (psiFile instanceof PsiJavaFile) {
+                        PsiJavaFile javaFile = (PsiJavaFile) psiFile;
+                        content.append("**Package:** `").append(javaFile.getPackageName()).append("`\n");
+                        
+                        PsiClass[] classes = javaFile.getClasses();
+                        if (classes.length > 0) {
+                            content.append("\n### Classes in File\n");
+                            for (PsiClass psiClass : classes) {
+                                content.append("- ").append(psiClass.getQualifiedName()).append("\n");
+                            }
                         }
                     }
                 }
-            }
-            
-            // Get cursor position and element at cursor
-            if (editor != null && psiFile != null) {
-                int offset = editor.getCaretModel().getOffset();
-                PsiElement elementAtCaret = psiFile.findElementAt(offset);
                 
-                content.append("\n## Cursor Position\n");
-                content.append("**Line:** ").append(editor.getCaretModel().getLogicalPosition().line + 1).append("\n");
-                content.append("**Column:** ").append(editor.getCaretModel().getLogicalPosition().column + 1).append("\n");
-                
-                if (elementAtCaret != null) {
-                    content.append("\n## Element at Cursor\n");
-                    PsiElement meaningfulElement = findMeaningfulElement(elementAtCaret);
+                // Get cursor position and element at cursor
+                if (editor != null && psiFile != null) {
+                    int offset = editor.getCaretModel().getOffset();
+                    PsiElement elementAtCaret = psiFile.findElementAt(offset);
                     
-                    if (meaningfulElement instanceof PsiMethod) {
-                        PsiMethod method = (PsiMethod) meaningfulElement;
-                        content.append("**Type:** Method\n");
-                        content.append("**Name:** `").append(method.getName()).append("`\n");
-                        content.append("**Signature:** `").append(getMethodSignature(method)).append("`\n");
-                    } else if (meaningfulElement instanceof PsiClass) {
-                        PsiClass psiClass = (PsiClass) meaningfulElement;
-                        content.append("**Type:** ").append(psiClass.isInterface() ? "Interface" : "Class").append("\n");
-                        content.append("**Name:** `").append(psiClass.getQualifiedName()).append("`\n");
-                    } else if (meaningfulElement instanceof PsiField) {
-                        PsiField field = (PsiField) meaningfulElement;
-                        content.append("**Type:** Field\n");
-                        content.append("**Name:** `").append(field.getName()).append("`\n");
-                        content.append("**Field Type:** `").append(field.getType().getPresentableText()).append("`\n");
-                    } else if (meaningfulElement instanceof PsiVariable) {
-                        PsiVariable variable = (PsiVariable) meaningfulElement;
-                        content.append("**Type:** Variable\n");
-                        content.append("**Name:** `").append(variable.getName()).append("`\n");
-                        content.append("**Variable Type:** `").append(variable.getType().getPresentableText()).append("`\n");
+                    content.append("\n## Cursor Position\n");
+                    content.append("**Line:** ").append(editor.getCaretModel().getLogicalPosition().line + 1).append("\n");
+                    content.append("**Column:** ").append(editor.getCaretModel().getLogicalPosition().column + 1).append("\n");
+                    
+                    if (elementAtCaret != null) {
+                        content.append("\n## Element at Cursor\n");
+                        PsiElement meaningfulElement = findMeaningfulElement(elementAtCaret);
+                        
+                        if (meaningfulElement instanceof PsiMethod) {
+                            PsiMethod method = (PsiMethod) meaningfulElement;
+                            content.append("**Type:** Method\n");
+                            content.append("**Name:** `").append(method.getName()).append("`\n");
+                            content.append("**Signature:** `").append(getMethodSignature(method)).append("`\n");
+                        } else if (meaningfulElement instanceof PsiClass) {
+                            PsiClass psiClass = (PsiClass) meaningfulElement;
+                            content.append("**Type:** ").append(psiClass.isInterface() ? "Interface" : "Class").append("\n");
+                            content.append("**Name:** `").append(psiClass.getQualifiedName()).append("`\n");
+                        } else if (meaningfulElement instanceof PsiField) {
+                            PsiField field = (PsiField) meaningfulElement;
+                            content.append("**Type:** Field\n");
+                            content.append("**Name:** `").append(field.getName()).append("`\n");
+                            content.append("**Field Type:** `").append(field.getType().getPresentableText()).append("`\n");
+                        } else if (meaningfulElement instanceof PsiVariable) {
+                            PsiVariable variable = (PsiVariable) meaningfulElement;
+                            content.append("**Type:** Variable\n");
+                            content.append("**Name:** `").append(variable.getName()).append("`\n");
+                            content.append("**Variable Type:** `").append(variable.getType().getPresentableText()).append("`\n");
+                        }
                     }
                 }
-            }
-            
-            // List other open files
-            if (openFiles.length > 1) {
-                content.append("\n## Other Open Files\n");
-                for (VirtualFile file : openFiles) {
-                    if (!file.equals(currentFile)) {
-                        content.append("- ").append(file.getName()).append(" (`").append(file.getPath()).append("`)\n");
+                
+                // List other open files
+                if (openFiles.length > 1) {
+                    content.append("\n## Other Open Files\n");
+                    for (VirtualFile file : openFiles) {
+                        if (!file.equals(currentFile)) {
+                            content.append("- ").append(file.getName()).append(" (`").append(file.getPath()).append("`)\n");
+                        }
                     }
                 }
-            }
-            
-            return ToolResult.success(content.toString(), metadata);
+                
+                return ToolResult.success(content.toString(), metadata);
+            });
             
         } catch (Exception e) {
             return ToolResult.error("Failed to get current context: " + e.getMessage());

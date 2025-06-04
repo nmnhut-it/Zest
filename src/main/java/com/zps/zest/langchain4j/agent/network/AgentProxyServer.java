@@ -2,6 +2,7 @@ package com.zps.zest.langchain4j.agent.network;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.openapi.application.ApplicationManager;
@@ -13,6 +14,8 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.zps.zest.langchain4j.agent.CodeExplorationReport;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
+import com.zps.zest.langchain4j.tools.CodeExplorationTool;
+import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.langchain4j.util.LLMService;
 import org.jetbrains.annotations.NotNull;
 
@@ -56,6 +59,8 @@ public class AgentProxyServer {
         server.createContext("/augment", new AugmentHandler());
         server.createContext("/config", new ConfigHandler());
         server.createContext("/status", new StatusHandler());
+        server.createContext("/tools", new ToolsHandler());
+        server.createContext("/execute-tool", new ExecuteToolHandler());
         
         // Use a thread pool for handling requests
         server.setExecutor(Executors.newFixedThreadPool(10));
@@ -217,6 +222,86 @@ public class AgentProxyServer {
             response.add("config", config.toJson());
             
             sendJsonResponse(exchange, 200, response);
+        }
+    }
+    
+    /**
+     * Tools endpoint handler - lists available tools.
+     */
+    private class ToolsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            CodeExplorationToolRegistry toolRegistry = project.getService(CodeExplorationToolRegistry.class);
+            
+            JsonObject response = new JsonObject();
+            JsonArray toolsArray = new JsonArray();
+            
+            for (CodeExplorationTool tool : toolRegistry.getAllTools()) {
+                JsonObject toolInfo = new JsonObject();
+                toolInfo.addProperty("name", tool.getName());
+                toolInfo.addProperty("description", tool.getDescription());
+                toolInfo.add("parameters", tool.getParameterSchema());
+                toolsArray.add(toolInfo);
+            }
+            
+            response.add("tools", toolsArray);
+            response.addProperty("count", toolsArray.size());
+            
+            sendJsonResponse(exchange, 200, response);
+        }
+    }
+    
+    /**
+     * Execute tool endpoint handler - executes a specific tool.
+     */
+    private class ExecuteToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            try {
+                String requestBody = readRequestBody(exchange);
+                JsonObject request = JsonParser.parseString(requestBody).getAsJsonObject();
+                
+                String toolName = request.get("tool").getAsString();
+                JsonObject parameters = request.has("parameters") ? 
+                    request.getAsJsonObject("parameters") : new JsonObject();
+                
+                // Get tool registry
+                CodeExplorationToolRegistry toolRegistry = project.getService(CodeExplorationToolRegistry.class);
+                CodeExplorationTool tool = toolRegistry.getTool(toolName);
+                
+                if (tool == null) {
+                    sendError(exchange, 404, "Tool not found: " + toolName);
+                    return;
+                }
+                
+                // Execute tool
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Prepare response
+                JsonObject response = new JsonObject();
+                response.addProperty("tool", toolName);
+                response.addProperty("success", result.isSuccess());
+                
+                if (result.isSuccess()) {
+                    response.addProperty("content", result.getContent());
+                    if (result.getMetadata() != null) {
+                        response.add("metadata", result.getMetadata());
+                    }
+                } else {
+                    response.addProperty("error", result.getError());
+                }
+                
+                sendJsonResponse(exchange, 200, response);
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool", e);
+                sendError(exchange, 500, "Internal error: " + e.getMessage());
+            }
         }
     }
     

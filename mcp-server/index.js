@@ -4,8 +4,30 @@ import { z } from "zod";
 import fetch from "node-fetch";
 import { promisify } from "util";
 import { exec } from "child_process";
+import AbortController from "abort-controller";
 
 const execAsync = promisify(exec);
+
+// Helper function to create fetch with timeout
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return response;
+  } catch (error) {
+    clearTimeout(timeout);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
 
 /**
  * Zest MCP Server - Connects to IntelliJ's Agent Proxy for code exploration
@@ -35,9 +57,7 @@ class ZestMcpServer {
     
     for (let port = startPort; port <= endPort; port++) {
       try {
-        const response = await fetch(`http://localhost:${port}/health`, {
-          timeout: 1000
-        });
+        const response = await fetchWithTimeout(`http://localhost:${port}/health`, {}, 2000);
         
         if (response.ok) {
           const data = await response.json();
@@ -89,11 +109,11 @@ class ZestMcpServer {
         }
         
         try {
-          const response = await fetch(`${this.proxyUrl}/explore`, {
+          const response = await fetchWithTimeout(`${this.proxyUrl}/explore`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(params)
-          });
+          }, 300000);  // 5 minutes timeout for exploration
           
           const result = await response.json();
           
@@ -132,6 +152,161 @@ class ZestMcpServer {
         }
       }
     );
+    
+    // Tool: Execute individual exploration tool
+    this.server.tool(
+      "execute_tool",
+      {
+        tool: z.string().describe("Name of the tool to execute"),
+        parameters: z.object({}).passthrough().describe("Tool-specific parameters")
+      },
+      async (params) => {
+        if (!this.connected) {
+          await this.findProxy();
+          if (!this.connected) {
+            return {
+              content: [{
+                type: "text",
+                text: "Error: Not connected to Zest Agent Proxy."
+              }]
+            };
+          }
+        }
+        
+        try {
+          const response = await fetchWithTimeout(`${this.proxyUrl}/execute-tool`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params)
+          }, 180000);  // 3 minutes timeout for individual tools
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            return {
+              content: [{
+                type: "text",
+                text: result.content || "Tool executed successfully"
+              }]
+            };
+          } else {
+            return {
+              content: [{
+                type: "text",
+                text: `Error: ${result.error || "Tool execution failed"}`
+              }]
+            };
+          }
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+    
+    // Tool: List available tools
+    this.server.tool(
+      "list_tools",
+      {},
+      async () => {
+        if (!this.connected) {
+          await this.findProxy();
+          if (!this.connected) {
+            return {
+              content: [{
+                type: "text",
+                text: "Error: Not connected to Zest Agent Proxy."
+              }]
+            };
+          }
+        }
+        
+        try {
+          const response = await fetch(`${this.proxyUrl}/tools`);
+          const data = await response.json();
+          
+          let text = `Available Code Exploration Tools (${data.count} total):\n\n`;
+          
+          for (const tool of data.tools) {
+            text += `### ${tool.name}\n`;
+            text += `${tool.description}\n`;
+            text += `Parameters: ${JSON.stringify(tool.parameters.properties || {}, null, 2)}\n\n`;
+          }
+          
+          return {
+            content: [{ type: "text", text }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: "text",
+              text: `Error: ${error.message}`
+            }]
+          };
+        }
+      }
+    );
+    
+    // Individual tool shortcuts for common operations
+    this.server.tool(
+      "search_code",
+      {
+        query: z.string().describe("Natural language search query"),
+        maxResults: z.number().optional().describe("Maximum results (default: 10)")
+      },
+      async (params) => this.executeToolShortcut("search_code", params)
+    );
+    
+    this.server.tool(
+      "find_by_name",
+      {
+        name: z.string().describe("Class, method, or package name (case-sensitive)"),
+        type: z.enum(["class", "method", "package", "any"]).optional()
+      },
+      async (params) => this.executeToolShortcut("find_by_name", params)
+    );
+    
+    this.server.tool(
+      "read_file",
+      {
+        filePath: z.string().describe("Path to the file to read")
+      },
+      async (params) => this.executeToolShortcut("read_file", params)
+    );
+    
+    this.server.tool(
+      "find_relationships",
+      {
+        elementId: z.string().describe("Fully qualified class name"),
+        relationType: z.enum([
+          "EXTENDS", "IMPLEMENTS", "USES", "USED_BY", 
+          "CALLS", "CALLED_BY", "OVERRIDES", "OVERRIDDEN_BY"
+        ]).optional()
+      },
+      async (params) => this.executeToolShortcut("find_relationships", params)
+    );
+    
+    this.server.tool(
+      "find_usages",
+      {
+        elementId: z.string().describe("Class or method to find usages of")
+      },
+      async (params) => this.executeToolShortcut("find_usages", params)
+    );
+    
+    this.server.tool(
+      "get_class_info",
+      {
+        className: z.string().describe("Fully qualified class name")
+      },
+      async (params) => this.executeToolShortcut("get_class_info", params)
+    );
+    
+    // Keep existing tools...
     
     // Tool: Augment query with code context
     this.server.tool(
@@ -310,6 +485,16 @@ class ZestMcpServer {
         }
       }
     );
+  }
+  
+  /**
+   * Helper method to execute tool shortcuts.
+   */
+  async executeToolShortcut(toolName, parameters) {
+    return this.server.callTool("execute_tool", {
+      tool: toolName,
+      parameters: parameters
+    });
   }
   
   /**

@@ -59,13 +59,13 @@
                     secondary="false"/>
 
         <!-- Register the code exploration tool window -->
-        <toolWindow id="Code Explorer"
-                    anchor="bottom"
-                    factoryClass="com.zps.zest.langchain4j.OpenCodeExplorationAction$CodeExplorationToolWindowFactory"
-                    icon="AllIcons.Actions.Search"
-                    canCloseContents="true"
-                    doNotActivateOnStart="false"
-                    secondary="false"/>
+<!--        <toolWindow id="Code Explorer"-->
+<!--                    anchor="bottom"-->
+<!--                    factoryClass="com.zps.zest.langchain4j.OpenCodeExplorationAction$CodeExplorationToolWindowFactory"-->
+<!--                    icon="AllIcons.Actions.Search"-->
+<!--                    canCloseContents="true"-->
+<!--                    doNotActivateOnStart="false"-->
+<!--                    secondary="false"/>-->
 
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>

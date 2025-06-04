@@ -232,11 +232,12 @@ public final class ImprovedToolCallingAutonomousAgent {
 
     /**
      * Builds the final summary prompt with full conversation context.
+     * This version focuses on providing concrete, actionable implementation details.
      */
     private String buildFinalSummaryPrompt(List<ConversationMessage> conversation, ExplorationContext context) {
         StringBuilder prompt = new StringBuilder();
 
-        prompt.append("Based on the complete exploration, provide a comprehensive summary.\n\n");
+        prompt.append("Based on the complete exploration, provide a CONCRETE IMPLEMENTATION GUIDE for the query.\n\n");
         prompt.append("Original Query: ").append(context.getUserQuery()).append("\n\n");
 
         prompt.append("Full Exploration History:\n");
@@ -247,27 +248,65 @@ public final class ImprovedToolCallingAutonomousAgent {
         }
 
         prompt.append("""
-                
-                Please provide a comprehensive summary in the following format:
-                
-                ## Executive Summary
-                [2-3 paragraph overview of findings relevant to the original query]
-                
-                ## Key Code Elements
-                [List the most important classes, methods, and relationships discovered]
-                
-                ## Architecture Insights
-                [Architectural patterns and design decisions observed]
-                
-                ## Implementation Details
-                [Critical implementation details and dependencies]
-                
-                
-                """);
+            
+            Generate a CONTEXT REPORT for implementation:
+            
+            ## Query Understanding
+            [2-3 sentences: what the query is asking for in the context of this codebase]
+            
+            ## Relevant Code Elements
+            For each element found:
+            - **File**: [complete absolute path as shown in tool results]
+            - **Element**: ClassName#methodName
+            - **What it does**: [current functionality]
+            - **Key Code**: [relevant snippet showing current implementation]
+            
+            ## Related Code Snippets
+            Format each related code section as:
+            
+            ### [Descriptive Title of What This Code Does]
+            **File**: [complete absolute path]
+            **Location**: ClassName#methodName (lines X-Y if available)
+            ```java
+            [actual code snippet]
+            ```
+            **Context**: [why this code is relevant to the query]
+            
+            ### [Next Related Code Section]
+            **File**: [complete absolute path]
+            **Location**: ClassName#methodName
+            ```java
+            [actual code snippet]
+            ```
+            **Context**: [why this is relevant]
+            
+            ## Code Structure & Relationships
+            - **Inheritance**: X extends Y [with file paths]
+            - **Calls**: A → B [with file paths]  
+            - **Implements**: X implements Y [with file paths]
+            - **Uses**: Dependencies between components
+            
+            ## Current Implementation Patterns
+            - Design patterns observed
+            - Naming conventions used
+            - Error handling approach
+            - Common utilities/helpers available
+            
+            ## Context Summary
+            **Key Files**: [list with absolute paths]
+            **Entry Points**: [where this functionality is accessed]
+            **Related Tests**: [test files if found]
+            
+            RULES:
+            - Use complete file paths exactly as shown in tool results
+            - Each code snippet MUST show its file path and location
+            - Include actual code snippets to show current state
+            - Focus on understanding existing code, not changes
+            - Provide context for how things currently work
+            """);
 
         return prompt.toString();
     }
-
     /**
      * Executes a single tool call.
      */

@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.openapi.application.ReadAction;
 import com.zps.zest.rag.CodeSignature;
 
 import java.util.*;
@@ -150,12 +151,18 @@ public class BatchIndexingCoordinator {
      */
     private FileIndexResult indexSingleFile(VirtualFile file, IndexingStrategy strategy) {
         try {
-            PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+            PsiFile psiFile = ReadAction.compute(() -> 
+                PsiManager.getInstance(project).findFile(file)
+            );
+            
             if (psiFile == null) {
                 return new FileIndexResult(file, 0, false, "PSI file not found");
             }
             
-            List<CodeSignature> signatures = strategy.extractSignatures(psiFile);
+            List<CodeSignature> signatures = ReadAction.compute(() -> 
+                strategy.extractSignatures(psiFile)
+            );
+            
             if (signatures.isEmpty()) {
                 return new FileIndexResult(file, 0, true, "No signatures found");
             }

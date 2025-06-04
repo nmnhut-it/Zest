@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.openapi.application.ReadAction;
 import com.zps.zest.langchain4j.ast.ASTPathExtractor;
 import com.zps.zest.rag.CodeSignature;
 import com.google.gson.JsonObject;
@@ -48,12 +49,16 @@ public class CodeEmbeddingGenerator {
             List<String> tokens = tokenizer.tokenize(signature.getId(), false);
             content.setTokens(tokens);
             
-            // 4. AST paths (if applicable)
-            if (psiElement instanceof PsiMethod) {
-                List<ASTPathExtractor.ASTPath> paths = astPathExtractor.extractPaths((PsiMethod) psiElement);
-                content.setAstPaths(limitPaths(paths));
-            } else if (psiElement instanceof PsiClass) {
-                List<ASTPathExtractor.ASTPath> paths = astPathExtractor.extractPaths((PsiClass) psiElement);
+            // 4. AST paths (if applicable) - need read action
+            if (psiElement != null) {
+                List<ASTPathExtractor.ASTPath> paths = ReadAction.compute(() -> {
+                    if (psiElement instanceof PsiMethod) {
+                        return astPathExtractor.extractPaths((PsiMethod) psiElement);
+                    } else if (psiElement instanceof PsiClass) {
+                        return astPathExtractor.extractPaths((PsiClass) psiElement);
+                    }
+                    return new ArrayList<>();
+                });
                 content.setAstPaths(limitPaths(paths));
             }
             
@@ -84,121 +89,131 @@ public class CodeEmbeddingGenerator {
     
     /**
      * Extracts contextual information from the PSI element.
+     * Must be called from within a read action.
      */
     private ContextInfo extractContext(PsiElement element) {
-        ContextInfo context = new ContextInfo();
-        
-        // Package and imports
-        PsiFile file = element.getContainingFile();
-        if (file instanceof PsiJavaFile) {
-            PsiJavaFile javaFile = (PsiJavaFile) file;
-            context.setPackageName(javaFile.getPackageName());
+        return ReadAction.compute(() -> {
+            ContextInfo context = new ContextInfo();
             
-            // Get imports
-            List<String> imports = Arrays.stream(javaFile.getImportList().getImportStatements())
-                .map(PsiImportStatement::getQualifiedName)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-            context.setImports(imports);
-        }
-        
-        // Containing class info
-        PsiClass containingClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
-        if (containingClass != null) {
-            context.setContainingClass(containingClass.getQualifiedName());
-            
-            // Superclass and interfaces
-            PsiClass superClass = containingClass.getSuperClass();
-            if (superClass != null && !superClass.getQualifiedName().equals("java.lang.Object")) {
-                context.setSuperClass(superClass.getQualifiedName());
-            }
-            
-            List<String> interfaces = Arrays.stream(containingClass.getInterfaces())
-                .map(PsiClass::getQualifiedName)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-            context.setInterfaces(interfaces);
-        }
-        
-        // Method context
-        if (element instanceof PsiMethod) {
-            PsiMethod method = (PsiMethod) element;
-            
-            // Called methods
-            Set<String> calledMethods = new HashSet<>();
-            method.accept(new JavaRecursiveElementVisitor() {
-                @Override
-                public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-                    PsiMethod called = expression.resolveMethod();
-                    if (called != null) {
-                        calledMethods.add(called.getName());
-                    }
-                    super.visitMethodCallExpression(expression);
+            // Package and imports
+            PsiFile file = element.getContainingFile();
+            if (file instanceof PsiJavaFile) {
+                PsiJavaFile javaFile = (PsiJavaFile) file;
+                context.setPackageName(javaFile.getPackageName());
+                
+                // Get imports
+                PsiImportList importList = javaFile.getImportList();
+                if (importList != null) {
+                    List<String> imports = Arrays.stream(importList.getImportStatements())
+                        .map(PsiImportStatement::getQualifiedName)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+                    context.setImports(imports);
                 }
-            });
-            context.setCalledMethods(new ArrayList<>(calledMethods));
-            
-            // Parameter types
-            List<String> paramTypes = Arrays.stream(method.getParameterList().getParameters())
-                .map(param -> param.getType().getPresentableText())
-                .collect(Collectors.toList());
-            context.setParameterTypes(paramTypes);
-            
-            // Return type
-            PsiType returnType = method.getReturnType();
-            if (returnType != null) {
-                context.setReturnType(returnType.getPresentableText());
             }
-        }
-        
-        return context;
+            
+            // Containing class info
+            PsiClass containingClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+            if (containingClass != null) {
+                context.setContainingClass(containingClass.getQualifiedName());
+                
+                // Superclass and interfaces
+                PsiClass superClass = containingClass.getSuperClass();
+                if (superClass != null && !"java.lang.Object".equals(superClass.getQualifiedName())) {
+                    context.setSuperClass(superClass.getQualifiedName());
+                }
+                
+                List<String> interfaces = Arrays.stream(containingClass.getInterfaces())
+                    .map(PsiClass::getQualifiedName)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+                context.setInterfaces(interfaces);
+            }
+            
+            // Method context
+            if (element instanceof PsiMethod) {
+                PsiMethod method = (PsiMethod) element;
+                
+                // Called methods - collect without resolving
+                Set<String> calledMethods = new HashSet<>();
+                method.accept(new JavaRecursiveElementVisitor() {
+                    @Override
+                    public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+                        // Just get the method name without resolving
+                        String methodName = expression.getMethodExpression().getReferenceName();
+                        if (methodName != null) {
+                            calledMethods.add(methodName);
+                        }
+                        super.visitMethodCallExpression(expression);
+                    }
+                });
+                context.setCalledMethods(new ArrayList<>(calledMethods));
+                
+                // Parameter types
+                List<String> paramTypes = Arrays.stream(method.getParameterList().getParameters())
+                    .map(param -> param.getType().getPresentableText())
+                    .collect(Collectors.toList());
+                context.setParameterTypes(paramTypes);
+                
+                // Return type
+                PsiType returnType = method.getReturnType();
+                if (returnType != null) {
+                    context.setReturnType(returnType.getPresentableText());
+                }
+            }
+            
+            return context;
+        });
     }
     
     /**
      * Calculates code metrics for the element.
+     * Must be called from within a read action.
      */
     private CodeMetrics calculateMetrics(PsiElement element) {
-        CodeMetrics metrics = new CodeMetrics();
-        
-        if (element instanceof PsiMethod) {
-            PsiMethod method = (PsiMethod) element;
+        return ReadAction.compute(() -> {
+            CodeMetrics metrics = new CodeMetrics();
             
-            // Lines of code
-            String text = method.getText();
-            metrics.setLinesOfCode((int) text.lines().count());
+            if (element instanceof PsiMethod) {
+                PsiMethod method = (PsiMethod) element;
+                
+                // Lines of code
+                String text = method.getText();
+                metrics.setLinesOfCode((int) text.lines().count());
+                
+                // Cyclomatic complexity (simplified)
+                metrics.setCyclomaticComplexity(calculateCyclomaticComplexity(method));
+                
+                // Number of parameters
+                metrics.setParameterCount(method.getParameterList().getParametersCount());
+                
+                // Depth of nesting
+                metrics.setMaxNestingDepth(calculateMaxNestingDepth(method));
+                
+                // Number of method calls
+                int[] callCount = {0};
+                method.accept(new JavaRecursiveElementVisitor() {
+                    @Override
+                    public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+                        callCount[0]++;
+                        super.visitMethodCallExpression(expression);
+                    }
+                });
+                metrics.setMethodCallCount(callCount[0]);
+                
+            } else if (element instanceof PsiClass) {
+                PsiClass clazz = (PsiClass) element;
+                
+                metrics.setMethodCount(clazz.getMethods().length);
+                metrics.setFieldCount(clazz.getFields().length);
+                
+                // Lines of code
+                String text = clazz.getText();
+                metrics.setLinesOfCode((int) text.lines().count());
+            }
             
-            // Cyclomatic complexity (simplified)
-            metrics.setCyclomaticComplexity(calculateCyclomaticComplexity(method));
-            
-            // Number of parameters
-            metrics.setParameterCount(method.getParameterList().getParametersCount());
-            
-            // Depth of nesting
-            metrics.setMaxNestingDepth(calculateMaxNestingDepth(method));
-            
-            // Number of method calls
-            int[] callCount = {0};
-            method.accept(new JavaRecursiveElementVisitor() {
-                @Override
-                public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-                    callCount[0]++;
-                    super.visitMethodCallExpression(expression);
-                }
-            });
-            metrics.setMethodCallCount(callCount[0]);
-            
-        } else if (element instanceof PsiClass) {
-            PsiClass clazz = (PsiClass) element;
-            
-            metrics.setMethodCount(clazz.getMethods().length);
-            metrics.setFieldCount(clazz.getFields().length);
-            
-            // Lines of code
-            String text = clazz.getText();
-            metrics.setLinesOfCode((int) text.lines().count());
-        }
-        
-        return metrics;
+            return metrics;
+        });
     }
     
     /**

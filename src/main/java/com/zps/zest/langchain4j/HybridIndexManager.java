@@ -215,7 +215,7 @@ public final class HybridIndexManager {
      * Indexes in the semantic index with embeddings.
      */
     private void indexInSemanticIndex(CodeSignature signature, PsiElement psiElement) {
-        // Generate rich embedding content
+        // Generate rich embedding content - this handles read actions internally
         CodeEmbeddingGenerator.EmbeddingContent content = 
             embeddingGenerator.generateEmbedding(signature, psiElement);
         
@@ -277,40 +277,42 @@ public final class HybridIndexManager {
      * Extracts structural information from a method.
      */
     private void extractMethodStructure(PsiMethod method, StructuralIndex.ElementStructure structure) {
-        // Super methods (overrides)
-        PsiMethod[] superMethods = method.findSuperMethods();
-        for (PsiMethod superMethod : superMethods) {
-            PsiClass superClass = superMethod.getContainingClass();
-            if (superClass != null) {
-                structure.getOverrides().add(superClass.getQualifiedName() + "#" + superMethod.getName());
-            }
-        }
-        
-        // Called methods
-        method.accept(new JavaRecursiveElementVisitor() {
-            @Override
-            public void visitMethodCallExpression(PsiMethodCallExpression expression) {
-                PsiMethod called = expression.resolveMethod();
-                if (called != null && called.getContainingClass() != null) {
-                    String calledId = called.getContainingClass().getQualifiedName() + "#" + called.getName();
-                    structure.getCalls().add(calledId);
+        ReadAction.run(() -> {
+            // Super methods (overrides)
+            PsiMethod[] superMethods = method.findSuperMethods();
+            for (PsiMethod superMethod : superMethods) {
+                PsiClass superClass = superMethod.getContainingClass();
+                if (superClass != null) {
+                    structure.getOverrides().add(superClass.getQualifiedName() + "#" + superMethod.getName());
                 }
-                super.visitMethodCallExpression(expression);
             }
             
-            @Override
-            public void visitReferenceExpression(PsiReferenceExpression expression) {
-                PsiElement resolved = expression.resolve();
-                if (resolved instanceof PsiField) {
-                    PsiField field = (PsiField) resolved;
-                    PsiClass containingClass = field.getContainingClass();
-                    if (containingClass != null) {
-                        String fieldId = containingClass.getQualifiedName() + "." + field.getName();
-                        structure.getAccessesFields().add(fieldId);
+            // Called methods
+            method.accept(new JavaRecursiveElementVisitor() {
+                @Override
+                public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+                    PsiMethod called = expression.resolveMethod();
+                    if (called != null && called.getContainingClass() != null) {
+                        String calledId = called.getContainingClass().getQualifiedName() + "#" + called.getName();
+                        structure.getCalls().add(calledId);
                     }
+                    super.visitMethodCallExpression(expression);
                 }
-                super.visitReferenceExpression(expression);
-            }
+                
+                @Override
+                public void visitReferenceExpression(PsiReferenceExpression expression) {
+                    PsiElement resolved = expression.resolve();
+                    if (resolved instanceof PsiField) {
+                        PsiField field = (PsiField) resolved;
+                        PsiClass containingClass = field.getContainingClass();
+                        if (containingClass != null) {
+                            String fieldId = containingClass.getQualifiedName() + "." + field.getName();
+                            structure.getAccessesFields().add(fieldId);
+                        }
+                    }
+                    super.visitReferenceExpression(expression);
+                }
+            });
         });
     }
     
@@ -318,19 +320,21 @@ public final class HybridIndexManager {
      * Extracts structural information from a class.
      */
     private void extractClassStructure(PsiClass clazz, StructuralIndex.ElementStructure structure) {
-        // Superclass
-        PsiClass superClass = clazz.getSuperClass();
-        if (superClass != null && !superClass.getQualifiedName().equals("java.lang.Object")) {
-            structure.setSuperClass(superClass.getQualifiedName());
-        }
-        
-        // Interfaces
-        PsiClass[] interfaces = clazz.getInterfaces();
-        for (PsiClass iface : interfaces) {
-            if (iface.getQualifiedName() != null) {
-                structure.getImplements().add(iface.getQualifiedName());
+        ReadAction.run(() -> {
+            // Superclass
+            PsiClass superClass = clazz.getSuperClass();
+            if (superClass != null && !superClass.getQualifiedName().equals("java.lang.Object")) {
+                structure.setSuperClass(superClass.getQualifiedName());
             }
-        }
+            
+            // Interfaces
+            PsiClass[] interfaces = clazz.getInterfaces();
+            for (PsiClass iface : interfaces) {
+                if (iface.getQualifiedName() != null) {
+                    structure.getImplements().add(iface.getQualifiedName());
+                }
+            }
+        });
     }
     
     /**
@@ -516,8 +520,10 @@ public final class HybridIndexManager {
                         continue;
                     }
                     
-                    // Find corresponding PSI element
-                    PsiElement psiElement = findPsiElement(signature.getId(), psiFile);
+                    // Find corresponding PSI element - needs ReadAction
+                    PsiElement psiElement = ReadAction.compute(() -> 
+                        findPsiElement(signature.getId(), psiFile)
+                    );
                     
                     // 1. Index in NameIndex
                     indexInNameIndex(signature, file);

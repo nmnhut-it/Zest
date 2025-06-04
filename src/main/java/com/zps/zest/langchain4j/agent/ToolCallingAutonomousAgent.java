@@ -16,7 +16,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * Enhanced autonomous code exploration agent that uses tool calls instead of questions.
  */
@@ -40,120 +40,7 @@ public final class ToolCallingAutonomousAgent {
         this.toolCallParser = new ToolCallParser();
         LOG.info("Initialized ToolCallingAutonomousAgent");
     }
-    
-    /**
-     * Starts an autonomous exploration session using tool calls.
-     * This method is thread-safe and can be called from any thread.
-     */
-    public ExplorationResult exploreWithTools(String userQuery) {
-        LOG.info("Starting tool-based exploration for: " + userQuery);
-        
-        ExplorationContext context = new ExplorationContext(userQuery);
-        ExplorationResult result = new ExplorationResult();
-        
-        try {
-            // Initial planning phase - can be done in any thread
-            String planningPrompt = buildPlanningPrompt(userQuery, context);
-            String planningResponse = llmService.query(planningPrompt);
-            
-            if (planningResponse == null) {
-                result.addError("Failed to get initial planning response from LLM");
-                return result;
-            }
-            
-            result.addRound(new ExplorationRound("Planning", planningResponse, Collections.emptyList()));
-            
-            // Extract initial tool calls from planning
-            List<ToolCallParser.ToolCall> plannedCalls = toolCallParser.parseToolCalls(planningResponse);
-            context.addPlannedTools(plannedCalls);
-            
-            // Exploration rounds
-            int round = 0;
-            while (round < MAX_ROUNDS && context.hasMoreToExplore()) {
-                round++;
-                
-                ExplorationRound explorationRound = new ExplorationRound("Round " + round);
-                
-                // Get next batch of tool calls
-                String explorationPrompt = buildExplorationPrompt(context);
-                String llmResponse = llmService.query(explorationPrompt);
-                
-                if (llmResponse == null) {
-                    explorationRound.setLlmResponse("Failed to get response from LLM");
-                    result.addRound(explorationRound);
-                    break;
-                }
-                
-                explorationRound.setLlmResponse(llmResponse);
-                
-                // Parse and execute tool calls
-                List<ToolCallParser.ToolCall> toolCalls = toolCallParser.parseToolCalls(llmResponse);
-                
-                for (ToolCallParser.ToolCall toolCall : toolCalls) {
-                    if (context.getToolCallCount() >= MAX_TOOL_CALLS) {
-                        explorationRound.addToolExecution(new ToolExecution(
-                            toolCall.getToolName(),
-                            toolCall.getParameters(),
-                            "Skipped: Maximum tool calls reached",
-                            false
-                        ));
-                        break;
-                    }
-                    
-                    ToolExecution execution = executeToolCall(toolCall);
-                    explorationRound.addToolExecution(execution);
-                    context.addToolExecution(execution);
-                }
-                
-                result.addRound(explorationRound);
-                
-                // Check if we've discovered enough or should continue
-                if (toolCalls.isEmpty() || context.getToolCallCount() >= MAX_TOOL_CALLS) {
-                    break;
-                }
-            }
-            
-            // Generate final summary
-            String summaryPrompt = buildSummaryPrompt(context);
-            String summary = llmService.query(summaryPrompt);
-            
-            if (summary != null) {
-                result.setSummary(summary);
-            } else {
-                result.setSummary("Failed to generate summary");
-            }
-            
-            result.setSuccess(true);
-            
-        } catch (Exception e) {
-            LOG.error("Error during tool-based exploration", e);
-            result.addError("Exploration error: " + e.getMessage());
-        }
-        
-        return result;
-    }
-    
-    /**
-     * Explores code and generates a comprehensive report for use in coding tasks.
-     * 
-     * @param userQuery The exploration query
-     * @return A comprehensive report with all discovered code and relationships
-     */
-    public CodeExplorationReport exploreAndGenerateReport(String userQuery) {
-        LOG.info("Starting exploration with report generation for: " + userQuery);
-        
-        // First, perform the exploration
-        ExplorationResult explorationResult = exploreWithTools(userQuery);
-        
-        // Generate comprehensive report
-        CodeExplorationReportGenerator reportGenerator = new CodeExplorationReportGenerator(project);
-        CodeExplorationReport report = reportGenerator.generateReport(userQuery, explorationResult);
-        
-        LOG.info("Generated report summary: " + report.getSummary());
-        
-        return report;
-    }
-    
+
     /**
      * Explores code asynchronously and generates a comprehensive report.
      * 

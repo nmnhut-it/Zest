@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j.index;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
+import com.intellij.openapi.application.ReadAction;
 import com.zps.zest.langchain4j.DocumentProcessor;
 import com.zps.zest.langchain4j.EmbeddingService;
 import com.zps.zest.langchain4j.VectorStore;
@@ -108,7 +109,9 @@ public class IndexingService {
      */
     private List<TextSegment> processFile(VirtualFile file, List<CodeSignature> codeSignatures, PsiFile psiFile) {
         if (codeSignatures != null && !codeSignatures.isEmpty() && psiFile != null) {
-            return documentProcessor.processPsiFile(psiFile, codeSignatures);
+            return ReadAction.compute(() -> 
+                documentProcessor.processPsiFile(psiFile, codeSignatures)
+            );
         } else {
             return documentProcessor.processFile(file);
         }

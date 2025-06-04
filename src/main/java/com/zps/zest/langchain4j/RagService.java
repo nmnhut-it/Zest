@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
+import com.intellij.openapi.application.ReadAction;
 import com.zps.zest.rag.CodeSignature;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.segment.TextSegment;
@@ -55,7 +56,7 @@ public final class RagService {
      */
     public int indexFile(VirtualFile file, List<CodeSignature> codeSignatures) {
         PsiFile psiFile = codeSignatures != null && !codeSignatures.isEmpty() 
-            ? com.intellij.psi.PsiManager.getInstance(project).findFile(file)
+            ? ReadAction.compute(() -> com.intellij.psi.PsiManager.getInstance(project).findFile(file))
             : null;
             
         CompletableFuture<IndexingService.IndexResult> future = 

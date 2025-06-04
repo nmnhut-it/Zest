@@ -88,6 +88,9 @@
 <!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent"/>-->
 <!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.CodingTaskAgent"/>-->
         
+        <!-- Register new augmentation service -->
+        <projectService serviceImplementation="com.zps.zest.langchain4j.AgentModeAugmentationService"/>
+        
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
 
@@ -296,6 +299,15 @@
                 text="Test Improved Tool-Calling Agent"
                 description="Test the improved tool-calling autonomous code exploration agent with proper feedback loop">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>
+        </action>
+        
+        <!-- Start Agent Proxy Server -->
+        <action id="Zest.StartAgentProxyServer"
+                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
+                text="Start Agent Proxy Server"
+                icon="AllIcons.Nodes.Services"
+                description="Start network proxy server for external access to code exploration agent">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>
         </action>
         
         <!-- Code Explorer & Assistant -->

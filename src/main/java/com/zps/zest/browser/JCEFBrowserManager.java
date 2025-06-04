@@ -360,6 +360,7 @@ public class JCEFBrowserManager {
     String  projectModeInterceptorScript;
     String  augmentedModeInterceptorScript;
     String  interceptorAugmentedScript;
+    String  agentModeEnhancedScript;
     public void addNetworkMonitorAndRequestModifier() {
         try {
             // Ensure DevTools is enabled
@@ -379,6 +380,9 @@ public class JCEFBrowserManager {
             if (interceptorAugmentedScript == null) {
                 interceptorAugmentedScript = loadResourceAsString("/js/interceptor-augmented.js");
             }
+            if (agentModeEnhancedScript == null) {
+                agentModeEnhancedScript = loadResourceAsString("/js/agentModeEnhanced.js");
+            }
 
             // Add a load handler to inject our script when the page loads
             browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
@@ -392,7 +396,9 @@ public class JCEFBrowserManager {
                     browser.executeJavaScript(augmentedModeInterceptorScript, frame.getURL(), 0);
                     // Inject the enhanced interceptor with async support
                     browser.executeJavaScript(interceptorAugmentedScript, frame.getURL(), 0);
-                    LOG.info("Injected request interceptor scripts with dynamic project info, RAG support, and augmented mode");
+                    // Inject the enhanced agent mode script
+                    browser.executeJavaScript(agentModeEnhancedScript, frame.getURL(), 0);
+                    LOG.info("Injected request interceptor scripts with dynamic project info, RAG support, augmented mode, and enhanced agent mode");
                 }
             }, browser.getCefBrowser());
 

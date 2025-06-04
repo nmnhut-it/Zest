@@ -16,6 +16,9 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
+mcp-server/node-module/
+mcp-server/node-module
+
 ### Eclipse ###
 .apt_generated
 .classpath
@@ -42,3 +45,4 @@ bin/
 .DS_Store
 zest-plugin.properties
 .idea/zest-inline-chat-command-history.xml
+/mcp-server/node_modules

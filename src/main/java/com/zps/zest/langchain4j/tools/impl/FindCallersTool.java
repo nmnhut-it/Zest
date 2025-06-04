@@ -49,7 +49,11 @@ public class FindCallersTool extends BaseCodeExplorationTool {
         String methodId = getRequiredString(parameters, "methodId");
         
         // Validate and auto-correct common format mistakes
-        methodId = validateAndCorrectMethodId(methodId);
+        try {
+            methodId = validateAndCorrectMethodId(methodId);
+        } catch (IllegalArgumentException e) {
+            return ToolResult.error(e.getMessage());
+        }
         
         try {
             StructuralIndex structuralIndex = indexManager.getStructuralIndex();

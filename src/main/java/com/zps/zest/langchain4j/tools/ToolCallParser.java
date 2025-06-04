@@ -1,11 +1,9 @@
 package com.zps.zest.langchain4j.tools;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.ExceptionUtil;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,8 +58,14 @@ public class ToolCallParser {
             while (jsonMatcher.find()) {
                 try {
                     String jsonContent = jsonMatcher.group(1).trim();
-                    JsonElement element = JsonParser.parseString(jsonContent);
-                    
+                    JsonElement element = JsonNull.INSTANCE;
+                    try{
+                     element = JsonParser.parseString(jsonContent);
+                }
+                    catch (JsonSyntaxException jsonSyntaxException){
+                        System.out.println("Fail json parse");
+                        System.out.println(ExceptionUtils.getStackTrace(jsonSyntaxException));
+                    }
                     if (element.isJsonObject()) {
                         JsonObject json = element.getAsJsonObject();
                         if (json.has("tool") && json.has("parameters")) {

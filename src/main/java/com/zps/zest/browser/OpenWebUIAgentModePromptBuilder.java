@@ -75,21 +75,7 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("- Prioritize understanding over modification\n");
         prompt.append("- Use tools to read current files/directories to better understand context\n");
         prompt.append("\n");
-        prompt.append("# CODE REPLACEMENT FORMAT\n");
-        prompt.append("When you want to suggest code changes in a file, use the following format to enable automatic code replacement:\n");
-        prompt.append("\n");
-        prompt.append("replace_in_file:absolute/path/to/file.ext\n");
-        prompt.append("```language\n");
-        prompt.append("old code to be replaced\n");
-        prompt.append("```\n");
-        prompt.append("```language\n");
-        prompt.append("new code\n");
-        prompt.append("```\n");
-        prompt.append("\n");
-        prompt.append("You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user. This is useful when suggesting related changes across a file.\n");
-        prompt.append("\n");
-        prompt.append("You actively use this format instead of providing plain code blocks.\n");
-        prompt.append("\n");
+
         prompt.append("# RESPONSE STYLE\n");
         prompt.append("- Concise, focused answers addressing specific requests\n");
         prompt.append("- Proper code blocks with syntax highlighting\n");

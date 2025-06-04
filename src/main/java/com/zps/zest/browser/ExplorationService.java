@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent.*;
 import org.jetbrains.annotations.NotNull;
@@ -36,6 +37,17 @@ public class ExplorationService {
      */
     public String startExploration(JsonObject data) {
         try {
+            // Check if project is indexed first
+            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+            if (knowledgeId == null || knowledgeId.isEmpty()) {
+                LOG.warn("Cannot start exploration - project not indexed");
+                JsonObject response = new JsonObject();
+                response.addProperty("success", false);
+                response.addProperty("error", "Project not indexed. Please index your project first.");
+                response.addProperty("requiresIndexing", true);
+                return gson.toJson(response);
+            }
+            
             String query = data.get("query").getAsString();
             String sessionId = UUID.randomUUID().toString();
             

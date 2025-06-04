@@ -6,6 +6,138 @@
 (function() {
   // Create and inject styles
   const styles = `
+    /* Minimized notification style */
+    .exploration-notification {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 350px;
+      background: #1e1e1e;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      z-index: 10000;
+      display: none;
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+    
+    .exploration-notification-header {
+      padding: 12px 16px;
+      background: #2d2d2d;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .exploration-notification-header:hover {
+      background: #353535;
+    }
+    
+    .exploration-notification-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .exploration-spinner-mini {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #444;
+      border-top-color: #0084ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .exploration-expand-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      transition: transform 0.2s;
+    }
+    
+    .exploration-notification.expanded .exploration-expand-icon {
+      transform: rotate(180deg);
+    }
+    
+    .exploration-notification-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+    
+    .exploration-notification.expanded .exploration-notification-body {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .exploration-notification-content {
+      padding: 12px 16px;
+      font-size: 13px;
+    }
+    
+    .exploration-progress-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #333;
+    }
+    
+    .exploration-progress-item:last-child {
+      border-bottom: none;
+    }
+    
+    .exploration-tool-name {
+      font-weight: 500;
+      color: #0084ff;
+      font-size: 12px;
+    }
+    
+    .exploration-tool-status {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+    
+    .exploration-tool-status.success {
+      background: #0f4c0f;
+      color: #4caf50;
+    }
+    
+    .exploration-tool-status.failed {
+      background: #4c0f0f;
+      color: #f44336;
+    }
+    
+    .exploration-status-text {
+      color: #999;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    
+    .exploration-complete-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: #4caf50;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    
+    /* Full overlay style (when expanded to full view) */
     .exploration-overlay {
       position: fixed;
       top: 0;
@@ -16,6 +148,12 @@
       z-index: 10000;
       display: none;
       overflow: auto;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .exploration-overlay.visible {
+      opacity: 1;
     }
     
     .exploration-container {
@@ -27,6 +165,12 @@
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
       color: #e0e0e0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transform: translateY(-20px);
+      transition: transform 0.3s ease;
+    }
+    
+    .exploration-overlay.visible .exploration-container {
+      transform: translateY(0);
     }
     
     .exploration-header {
@@ -55,10 +199,6 @@
       border-top-color: #0084ff;
       border-radius: 50%;
       animation: spin 1s linear infinite;
-    }
-    
-    @keyframes spin {
-      to { transform: rotate(360deg); }
     }
     
     .exploration-close {
@@ -276,12 +416,29 @@
       font-weight: 500;
     }
     
-    .exploration-status {
-      text-align: center;
-      padding: 10px;
-      color: #999;
+    .exploration-view-full {
+      background: #0084ff;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.2s;
+    }
+    
+    .exploration-view-full:hover {
+      background: #0070e0;
+    }
+    
+    .exploration-error-message {
+      background: #4c0f0f;
+      color: #f44336;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-bottom: 12px;
       font-size: 13px;
-      font-style: italic;
     }
   `;
   
@@ -290,7 +447,26 @@
   styleSheet.textContent = styles;
   document.head.appendChild(styleSheet);
   
-  // Create exploration UI container
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'exploration-notification';
+  notification.innerHTML = `
+    <div class="exploration-notification-header">
+      <div class="exploration-notification-title">
+        <span class="exploration-spinner-mini"></span>
+        <span>Exploring codebase...</span>
+      </div>
+      <div class="exploration-expand-icon">▼</div>
+    </div>
+    <div class="exploration-notification-body">
+      <div class="exploration-notification-content">
+        <div class="exploration-progress-list"></div>
+        <button class="exploration-view-full">View Full Details</button>
+      </div>
+    </div>
+  `;
+  
+  // Create full overlay element
   const overlay = document.createElement('div');
   overlay.className = 'exploration-overlay';
   overlay.innerHTML = `
@@ -306,11 +482,11 @@
         <div class="exploration-query"></div>
         <div class="exploration-rounds"></div>
         <div class="exploration-summary" style="display: none;"></div>
-        <div class="exploration-status">Enhancing your query with code context...</div>
       </div>
     </div>
   `;
   
+  document.body.appendChild(notification);
   document.body.appendChild(overlay);
   
   // UI state
@@ -320,25 +496,74 @@
     toolExecutions: [],
     summary: null
   };
+  let notificationExpanded = false;
   
   // UI functions
-  function showExplorationUI() {
+  function showNotification() {
+    notification.style.display = 'block';
+  }
+  
+  function hideNotification() {
+    notification.style.display = 'none';
+    notificationExpanded = false;
+    notification.classList.remove('expanded');
+  }
+  
+  function toggleNotification() {
+    notificationExpanded = !notificationExpanded;
+    if (notificationExpanded) {
+      notification.classList.add('expanded');
+    } else {
+      notification.classList.remove('expanded');
+    }
+  }
+  
+  function showFullView() {
     overlay.style.display = 'block';
+    setTimeout(() => overlay.classList.add('visible'), 10);
+    updateFullViewUI();
   }
   
-  function hideExplorationUI() {
-    overlay.style.display = 'none';
-    currentSessionId = null;
-    explorationData = { rounds: [], toolExecutions: [], summary: null };
+  function hideFullView() {
+    overlay.classList.remove('visible');
+    setTimeout(() => overlay.style.display = 'none', 300);
   }
   
-  function updateExplorationUI() {
+  function updateNotificationProgress() {
+    const progressList = notification.querySelector('.exploration-progress-list');
+    progressList.innerHTML = '';
+    
+    // Show latest tools
+    const recentTools = explorationData.toolExecutions.slice(-3);
+    recentTools.forEach(exec => {
+      const statusClass = exec.success ? 'success' : 'failed';
+      const statusText = exec.success ? 'Success' : 'Failed';
+      
+      const item = document.createElement('div');
+      item.className = 'exploration-progress-item';
+      item.innerHTML = `
+        <div class="exploration-tool-name">
+          ${exec.toolName}
+          <span class="exploration-tool-status ${statusClass}">${statusText}</span>
+        </div>
+      `;
+      progressList.appendChild(item);
+    });
+    
+    // Add status text
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'exploration-status-text';
+    statusDiv.textContent = `${explorationData.toolExecutions.length} tools executed`;
+    progressList.appendChild(statusDiv);
+  }
+  
+  function updateFullViewUI() {
     const roundsContainer = overlay.querySelector('.exploration-rounds');
     roundsContainer.innerHTML = '';
     
     explorationData.rounds.forEach((round, index) => {
       const roundEl = document.createElement('div');
-      roundEl.className = 'exploration-round collapsed'; // Start collapsed
+      roundEl.className = 'exploration-round collapsed';
       
       const toolExecutionsHtml = round.toolExecutions.map(exec => {
         const statusClass = exec.success ? 'success' : 'failed';
@@ -392,11 +617,13 @@
   }
   
   // Event handlers
-  overlay.querySelector('.exploration-close').addEventListener('click', hideExplorationUI);
+  notification.querySelector('.exploration-notification-header').addEventListener('click', toggleNotification);
+  notification.querySelector('.exploration-view-full').addEventListener('click', showFullView);
   
+  overlay.querySelector('.exploration-close').addEventListener('click', hideFullView);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) {
-      hideExplorationUI();
+      hideFullView();
     }
   });
   
@@ -407,25 +634,42 @@
     try {
       const response = await window.intellijBridge.callIDE('startExploration', { query });
       
-      if (response.success) {
-        currentSessionId = response.sessionId;
-        explorationData = { rounds: [], toolExecutions: [], summary: null };
-        
-        // Update UI
-        overlay.querySelector('.exploration-query').textContent = `Query: "${query}"`;
-        overlay.querySelector('.exploration-title span:last-child').textContent = 'Exploring Codebase...';
-        overlay.querySelector('.exploration-spinner').style.display = 'block';
-        overlay.querySelector('.exploration-summary').style.display = 'none';
-        overlay.querySelector('.exploration-status').style.display = 'block';
-        overlay.querySelector('.exploration-status').textContent = 'Enhancing your query with code context...';
-        
-        showExplorationUI();
-        
-        return response.sessionId;
-      } else {
+      if (!response.success) {
+        if (response.requiresIndexing) {
+          // Show error in notification
+          const errorHtml = `
+            <div class="exploration-error-message">
+              ⚠️ Project not indexed. Please index your project first to use Agent Mode exploration.
+            </div>
+          `;
+          notification.querySelector('.exploration-notification-content').innerHTML = errorHtml;
+          notification.querySelector('.exploration-spinner-mini').style.display = 'none';
+          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
+          showNotification();
+          
+          // Auto-hide after 5 seconds
+          setTimeout(hideNotification, 5000);
+        }
         console.error('Failed to start exploration:', response.error);
         return null;
       }
+      
+      currentSessionId = response.sessionId;
+      explorationData = { rounds: [], toolExecutions: [], summary: null };
+      
+      // Update notification
+      notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Exploring codebase...';
+      notification.querySelector('.exploration-spinner-mini').style.display = 'block';
+      
+      // Update full view
+      overlay.querySelector('.exploration-query').textContent = `Query: "${query}"`;
+      overlay.querySelector('.exploration-title span:last-child').textContent = 'Exploring Codebase...';
+      overlay.querySelector('.exploration-spinner').style.display = 'block';
+      overlay.querySelector('.exploration-summary').style.display = 'none';
+      
+      showNotification();
+      
+      return response.sessionId;
     } catch (error) {
       console.error('Error starting exploration:', error);
       return null;
@@ -451,7 +695,12 @@
         
         const currentRound = explorationData.rounds[explorationData.rounds.length - 1];
         currentRound.toolExecutions.push(event.data);
-        updateExplorationUI();
+        explorationData.toolExecutions.push(event.data);
+        
+        updateNotificationProgress();
+        if (overlay.style.display === 'block') {
+          updateFullViewUI();
+        }
         break;
         
       case 'round_complete':
@@ -462,11 +711,18 @@
         } else {
           explorationData.rounds.push(event.data);
         }
-        updateExplorationUI();
+        
+        if (overlay.style.display === 'block') {
+          updateFullViewUI();
+        }
         break;
         
       case 'exploration_complete':
-        // Show summary
+        // Update UI for completion
+        notification.querySelector('.exploration-spinner-mini').style.display = 'none';
+        notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
+          '<span class="exploration-complete-indicator"></span>Exploration Complete';
+        
         overlay.querySelector('.exploration-spinner').style.display = 'none';
         overlay.querySelector('.exploration-title span:last-child').innerHTML = 
           'Exploration Complete <span class="exploration-complete-badge">Done</span>';
@@ -480,7 +736,7 @@
             <div class="summary-content">${escapeHtml(event.data.summary)}</div>
           `;
           summaryEl.style.display = 'block';
-          summaryEl.classList.add('collapsed'); // Start collapsed
+          summaryEl.classList.add('collapsed');
           
           // Add click handler for summary collapsing
           const summaryHeader = summaryEl.querySelector('.exploration-summary-header');
@@ -489,15 +745,13 @@
           });
         }
         
-        // Update status
-        overlay.querySelector('.exploration-status').textContent = 'Query enhanced! Closing in 3 seconds...';
-        
         // Store the exploration result for use in the prompt
         window.__exploration_result__ = event.data;
         
-        // Auto-close after 3 seconds
+        // Auto-hide notification after 3 seconds
         setTimeout(() => {
-          hideExplorationUI();
+          hideNotification();
+          hideFullView();
         }, 3000);
         break;
     }
@@ -506,10 +760,14 @@
   // Add function to mark exploration as used (for immediate closing)
   window.markExplorationUsed = function() {
     if (currentSessionId) {
-      overlay.querySelector('.exploration-status').textContent = 'Query enhanced successfully!';
+      // Update notification to show it's being used
+      notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
+        '<span class="exploration-complete-indicator"></span>Enhancing query...';
+      
       // Close immediately
       setTimeout(() => {
-        hideExplorationUI();
+        hideNotification();
+        hideFullView();
       }, 500);
     }
   };

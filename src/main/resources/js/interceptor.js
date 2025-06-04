@@ -60,7 +60,7 @@
       
       if (sessionId) {
         // Wait for exploration to complete (with timeout)
-        const maxWaitTime = 30000; // 30 seconds
+        const maxWaitTime = 300000; // 300 seconds
         const startTime = Date.now();
         
         while (Date.now() - startTime < maxWaitTime) {

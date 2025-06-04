@@ -58,9 +58,60 @@
     if (window.startExploration) {
       const sessionId = await window.startExploration(query);
       
-      if (sessionId) {
+      if (sessionId === 'indexing') {
+        // Project is building local index, wait for it to complete
+        console.log('Project is building local index, waiting for completion...');
+        
+        // Wait for indexing to complete (with timeout)
+        const maxIndexingTime = 300000; // 5 minutes for indexing
+        const startTime = Date.now();
+        
+        return new Promise((resolve) => {
+          // Store the original handlers
+          const originalComplete = window.handleIndexingComplete;
+          const originalError = window.handleIndexingError;
+          
+          // Override handlers to resolve our promise
+          window.handleIndexingComplete = async function() {
+            // Call original handler
+            if (originalComplete) await originalComplete();
+            
+            // Restore original handlers
+            window.handleIndexingComplete = originalComplete;
+            window.handleIndexingError = originalError;
+            
+            // Wait for the new exploration to start and complete
+            setTimeout(() => {
+              // By now, the new exploration should have started
+              // We'll return empty context and let the next request handle it
+              resolve('');
+            }, 2000);
+          };
+          
+          window.handleIndexingError = function(error) {
+            // Call original handler
+            if (originalError) originalError(error);
+            
+            // Restore original handlers
+            window.handleIndexingComplete = originalComplete;
+            window.handleIndexingError = originalError;
+            
+            // Resolve with empty context
+            resolve('');
+          };
+          
+          // Also set a timeout
+          setTimeout(() => {
+            console.warn('Indexing timeout reached');
+            // Restore original handlers
+            window.handleIndexingComplete = originalComplete;
+            window.handleIndexingError = originalError;
+            resolve('');
+          }, maxIndexingTime);
+        });
+      } else if (sessionId) {
         // Wait for exploration to complete (with timeout)
-        const maxWaitTime = 300000; // 300 seconds
+        const maxWaitTime = 30000; // 30 seconds
         const startTime = Date.now();
         
         while (Date.now() - startTime < maxWaitTime) {

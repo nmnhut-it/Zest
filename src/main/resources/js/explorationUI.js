@@ -497,6 +497,7 @@
     summary: null
   };
   let notificationExpanded = false;
+  let pendingQuery = null; // Store query while building local index
   
   // UI functions
   function showNotification() {
@@ -635,22 +636,44 @@
       const response = await window.intellijBridge.callIDE('startExploration', { query });
       
       if (!response.success) {
-        if (response.requiresIndexing) {
-          // Show error in notification
-          const errorHtml = `
-            <div class="exploration-error-message">
-              ⚠️ Project not indexed. Please index your project first to use Agent Mode exploration.
+        if (response.indexing) {
+          // Project is being indexed locally
+          pendingQuery = query; // Store the query to retry after indexing
+          
+          // Show indexing status
+          notification.querySelector('.exploration-notification-content').innerHTML = `
+            <div class="exploration-progress-item">
+              <div class="exploration-status-text">
+                🔍 ${response.message || 'Building local code index for exploration...'}
+              </div>
+              <div class="exploration-status-text" style="margin-top: 8px; color: #0084ff;">
+                This only happens once per project. Please wait...
+              </div>
             </div>
           `;
-          notification.querySelector('.exploration-notification-content').innerHTML = errorHtml;
-          notification.querySelector('.exploration-spinner-mini').style.display = 'none';
-          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
+          notification.querySelector('.exploration-spinner-mini').style.display = 'block';
+          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Building Index';
+          notification.querySelector('.exploration-view-full').style.display = 'none';
           showNotification();
           
-          // Auto-hide after 5 seconds
-          setTimeout(hideNotification, 5000);
+          return 'indexing'; // Special return value to indicate indexing state
         }
+        
         console.error('Failed to start exploration:', response.error);
+        
+        // Show error in notification
+        const errorHtml = `
+          <div class="exploration-error-message">
+            ⚠️ ${response.error || 'Failed to start exploration'}
+          </div>
+        `;
+        notification.querySelector('.exploration-notification-content').innerHTML = errorHtml;
+        notification.querySelector('.exploration-spinner-mini').style.display = 'none';
+        notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
+        showNotification();
+        
+        // Auto-hide after 5 seconds
+        setTimeout(hideNotification, 5000);
         return null;
       }
       
@@ -770,6 +793,62 @@
         hideFullView();
       }, 500);
     }
+  };
+  
+  // Add handlers for indexing callbacks
+  window.handleIndexingComplete = async function() {
+    console.log('Local indexing complete, retrying exploration...');
+    
+    // Update notification
+    notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
+      '<span class="exploration-complete-indicator"></span>Index Built';
+    notification.querySelector('.exploration-notification-content').innerHTML = `
+      <div class="exploration-progress-item">
+        <div class="exploration-status-text" style="color: #4caf50;">
+          ✓ Local code index built successfully!
+        </div>
+        <div class="exploration-status-text" style="margin-top: 8px;">
+          Starting exploration...
+        </div>
+      </div>
+    `;
+    
+    // Wait a moment for user to see the success message
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Retry the exploration with the stored query
+    if (pendingQuery) {
+      const query = pendingQuery;
+      pendingQuery = null;
+      
+      // Hide current notification
+      hideNotification();
+      
+      // Retry exploration
+      window.startExploration(query);
+    }
+  };
+  
+  window.handleIndexingError = function(error) {
+    console.error('Local indexing failed:', error);
+    
+    // Update notification to show error
+    notification.querySelector('.exploration-spinner-mini').style.display = 'none';
+    notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Indexing Failed';
+    notification.querySelector('.exploration-notification-content').innerHTML = `
+      <div class="exploration-error-message">
+        ⚠️ Failed to build local index: ${escapeHtml(error || 'Unknown error')}
+      </div>
+      <div class="exploration-status-text" style="margin-top: 8px;">
+        Please check the IDE logs for details.
+      </div>
+    `;
+    
+    // Clear pending query
+    pendingQuery = null;
+    
+    // Auto-hide after 10 seconds
+    setTimeout(hideNotification, 10000);
   };
   
   console.log('Exploration UI initialized');

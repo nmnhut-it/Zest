@@ -5,9 +5,9 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent.*;
+import com.zps.zest.rag.RagAgent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -33,19 +33,67 @@ public class ExplorationService {
     }
     
     /**
+     * Checks if the project has a local RAG index (separate from OpenWebUI knowledge).
+     * This is used by the exploration agent's tools.
+     */
+    private boolean checkLocalRagIndex() {
+        // Check if the RagAgent has built a local index
+        // This could be checking for cached signatures or a local index file
+        RagAgent ragAgent = RagAgent.getInstance(project);
+        return ragAgent.hasLocalIndex();
+    }
+    
+    /**
      * Starts a new exploration session.
      */
     public String startExploration(JsonObject data) {
         try {
-            // Check if project is indexed first
-            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
-            if (knowledgeId == null || knowledgeId.isEmpty()) {
-                LOG.warn("Cannot start exploration - project not indexed");
-                JsonObject response = new JsonObject();
-                response.addProperty("success", false);
-                response.addProperty("error", "Project not indexed. Please index your project first.");
-                response.addProperty("requiresIndexing", true);
-                return gson.toJson(response);
+            // Check if project has local RAG index (not OpenWebUI knowledge)
+            boolean hasLocalIndex = checkLocalRagIndex();
+            if (!hasLocalIndex) {
+                LOG.info("Project not indexed locally - triggering automatic local indexing");
+                
+                // Notify browser that indexing is starting
+                JsonObject indexingResponse = new JsonObject();
+                indexingResponse.addProperty("success", false);
+                indexingResponse.addProperty("indexing", true);
+                indexingResponse.addProperty("message", "Building local code index for exploration...");
+                
+                // Start local indexing asynchronously
+                ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                    try {
+                        // Trigger local indexing (this builds the local index for agent tools)
+                        RagAgent ragAgent = RagAgent.getInstance(project);
+                        ragAgent.buildLocalIndex(); // New method for local-only indexing
+                        
+                        LOG.info("Local project index built successfully");
+                        
+                        // Notify browser that indexing is complete
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                            if (browserPanel != null) {
+                                String script = "if (window.handleIndexingComplete) { window.handleIndexingComplete(); }";
+                                browserPanel.executeJavaScript(script);
+                            }
+                        });
+                        
+                    } catch (Exception e) {
+                        LOG.error("Error during local indexing", e);
+                        // Notify browser of indexing error
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                            if (browserPanel != null) {
+                                String script = String.format(
+                                    "if (window.handleIndexingError) { window.handleIndexingError('%s'); }",
+                                    e.getMessage().replace("'", "\\'")  
+                                );
+                                browserPanel.executeJavaScript(script);
+                            }
+                        });
+                    }
+                });
+                
+                return gson.toJson(indexingResponse);
             }
             
             String query = data.get("query").getAsString();

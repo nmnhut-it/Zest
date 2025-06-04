@@ -45,6 +45,7 @@ public final class RagAgent {
     private final Gson gson = new Gson();
     
     private volatile boolean isIndexing = false;
+    private volatile boolean hasLocalIndex = false; // Track local index state
 
     // Production constructor
     public RagAgent(Project project) {
@@ -78,6 +79,127 @@ public final class RagAgent {
 
     public static RagAgent getInstance(Project project) {
         return project.getService(RagAgent.class);
+    }
+
+    /**
+     * Builds a local index for the exploration agent tools (separate from OpenWebUI).
+     * This index is used by the ImprovedToolCallingAutonomousAgent's RAG search tool.
+     */
+    public void buildLocalIndex() {
+        if (isIndexing) {
+            LOG.info("Local indexing already in progress");
+            return;
+        }
+
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Building Local Code Index", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    isIndexing = true;
+                    performLocalIndexing(indicator);
+                    hasLocalIndex = true;
+                } catch (Exception e) {
+                    hasLocalIndex = false;
+                } finally {
+                    isIndexing = false;
+                }
+            }
+        });
+    }
+    
+    /**
+     * Performs local indexing - only builds the signature cache, no OpenWebUI upload.
+     */
+    private void performLocalIndexing(ProgressIndicator indicator) {
+        indicator.setText("Extracting project information...");
+        
+        // Clear existing cache
+        signatureCache.clear();
+        
+        // Extract project info (we might use this for local search context)
+        ProjectInfo projectInfo = ReadAction.compute(() -> codeAnalyzer.extractProjectInfo());
+        
+        indicator.setText("Building local code index...");
+        
+        // Index all source files locally
+        List<VirtualFile> sourceFiles = ReadAction.compute(() -> codeAnalyzer.findAllSourceFiles());
+        int total = sourceFiles.size();
+        int current = 0;
+
+        for (VirtualFile file : sourceFiles) {
+            if (indicator.isCanceled()) break;
+            
+            current++;
+            indicator.setText2("Processing " + file.getName() + " (" + current + "/" + total + ")");
+            indicator.setFraction((double) current / total);
+
+            try {
+                // Extract signatures and cache them locally
+                List<CodeSignature> signatures = ReadAction.compute(() -> {
+                    PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+                    if (psiFile != null) {
+                        return codeAnalyzer.extractSignatures(psiFile);
+                    }
+                    return Collections.<CodeSignature>emptyList();
+                });
+
+                if (!signatures.isEmpty()) {
+                    signatureCache.put(file.getPath(), signatures);
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to index file locally: " + file.getPath(), e);
+            }
+        }
+
+        indicator.setText("Local indexing complete");
+        LOG.info("Local project indexing completed. Indexed " + current + " files.");
+    }
+    
+    /**
+     * Checks if a local index has been built for agent tools.
+     */
+    public boolean hasLocalIndex() {
+        return hasLocalIndex && !signatureCache.isEmpty();
+    }
+    
+    /**
+     * Searches the local index (used by agent tools, not OpenWebUI).
+     * This is what the ImprovedToolCallingAutonomousAgent's RAG tool uses.
+     */
+    public CompletableFuture<List<CodeMatch>> searchLocalIndex(String query) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!hasLocalIndex()) {
+                    LOG.warn("No local index available");
+                    return Collections.emptyList();
+                }
+
+                // Search through local signature cache
+                List<CodeMatch> matches = new ArrayList<>();
+                
+                for (Map.Entry<String, List<CodeSignature>> entry : signatureCache.entrySet()) {
+                    for (CodeSignature sig : entry.getValue()) {
+                        double relevance = calculateRelevance(sig, query);
+                        if (relevance > 0.1) {
+                            matches.add(new CodeMatch(sig, relevance));
+                        }
+                    }
+                }
+
+                // Sort by relevance
+                matches.sort((a, b) -> Double.compare(b.getRelevance(), a.getRelevance()));
+                
+                // Limit results
+                if (matches.size() > 20) {
+                    matches = matches.subList(0, 20);
+                }
+                
+                return matches;
+            } catch (Exception e) {
+                LOG.error("Error searching local index", e);
+                return Collections.emptyList();
+            }
+        });
     }
 
     /**

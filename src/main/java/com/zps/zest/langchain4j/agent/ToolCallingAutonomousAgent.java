@@ -29,9 +29,9 @@ public final class ToolCallingAutonomousAgent {
     private final CodeExplorationToolRegistry toolRegistry;
     private final ToolCallParser toolCallParser;
     
-    // Configuration
-    private static final int MAX_TOOL_CALLS = 20;
-    private static final int MAX_ROUNDS = 5;
+    // Configuration - now using centralized constants
+    private static final int MAX_TOOL_CALLS = AgentConfiguration.MAX_TOOL_CALLS;
+    private static final int MAX_ROUNDS = AgentConfiguration.MAX_ROUNDS;
     
     public ToolCallingAutonomousAgent(@NotNull Project project) {
         this.project = project;
@@ -234,8 +234,62 @@ public final class ToolCallingAutonomousAgent {
             Available Tools:
             %s
             
-            Your task is to plan an exploration strategy using these tools. Generate a sequence of tool calls
-            that will help you thoroughly understand the code related to the user's query.
+            ## EXPLORATION STRATEGY GUIDELINES:
+            
+            ### 1. Tool Execution Order (IMPORTANT - Follow this sequence):
+            
+            **Phase 1 - Discovery (Start Here):**
+            - Use `search_code` FIRST for semantic/conceptual queries (e.g., "authentication logic", "payment processing")
+            - Use `find_by_name` FIRST for specific names (e.g., "UserService", "calculateTotal")
+            - These tools are fast and give you entry points into the codebase
+            
+            **Phase 2 - Context Building:**
+            - Use `get_current_context` to understand the active file/location
+            - Use `list_files_in_directory` to explore package structures
+            - Use `find_similar` to discover related code patterns
+            
+            **Phase 3 - Deep Analysis:**
+            - Use `read_file` to examine specific implementations
+            - Use `get_class_info` for detailed class structure
+            - Use `find_methods` to explore method signatures
+            
+            **Phase 4 - Relationship Mapping:**
+            - Use `find_relationships` to understand dependencies
+            - Use `find_callers` to trace execution paths
+            - Use `find_implementations` for interface/abstract class exploration
+            - Use `find_usages` to see where elements are referenced
+            
+            ### 2. Best Practices:
+            
+            - **Be specific with search queries**: Use technical terms and full context
+              ✓ Good: "user authentication validation logic"
+              ✗ Bad: "validation"
+            
+            - **Case sensitivity matters**: `find_by_name` is case-sensitive
+              ✓ "UserService" will find UserService, UserServiceImpl
+              ✗ "userservice" will NOT find UserService
+            
+            - **Start broad, then narrow**: Begin with search/discovery, then drill into specifics
+            
+            - **Use relationship tools after finding elements**: First find the class/method, then explore its relationships
+            
+            ### 3. Common Patterns:
+            
+            For "How does X work?" queries:
+            1. `search_code` or `find_by_name` to locate X
+            2. `read_file` to see implementation
+            3. `find_relationships` to understand dependencies
+            4. `find_callers` to see usage patterns
+            
+            For "Find all implementations of Y" queries:
+            1. `find_by_name` to locate interface/abstract class Y
+            2. `find_implementations` to get all implementations
+            3. `read_file` on each implementation
+            
+            For "What uses Z?" queries:
+            1. `find_by_name` to locate Z
+            2. `find_usages` or `find_relationships` with USED_BY
+            3. `read_file` to examine usage contexts
             
             Format your tool calls as JSON blocks:
             ```json
@@ -249,10 +303,7 @@ public final class ToolCallingAutonomousAgent {
             }
             ```
             
-            Start with high-level discovery (find_by_name, search_code) then drill down into specifics
-            (read_file, find_methods, find_relationships).
-            
-            Generate 3-5 initial tool calls to begin the exploration.
+            Generate 3-5 initial tool calls following the strategy above. Always start with discovery tools!
             """, userQuery, toolRegistry.getToolsDescription());
     }
     
@@ -272,19 +323,84 @@ public final class ToolCallingAutonomousAgent {
             prompt.append("Result: ").append(truncate(execution.result, 500)).append("\n");
         }
         
-        prompt.append("\nBased on these results, what should we explore next? ");
-        prompt.append("Generate additional tool calls to deepen understanding.\n\n");
+        prompt.append("\n## NEXT STEPS STRATEGY:\n\n");
+        
+        // Analyze what phase we're in and suggest next steps
+        Map<String, Integer> toolUsage = context.getToolUsageStats();
+        boolean hasDiscovery = toolUsage.containsKey("search_code") || toolUsage.containsKey("find_by_name");
+        boolean hasFileReads = toolUsage.containsKey("read_file");
+        boolean hasRelationships = toolUsage.containsKey("find_relationships") || 
+                                   toolUsage.containsKey("find_callers") || 
+                                   toolUsage.containsKey("find_implementations");
+        
+        if (!hasDiscovery) {
+            prompt.append("⚠️ You haven't used discovery tools yet! Start with:\n");
+            prompt.append("- `search_code` for conceptual searches\n");
+            prompt.append("- `find_by_name` for specific class/method names\n\n");
+        } else if (!hasFileReads) {
+            prompt.append("✓ Discovery complete. Now examine implementations:\n");
+            prompt.append("- Use `read_file` to see the actual code\n");
+            prompt.append("- Use `get_class_info` for structural details\n\n");
+        } else if (!hasRelationships) {
+            prompt.append("✓ Implementation examined. Now explore relationships:\n");
+            prompt.append("- Use `find_relationships` to map dependencies\n");
+            prompt.append("- Use `find_callers` to trace usage\n");
+            prompt.append("- Use `find_usages` to find references\n\n");
+        } else {
+            prompt.append("✓ Deep exploration phase. Consider:\n");
+            prompt.append("- Following interesting relationships you found\n");
+            prompt.append("- Exploring similar code patterns\n");
+            prompt.append("- Checking edge cases or error handling\n\n");
+        }
+        
+        // Add intelligent suggestions based on context
+        Set<String> unexplored = context.getUnexploredElements();
+        if (!unexplored.isEmpty()) {
+            prompt.append("### Discovered but unexplored elements:\n");
+            unexplored.stream().limit(5).forEach(element -> 
+                prompt.append("- ").append(element).append("\n"));
+            prompt.append("\n");
+        }
+        
+        List<String> suggestions = context.getSuggestedNextElements();
+        if (!suggestions.isEmpty()) {
+            prompt.append("### Suggested elements to explore (based on relationships):\n");
+            suggestions.forEach(element -> 
+                prompt.append("- ").append(element).append("\n"));
+            prompt.append("\n");
+        }
+        
+        // Check if we have adequate coverage
+        if (context.hasAdequateCoverage()) {
+            prompt.append("### Coverage Status: ✓ Good\n");
+            prompt.append("You've explored ").append(context.getToolCallCount())
+                  .append(" tools with ").append(context.exploredElements.size())
+                  .append(" elements and ").append(context.exploredFiles.size())
+                  .append(" files. Consider wrapping up unless you find critical gaps.\n\n");
+        }
+        
+        prompt.append("Based on these results, what should we explore next?\n\n");
+        
+        prompt.append("## SMART EXPLORATION TIPS:\n");
+        prompt.append("1. **Follow the breadcrumbs**: If you found a class, explore its methods. If you found a method, check who calls it.\n");
+        prompt.append("2. **Look for patterns**: If you see 'UserService', also check for 'UserRepository', 'UserController', etc.\n");
+        prompt.append("3. **Check both directions**: For inheritance, check both parent and children. For calls, check both callers and callees.\n");
+        prompt.append("4. **Don't repeat**: Avoid calling the same tool with the same parameters.\n");
+        prompt.append("5. **Focus on relevance**: Prioritize exploring code that directly relates to the original query.\n\n");
         
         prompt.append("Available Tools:\n").append(toolRegistry.getToolsDescription()).append("\n");
         
         prompt.append("""
-            Generate tool calls that:
-            1. Follow up on interesting findings
-            2. Explore relationships and dependencies
-            3. Get implementation details
-            4. Find usage patterns
+            Generate tool calls that build upon your discoveries. Format as JSON blocks:
+            ```json
+            {
+              "tool": "tool_name",
+              "parameters": {...},
+              "reasoning": "How this extends our understanding"
+            }
+            ```
             
-            Format as JSON blocks as before. Generate 2-5 tool calls.
+            Generate 2-5 tool calls. Focus on depth over breadth - explore the most relevant findings thoroughly.
             """);
         
         return prompt.toString();
@@ -313,22 +429,46 @@ public final class ToolCallingAutonomousAgent {
         
         prompt.append("""
             
+            ## SUMMARY GUIDELINES:
+            
+            Focus on answering the original query directly. Structure your summary to be:
+            1. **Actionable**: Provide specific findings, not general observations
+            2. **Hierarchical**: Start with the most important discoveries
+            3. **Connected**: Show how different pieces relate to each other
+            4. **Practical**: Include code examples where relevant
+            
             Please provide a comprehensive summary in the following format:
             
             ## Executive Summary
-            [2-3 paragraph overview of findings]
+            [2-3 paragraph overview directly answering the user's query]
+            [Highlight the most important findings first]
+            [Make it clear and actionable]
             
             ## Key Code Elements
             [List the most important classes, methods, and relationships discovered]
+            [Group by functional area or component]
+            [Include brief descriptions of their roles]
             
             ## Architecture Insights
             [Architectural patterns and design decisions observed]
+            [How components interact]
+            [Any notable design patterns used]
             
             ## Implementation Details
             [Critical implementation details and dependencies]
+            [Important algorithms or business logic]
+            [Configuration or setup requirements]
+            
+            ## Code Examples
+            [If relevant, include 1-2 short code snippets that illustrate key concepts]
+            [Focus on the most important patterns or usage examples]
             
             ## Recommendations
-            [Next steps for further exploration or development]
+            [Specific next steps for further exploration or development]
+            [Potential areas of concern or improvement]
+            [Suggested tools or approaches for the user's task]
+            
+            Remember: The summary should directly address the user's original query and provide practical, actionable insights.
             """);
         
         return prompt.toString();
@@ -357,6 +497,8 @@ public final class ToolCallingAutonomousAgent {
         private final List<ToolExecution> toolExecutions = new ArrayList<>();
         private final List<ToolCallParser.ToolCall> plannedTools = new ArrayList<>();
         private final Set<String> exploredElements = new HashSet<>();
+        private final Set<String> exploredFiles = new HashSet<>();
+        private final Map<String, Set<String>> discoveredRelationships = new HashMap<>();
         
         public ExplorationContext(String userQuery) {
             this.userQuery = userQuery;
@@ -368,6 +510,46 @@ public final class ToolCallingAutonomousAgent {
         
         public void addToolExecution(ToolExecution execution) {
             toolExecutions.add(execution);
+            
+            // Track explored elements and files
+            if (execution.success && execution.result != null) {
+                // Extract file paths
+                if (execution.toolName.equals("read_file") && execution.parameters.has("filePath")) {
+                    exploredFiles.add(execution.parameters.get("filePath").getAsString());
+                }
+                
+                // Extract element IDs from results
+                String result = execution.result;
+                // Pattern for class names like com.example.ClassName
+                java.util.regex.Pattern classPattern = 
+                    java.util.regex.Pattern.compile("\\b([a-z]+\\.)+[A-Z][a-zA-Z0-9]+\\b");
+                java.util.regex.Matcher matcher = classPattern.matcher(result);
+                while (matcher.find()) {
+                    exploredElements.add(matcher.group());
+                }
+                
+                // Pattern for method references like ClassName#methodName
+                java.util.regex.Pattern methodPattern = 
+                    java.util.regex.Pattern.compile("\\b[A-Z][a-zA-Z0-9]+#[a-z][a-zA-Z0-9]+\\b");
+                matcher = methodPattern.matcher(result);
+                while (matcher.find()) {
+                    exploredElements.add(matcher.group());
+                }
+                
+                // Track relationships
+                if (execution.toolName.equals("find_relationships") && execution.parameters.has("elementId")) {
+                    String elementId = execution.parameters.get("elementId").getAsString();
+                    Set<String> related = discoveredRelationships.computeIfAbsent(elementId, k -> new HashSet<>());
+                    
+                    // Extract related elements from results
+                    String[] lines = result.split("\n");
+                    for (String line : lines) {
+                        if (line.trim().startsWith("- ") && !line.contains("None found")) {
+                            related.add(line.substring(2).trim());
+                        }
+                    }
+                }
+            }
         }
         
         public void addPlannedTools(List<ToolCallParser.ToolCall> tools) {
@@ -401,6 +583,68 @@ public final class ToolCallingAutonomousAgent {
                 .filter(e -> e.success && e.result != null && e.result.length() > 100)
                 .limit(10)
                 .toList();
+        }
+        
+        /**
+         * Gets unexplored elements that were discovered but not yet examined
+         */
+        public Set<String> getUnexploredElements() {
+            Set<String> unexplored = new HashSet<>(exploredElements);
+            
+            // Remove elements we've already read files for or got detailed info
+            for (ToolExecution execution : toolExecutions) {
+                if (execution.success) {
+                    if (execution.toolName.equals("read_file") && execution.parameters.has("filePath")) {
+                        String filePath = execution.parameters.get("filePath").getAsString();
+                        unexplored.removeIf(element -> filePath.contains(element.replace(".", "/")));
+                    } else if (execution.toolName.equals("get_class_info") && execution.parameters.has("className")) {
+                        unexplored.remove(execution.parameters.get("className").getAsString());
+                    }
+                }
+            }
+            
+            return unexplored;
+        }
+        
+        /**
+         * Suggests next elements to explore based on relationships
+         */
+        public List<String> getSuggestedNextElements() {
+            List<String> suggestions = new ArrayList<>();
+            
+            // Add unexplored related elements
+            for (Map.Entry<String, Set<String>> entry : discoveredRelationships.entrySet()) {
+                for (String related : entry.getValue()) {
+                    if (!exploredElements.contains(related)) {
+                        suggestions.add(related);
+                    }
+                }
+            }
+            
+            // Add unexplored elements from same packages
+            Set<String> packages = new HashSet<>();
+            for (String element : exploredElements) {
+                int lastDot = element.lastIndexOf('.');
+                if (lastDot > 0) {
+                    packages.add(element.substring(0, lastDot));
+                }
+            }
+            
+            return suggestions.stream().distinct().limit(5).toList();
+        }
+        
+        /**
+         * Check if we've explored enough based on query type
+         */
+        public boolean hasAdequateCoverage() {
+            // For simple queries, fewer tools might be enough
+            if (userQuery.split("\\s+").length < 5) {
+                return toolExecutions.size() >= 5 && !getKeyFindings().isEmpty();
+            }
+            
+            // For complex queries, need more exploration
+            return toolExecutions.size() >= 10 || 
+                   (exploredElements.size() >= 5 && exploredFiles.size() >= 3);
         }
     }
     

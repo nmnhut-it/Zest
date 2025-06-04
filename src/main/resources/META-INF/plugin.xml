@@ -86,10 +86,7 @@
 <!--        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>-->
 <!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent"/>-->
 <!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent"/>-->
-<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.CodingTaskAgent"/>-->
-        
-        <!-- Register new augmentation service -->
-        <projectService serviceImplementation="com.zps.zest.langchain4j.AgentModeAugmentationService"/>
+
         
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>

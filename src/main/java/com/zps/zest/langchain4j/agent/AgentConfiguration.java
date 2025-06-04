@@ -24,12 +24,12 @@ public final class AgentConfiguration {
     /**
      * Number of tool calls to generate in the initial planning phase.
      */
-    public static final int INITIAL_TOOL_CALLS = 5;
+    public static final int INITIAL_TOOL_CALLS = 2;
     
     /**
      * Number of tool calls to generate per exploration round.
      */
-    public static final int TOOLS_PER_ROUND = 5;
+    public static final int TOOLS_PER_ROUND = 2;
     
     /**
      * Maximum length for truncated text in prompts.

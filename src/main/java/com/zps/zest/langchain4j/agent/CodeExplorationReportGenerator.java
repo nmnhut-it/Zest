@@ -6,9 +6,6 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.PsiManager;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
 import com.zps.zest.ClassAnalyzer;
 import org.jetbrains.annotations.NotNull;
 
@@ -34,7 +31,7 @@ public class CodeExplorationReportGenerator {
      */
     public CodeExplorationReport generateReport(
             String originalQuery,
-            ToolCallingAutonomousAgent.ExplorationResult explorationResult) {
+            ExplorationResult explorationResult) {
         return generateReportInternal(originalQuery,
                 new OriginalExplorationResultAdapter(explorationResult));
     }
@@ -765,9 +762,9 @@ public class CodeExplorationReportGenerator {
 
     // Adapter for original ToolCallingAutonomousAgent
     private static class OriginalExplorationResultAdapter implements ExplorationResultAdapter {
-        private final ToolCallingAutonomousAgent.ExplorationResult result;
+        private final ExplorationResult result;
 
-        OriginalExplorationResultAdapter(ToolCallingAutonomousAgent.ExplorationResult result) {
+        OriginalExplorationResultAdapter(ExplorationResult result) {
             this.result = result;
         }
 
@@ -785,9 +782,9 @@ public class CodeExplorationReportGenerator {
     }
 
     private static class RoundAdapter implements ExplorationRoundAdapter {
-        private final ToolCallingAutonomousAgent.ExplorationRound round;
+        private final ExplorationRound round;
 
-        RoundAdapter(ToolCallingAutonomousAgent.ExplorationRound round) {
+        RoundAdapter(ExplorationRound round) {
             this.round = round;
         }
 
@@ -805,9 +802,9 @@ public class CodeExplorationReportGenerator {
     }
 
     private static class ExecutionAdapter implements ToolExecutionAdapter {
-        private final ToolCallingAutonomousAgent.ToolExecution execution;
+        private final ToolExecution execution;
 
-        ExecutionAdapter(ToolCallingAutonomousAgent.ToolExecution execution) {
+        ExecutionAdapter(ToolExecution execution) {
             this.execution = execution;
         }
 

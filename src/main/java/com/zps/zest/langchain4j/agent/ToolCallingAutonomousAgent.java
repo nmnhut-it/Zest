@@ -30,8 +30,8 @@ public final class ToolCallingAutonomousAgent {
     private final ToolCallParser toolCallParser;
     
     // Configuration - now using centralized constants
-    private static final int MAX_TOOL_CALLS = AgentConfiguration.MAX_TOOL_CALLS;
-    private static final int MAX_ROUNDS = AgentConfiguration.MAX_ROUNDS;
+    public static final int MAX_TOOL_CALLS = AgentConfiguration.MAX_TOOL_CALLS;
+    public static final int MAX_ROUNDS = AgentConfiguration.MAX_ROUNDS;
     
     public ToolCallingAutonomousAgent(@NotNull Project project) {
         this.project = project;
@@ -512,17 +512,17 @@ public final class ToolCallingAutonomousAgent {
      */
     private static class ExplorationContext {
         private final String userQuery;
-        private final List<ToolExecution> toolExecutions = new ArrayList<>();
-        private final List<ToolCallParser.ToolCall> plannedTools = new ArrayList<>();
-        private final Set<String> exploredElements = new HashSet<>();
-        private final Set<String> exploredFiles = new HashSet<>();
-        private final Map<String, Set<String>> discoveredRelationships = new HashMap<>();
+        public final List<ToolExecution> toolExecutions = new ArrayList<>();
+        public final List<ToolCallParser.ToolCall> plannedTools = new ArrayList<>();
+        public final Set<String> exploredElements = new HashSet<>();
+        public final Set<String> exploredFiles = new HashSet<>();
+        public final Map<String, Set<String>> discoveredRelationships = new HashMap<>();
         
         // Track source vs test exploration
-        private final Set<String> exploredSourceFiles = new HashSet<>();
-        private final Set<String> exploredTestFiles = new HashSet<>();
-        private final Set<String> exploredSourceElements = new HashSet<>();
-        private final Set<String> exploredTestElements = new HashSet<>();
+        public final Set<String> exploredSourceFiles = new HashSet<>();
+        public final Set<String> exploredTestFiles = new HashSet<>();
+        public final Set<String> exploredSourceElements = new HashSet<>();
+        public final Set<String> exploredTestElements = new HashSet<>();
         
         public ExplorationContext(String userQuery) {
             this.userQuery = userQuery;
@@ -787,91 +787,5 @@ public final class ToolCallingAutonomousAgent {
                 .toList();
         }
     }
-    
-    /**
-     * Result of the exploration session.
-     */
-    public static class ExplorationResult {
-        private final List<ExplorationRound> rounds = new ArrayList<>();
-        private String summary;
-        private boolean success = false;
-        private final List<String> errors = new ArrayList<>();
-        
-        public void addRound(ExplorationRound round) {
-            rounds.add(round);
-        }
-        
-        public void setSummary(String summary) {
-            this.summary = summary;
-        }
-        
-        public void setSuccess(boolean success) {
-            this.success = success;
-        }
-        
-        public void addError(String error) {
-            errors.add(error);
-        }
-        
-        // Getters
-        public List<ExplorationRound> getRounds() { return rounds; }
-        public String getSummary() { return summary; }
-        public boolean isSuccess() { return success; }
-        public List<String> getErrors() { return errors; }
-    }
-    
-    /**
-     * Represents one round of exploration.
-     */
-    public static class ExplorationRound {
-        private final String name;
-        private String llmResponse;
-        private final List<ToolExecution> toolExecutions = new ArrayList<>();
-        
-        public ExplorationRound(String name) {
-            this.name = name;
-        }
-        
-        public ExplorationRound(String name, String llmResponse, List<ToolExecution> executions) {
-            this.name = name;
-            this.llmResponse = llmResponse;
-            this.toolExecutions.addAll(executions);
-        }
-        
-        public void setLlmResponse(String response) {
-            this.llmResponse = response;
-        }
-        
-        public void addToolExecution(ToolExecution execution) {
-            toolExecutions.add(execution);
-        }
-        
-        // Getters
-        public String getName() { return name; }
-        public String getLlmResponse() { return llmResponse; }
-        public List<ToolExecution> getToolExecutions() { return toolExecutions; }
-    }
-    
-    /**
-     * Represents a tool execution.
-     */
-    public static class ToolExecution {
-        private final String toolName;
-        private final JsonObject parameters;
-        private final String result;
-        private final boolean success;
-        
-        public ToolExecution(String toolName, JsonObject parameters, String result, boolean success) {
-            this.toolName = toolName;
-            this.parameters = parameters;
-            this.result = result;
-            this.success = success;
-        }
-        
-        // Getters
-        public String getToolName() { return toolName; }
-        public JsonObject getParameters() { return parameters; }
-        public String getResult() { return result; }
-        public boolean isSuccess() { return success; }
-    }
+
 }

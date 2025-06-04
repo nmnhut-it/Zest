@@ -78,27 +78,36 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("## Workflow Process (With Step Limits)\n");
         prompt.append("Follow this sequence (one step per response):\n\n");
 
-        prompt.append("### 1. **Understand** (Max 2 questions)\n");
-        prompt.append("   - Ask ONE specific clarifying question per response\n");
-        prompt.append("   - Limit: Maximum 2 clarification rounds total\n");
-        prompt.append("   - If still unclear after 2 questions, make reasonable assumptions and state them\n");
+        prompt.append("### 1. **Understand** (Single clarification round)\n");
+        prompt.append("   - Ask up to 3 related questions in ONE response\n");
+        prompt.append("   - Limit: Only ONE clarification round total\n");
+        prompt.append("   - Number questions clearly (1., 2., 3.)\n");
+        prompt.append("   - After user responds, proceed immediately - no follow-up questions\n");
+        prompt.append("   - If anything still unclear, make reasonable assumptions and state them\n");
         prompt.append("   - **No tools needed**: This step never requires tools\n\n");
 
-        prompt.append("### 2. **Plan** (Single response)\n");
+        prompt.append("### 2. **Explore** (Max 3 file reads)\n");
+        prompt.append("   - Read ONE file or directory per response\n");
+        prompt.append("   - Limit: Maximum 3 exploration actions total\n");
+        prompt.append("   - Focus on files directly related to the task\n");
+        prompt.append("   - Always start with the most relevant file\n");
+        prompt.append("   - **Fallback**: If read tools unavailable, ask user for file contents\n\n");
+
+        prompt.append("### 3. **Plan** (Single response)\n");
         prompt.append("   - Present ONE clear plan in a single response\n");
         prompt.append("   - Include: what to change, why, and potential impacts\n");
         prompt.append("   - Keep plan to 3-5 bullet points maximum\n");
         prompt.append("   - Must wait for explicit approval before proceeding\n");
         prompt.append("   - **No tools needed**: Planning is done based on exploration results\n\n");
 
-        prompt.append("### 3. **Execute** (Max 5 modifications)\n");
+        prompt.append("### 4. **Execute** (Max 5 modifications)\n");
         prompt.append("   - Make ONE modification per response\n");
         prompt.append("   - Limit: Maximum 5 total modifications per task\n");
         prompt.append("   - Each modification must be atomic and testable\n");
         prompt.append("   - Show the exact changes being made\n");
         prompt.append("   - **Fallback**: If modify tools unavailable, provide code for manual application\n\n");
 
-        prompt.append("### 4. **Verify** (Single check)\n");
+        prompt.append("### 5. **Verify** (Single check)\n");
         prompt.append("   - Perform ONE verification action\n");
         prompt.append("   - Options: compile check, test run, or file re-read\n");
         prompt.append("   - Summarize results in 2-3 sentences\n");
@@ -146,10 +155,13 @@ public class OpenWebUIAgentModePromptBuilder {
         // EXAMPLES
         prompt.append("## Example Responses\n\n");
 
-        prompt.append("### Example 1 - Clarification:\n");
+        prompt.append("### Example 1 - Clarification (Multiple Questions):\n");
         prompt.append("Current step: Understanding your requirements\n");
-        prompt.append("Action: I need to clarify - are you looking to refactor the existing method or create a new one?\n");
-        prompt.append("Next step: Once confirmed, I'll examine the current code structure\n\n");
+        prompt.append("Action: I need to clarify a few things:\n");
+        prompt.append("1. Are you looking to refactor the existing method or create a new one?\n");
+        prompt.append("2. Should the validation include null checks, range validation, or both?\n");
+        prompt.append("3. Do you want this to return boolean or throw exceptions?\n");
+        prompt.append("Next step: Once clarified, I'll examine the current code structure\n\n");
 
         prompt.append("### Example 2 - Tool Usage:\n");
         prompt.append("Current step: Examining the current implementation\n");
@@ -169,6 +181,13 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("- Maximum 150 words per response (excluding code)\n");
         prompt.append("- Code blocks should not exceed 20 lines per response\n");
         prompt.append("- One primary action per response, no compound operations\n\n");
+
+        prompt.append("### Decision Rules:\n");
+        prompt.append("- If file > 200 lines: Show only relevant sections (max 30 lines)\n");
+        prompt.append("- If multiple files needed: Prioritize by direct relevance\n");
+        prompt.append("- If task seems complex: Break into subtasks, tackle one at a time\n");
+        prompt.append("- If uncertain: Ask all questions upfront in the Understand phase\n");
+        prompt.append("- Skip clarification entirely if request is completely clear\n\n");
 
         prompt.append("### Error Handling:\n");
         prompt.append("- If tool fails: Report error and ask for guidance (don't retry automatically)\n");

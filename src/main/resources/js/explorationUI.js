@@ -137,6 +137,17 @@
       margin-right: 6px;
     }
     
+    /* Status text styling */
+    .exploration-status-label {
+      font-weight: 600;
+      color: #0084ff;
+    }
+
+    .exploration-status-detail {
+      color: #999;
+      font-weight: normal;
+    }
+
     /* Full overlay style (when expanded to full view) */
     .exploration-overlay {
       position: fixed;
@@ -151,11 +162,11 @@
       opacity: 0;
       transition: opacity 0.3s ease;
     }
-    
+
     .exploration-overlay.visible {
       opacity: 1;
     }
-    
+
     .exploration-container {
       position: relative;
       max-width: 900px;
@@ -168,11 +179,11 @@
       transform: translateY(-20px);
       transition: transform 0.3s ease;
     }
-    
+
     .exploration-overlay.visible .exploration-container {
       transform: translateY(0);
     }
-    
+
     .exploration-header {
       padding: 20px 30px;
       background: #2d2d2d;
@@ -182,7 +193,7 @@
       justify-content: space-between;
       align-items: center;
     }
-    
+
     .exploration-title {
       font-size: 18px;
       font-weight: 600;
@@ -191,7 +202,7 @@
       align-items: center;
       gap: 10px;
     }
-    
+
     .exploration-spinner {
       width: 20px;
       height: 20px;
@@ -200,7 +211,7 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
-    
+
     .exploration-close {
       background: none;
       border: none;
@@ -216,18 +227,18 @@
       border-radius: 4px;
       transition: all 0.2s;
     }
-    
+
     .exploration-close:hover {
       background: #3e3e3e;
       color: #fff;
     }
-    
+
     .exploration-body {
       padding: 20px 30px;
       max-height: 600px;
       overflow-y: auto;
     }
-    
+
     .exploration-query {
       background: #2d2d2d;
       padding: 15px 20px;
@@ -237,14 +248,14 @@
       line-height: 1.5;
       border: 1px solid #3e3e3e;
     }
-    
+
     .exploration-round {
       margin-bottom: 20px;
       border: 1px solid #3e3e3e;
       border-radius: 8px;
       overflow: hidden;
     }
-    
+
     .exploration-round-header {
       padding: 12px 20px;
       background: #2d2d2d;
@@ -256,22 +267,22 @@
       transition: background 0.2s;
       user-select: none;
     }
-    
+
     .exploration-round-header:hover {
       background: #353535;
     }
-    
+
     .exploration-round-header::before {
       content: '▼';
       margin-right: 8px;
       font-size: 12px;
       transition: transform 0.2s;
     }
-    
+
     .exploration-round.collapsed .exploration-round-header::before {
       transform: rotate(-90deg);
     }
-    
+
     .exploration-round-content {
       padding: 15px 20px;
       background: #252525;
@@ -279,11 +290,11 @@
       max-height: 400px;
       overflow-y: auto;
     }
-    
+
     .exploration-round.collapsed .exploration-round-content {
       display: none;
     }
-    
+
     .tool-execution {
       margin-bottom: 15px;
       padding: 12px 15px;
@@ -291,11 +302,11 @@
       border-radius: 6px;
       border: 1px solid #3e3e3e;
     }
-    
+
     .tool-execution:last-child {
       margin-bottom: 0;
     }
-    
+
     .tool-execution-header {
       display: flex;
       align-items: center;
@@ -303,20 +314,20 @@
       cursor: pointer;
       user-select: none;
     }
-    
+
     .tool-name {
       font-weight: 600;
       color: #0084ff;
       font-size: 14px;
     }
-    
+
     .tool-params {
       font-size: 12px;
       color: #999;
       margin-top: 8px;
       font-family: "Consolas", "Monaco", monospace;
     }
-    
+
     .tool-result {
       font-size: 13px;
       line-height: 1.5;
@@ -329,12 +340,12 @@
       border: 1px solid #333;
       margin-top: 8px;
     }
-    
+
     .tool-execution.collapsed .tool-params,
     .tool-execution.collapsed .tool-result {
       display: none;
     }
-    
+
     .tool-status {
       display: inline-block;
       padding: 2px 8px;
@@ -342,17 +353,17 @@
       font-size: 11px;
       font-weight: 500;
     }
-    
+
     .tool-status.success {
       background: #0f4c0f;
       color: #4caf50;
     }
-    
+
     .tool-status.failed {
       background: #4c0f0f;
       color: #f44336;
     }
-    
+
     .exploration-summary {
       margin-top: 20px;
       padding: 0;
@@ -361,7 +372,7 @@
       border: 1px solid #3e3e3e;
       overflow: hidden;
     }
-    
+
     .exploration-summary-header {
       padding: 12px 20px;
       background: #2d2d2d;
@@ -375,22 +386,22 @@
       color: #fff;
       font-size: 16px;
     }
-    
+
     .exploration-summary-header:hover {
       background: #353535;
     }
-    
+
     .exploration-summary-header::before {
       content: '▼';
       margin-right: 8px;
       font-size: 12px;
       transition: transform 0.2s;
     }
-    
+
     .exploration-summary.collapsed .exploration-summary-header::before {
       transform: rotate(-90deg);
     }
-    
+
     .summary-content {
       font-size: 14px;
       line-height: 1.6;
@@ -401,11 +412,11 @@
       max-height: 400px;
       overflow-y: auto;
     }
-    
+
     .exploration-summary.collapsed .summary-content {
       display: none;
     }
-    
+
     .exploration-complete-badge {
       display: inline-block;
       padding: 4px 12px;
@@ -415,7 +426,7 @@
       font-size: 12px;
       font-weight: 500;
     }
-    
+
     .exploration-view-full {
       background: #0084ff;
       color: white;
@@ -427,11 +438,11 @@
       margin-top: 8px;
       transition: background 0.2s;
     }
-    
+
     .exploration-view-full:hover {
       background: #0070e0;
     }
-    
+
     .exploration-error-message {
       background: #4c0f0f;
       color: #f44336;
@@ -440,17 +451,17 @@
       margin-bottom: 12px;
       font-size: 13px;
     }
-    
+
     .exploration-indexing-message {
       padding: 12px 0;
     }
   `;
-  
+
   // Inject styles
   const styleSheet = document.createElement('style');
   styleSheet.textContent = styles;
   document.head.appendChild(styleSheet);
-  
+
   // Create notification element
   const notification = document.createElement('div');
   notification.className = 'exploration-notification';
@@ -458,7 +469,7 @@
     <div class="exploration-notification-header">
       <div class="exploration-notification-title">
         <span class="exploration-spinner-mini"></span>
-        <span>Exploring codebase...</span>
+        <span><span class="exploration-status-label">Zest:</span> <span class="exploration-status-detail">Initializing...</span></span>
       </div>
       <div class="exploration-expand-icon">▼</div>
     </div>
@@ -469,7 +480,7 @@
       </div>
     </div>
   `;
-  
+
   // Create full overlay element
   const overlay = document.createElement('div');
   overlay.className = 'exploration-overlay';
@@ -489,10 +500,10 @@
       </div>
     </div>
   `;
-  
+
   document.body.appendChild(notification);
   document.body.appendChild(overlay);
-  
+
   // UI state
   let currentSessionId = null;
   let explorationData = {
@@ -502,18 +513,33 @@
   };
   let notificationExpanded = false;
   let pendingQuery = null; // Store query while indexing
-  
+  let currentStatus = null; // Track current status
+
+  // Helper function to update status text
+  function updateStatusText(statusDetail, showSpinner = true) {
+    const spinner = notification.querySelector('.exploration-spinner-mini');
+    const statusDetailElement = notification.querySelector('.exploration-status-detail');
+
+    if (spinner) {
+      spinner.style.display = showSpinner ? 'block' : 'none';
+    }
+
+    if (statusDetailElement) {
+      statusDetailElement.textContent = statusDetail;
+    }
+  }
+
   // UI functions
   function showNotification() {
     notification.style.display = 'block';
   }
-  
+
   function hideNotification() {
     notification.style.display = 'none';
     notificationExpanded = false;
     notification.classList.remove('expanded');
   }
-  
+
   function toggleNotification() {
     notificationExpanded = !notificationExpanded;
     if (notificationExpanded) {
@@ -522,22 +548,22 @@
       notification.classList.remove('expanded');
     }
   }
-  
+
   function showFullView() {
     overlay.style.display = 'block';
     setTimeout(() => overlay.classList.add('visible'), 10);
     updateFullViewUI();
   }
-  
+
   function hideFullView() {
     overlay.classList.remove('visible');
     setTimeout(() => overlay.style.display = 'none', 300);
   }
-  
+
   function ensureNotificationStructure() {
     const content = notification.querySelector('.exploration-notification-content');
     if (!content) return;
-    
+
     // Check if progress list exists
     if (!content.querySelector('.exploration-progress-list')) {
       // Recreate the standard structure
@@ -545,7 +571,7 @@
         <div class="exploration-progress-list"></div>
         <button class="exploration-view-full">View Full Details</button>
       `;
-      
+
       // Re-attach event listener
       const viewFullBtn = content.querySelector('.exploration-view-full');
       if (viewFullBtn) {
@@ -553,11 +579,13 @@
       }
     }
   }
-  
+
   function showIndexingMessage(message) {
+    updateStatusText('Indexing project...', true);
+
     const content = notification.querySelector('.exploration-notification-content');
     if (!content) return;
-    
+
     content.innerHTML = `
       <div class="exploration-indexing-message">
         <div class="exploration-progress-item">
@@ -571,25 +599,25 @@
       </div>
     `;
   }
-  
+
   function updateNotificationProgress() {
     // Ensure structure exists
     ensureNotificationStructure();
-    
+
     const progressList = notification.querySelector('.exploration-progress-list');
     if (!progressList) {
       console.warn('Progress list element not found after ensuring structure');
       return;
     }
-    
+
     progressList.innerHTML = '';
-    
+
     // Show latest tools
     const recentTools = explorationData.toolExecutions.slice(-3);
     recentTools.forEach(exec => {
       const statusClass = exec.success ? 'success' : 'failed';
       const statusText = exec.success ? 'Success' : 'Failed';
-      
+
       const item = document.createElement('div');
       item.className = 'exploration-progress-item';
       item.innerHTML = `
@@ -600,28 +628,28 @@
       `;
       progressList.appendChild(item);
     });
-    
+
     // Add status text
     const statusDiv = document.createElement('div');
     statusDiv.className = 'exploration-status-text';
     statusDiv.textContent = `${explorationData.toolExecutions.length} tools executed`;
     progressList.appendChild(statusDiv);
   }
-  
+
   function updateFullViewUI() {
     const roundsContainer = overlay.querySelector('.exploration-rounds');
     if (!roundsContainer) return;
-    
+
     roundsContainer.innerHTML = '';
-    
+
     explorationData.rounds.forEach((round, index) => {
       const roundEl = document.createElement('div');
       roundEl.className = 'exploration-round collapsed';
-      
+
       const toolExecutionsHtml = round.toolExecutions.map(exec => {
         const statusClass = exec.success ? 'success' : 'failed';
         const statusText = exec.success ? 'Success' : 'Failed';
-        
+
         return `
           <div class="tool-execution collapsed">
             <div class="tool-execution-header">
@@ -633,7 +661,7 @@
           </div>
         `;
       }).join('');
-      
+
       roundEl.innerHTML = `
         <div class="exploration-round-header">
           <span>${round.name}</span>
@@ -643,13 +671,13 @@
           ${toolExecutionsHtml}
         </div>
       `;
-      
+
       // Add click handler for round collapsing
       const roundHeader = roundEl.querySelector('.exploration-round-header');
       roundHeader.addEventListener('click', () => {
         roundEl.classList.toggle('collapsed');
       });
-      
+
       // Add click handlers for tool execution collapsing
       const toolExecutions = roundEl.querySelectorAll('.tool-execution');
       toolExecutions.forEach(toolEl => {
@@ -658,56 +686,55 @@
           toolEl.classList.toggle('collapsed');
         });
       });
-      
+
       roundsContainer.appendChild(roundEl);
     });
   }
-  
+
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
-  
+
   // Event handlers
   notification.querySelector('.exploration-notification-header').addEventListener('click', toggleNotification);
-  
+
   // Initial setup of view full button
   const initialViewFullBtn = notification.querySelector('.exploration-view-full');
   if (initialViewFullBtn) {
     initialViewFullBtn.addEventListener('click', showFullView);
   }
-  
+
   overlay.querySelector('.exploration-close').addEventListener('click', hideFullView);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) {
       hideFullView();
     }
   });
-  
+
   // Global functions
   window.startExploration = async function(query) {
     console.log('Starting exploration for query:', query);
-    
+
     try {
+      updateStatusText('Starting exploration...', true);
+
       const response = await window.intellijBridge.callIDE('startExploration', { query });
-      
+
       if (!response.success) {
         if (response.indexing) {
           // Project is being indexed
           pendingQuery = query; // Store the query to retry after indexing
-          
+
           // Show indexing status
           showIndexingMessage(response.message || 'Indexing project for the first time...');
-          
-          notification.querySelector('.exploration-spinner-mini').style.display = 'block';
-          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Indexing Project';
-          
           showNotification();
-          
+
           return 'indexing'; // Special return value to indicate indexing state
         } else if (response.requiresIndexing) {
           // Old error case (shouldn't happen now)
+          updateStatusText('Error', false);
           const errorHtml = `
             <div class="exploration-error-message">
               ⚠️ Project not indexed. Please index your project first to use Agent Mode exploration.
@@ -717,51 +744,53 @@
           if (content) {
             content.innerHTML = errorHtml;
           }
-          notification.querySelector('.exploration-spinner-mini').style.display = 'none';
-          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
           showNotification();
-          
+
           // Auto-hide after 5 seconds
           setTimeout(hideNotification, 5000);
         }
         console.error('Failed to start exploration:', response.error);
         return null;
       }
-      
+
       currentSessionId = response.sessionId;
       explorationData = { rounds: [], toolExecutions: [], summary: null };
-      
+
       // Update notification with proper structure
-      notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Exploring codebase...';
-      notification.querySelector('.exploration-spinner-mini').style.display = 'block';
-      
+      updateStatusText('Calling LLM...', true);
+
       // Ensure the content has the right structure
       ensureNotificationStructure();
-      
+
       // Update full view
       overlay.querySelector('.exploration-query').textContent = `Query: "${query}"`;
       overlay.querySelector('.exploration-title span:last-child').textContent = 'Exploring Codebase...';
       overlay.querySelector('.exploration-spinner').style.display = 'block';
       overlay.querySelector('.exploration-summary').style.display = 'none';
-      
+
       showNotification();
-      
+
       return response.sessionId;
     } catch (error) {
       console.error('Error starting exploration:', error);
+      updateStatusText('Error', false);
       return null;
     }
   };
-  
+
   window.handleExplorationProgress = function(event) {
     if (!currentSessionId || event.sessionId !== currentSessionId) {
       return;
     }
-    
+
     console.log('Exploration progress:', event);
-    
+
     switch (event.eventType) {
       case 'tool_execution':
+        // Update status to show current tool
+        const toolName = event.data.toolName;
+        updateStatusText(toolName, true);
+
         // Add tool execution to current round
         if (explorationData.rounds.length === 0) {
           explorationData.rounds.push({
@@ -769,18 +798,21 @@
             toolExecutions: []
           });
         }
-        
+
         const currentRound = explorationData.rounds[explorationData.rounds.length - 1];
         currentRound.toolExecutions.push(event.data);
         explorationData.toolExecutions.push(event.data);
-        
+
         updateNotificationProgress();
         if (overlay.style.display === 'block') {
           updateFullViewUI();
         }
         break;
-        
+
       case 'round_complete':
+        // Update status to show LLM processing
+        updateStatusText('Calling LLM...', true);
+
         // Update round data
         const roundIndex = explorationData.rounds.findIndex(r => r.name === event.data.name);
         if (roundIndex >= 0) {
@@ -788,22 +820,23 @@
         } else {
           explorationData.rounds.push(event.data);
         }
-        
+
         if (overlay.style.display === 'block') {
           updateFullViewUI();
         }
         break;
-        
+
       case 'exploration_complete':
         // Update UI for completion
-        notification.querySelector('.exploration-spinner-mini').style.display = 'none';
-        notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
-          '<span class="exploration-complete-indicator"></span>Exploration Complete';
-        
+        const titleElement = notification.querySelector('.exploration-notification-title');
+        if (titleElement) {
+          titleElement.innerHTML = '<span class="exploration-complete-indicator"></span><span><span class="exploration-status-label">Zest:</span> <span class="exploration-status-detail">Complete</span></span>';
+        }
+
         overlay.querySelector('.exploration-spinner').style.display = 'none';
-        overlay.querySelector('.exploration-title span:last-child').innerHTML = 
+        overlay.querySelector('.exploration-title span:last-child').innerHTML =
           'Exploration Complete <span class="exploration-complete-badge">Done</span>';
-        
+
         if (event.data.summary) {
           const summaryEl = overlay.querySelector('.exploration-summary');
           summaryEl.innerHTML = `
@@ -814,17 +847,17 @@
           `;
           summaryEl.style.display = 'block';
           summaryEl.classList.add('collapsed');
-          
+
           // Add click handler for summary collapsing
           const summaryHeader = summaryEl.querySelector('.exploration-summary-header');
           summaryHeader.addEventListener('click', () => {
             summaryEl.classList.toggle('collapsed');
           });
         }
-        
+
         // Store the exploration result for use in the prompt
         window.__exploration_result__ = event.data;
-        
+
         // Auto-hide notification after 3 seconds
         setTimeout(() => {
           hideNotification();
@@ -833,14 +866,13 @@
         break;
     }
   };
-  
+
   // Add function to mark exploration as used (for immediate closing)
   window.markExplorationUsed = function() {
     if (currentSessionId) {
       // Update notification to show it's being used
-      notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
-        '<span class="exploration-complete-indicator"></span>Enhancing query...';
-      
+      updateStatusText('Enhancing query...', true);
+
       // Close immediately
       setTimeout(() => {
         hideNotification();
@@ -848,15 +880,17 @@
       }, 500);
     }
   };
-  
+
   // Add handlers for indexing callbacks
   window.handleIndexingComplete = async function() {
     console.log('Indexing complete, retrying exploration...');
-    
+
     // Update notification
-    notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
-      '<span class="exploration-complete-indicator"></span>Indexing Complete';
-    
+    const titleElement = notification.querySelector('.exploration-notification-title');
+    if (titleElement) {
+      titleElement.innerHTML = '<span class="exploration-complete-indicator"></span><span><span class="exploration-status-label">Zest:</span> <span class="exploration-status-detail">Indexing Complete</span></span>';
+    }
+
     const content = notification.querySelector('.exploration-notification-content');
     if (content) {
       content.innerHTML = `
@@ -870,30 +904,29 @@
         </div>
       `;
     }
-    
+
     // Wait a moment for user to see the success message
     await new Promise(resolve => setTimeout(resolve, 1500));
-    
+
     // Retry the exploration with the stored query
     if (pendingQuery) {
       const query = pendingQuery;
       pendingQuery = null;
-      
+
       // Hide current notification
       hideNotification();
-      
+
       // Retry exploration
       window.startExploration(query);
     }
   };
-  
+
   window.handleIndexingError = function(error) {
     console.error('Indexing failed:', error);
-    
+
     // Update notification to show error
-    notification.querySelector('.exploration-spinner-mini').style.display = 'none';
-    notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Indexing Failed';
-    
+    updateStatusText('Indexing Failed', false);
+
     const content = notification.querySelector('.exploration-notification-content');
     if (content) {
       content.innerHTML = `
@@ -905,13 +938,13 @@
         </div>
       `;
     }
-    
+
     // Clear pending query
     pendingQuery = null;
-    
+
     // Auto-hide after 10 seconds
     setTimeout(hideNotification, 10000);
   };
-  
+
   console.log('Exploration UI initialized');
 })();

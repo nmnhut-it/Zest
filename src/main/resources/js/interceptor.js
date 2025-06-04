@@ -285,12 +285,17 @@
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           let systemPrompt = window.__injected_system_prompt__;
 
-          // Add exploration context if available (either pending or stored)
-          const explorationContext = window.__pending_exploration_context__ || window.__stored_exploration_context__;
-          if (explorationContext) {
-            systemPrompt += explorationContext;
-            window.__pending_exploration_context__ = null; // Clear pending after use
-            console.log('Added exploration context to system prompt');
+          // For Agent Mode, always add exploration context if available (except for git commits)
+          if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+            const explorationContext = window.__pending_exploration_context__ || window.__stored_exploration_context__;
+            if (explorationContext) {
+              systemPrompt += explorationContext;
+              window.__pending_exploration_context__ = null; // Clear pending after use
+              console.log('Added exploration context to system prompt');
+            } else if (window.__stored_exploration_context__) {
+              // This shouldn't happen, but log if it does
+              console.warn('Agent Mode but no exploration context available');
+            }
           }
 
           if (systemMsgIndex >= 0) {
@@ -521,12 +526,14 @@
           }
 
           // Store exploration context for later use
-          window.__pending_exploration_context__ = explorationContext;
-
           if (explorationContext) {
+            window.__pending_exploration_context__ = explorationContext;
             console.log('✓ Exploration context available:', explorationContext.substring(0, 100) + '...');
-          } else if (isNewConversation(JSON.parse(bodyText))) {
-            console.warn('⚠️ No exploration context obtained for new Agent Mode conversation');
+          } else if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+            // For continuing conversations, we should already have stored context
+            if (!window.__stored_exploration_context__ && isNewConversation(JSON.parse(bodyText))) {
+              console.warn('⚠️ No exploration context obtained for new Agent Mode conversation');
+            }
           }
           
           // Now continue with the normal flow

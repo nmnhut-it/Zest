@@ -99,6 +99,7 @@ public final class RagAgent {
                     performLocalIndexing(indicator);
                     hasLocalIndex = true;
                 } catch (Exception e) {
+                    LOG.error("Error during local indexing", e);
                     hasLocalIndex = false;
                 } finally {
                     isIndexing = false;

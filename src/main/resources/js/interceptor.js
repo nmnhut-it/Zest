@@ -59,14 +59,16 @@
       const sessionId = await window.startExploration(query);
       
       if (sessionId === 'indexing') {
-        // Project is building local index, wait for it to complete
-        console.log('Project is building local index, waiting for completion...');
+        // Project is being indexed, wait for it to complete
+        console.log('Project is being indexed, waiting for completion...');
         
         // Wait for indexing to complete (with timeout)
         const maxIndexingTime = 300000; // 5 minutes for indexing
         const startTime = Date.now();
         
         return new Promise((resolve) => {
+          let explorationStarted = false;
+          
           // Store the original handlers
           const originalComplete = window.handleIndexingComplete;
           const originalError = window.handleIndexingError;
@@ -80,12 +82,39 @@
             window.handleIndexingComplete = originalComplete;
             window.handleIndexingError = originalError;
             
-            // Wait for the new exploration to start and complete
-            setTimeout(() => {
-              // By now, the new exploration should have started
-              // We'll return empty context and let the next request handle it
-              resolve('');
-            }, 2000);
+            console.log('Indexing complete, now waiting for exploration to complete...');
+            explorationStarted = true;
+            
+            // Now wait for the actual exploration to complete
+            const explorationMaxTime = 600000; // 10 minutes for exploration after indexing
+            const explorationStartTime = Date.now();
+            
+            while (Date.now() - explorationStartTime < explorationMaxTime) {
+              // Check if exploration result is available
+              if (window.__exploration_result__) {
+                console.log('Exploration complete after indexing');
+                
+                const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
+                
+                // Mark exploration as used
+                if (window.markExplorationUsed) {
+                  window.markExplorationUsed();
+                }
+                
+                // Clear the result
+                window.__exploration_result__ = null;
+                
+                resolve(explorationContext);
+                return;
+              }
+              
+              // Wait before checking again
+              await new Promise(r => setTimeout(r, 500));
+            }
+            
+            // Exploration timed out after indexing
+            console.warn('Exploration timed out after indexing');
+            resolve('\n\n# CODE EXPLORATION RESULTS\nExploration timed out after indexing.');
           };
           
           window.handleIndexingError = function(error) {
@@ -96,22 +125,24 @@
             window.handleIndexingComplete = originalComplete;
             window.handleIndexingError = originalError;
             
-            // Resolve with empty context
-            resolve('');
+            // Resolve with error context
+            resolve('\n\n# CODE EXPLORATION RESULTS\nFailed to index project: ' + error);
           };
           
-          // Also set a timeout
+          // Also set a timeout for the entire process
           setTimeout(() => {
-            console.warn('Indexing timeout reached');
-            // Restore original handlers
-            window.handleIndexingComplete = originalComplete;
-            window.handleIndexingError = originalError;
-            resolve('');
+            if (!explorationStarted) {
+              console.warn('Indexing timeout reached');
+              // Restore original handlers
+              window.handleIndexingComplete = originalComplete;
+              window.handleIndexingError = originalError;
+              resolve('\n\n# CODE EXPLORATION RESULTS\nIndexing timed out.');
+            }
           }, maxIndexingTime);
         });
       } else if (sessionId) {
         // Wait for exploration to complete (with timeout)
-        const maxWaitTime = 30000; // 30 seconds
+        const maxWaitTime = 600000; // 600 seconds (10 minutes) for exploration
         const startTime = Date.now();
         
         while (Date.now() - startTime < maxWaitTime) {
@@ -137,8 +168,18 @@
         }
         
         if (Date.now() - startTime >= maxWaitTime) {
-          console.warn('Exploration timed out');
-          return '\n\n# CODE EXPLORATION RESULTS\nExploration timed out.';
+          console.warn('Exploration timed out after ' + maxWaitTime + 'ms');
+          // Still check one more time in case it just completed
+          if (window.__exploration_result__) {
+            console.log('Found exploration result at timeout boundary');
+            const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
+            if (window.markExplorationUsed) {
+              window.markExplorationUsed();
+            }
+            window.__exploration_result__ = null;
+            return explorationContext;
+          }
+          return '\n\n# CODE EXPLORATION RESULTS\nExploration timed out after ' + (maxWaitTime/1000) + ' seconds. The codebase might be too large or complex for automatic exploration.';
         }
       }
     }
@@ -388,6 +429,12 @@
           
           // Store exploration context for later use
           window.__pending_exploration_context__ = explorationContext;
+          
+          if (explorationContext) {
+            console.log('✓ Exploration context obtained:', explorationContext.substring(0, 100) + '...');
+          } else {
+            console.warn('⚠️ No exploration context obtained for Agent Mode');
+          }
           
           // Now continue with the normal flow
           return processRequest(input, init, newInit, url);

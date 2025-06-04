@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.zps.zest.langchain4j.HybridIndexManager;
 import com.zps.zest.langchain4j.index.NameIndex;
 import org.jetbrains.annotations.NotNull;

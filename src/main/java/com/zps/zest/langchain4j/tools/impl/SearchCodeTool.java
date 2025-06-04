@@ -82,7 +82,7 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
             
             // Wait for results with timeout
             List<CodeSearchUtility.EnrichedSearchResult> results = 
-                future.get(300, TimeUnit.SECONDS);
+                future.get(600, TimeUnit.SECONDS);  // Increased to 10 minutes
             
             // Format results
             StringBuilder content = new StringBuilder();

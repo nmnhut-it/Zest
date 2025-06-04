@@ -169,7 +169,7 @@ public class StartAgentProxyAction extends AnAction {
             panel.add(new JLabel("Timeout (seconds):"), gbc);
             
             gbc.gridx = 1;
-            timeoutSpinner = new JSpinner(new SpinnerNumberModel(30, 10, 120, 5));
+            timeoutSpinner = new JSpinner(new SpinnerNumberModel(3600, 60, 7200, 300));  // Default 1 hour, range 1 min to 2 hours
             panel.add(timeoutSpinner, gbc);
             
             gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
@@ -203,19 +203,19 @@ public class StartAgentProxyAction extends AnAction {
             switch (preset) {
                 case "Quick Augmentation (Fast)":
                     maxToolCallsSpinner.setValue(5);
-                    timeoutSpinner.setValue(15);
+                    timeoutSpinner.setValue(1800);  // 30 minutes
                     includeTestsCheckBox.setSelected(false);
                     deepExplorationCheckBox.setSelected(false);
                     break;
                 case "Deep Exploration (Thorough)":
                     maxToolCallsSpinner.setValue(20);
-                    timeoutSpinner.setValue(60);
+                    timeoutSpinner.setValue(3600);  // 1 hour
                     includeTestsCheckBox.setSelected(true);
                     deepExplorationCheckBox.setSelected(true);
                     break;
                 default: // Default (Balanced)
                     maxToolCallsSpinner.setValue(10);
-                    timeoutSpinner.setValue(30);
+                    timeoutSpinner.setValue(3600);  // 1 hour
                     includeTestsCheckBox.setSelected(false);
                     deepExplorationCheckBox.setSelected(false);
                     break;

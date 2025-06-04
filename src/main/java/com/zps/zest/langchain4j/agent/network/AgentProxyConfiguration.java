@@ -17,7 +17,7 @@ public class AgentProxyConfiguration {
     private int maxFileReads = 5;       // Limit file reads
     
     // Timeout settings
-    private int timeoutSeconds = 120;    // Increased timeout to 2 minutes
+    private int timeoutSeconds = 3600;    // Increased to 1 hour for explore operations
     
     // Content limits
     private int maxContentLength = 1000;  // Max length per tool result
@@ -47,7 +47,7 @@ public class AgentProxyConfiguration {
         config.toolsPerRound = 5;
         config.maxSearchResults = 20;
         config.maxFileReads = 10;
-        config.timeoutSeconds = 180;  // 3 minutes for deep exploration
+        config.timeoutSeconds = 3600;  // 1 hour for deep exploration
         config.includeTests = true;
         config.deepExploration = true;
         return config;
@@ -63,7 +63,7 @@ public class AgentProxyConfiguration {
         config.toolsPerRound = 2;
         config.maxSearchResults = 5;
         config.maxFileReads = 3;
-        config.timeoutSeconds = 60;  // 1 minute for quick
+        config.timeoutSeconds = 1800;  // 30 minutes for quick mode
         config.includeTests = false;
         config.deepExploration = false;
         config.includeRelationships = false;

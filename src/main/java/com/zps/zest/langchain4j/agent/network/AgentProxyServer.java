@@ -62,8 +62,8 @@ public class AgentProxyServer {
         server.createContext("/tools", new ToolsHandler());
         server.createContext("/execute-tool", new ExecuteToolHandler());
         
-        // Use a thread pool for handling requests
-        server.setExecutor(Executors.newFixedThreadPool(10));
+        // Use a larger thread pool for handling long-running requests
+        server.setExecutor(Executors.newFixedThreadPool(20));  // Increased from 10
         
         server.start();
         LOG.info("Agent Proxy Server started on port " + port);

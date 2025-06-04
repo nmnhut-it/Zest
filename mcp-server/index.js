@@ -113,7 +113,7 @@ class ZestMcpServer {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(params)
-          }, 300000);  // 5 minutes timeout for exploration
+          }, 3600000);  // 1 hour timeout for exploration
           
           const result = await response.json();
           

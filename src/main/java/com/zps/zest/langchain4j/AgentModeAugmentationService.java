@@ -233,7 +233,7 @@ public final class AgentModeAugmentationService {
                     explorationAgent.exploreAndGenerateReport(query)
                 );
                 
-                CodeExplorationReport report = future.get(60, TimeUnit.SECONDS);  // Increased from 15 seconds
+                CodeExplorationReport report = future.get(3600, TimeUnit.SECONDS);  // 1 hour timeout
                 
                 // Generate a concise augmentation
                 return generateConciseAugmentation(query, report);

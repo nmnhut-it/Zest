@@ -23,9 +23,12 @@ Access all 12+ code exploration tools individually or through comprehensive expl
 - And many more...
 
 ### Increased Timeouts
-- Default timeout: 120 seconds (2 minutes)
-- Deep exploration: 180 seconds (3 minutes)
-- Quick mode: 60 seconds (1 minute)
+- Default timeout: 3600 seconds (1 hour)
+- Deep exploration: 3600 seconds (1 hour)
+- Quick mode: 1800 seconds (30 minutes)
+- Individual tool execution: 600 seconds (10 minutes)
+
+The system is configured to handle very long-running exploration operations that may take significant time when analyzing large codebases.
 
 ## Setup
 

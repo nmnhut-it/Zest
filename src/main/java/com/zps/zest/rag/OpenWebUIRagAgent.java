@@ -2,7 +2,6 @@ package com.zps.zest.rag;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
@@ -33,8 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Designed with testability in mind using dependency injection.
  */
 @Service(Service.Level.PROJECT)
-public final class RagAgent {
-    private static final Logger LOG = Logger.getInstance(RagAgent.class);
+public final class OpenWebUIRagAgent {
+    private static final Logger LOG = Logger.getInstance(OpenWebUIRagAgent.class);
     private static final String KNOWLEDGE_NAME_PREFIX = "project-code-";
     
     private final Project project;
@@ -48,7 +47,7 @@ public final class RagAgent {
     private volatile boolean hasLocalIndex = false; // Track local index state
 
     // Production constructor
-    public RagAgent(Project project) {
+    public OpenWebUIRagAgent(Project project) {
         this(project, 
              ConfigurationManager.getInstance(project),
              new DefaultCodeAnalyzer(project),
@@ -57,10 +56,10 @@ public final class RagAgent {
     
     // Test-friendly constructor
     @VisibleForTesting
-    RagAgent(Project project, 
-             ConfigurationManager config,
-             CodeAnalyzer codeAnalyzer,
-             @Nullable KnowledgeApiClient apiClient) {
+    OpenWebUIRagAgent(Project project,
+                      ConfigurationManager config,
+                      CodeAnalyzer codeAnalyzer,
+                      @Nullable KnowledgeApiClient apiClient) {
         this.project = project;
         this.config = config;
         this.codeAnalyzer = codeAnalyzer;
@@ -77,8 +76,8 @@ public final class RagAgent {
         }
     }
 
-    public static RagAgent getInstance(Project project) {
-        return project.getService(RagAgent.class);
+    public static OpenWebUIRagAgent getInstance(Project project) {
+        return project.getService(OpenWebUIRagAgent.class);
     }
 
     /**

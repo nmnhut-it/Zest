@@ -10,6 +10,13 @@
   const originalFetch = window.fetch;
   let textToReplace = window.__text_to_replace_ide___;
 
+  // Track conversation state
+  window.__conversation_state__ = {
+    currentConversationId: null,
+    hasPerformedExploration: false,
+    lastUserMessageCount: 0
+  };
+
   // Initialize project info structure
   window.__project_info__ = {
     projectName: '',
@@ -47,88 +54,143 @@
   };
 
   /**
+   * Determines if this is the start of a new conversation
+   * @param {Object} data - The request data
+   * @returns {boolean} True if this is a new conversation
+   */
+  function isNewConversation(data) {
+    // Check if messages array exists
+    if (!data.messages || !Array.isArray(data.messages)) {
+      return false;
+    }
+
+    // Count user messages
+    const userMessageCount = data.messages.filter(msg => msg.role === 'user').length;
+
+    // Check for conversation ID if available
+    const conversationId = data.conversation_id || data.conversationId ||
+                          (data.metadata && data.metadata.conversation_id);
+
+    // Detect new conversation:
+    // 1. First message (only 1 user message)
+    // 2. New conversation ID
+    // 3. Reset after completion
+    if (userMessageCount === 1) {
+      console.log('New conversation detected: First user message');
+      return true;
+    }
+
+    if (conversationId && conversationId !== window.__conversation_state__.currentConversationId) {
+      console.log('New conversation detected: Different conversation ID');
+      window.__conversation_state__.currentConversationId = conversationId;
+      return true;
+    }
+
+    // If user message count decreased (new conversation started)
+    if (userMessageCount < window.__conversation_state__.lastUserMessageCount) {
+      console.log('New conversation detected: Message count reset');
+      return true;
+    }
+
+    window.__conversation_state__.lastUserMessageCount = userMessageCount;
+    return false;
+  }
+
+  /**
+   * Resets conversation state
+   */
+  function resetConversationState() {
+    window.__conversation_state__.hasPerformedExploration = false;
+    window.__conversation_state__.lastUserMessageCount = 0;
+    // Keep the stored exploration result if available
+  }
+
+  /**
    * Handles exploration for Agent Mode and returns the exploration context
    * @param {string} query - The user's query
    * @returns {Promise<string>} The exploration context to add to system prompt
    */
   async function performExploration(query) {
     console.log('Starting exploration for query:', query);
-    
+
     // Start exploration
     if (window.startExploration) {
       const sessionId = await window.startExploration(query);
-      
+
       if (sessionId === 'indexing') {
         // Project is being indexed, wait for it to complete
         console.log('Project is being indexed, waiting for completion...');
-        
+
         // Wait for indexing to complete (with timeout)
         const maxIndexingTime = 300000; // 5 minutes for indexing
         const startTime = Date.now();
-        
+
         return new Promise((resolve) => {
           let explorationStarted = false;
-          
+
           // Store the original handlers
           const originalComplete = window.handleIndexingComplete;
           const originalError = window.handleIndexingError;
-          
+
           // Override handlers to resolve our promise
           window.handleIndexingComplete = async function() {
             // Call original handler
             if (originalComplete) await originalComplete();
-            
+
             // Restore original handlers
             window.handleIndexingComplete = originalComplete;
             window.handleIndexingError = originalError;
-            
+
             console.log('Indexing complete, now waiting for exploration to complete...');
             explorationStarted = true;
-            
+
             // Now wait for the actual exploration to complete
             const explorationMaxTime = 600000; // 10 minutes for exploration after indexing
             const explorationStartTime = Date.now();
-            
+
             while (Date.now() - explorationStartTime < explorationMaxTime) {
               // Check if exploration result is available
               if (window.__exploration_result__) {
                 console.log('Exploration complete after indexing');
-                
+
                 const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
-                
+
+                // Store the exploration result for reuse
+                window.__stored_exploration_context__ = explorationContext;
+
                 // Mark exploration as used
                 if (window.markExplorationUsed) {
                   window.markExplorationUsed();
                 }
-                
+
                 // Clear the result
                 window.__exploration_result__ = null;
-                
+
                 resolve(explorationContext);
                 return;
               }
-              
+
               // Wait before checking again
               await new Promise(r => setTimeout(r, 500));
             }
-            
+
             // Exploration timed out after indexing
             console.warn('Exploration timed out after indexing');
             resolve('\n\n# CODE EXPLORATION RESULTS\nExploration timed out after indexing.');
           };
-          
+
           window.handleIndexingError = function(error) {
             // Call original handler
             if (originalError) originalError(error);
-            
+
             // Restore original handlers
             window.handleIndexingComplete = originalComplete;
             window.handleIndexingError = originalError;
-            
+
             // Resolve with error context
             resolve('\n\n# CODE EXPLORATION RESULTS\nFailed to index project: ' + error);
           };
-          
+
           // Also set a timeout for the entire process
           setTimeout(() => {
             if (!explorationStarted) {
@@ -144,35 +206,39 @@
         // Wait for exploration to complete (with timeout)
         const maxWaitTime = 600000; // 600 seconds (10 minutes) for exploration
         const startTime = Date.now();
-        
+
         while (Date.now() - startTime < maxWaitTime) {
           // Check if exploration is complete
           if (window.__exploration_result__) {
             console.log('Exploration complete');
-            
+
             const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
-            
+
+            // Store the exploration result for reuse
+            window.__stored_exploration_context__ = explorationContext;
+
             // Mark exploration as used (will close the UI)
             if (window.markExplorationUsed) {
               window.markExplorationUsed();
             }
-            
+
             // Clear the result
             window.__exploration_result__ = null;
-            
+
             return explorationContext;
           }
-          
+
           // Wait a bit before checking again
           await new Promise(resolve => setTimeout(resolve, 500));
         }
-        
+
         if (Date.now() - startTime >= maxWaitTime) {
           console.warn('Exploration timed out after ' + maxWaitTime + 'ms');
           // Still check one more time in case it just completed
           if (window.__exploration_result__) {
             console.log('Found exploration result at timeout boundary');
             const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
+            window.__stored_exploration_context__ = explorationContext;
             if (window.markExplorationUsed) {
               window.markExplorationUsed();
             }
@@ -183,7 +249,7 @@
         }
       }
     }
-    
+
     return '';
   }
 
@@ -204,7 +270,6 @@
       // === Inject the dynamically selected model if present ===
       if (window.__selected_model_name__) {
         data.model = window.__selected_model_name__;
-        // Optionally log:
         console.log('[Interceptor] Overwrote model with', window.__selected_model_name__);
       }
 
@@ -214,19 +279,20 @@
         if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
           window.enhanceWithProjectKnowledge(data);
         }
-        
+
         // Handle system message based on mode
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           let systemPrompt = window.__injected_system_prompt__;
-          
-          // Add pending exploration context if available
-          if (window.__pending_exploration_context__) {
-            systemPrompt += window.__pending_exploration_context__;
-            window.__pending_exploration_context__ = null; // Clear after use
+
+          // Add exploration context if available (either pending or stored)
+          const explorationContext = window.__pending_exploration_context__ || window.__stored_exploration_context__;
+          if (explorationContext) {
+            systemPrompt += explorationContext;
+            window.__pending_exploration_context__ = null; // Clear pending after use
             console.log('Added exploration context to system prompt');
           }
-          
+
           if (systemMsgIndex >= 0) {
             // Override existing system message
             data.messages[systemMsgIndex].content = systemPrompt;
@@ -287,8 +353,8 @@
         // Also log if exploration results are included
         if (systemMsg.content.includes('# CODE EXPLORATION RESULTS')) {
           console.log('✓ Exploration results successfully included in system prompt');
-        } else if (window.__zest_mode__ === 'Agent Mode') {
-          console.warn('⚠️ Agent Mode but no exploration results in system prompt');
+        } else if (window.__zest_mode__ === 'Agent Mode' && isNewConversation(data)) {
+          console.warn('⚠️ Agent Mode new conversation but no exploration results in system prompt');
         }
       }
 
@@ -309,8 +375,18 @@
     const url = responseClone.url || '';
 
     if (url.includes('completed') || url.includes('/api/conversation')) {
+      // Clear model and usage on completion
       window.__selected_model_name__ = null;
       window.__zest_usage__ = null;
+
+      // Check if conversation is ending
+      if (url.includes('completed')) {
+        console.log('Conversation completed, resetting state');
+        resetConversationState();
+        // Clear stored exploration context when conversation ends
+        window.__stored_exploration_context__ = null;
+      }
+
       console.log('Detected API response with completion data:', url);
 
       responseClone.json().then(data => {
@@ -373,11 +449,14 @@
 
     if (isOpenWebUIEndpoint(url)) {
       console.log('Intercepting OpenWebUI API request:', url);
-      
+
       // For Agent Mode, we need to check if exploration is needed BEFORE processing
-      if (window.__zest_mode__ === 'Agent Mode' && window.startExploration) {
+      // Skip exploration for git commit messages
+      if (window.__zest_mode__ === 'Agent Mode' &&
+          window.startExploration &&
+          window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
         console.log('Agent Mode active: Checking if exploration is needed');
-        
+
         // Parse the body to check if this is a new user message
         let bodyPromise;
         if (newInit.body) {
@@ -395,45 +474,59 @@
         } else {
           bodyPromise = Promise.resolve(null);
         }
-        
+
         return bodyPromise.then(async (bodyText) => {
           let explorationContext = '';
-          
+
           if (bodyText) {
             try {
               const data = JSON.parse(bodyText);
-              
-              // Check if this is a new user message (not a continuation)
-              if (data.messages && Array.isArray(data.messages)) {
-                const userMessages = data.messages.filter(msg => msg.role === 'user');
-                if (userMessages.length > 0) {
-                  // Get the latest user message
-                  const latestUserMsg = userMessages[userMessages.length - 1].content;
-                  
-                  // Extract the actual query (remove project info if present)
-                  const infoEndIndex = latestUserMsg.indexOf('</info>');
-                  const actualQuery = infoEndIndex >= 0 
-                    ? latestUserMsg.substring(infoEndIndex + 7).trim()
-                    : latestUserMsg;
-                  
-                  // Only explore if this is a new query (not empty)
-                  if (actualQuery.trim()) {
-                    explorationContext = await performExploration(actualQuery);
+
+              // Check if this is a new conversation
+              if (isNewConversation(data)) {
+                console.log('New conversation detected - performing exploration');
+
+                // Reset exploration state
+                window.__conversation_state__.hasPerformedExploration = false;
+                window.__stored_exploration_context__ = null;
+
+                // Check if this is a new user message (not a continuation)
+                if (data.messages && Array.isArray(data.messages)) {
+                  const userMessages = data.messages.filter(msg => msg.role === 'user');
+                  if (userMessages.length > 0 && !window.__conversation_state__.hasPerformedExploration) {
+                    // Get the latest user message
+                    const latestUserMsg = userMessages[userMessages.length - 1].content;
+
+                    // Extract the actual query (remove project info if present)
+                    const infoEndIndex = latestUserMsg.indexOf('</info>');
+                    const actualQuery = infoEndIndex >= 0
+                      ? latestUserMsg.substring(infoEndIndex + 7).trim()
+                      : latestUserMsg;
+
+                    // Only explore if this is a new query (not empty)
+                    if (actualQuery.trim()) {
+                      explorationContext = await performExploration(actualQuery);
+                      window.__conversation_state__.hasPerformedExploration = true;
+                    }
                   }
                 }
+              } else {
+                console.log('Continuing existing conversation - reusing exploration context if available');
+                // Use stored exploration context if available
+                explorationContext = window.__stored_exploration_context__ || '';
               }
             } catch (e) {
               console.error('Error parsing body for exploration check:', e);
             }
           }
-          
+
           // Store exploration context for later use
           window.__pending_exploration_context__ = explorationContext;
-          
+
           if (explorationContext) {
-            console.log('✓ Exploration context obtained:', explorationContext.substring(0, 100) + '...');
-          } else {
-            console.warn('⚠️ No exploration context obtained for Agent Mode');
+            console.log('✓ Exploration context available:', explorationContext.substring(0, 100) + '...');
+          } else if (isNewConversation(JSON.parse(bodyText))) {
+            console.warn('⚠️ No exploration context obtained for new Agent Mode conversation');
           }
           
           // Now continue with the normal flow

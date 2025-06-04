@@ -17,7 +17,7 @@ public class AgentProxyConfiguration {
     private int maxFileReads = 5;       // Limit file reads
     
     // Timeout settings
-    private int timeoutSeconds = 30;    // Overall timeout
+    private int timeoutSeconds = 30000;    // Overall timeout
     
     // Content limits
     private int maxContentLength = 1000;  // Max length per tool result

@@ -227,103 +227,79 @@ public final class ToolCallingAutonomousAgent {
      */
     private String buildPlanningPrompt(String userQuery, ExplorationContext context) {
         return String.format("""
-            You are an autonomous code exploration agent with access to powerful tools for analyzing code.
+            You are an autonomous code exploration agent that explores the codebase through tool calls.
             
             User Query: %s
+            
+            ## CRITICAL INSTRUCTIONS:
+            
+            YOU ARE THE AGENT - You execute tools, you don't give advice to others.
+            - First REASON about what to explore
+            - Then ACT by generating tool calls
+            - Each tool call must be INDEPENDENT (don't use results from one in another)
+            - Use REAL parameters, never placeholders
+            - Follow EXACT JSON syntax - no comments inside JSON blocks
+            
+            ## CONFIGURATION LIMITS:
+            - Tool calls to generate this round: %d
+            - Maximum total tool calls: %d
+            - Current tool calls used: %d
             
             Available Tools:
             %s
             
-            ## EXPLORATION STRATEGY GUIDELINES:
+            ## EXECUTION PATTERN:
             
-            ### 1. Tool Execution Order (IMPORTANT - Follow this sequence):
+            1. **REASON**: Analyze the query and identify what aspects to explore
+            2. **ACT**: Generate independent tool calls that explore different aspects
             
-            **Phase 1 - Discovery (Start Here):**
-            - Use `search_code` FIRST for semantic/conceptual queries (e.g., "authentication logic", "payment processing")
-            - Use `find_by_name` FIRST for specific names (e.g., "UserService", "calculateTotal")
-            - These tools are fast and give you entry points into the codebase
+            ## BAD EXAMPLE (DO NOT DO THIS):
+            - Don't describe what you would do
+            - Don't use placeholder values
+            - Don't add comments in JSON
             
-            **Phase 2 - Context Building:**
-            - Use `get_current_context` to understand the active file/location
-            - Use `list_files_in_directory` to explore package structures
-            - Use `find_similar` to discover related code patterns
-            
-            **Phase 3 - Deep Analysis:**
-            - Use `read_file` to examine specific implementations
-            - Use `get_class_info` for detailed class structure
-            - Use `find_methods` to explore method signatures
-            
-            **Phase 4 - Relationship Mapping:**
-            - Use `find_relationships` to understand dependencies
-            - Use `find_callers` to trace execution paths
-            - Use `find_implementations` for interface/abstract class exploration
-            - Use `find_usages` to see where elements are referenced
-            
-            ### 2. Source vs Test Balance (CRITICAL):
-            
-            **Maintain a 70%% source / 30%% test exploration ratio:**
-            - For every 2-3 source files explored, explore 1 test file
-            - When you find a class (e.g., UserService), also look for its test (UserServiceTest)
-            - Tests provide valuable usage examples and expected behavior
-            - Don't ignore tests - they document how code should be used
-            
-            **How to find tests:**
-            - Look for files ending with "Test", "Tests", or "Spec"
-            - Check "/test/" or "/tests/" directories parallel to source
-            - Use `find_by_name` with "Test" suffix (e.g., if exploring "UserService", search "UserServiceTest")
-            
-            ### 3. Best Practices:
-            
-            - **Be specific with search queries**: Use technical terms and full context
-              ✓ Good: "user authentication validation logic"
-              ✗ Bad: "validation"
-            
-            - **Case sensitivity matters**: `find_by_name` is case-sensitive
-              ✓ "UserService" will find UserService, UserServiceImpl
-              ✗ "userservice" will NOT find UserService
-            
-            - **Start broad, then narrow**: Begin with search/discovery, then drill into specifics
-            
-            - **Use relationship tools after finding elements**: First find the class/method, then explore its relationships
-            
-            - **Balance source and tests**: Tests are documentation - include them in exploration
-            
-            ### 4. Common Patterns:
-            
-            For "How does X work?" queries:
-            1. `search_code` or `find_by_name` to locate X
-            2. `read_file` to see implementation
-            3. `find_by_name` to locate XTest or tests for X
-            4. `read_file` on test to see usage examples
-            5. `find_relationships` to understand dependencies
-            
-            For "Find all implementations of Y" queries:
-            1. `find_by_name` to locate interface/abstract class Y
-            2. `find_implementations` to get all implementations
-            3. `read_file` on each implementation
-            4. Look for test files for key implementations
-            
-            For "What uses Z?" queries:
-            1. `find_by_name` to locate Z
-            2. `find_usages` or `find_relationships` with USED_BY
-            3. Check both source and test usages
-            4. `read_file` to examine usage contexts
-            
-            Format your tool calls as JSON blocks:
+            Wrong:
             ```json
             {
-              "tool": "tool_name",
-              "parameters": {
-                "param1": "value1",
-                "param2": "value2"
-              },
-              "reasoning": "Why this tool call helps answer the query"
+              "tool": "find_by_name",
+              "parameters": {"name": "SomeClass"}
             }
             ```
             
-            Generate 3-5 initial tool calls following the strategy above. Always start with discovery tools!
-            Remember to plan for both source and test exploration.
-            """, userQuery, toolRegistry.getToolsDescription());
+            ## GOOD EXAMPLE (DO THIS):
+            
+            REASONING: To understand how leaderboards work, I need to:
+            1. Search for code containing leaderboard logic and scoring
+            2. Find specific classes with "Leaderboard" in their name
+            
+            ACTIONS:
+            ```json
+            {
+              "tool": "search_code",
+              "parameters": {"query": "leaderboard scoring ranking system"},
+              "reasoning": "Finding code snippets that implement leaderboard functionality"
+            }
+            ```
+            ```json
+            {
+              "tool": "find_by_name", 
+              "parameters": {"name": "Leaderboard"},
+              "reasoning": "Looking for classes with Leaderboard in the name"
+            }
+            ```
+            
+            Based on the query "%s":
+            1. First, explain your reasoning about what to explore
+            2. Then, generate %d independent tool calls with real parameters
+            3. Use proper JSON syntax without any comments
+            """, 
+            userQuery, 
+            AgentConfiguration.INITIAL_TOOL_CALLS,
+            MAX_TOOL_CALLS,
+            context.getToolCallCount(),
+            toolRegistry.getToolsDescription(), 
+            userQuery,
+            AgentConfiguration.INITIAL_TOOL_CALLS);
     }
     
     /**
@@ -332,131 +308,103 @@ public final class ToolCallingAutonomousAgent {
     private String buildExplorationPrompt(ExplorationContext context) {
         StringBuilder prompt = new StringBuilder();
         
-        prompt.append("Continue exploring based on what you've discovered so far.\n\n");
-        prompt.append("Original Query: ").append(context.getUserQuery()).append("\n\n");
+        prompt.append("## CONTINUE EXPLORATION - REASON THEN ACT ##\n\n");
+        prompt.append("Original Query: ").append(context.getUserQuery()).append("\n");
+        prompt.append("Tool calls used: ").append(context.getToolCallCount()).append("/").append(MAX_TOOL_CALLS).append("\n\n");
         
-        // Add exploration statistics
-        prompt.append("**Exploration Balance:** ").append(context.getExplorationStats()).append("\n\n");
+        prompt.append("## CONFIGURATION:\n");
+        prompt.append("- Tool calls to generate this round: ").append(AgentConfiguration.TOOLS_PER_ROUND).append("\n");
+        prompt.append("- Remaining tool calls available: ").append(MAX_TOOL_CALLS - context.getToolCallCount()).append("\n");
+        prompt.append("- Each call must be INDEPENDENT\n");
+        prompt.append("- Use EXACT JSON syntax - no comments allowed\n\n");
         
-        prompt.append("Previous Tool Executions:\n");
+        prompt.append("## PREVIOUS DISCOVERIES (REAL DATA):\n");
         for (ToolExecution execution : context.getRecentExecutions(5)) {
             prompt.append("\nTool: ").append(execution.toolName).append("\n");
-            prompt.append("Parameters: ").append(execution.parameters).append("\n");
-            prompt.append("Result: ").append(truncate(execution.result, 500)).append("\n");
-        }
-        
-        prompt.append("\n## NEXT STEPS STRATEGY:\n\n");
-        
-        // Check source/test balance
-        if (context.needsMoreTestExploration()) {
-            prompt.append("⚠️ **Test Coverage Alert**: You've focused heavily on source code (")
-                  .append(String.format("%.0f%%", context.getSourceToTestRatio() * 100))
-                  .append("). Now explore some tests:\n");
-            prompt.append("- Look for test files (ending with Test, Tests, or Spec)\n");
-            prompt.append("- Use `find_by_name` with 'Test' suffix for classes you've explored\n");
-            prompt.append("- Check /test/ directories\n\n");
-        } else if (context.needsMoreSourceExploration()) {
-            prompt.append("⚠️ **Source Coverage Alert**: Balance is tilted toward tests. Focus on more source code.\n\n");
-        }
-        
-        // Analyze what phase we're in and suggest next steps
-        Map<String, Integer> toolUsage = context.getToolUsageStats();
-        boolean hasDiscovery = toolUsage.containsKey("search_code") || toolUsage.containsKey("find_by_name");
-        boolean hasFileReads = toolUsage.containsKey("read_file");
-        boolean hasRelationships = toolUsage.containsKey("find_relationships") || 
-                                   toolUsage.containsKey("find_callers") || 
-                                   toolUsage.containsKey("find_implementations");
-        
-        if (!hasDiscovery) {
-            prompt.append("⚠️ You haven't used discovery tools yet! Start with:\n");
-            prompt.append("- `search_code` for conceptual searches\n");
-            prompt.append("- `find_by_name` for specific class/method names\n\n");
-        } else if (!hasFileReads) {
-            prompt.append("✓ Discovery complete. Now examine implementations:\n");
-            prompt.append("- Use `read_file` to see the actual code\n");
-            prompt.append("- Use `get_class_info` for structural details\n");
-            prompt.append("- Remember to check both source and test files\n\n");
-        } else if (!hasRelationships) {
-            prompt.append("✓ Implementation examined. Now explore relationships:\n");
-            prompt.append("- Use `find_relationships` to map dependencies\n");
-            prompt.append("- Use `find_callers` to trace usage\n");
-            prompt.append("- Use `find_usages` to find references\n");
-            prompt.append("- Check relationships in both source and tests\n\n");
-        } else {
-            prompt.append("✓ Deep exploration phase. Consider:\n");
-            prompt.append("- Following interesting relationships you found\n");
-            prompt.append("- Exploring similar code patterns\n");
-            prompt.append("- Checking test files for usage examples\n");
-            prompt.append("- Looking for edge cases in tests\n\n");
-        }
-        
-        // Add intelligent suggestions based on context
-        Set<String> unexplored = context.getUnexploredElements();
-        if (!unexplored.isEmpty()) {
-            prompt.append("### Discovered but unexplored elements:\n");
-            unexplored.stream().limit(5).forEach(element -> {
-                prompt.append("- ").append(element);
-                if (element.contains("Test")) {
-                    prompt.append(" (TEST)");
+            prompt.append("Result: ").append(truncate(execution.result, 300)).append("\n");
+            
+            // Extract and highlight concrete values
+            if (execution.success && execution.result != null) {
+                prompt.append("CONCRETE VALUES YOU MUST USE:\n");
+                
+                // Extract file paths
+                java.util.regex.Pattern pathPattern = java.util.regex.Pattern.compile("src[/\\\\]\\S+\\.java");
+                java.util.regex.Matcher matcher = pathPattern.matcher(execution.result);
+                while (matcher.find()) {
+                    prompt.append("  - File path: ").append(matcher.group()).append("\n");
                 }
-                prompt.append("\n");
-            });
-            prompt.append("\n");
-        }
-        
-        // Suggest test exploration if source files were explored
-        if (context.exploredSourceFiles.size() > 0 && context.needsMoreTestExploration()) {
-            prompt.append("### Suggested test files to explore:\n");
-            List<String> testSuggestions = context.getSuggestedTestFiles();
-            for (String testFile : testSuggestions) {
-                prompt.append("- ").append(testFile).append("\n");
+                
+                // Extract class names
+                java.util.regex.Pattern classPattern = java.util.regex.Pattern.compile("\\b([a-z]+\\.)+[A-Z][a-zA-Z0-9]+\\b");
+                matcher = classPattern.matcher(execution.result);
+                Set<String> classes = new HashSet<>();
+                while (matcher.find()) {
+                    classes.add(matcher.group());
+                }
+                classes.forEach(cls -> prompt.append("  - Class: ").append(cls).append("\n"));
             }
-            prompt.append("\n");
         }
         
-        List<String> suggestions = context.getSuggestedNextElements();
-        if (!suggestions.isEmpty()) {
-            prompt.append("### Suggested elements to explore (based on relationships):\n");
-            suggestions.forEach(element -> 
-                prompt.append("- ").append(element).append("\n"));
-            prompt.append("\n");
-        }
-        
-        // Check if we have adequate coverage
-        if (context.hasAdequateCoverage()) {
-            prompt.append("### Coverage Status: ✓ Good\n");
-            prompt.append("You've explored ").append(context.getToolCallCount())
-                  .append(" tools with ").append(context.exploredElements.size())
-                  .append(" elements and ").append(context.exploredFiles.size())
-                  .append(" files. Consider wrapping up unless you find critical gaps.\n\n");
-        }
-        
-        prompt.append("Based on these results, what should we explore next?\n\n");
-        
-        prompt.append("## SMART EXPLORATION TIPS:\n");
-        prompt.append("1. **Maintain Balance**: Aim for 70% source, 30% test exploration\n");
-        prompt.append("2. **Tests are Documentation**: They show expected behavior and usage patterns\n");
-        prompt.append("3. **Follow the breadcrumbs**: If you found a class, explore its methods AND its tests\n");
-        prompt.append("4. **Look for patterns**: UserService → UserServiceTest, UserRepository → UserRepositoryTest\n");
-        prompt.append("5. **Check both directions**: For inheritance, check both parent and children. For calls, check both callers and callees\n");
-        prompt.append("6. **Don't repeat**: Avoid calling the same tool with the same parameters\n");
-        prompt.append("7. **Focus on relevance**: Prioritize exploring code that directly relates to the original query\n\n");
-        
-        prompt.append("Available Tools:\n").append(toolRegistry.getToolsDescription()).append("\n");
-        
-        prompt.append("""
-            Generate tool calls that build upon your discoveries. Format as JSON blocks:
+        prompt.append("\n## REASON THEN ACT:\n");
+        prompt.append(String.format("""
+            
+            1. REASONING - Analyze what you've learned:
+               - What concrete elements did you discover?
+               - What aspects of "%s" haven't been explored?
+               - What specific files/classes should you examine next?
+            
+            2. ACTIONS - Generate %d independent tool calls:
+               - MUST use the EXACT file paths and class names shown above
+               - Each call explores a DIFFERENT aspect
+               - NO placeholders like "path/to/file" or "SomeClass"
+               - STRICT JSON syntax - no comments inside JSON blocks
+            
+            GOOD Example:
+            
+            REASONING: I found LeaderboardService at src/main/java/com/example/LeaderboardService.java.
+            Now I should: 1) Read this file to understand the implementation, and 2) Search for 
+            how scores are calculated (different aspect).
+            
+            ACTIONS:
             ```json
             {
-              "tool": "tool_name",
-              "parameters": {...},
-              "reasoning": "How this extends our understanding"
+              "tool": "read_file",
+              "parameters": {"filePath": "src/main/java/com/example/LeaderboardService.java"},
+              "reasoning": "Reading the LeaderboardService implementation I discovered"
+            }
+            ```
+            ```json
+            {
+              "tool": "search_code",
+              "parameters": {"query": "score calculation points algorithm"},
+              "reasoning": "Searching for scoring logic (independent from file reading)"
             }
             ```
             
-            Generate 2-5 tool calls. Focus on depth over breadth - explore the most relevant findings thoroughly.
-            Remember to maintain the 70/30 source/test balance!
-            """);
+            BAD Example (DO NOT DO THIS):
+            Wrong parameter value:
+            ```json
+            {
+              "tool": "read_file",
+              "parameters": {"filePath": "the leaderboard file"},
+              "reasoning": "Reading the file"
+            }
+            ```
+            
+            Wrong JSON syntax with comments:
+            ```json
+            {
+              "tool": "read_file",
+              "parameters": {"filePath": "src/main/java/Example.java"}, // This is wrong
+              "reasoning": "Reading file"
+            }
+            ```
+            
+            Now provide your reasoning and then generate %d tool calls with proper JSON syntax:
+            """, 
+            context.getUserQuery(),
+            AgentConfiguration.TOOLS_PER_ROUND,
+            AgentConfiguration.TOOLS_PER_ROUND));
         
         return prompt.toString();
     }

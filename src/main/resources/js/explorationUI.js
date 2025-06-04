@@ -440,6 +440,10 @@
       margin-bottom: 12px;
       font-size: 13px;
     }
+    
+    .exploration-indexing-message {
+      padding: 12px 0;
+    }
   `;
   
   // Inject styles
@@ -497,7 +501,7 @@
     summary: null
   };
   let notificationExpanded = false;
-  let pendingQuery = null; // Store query while building local index
+  let pendingQuery = null; // Store query while indexing
   
   // UI functions
   function showNotification() {
@@ -530,8 +534,54 @@
     setTimeout(() => overlay.style.display = 'none', 300);
   }
   
+  function ensureNotificationStructure() {
+    const content = notification.querySelector('.exploration-notification-content');
+    if (!content) return;
+    
+    // Check if progress list exists
+    if (!content.querySelector('.exploration-progress-list')) {
+      // Recreate the standard structure
+      content.innerHTML = `
+        <div class="exploration-progress-list"></div>
+        <button class="exploration-view-full">View Full Details</button>
+      `;
+      
+      // Re-attach event listener
+      const viewFullBtn = content.querySelector('.exploration-view-full');
+      if (viewFullBtn) {
+        viewFullBtn.addEventListener('click', showFullView);
+      }
+    }
+  }
+  
+  function showIndexingMessage(message) {
+    const content = notification.querySelector('.exploration-notification-content');
+    if (!content) return;
+    
+    content.innerHTML = `
+      <div class="exploration-indexing-message">
+        <div class="exploration-progress-item">
+          <div class="exploration-status-text">
+            🔍 ${message || 'Indexing project for the first time...'}
+          </div>
+          <div class="exploration-status-text" style="margin-top: 8px; color: #0084ff;">
+            This may take a few minutes. Please wait...
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
   function updateNotificationProgress() {
+    // Ensure structure exists
+    ensureNotificationStructure();
+    
     const progressList = notification.querySelector('.exploration-progress-list');
+    if (!progressList) {
+      console.warn('Progress list element not found after ensuring structure');
+      return;
+    }
+    
     progressList.innerHTML = '';
     
     // Show latest tools
@@ -560,6 +610,8 @@
   
   function updateFullViewUI() {
     const roundsContainer = overlay.querySelector('.exploration-rounds');
+    if (!roundsContainer) return;
+    
     roundsContainer.innerHTML = '';
     
     explorationData.rounds.forEach((round, index) => {
@@ -619,7 +671,12 @@
   
   // Event handlers
   notification.querySelector('.exploration-notification-header').addEventListener('click', toggleNotification);
-  notification.querySelector('.exploration-view-full').addEventListener('click', showFullView);
+  
+  // Initial setup of view full button
+  const initialViewFullBtn = notification.querySelector('.exploration-view-full');
+  if (initialViewFullBtn) {
+    initialViewFullBtn.addEventListener('click', showFullView);
+  }
   
   overlay.querySelector('.exploration-close').addEventListener('click', hideFullView);
   overlay.addEventListener('click', (e) => {
@@ -637,52 +694,49 @@
       
       if (!response.success) {
         if (response.indexing) {
-          // Project is being indexed locally
+          // Project is being indexed
           pendingQuery = query; // Store the query to retry after indexing
           
           // Show indexing status
-          notification.querySelector('.exploration-notification-content').innerHTML = `
-            <div class="exploration-progress-item">
-              <div class="exploration-status-text">
-                🔍 ${response.message || 'Building local code index for exploration...'}
-              </div>
-              <div class="exploration-status-text" style="margin-top: 8px; color: #0084ff;">
-                This only happens once per project. Please wait...
-              </div>
-            </div>
-          `;
+          showIndexingMessage(response.message || 'Indexing project for the first time...');
+          
           notification.querySelector('.exploration-spinner-mini').style.display = 'block';
-          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Building Index';
-          notification.querySelector('.exploration-view-full').style.display = 'none';
+          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Indexing Project';
+          
           showNotification();
           
           return 'indexing'; // Special return value to indicate indexing state
+        } else if (response.requiresIndexing) {
+          // Old error case (shouldn't happen now)
+          const errorHtml = `
+            <div class="exploration-error-message">
+              ⚠️ Project not indexed. Please index your project first to use Agent Mode exploration.
+            </div>
+          `;
+          const content = notification.querySelector('.exploration-notification-content');
+          if (content) {
+            content.innerHTML = errorHtml;
+          }
+          notification.querySelector('.exploration-spinner-mini').style.display = 'none';
+          notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
+          showNotification();
+          
+          // Auto-hide after 5 seconds
+          setTimeout(hideNotification, 5000);
         }
-        
         console.error('Failed to start exploration:', response.error);
-        
-        // Show error in notification
-        const errorHtml = `
-          <div class="exploration-error-message">
-            ⚠️ ${response.error || 'Failed to start exploration'}
-          </div>
-        `;
-        notification.querySelector('.exploration-notification-content').innerHTML = errorHtml;
-        notification.querySelector('.exploration-spinner-mini').style.display = 'none';
-        notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Error';
-        showNotification();
-        
-        // Auto-hide after 5 seconds
-        setTimeout(hideNotification, 5000);
         return null;
       }
       
       currentSessionId = response.sessionId;
       explorationData = { rounds: [], toolExecutions: [], summary: null };
       
-      // Update notification
+      // Update notification with proper structure
       notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Exploring codebase...';
       notification.querySelector('.exploration-spinner-mini').style.display = 'block';
+      
+      // Ensure the content has the right structure
+      ensureNotificationStructure();
       
       // Update full view
       overlay.querySelector('.exploration-query').textContent = `Query: "${query}"`;
@@ -797,21 +851,25 @@
   
   // Add handlers for indexing callbacks
   window.handleIndexingComplete = async function() {
-    console.log('Local indexing complete, retrying exploration...');
+    console.log('Indexing complete, retrying exploration...');
     
     // Update notification
     notification.querySelector('.exploration-notification-title span:last-child').innerHTML = 
-      '<span class="exploration-complete-indicator"></span>Index Built';
-    notification.querySelector('.exploration-notification-content').innerHTML = `
-      <div class="exploration-progress-item">
-        <div class="exploration-status-text" style="color: #4caf50;">
-          ✓ Local code index built successfully!
+      '<span class="exploration-complete-indicator"></span>Indexing Complete';
+    
+    const content = notification.querySelector('.exploration-notification-content');
+    if (content) {
+      content.innerHTML = `
+        <div class="exploration-progress-item">
+          <div class="exploration-status-text" style="color: #4caf50;">
+            ✓ Project indexed successfully!
+          </div>
+          <div class="exploration-status-text" style="margin-top: 8px;">
+            Starting exploration...
+          </div>
         </div>
-        <div class="exploration-status-text" style="margin-top: 8px;">
-          Starting exploration...
-        </div>
-      </div>
-    `;
+      `;
+    }
     
     // Wait a moment for user to see the success message
     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -830,19 +888,23 @@
   };
   
   window.handleIndexingError = function(error) {
-    console.error('Local indexing failed:', error);
+    console.error('Indexing failed:', error);
     
     // Update notification to show error
     notification.querySelector('.exploration-spinner-mini').style.display = 'none';
     notification.querySelector('.exploration-notification-title span:last-child').textContent = 'Indexing Failed';
-    notification.querySelector('.exploration-notification-content').innerHTML = `
-      <div class="exploration-error-message">
-        ⚠️ Failed to build local index: ${escapeHtml(error || 'Unknown error')}
-      </div>
-      <div class="exploration-status-text" style="margin-top: 8px;">
-        Please check the IDE logs for details.
-      </div>
-    `;
+    
+    const content = notification.querySelector('.exploration-notification-content');
+    if (content) {
+      content.innerHTML = `
+        <div class="exploration-error-message">
+          ⚠️ Failed to index project: ${escapeHtml(error || 'Unknown error')}
+        </div>
+        <div class="exploration-status-text" style="margin-top: 8px;">
+          Please try indexing manually from the IDE.
+        </div>
+      `;
+    }
     
     // Clear pending query
     pendingQuery = null;

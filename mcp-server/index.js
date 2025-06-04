@@ -491,10 +491,54 @@ class ZestMcpServer {
    * Helper method to execute tool shortcuts.
    */
   async executeToolShortcut(toolName, parameters) {
-    return this.server.callTool("execute_tool", {
-      tool: toolName,
-      parameters: parameters
-    });
+    // Directly make the API call to execute-tool endpoint
+    if (!this.connected) {
+      await this.findProxy();
+      if (!this.connected) {
+        return {
+          content: [{
+            type: "text",
+            text: "Error: Not connected to Zest Agent Proxy."
+          }]
+        };
+      }
+    }
+    
+    try {
+      const response = await fetchWithTimeout(`${this.proxyUrl}/execute-tool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool: toolName,
+          parameters: parameters
+        })
+      }, 180000); // 3 minutes timeout
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        return {
+          content: [{
+            type: "text",
+            text: result.content || "Tool executed successfully"
+          }]
+        };
+      } else {
+        return {
+          content: [{
+            type: "text",
+            text: `Error: ${result.error || "Tool execution failed"}`
+          }]
+        };
+      }
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error: ${error.message}`
+        }]
+      };
+    }
   }
   
   /**

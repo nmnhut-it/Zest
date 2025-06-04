@@ -283,11 +283,17 @@ public final class ImprovedToolCallingAutonomousAgent {
         
         try {
             CodeExplorationTool.ToolResult result = tool.execute(parameters);
-            String resultContent = result.getContent();
-            
-            // Truncate if too long but keep more content than before
-            if (resultContent.length() > MAX_RESULT_LENGTH) {
-                resultContent = resultContent.substring(0, MAX_RESULT_LENGTH) + "\n... [truncated]";
+            String resultContent;
+            if (result.isSuccess()) {
+                 resultContent = result.getContent();
+
+                // Truncate if too long but keep more content than before
+                if (resultContent.length() > MAX_RESULT_LENGTH) {
+                    resultContent = resultContent.substring(0, MAX_RESULT_LENGTH) + "\n... [truncated]";
+                }
+            }
+            else {
+                resultContent = result.getError();
             }
             
             return new ToolExecution(toolName, parameters, resultContent, result.isSuccess());

@@ -519,6 +519,7 @@
                 console.log('Continuing existing conversation - reusing exploration context if available');
                 // Use stored exploration context if available
                 explorationContext = window.__stored_exploration_context__ || '';
+                console.log(explorationContext)
               }
             } catch (e) {
               console.error('Error parsing body for exploration check:', e);

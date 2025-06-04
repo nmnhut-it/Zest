@@ -21,9 +21,15 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     
     public SearchCodeTool(@NotNull Project project) {
         super(project, "search_code", 
-            "Search for code using natural language queries across the entire codebase. " +
-            "Example: search_code({\"query\": \"user authentication logic\", \"maxResults\": 5}) - finds code related to authentication. " +
-            "Params: query (string, required), maxResults (int, optional, default 10, range 1-50)");
+            "Search for code using natural language queries. Uses semantic search to find conceptually related code. " +
+            "Tips for effective queries: " +
+            "- Be specific: 'validate user email format' instead of 'validation' " +
+            "- Use technical terms: 'authentication' instead of 'login' " +
+            "- Include context: 'database connection pooling' instead of 'connection' " +
+            "Examples: " +
+            "- search_code({\"query\": \"user authentication logic\"}) " +
+            "- search_code({\"query\": \"calculate order total with discounts\", \"maxResults\": 5}) " +
+            "Params: query (string, required), maxResults (int, optional, default 10)");
         this.searchUtility = project.getService(CodeSearchUtility.class);
     }
     

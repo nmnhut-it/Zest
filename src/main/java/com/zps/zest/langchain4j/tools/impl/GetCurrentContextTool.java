@@ -18,8 +18,9 @@ public class GetCurrentContextTool extends BaseCodeExplorationTool {
     public GetCurrentContextTool(@NotNull Project project) {
         super(project, "get_current_context", 
             "Get information about the current IDE context (open file, selected element, cursor position). " +
-            "Example: get_current_context({}) - returns current file, cursor position, and element at cursor. " +
-            "Params: NONE - use empty object {}");
+            "NO PARAMETERS REQUIRED - this tool reads the current IDE state. " +
+            "Example: get_current_context() or get_current_context({}) - both work. " +
+            "Returns: current file path, cursor position, element at cursor, and list of open files.");
     }
     
     @Override
@@ -32,6 +33,7 @@ public class GetCurrentContextTool extends BaseCodeExplorationTool {
     
     @Override
     protected ToolResult doExecute(JsonObject parameters) {
+        // No parameters needed, ignore any provided
         try {
             FileEditorManager editorManager = FileEditorManager.getInstance(project);
             VirtualFile[] openFiles = editorManager.getOpenFiles();

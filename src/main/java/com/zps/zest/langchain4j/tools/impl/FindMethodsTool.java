@@ -20,7 +20,11 @@ public class FindMethodsTool extends ThreadSafeCodeExplorationTool {
     public FindMethodsTool(@NotNull Project project) {
         super(project, "find_methods", 
             "Find all methods in a class or interface. " +
-            "Example: find_methods({\"className\": \"ArrayList\", \"includeInherited\": true}) - lists all methods including inherited ones. " +
+            "Examples: " +
+            "- find_methods({\"className\": \"ArrayList\"}) - finds methods in java.util.ArrayList " +
+            "- find_methods({\"className\": \"java.util.HashMap\", \"includeInherited\": true}) - includes Object methods " +
+            "- find_methods({\"className\": \"MyService\"}) - finds methods in your MyService class " +
+            "NOTE: For ambiguous names (e.g., 'List'), use fully qualified name to avoid wrong class. " +
             "Params: className (string, required), includeInherited (boolean, optional, default false)");
     }
     
@@ -123,9 +127,27 @@ public class FindMethodsTool extends ThreadSafeCodeExplorationTool {
                     }
                 });
             
-            if (!classes.isEmpty()) {
-                psiClass = classes.get(0); // Take the first match
+            if (classes.isEmpty()) {
+                return null;
             }
+            
+            if (classes.size() > 1) {
+                // Multiple matches - create error with all options
+                StringBuilder error = new StringBuilder();
+                error.append("Multiple classes found with name '").append(className).append("':\n\n");
+                
+                for (int i = 0; i < classes.size(); i++) {
+                    PsiClass cls = classes.get(i);
+                    error.append(i + 1).append(". ").append(cls.getQualifiedName()).append("\n");
+                }
+                
+                error.append("\nPlease use the fully qualified class name.");
+                error.append("\nExample: find_methods({\"className\": \"").append(classes.get(0).getQualifiedName()).append("\"})");
+                
+                throw new RuntimeException(error.toString());
+            }
+            
+            psiClass = classes.get(0);
         }
         
         return psiClass;

@@ -23,8 +23,15 @@ public class FindUsagesTool extends ThreadSafeCodeExplorationTool {
     public FindUsagesTool(@NotNull Project project) {
         super(project, "find_usages", 
             "Find all usages of a class, method, or field. " +
-            "Example: find_usages({\"elementId\": \"User#email\", \"includeTests\": false}) - finds all non-test usages of User.email field. " +
-            "Params: elementId (string, required, format: 'ClassName' or 'ClassName#memberName'), includeTests (boolean, optional, default true)");
+            "REQUIRED FORMATS: " +
+            "- Class: 'ClassName' or 'com.example.ClassName' " +
+            "- Method: 'ClassName#methodName' (finds usages of ALL overloads) " +
+            "- Field: 'ClassName#fieldName' " +
+            "Examples: " +
+            "- find_usages({\"elementId\": \"UserService\"}) - finds all uses of UserService class " +
+            "- find_usages({\"elementId\": \"User#email\"}) - finds all accesses to email field " +
+            "- find_usages({\"elementId\": \"List#add\", \"includeTests\": false}) - non-test usages only " +
+            "Params: elementId (string, required), includeTests (boolean, optional, default true)");
     }
     
     @Override

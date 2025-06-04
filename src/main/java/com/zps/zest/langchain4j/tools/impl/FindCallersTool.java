@@ -20,8 +20,12 @@ public class FindCallersTool extends BaseCodeExplorationTool {
     public FindCallersTool(@NotNull Project project) {
         super(project, "find_callers", 
             "Find all methods that call a specific method. " +
-            "Example: find_callers({\"methodId\": \"UserService#save\"}) - finds all methods calling UserService.save(). " +
-            "Params: methodId (string, required, format: 'ClassName#methodName')");
+            "REQUIRED FORMAT: 'ClassName#methodName' (use # as separator). " +
+            "Examples: " +
+            "- find_callers({\"methodId\": \"UserService#save\"}) - finds all callers of save() in UserService " +
+            "- find_callers({\"methodId\": \"com.example.UserService#save\"}) - with full package name " +
+            "Note: For overloaded methods, this finds callers of ALL overloads. " +
+            "Params: methodId (string, required)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -100,37 +104,54 @@ public class FindCallersTool extends BaseCodeExplorationTool {
     private String validateAndCorrectMethodId(String methodId) {
         if (methodId == null || methodId.trim().isEmpty()) {
             throw new IllegalArgumentException(
-                "methodId cannot be empty. Expected format: 'ClassName#methodName'. " +
-                "Example: 'UserService#save'"
+                "methodId cannot be empty. Required format: 'ClassName#methodName'. " +
+                "Examples: 'UserService#save', 'com.example.UserService#save'"
             );
         }
         
         methodId = methodId.trim();
         
-        // Auto-correct common mistakes
-        if (methodId.contains("::")) {
-            methodId = methodId.replace("::", "#");
-        } else if (methodId.contains("->")) {
-            methodId = methodId.replace("->", "#");
-        } else if (methodId.contains(".") && !methodId.contains("#")) {
-            // Try to fix dot separator
+        // Check if already in correct format
+        if (methodId.contains("#")) {
+            return methodId;
+        }
+        
+        // If using dot notation and looks like a method call
+        if (methodId.contains(".")) {
             int lastDot = methodId.lastIndexOf('.');
             String possibleMethod = methodId.substring(lastDot + 1);
             
+            // Remove any parentheses
+            possibleMethod = possibleMethod.replace("()", "");
+            
+            // Check if it looks like a method name (starts with lowercase or common prefixes)
             if (possibleMethod.length() > 0 && 
                 (Character.isLowerCase(possibleMethod.charAt(0)) ||
-                 possibleMethod.matches("^(get|set|is|has|add|remove|find|create|update|delete).*"))) {
-                methodId = methodId.substring(0, lastDot) + "#" + possibleMethod;
+                 possibleMethod.matches("^(get|set|is|has|add|remove|find|create|update|delete|save|load|execute|validate|check|test).*"))) {
+                String corrected = methodId.substring(0, lastDot) + "#" + possibleMethod;
+                throw new IllegalArgumentException(
+                    "Invalid format: '" + methodId + "'. " +
+                    "Use '#' separator instead of '.'. " +
+                    "Did you mean: '" + corrected + "'?"
+                );
             }
         }
         
-        // Final validation
-        if (!methodId.contains("#")) {
+        // Other wrong separators
+        if (methodId.contains("::") || methodId.contains("->")) {
+            String corrected = methodId.replace("::", "#").replace("->", "#");
             throw new IllegalArgumentException(
-                "Invalid methodId format. Must use 'ClassName#methodName'. Got: '" + methodId + "'"
+                "Invalid format: '" + methodId + "'. " +
+                "Use '#' as separator. " +
+                "Did you mean: '" + corrected + "'?"
             );
         }
         
-        return methodId;
+        // No separator found
+        throw new IllegalArgumentException(
+            "Invalid format: '" + methodId + "'. " +
+            "Must use 'ClassName#methodName' format. " +
+            "Examples: 'UserService#save', 'ArrayList#add', 'com.example.Service#process'"
+        );
     }
 }

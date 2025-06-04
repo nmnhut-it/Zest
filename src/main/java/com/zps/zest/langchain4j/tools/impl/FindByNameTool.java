@@ -19,9 +19,13 @@ public class FindByNameTool extends ThreadSafeIndexTool {
     
     public FindByNameTool(@NotNull Project project) {
         super(project, "find_by_name", 
-            "Find code elements by name (partial match supported). " +
-            "Example: find_by_name({\"name\": \"UserService\", \"maxResults\": 10}) - finds UserService, UserServiceImpl, etc. " +
-            "Params: name (string, required), maxResults (int, optional, default 10, range 1-50)");
+            "Find code elements by name (CASE-SENSITIVE partial match supported). " +
+            "Examples: " +
+            "- find_by_name({\"name\": \"UserService\"}) - finds UserService, UserServiceImpl, etc. " +
+            "- find_by_name({\"name\": \"save\"}) - finds all methods/classes containing 'save' " +
+            "- find_by_name({\"name\": \"user\", \"maxResults\": 20}) - finds up to 20 items with 'user' " +
+            "NOTE: Search is case-sensitive! 'userService' won't find 'UserService'. " +
+            "Params: name (string, required), maxResults (int, optional, default 10)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     

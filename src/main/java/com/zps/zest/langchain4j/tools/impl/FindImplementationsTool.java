@@ -20,8 +20,14 @@ public class FindImplementationsTool extends BaseCodeExplorationTool {
     public FindImplementationsTool(@NotNull Project project) {
         super(project, "find_implementations", 
             "Find all implementations of an interface or abstract method. " +
-            "Example: find_implementations({\"elementId\": \"UserRepository\"}) - finds all classes implementing UserRepository. " +
-            "Params: elementId (string, required, format: 'InterfaceName' or 'ClassName#methodName')");
+            "ACCEPTS TWO FORMATS: " +
+            "- Interface/Class: 'InterfaceName' (finds all implementing classes) " +
+            "- Abstract method: 'ClassName#methodName' (finds all overriding methods) " +
+            "Examples: " +
+            "- find_implementations({\"elementId\": \"UserRepository\"}) - classes implementing UserRepository " +
+            "- find_implementations({\"elementId\": \"List\"}) - classes implementing java.util.List " +
+            "- find_implementations({\"elementId\": \"AbstractService#process\"}) - methods overriding process() " +
+            "Params: elementId (string, required)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     

@@ -22,8 +22,12 @@ public class FindRelationshipsTool extends BaseCodeExplorationTool {
     public FindRelationshipsTool(@NotNull Project project) {
         super(project, "find_relationships", 
             "Find structural relationships (calls, inheritance, implementations) for a code element. " +
-            "Example: find_relationships({\"elementId\": \"UserService\", \"relationType\": \"CALLED_BY\"}) - finds all methods that call UserService. " +
-            "Params: elementId (string, required), relationType (string, optional, one of: CALLS, CALLED_BY, EXTENDS, EXTENDED_BY, IMPLEMENTS, IMPLEMENTED_BY, USES, USED_BY)");
+            "Examples: " +
+            "- find_relationships({\"elementId\": \"UserService\"}) - finds ALL relationships " +
+            "- find_relationships({\"elementId\": \"UserService\", \"relationType\": \"CALLED_BY\"}) - who calls UserService " +
+            "- find_relationships({\"elementId\": \"Repository\", \"relationType\": \"IMPLEMENTED_BY\"}) - implementations " +
+            "Valid relation types: CALLS, CALLED_BY, EXTENDS, EXTENDED_BY, IMPLEMENTS, IMPLEMENTED_BY, USES, USED_BY " +
+            "Params: elementId (string, required), relationType (string, optional - if omitted, returns all)");
         this.indexManager = project.getService(HybridIndexManager.class);
     }
     
@@ -77,10 +81,22 @@ public class FindRelationshipsTool extends BaseCodeExplorationTool {
                 // Validate relation type
                 StructuralIndex.RelationType type;
                 try {
-                    type = StructuralIndex.RelationType.valueOf(relationType);
+                    type = StructuralIndex.RelationType.valueOf(relationType.toUpperCase());
                 } catch (IllegalArgumentException e) {
-                    return ToolResult.error("Invalid relationType: " + relationType + 
-                        ". Valid values: CALLS, CALLED_BY, EXTENDS, EXTENDED_BY, IMPLEMENTS, IMPLEMENTED_BY, USES, USED_BY");
+                    // Provide helpful error with all valid options
+                    return ToolResult.error(
+                        "Invalid relationType: '" + relationType + "'\n\n" +
+                        "Valid relation types are:\n" +
+                        "- CALLS: methods called by this element\n" +
+                        "- CALLED_BY: methods that call this element\n" +
+                        "- EXTENDS: classes extended by this class\n" +
+                        "- EXTENDED_BY: classes that extend this class\n" +
+                        "- IMPLEMENTS: interfaces implemented by this class\n" +
+                        "- IMPLEMENTED_BY: classes that implement this interface\n" +
+                        "- USES: types used by this element\n" +
+                        "- USED_BY: elements that use this type\n\n" +
+                        "Example: find_relationships({\"elementId\": \"UserService\", \"relationType\": \"CALLED_BY\"})"
+                    );
                 }
                 
                 // Get all relationships and filter for the specific type

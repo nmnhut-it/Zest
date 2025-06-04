@@ -24,8 +24,13 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
     public ReadFileTool(@NotNull Project project) {
         super(project, "read_file", 
             "Read the contents of a file. " +
-            "Example: read_file({\"filePath\": \"src/main/java/User.java\"}) - returns the full content of User.java. " +
-            "Supports: absolute paths, paths relative to project root, paths relative to source roots, and filename search. " +
+            "Supports multiple path formats: " +
+            "- Relative to project: 'src/main/java/User.java' " +
+            "- Just filename: 'User.java' (searches project, returns list if multiple found) " +
+            "- Absolute path: '/home/user/project/src/User.java' " +
+            "Examples: " +
+            "- read_file({\"filePath\": \"src/main/java/com/example/User.java\"}) - specific path " +
+            "- read_file({\"filePath\": \"User.java\"}) - finds all User.java files " +
             "Params: filePath (string, required)");
     }
     
@@ -58,6 +63,40 @@ public class ReadFileTool extends ThreadSafeCodeExplorationTool {
         String filePath = getRequiredString(parameters, "filePath");
         
         try {
+            // First check if it's just a filename and might have multiple matches
+            String fileName = new File(filePath).getName();
+            if (filePath.equals(fileName) && !filePath.contains("/")) {
+                // User provided just a filename, check for multiple matches
+                PsiFile[] files = FilenameIndex.getFilesByName(project, fileName, GlobalSearchScope.projectScope(project));
+                
+                if (files.length == 0) {
+                    return ToolResult.error("No files found with name: " + fileName);
+                }
+                
+                if (files.length > 1) {
+                    // Multiple matches - show them all
+                    StringBuilder allMatches = new StringBuilder();
+                    allMatches.append("Multiple files found with name '").append(fileName).append("':\n\n");
+                    
+                    for (int i = 0; i < files.length; i++) {
+                        VirtualFile vFile = files[i].getVirtualFile();
+                        if (vFile != null) {
+                            allMatches.append(i + 1).append(". ").append(vFile.getPath()).append("\n");
+                        }
+                    }
+                    
+                    allMatches.append("\nPlease use a more specific path to read the exact file you want.");
+                    allMatches.append("\nExample: read_file({\"filePath\": \"").append(files[0].getVirtualFile().getPath()).append("\"})");
+                    
+                    JsonObject metadata = createMetadata();
+                    metadata.addProperty("multipleMatches", true);
+                    metadata.addProperty("matchCount", files.length);
+                    
+                    return ToolResult.error(allMatches.toString());
+                }
+            }
+            
+            // Normal file finding logic
             VirtualFile file = findFile(filePath);
             if (file == null) {
                 return ToolResult.error("File not found: " + filePath + 

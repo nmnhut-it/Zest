@@ -68,9 +68,13 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
     
     public ListFilesInDirectoryTool(@NotNull Project project) {
         super(project, "list_files", 
-            "List files in a directory (excludes build artifacts and common non-code folders by default). " +
-            "Example: list_files({\"directory\": \"src/main/java\", \"pattern\": \"*.java\", \"recursive\": true}) - lists all Java files recursively. " +
-            "Params: directory (string, required, use '/' for root), recursive (boolean, optional), pattern (string, optional), includeAll (boolean, optional)");
+            "List files in a directory. BY DEFAULT: Only shows code files (excludes build artifacts, node_modules, etc). " +
+            "Examples: " +
+            "- list_files({\"directory\": \"/\"}) - list code files in project root " +
+            "- list_files({\"directory\": \"src\", \"recursive\": true}) - all code files under src/ " +
+            "- list_files({\"directory\": \"config\", \"includeAll\": true}) - ALL files including .properties, .xml " +
+            "- list_files({\"directory\": \"src\", \"pattern\": \"*Test.java\"}) - only test files " +
+            "Params: directory (string, required), recursive (bool), pattern (string), includeAll (bool - set true for non-code files)");
     }
     
     @Override

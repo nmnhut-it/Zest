@@ -190,7 +190,14 @@
       // Debug: Log the final system prompt
       const systemMsg = data.messages.find(msg => msg.role === 'system');
       if (systemMsg) {
-        console.log('Final system prompt:', systemMsg.content.substring(0, 500) + '...');
+        console.log('Final system prompt length:', systemMsg.content.length);
+        console.log('Final system prompt:', systemMsg.content);
+        // Also log if exploration results are included
+        if (systemMsg.content.includes('# CODE EXPLORATION RESULTS')) {
+          console.log('✓ Exploration results successfully included in system prompt');
+        } else if (window.__zest_mode__ === 'Agent Mode') {
+          console.warn('⚠️ Agent Mode but no exploration results in system prompt');
+        }
       }
 
       return JSON.stringify(data);

@@ -83,7 +83,16 @@ public class FindByNameTool extends ThreadSafeIndexTool {
                 for (NameIndex.SearchResult result : results) {
                     content.append("- **").append(result.getId()).append("**\n");
                     content.append("  Type: ").append(result.getType()).append("\n");
-                    content.append("  File: ").append(result.getFilePath()).append("\n");
+                    
+                    // Ensure absolute path is displayed
+                    String absolutePath = result.getFilePath();
+                    if (!new java.io.File(absolutePath).isAbsolute()) {
+                        VirtualFile baseDir = project.getBaseDir();
+                        if (baseDir != null) {
+                            absolutePath = baseDir.getPath() + java.io.File.separator + result.getFilePath();
+                        }
+                    }
+                    content.append("  File: ").append(absolutePath).append("\n");
                     content.append("  Score: ").append(String.format("%.3f", result.getScore())).append("\n");
                     content.append("  Signature: `").append(result.getSignature()).append("`\n");
                     

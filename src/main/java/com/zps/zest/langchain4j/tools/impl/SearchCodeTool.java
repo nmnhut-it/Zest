@@ -103,7 +103,16 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
                     CodeSearchUtility.EnrichedSearchResult result = results.get(i);
                     content.append("### Result ").append(i + 1).append(": ").append(result.getId()).append("\n");
                     content.append("Score: ").append(String.format("%.3f", result.getScore())).append("\n");
-                    content.append("File: ").append(result.getFilePath()).append("\n");
+                    
+                    // Ensure absolute path is displayed
+                    String absolutePath = result.getFilePath();
+                    if (!new java.io.File(absolutePath).isAbsolute()) {
+                        VirtualFile baseDir = project.getBaseDir();
+                        if (baseDir != null) {
+                            absolutePath = baseDir.getPath() + java.io.File.separator + result.getFilePath();
+                        }
+                    }
+                    content.append("File: ").append(absolutePath).append("\n");
                     content.append("Sources: ").append(result.getSources()).append("\n");
                     content.append("Content:\n```java\n").append(result.getContent()).append("\n```\n");
                     

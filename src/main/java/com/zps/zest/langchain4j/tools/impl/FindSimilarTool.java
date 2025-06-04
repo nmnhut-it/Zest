@@ -86,7 +86,17 @@ public class FindSimilarTool extends BaseCodeExplorationTool {
                         String filePath = (String) result.getMetadata().get("file_path");
                         
                         if (type != null) content.append("Type: ").append(type).append("\n");
-                        if (filePath != null) content.append("File: ").append(filePath).append("\n");
+                        if (filePath != null) {
+                            // Ensure absolute path is displayed
+                            String absolutePath = filePath;
+                            if (!new java.io.File(absolutePath).isAbsolute()) {
+                                VirtualFile baseDir = project.getBaseDir();
+                                if (baseDir != null) {
+                                    absolutePath = baseDir.getPath() + java.io.File.separator + filePath;
+                                }
+                            }
+                            content.append("File: ").append(absolutePath).append("\n");
+                        }
                     }
                     
                     content.append("Content:\n```java\n").append(result.getContent()).append("\n```\n\n");

@@ -173,8 +173,12 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
                 sortedDirs.sort(String::compareTo);
                 
                 for (String dir : sortedDirs) {
+                    String absoluteDirPath = targetDir.getPath();
                     if (!dir.isEmpty()) {
-                        content.append("\n### ").append(dir).append("/\n");
+                        absoluteDirPath = absoluteDirPath + java.io.File.separator + dir;
+                        content.append("\n### ").append(absoluteDirPath).append("\n");
+                    } else {
+                        content.append("\n### ").append(absoluteDirPath).append("\n");
                     }
                     
                     List<FileInfo> dirFiles = filesByDir.get(dir);
@@ -187,7 +191,9 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
                     });
                     
                     for (FileInfo file : dirFiles) {
-                        content.append("- ").append(file.name);
+                        // Build absolute path for each file
+                        String fileAbsolutePath = absoluteDirPath + java.io.File.separator + file.name;
+                        content.append("- ").append(fileAbsolutePath);
                         if (file.isDirectory) {
                             content.append("/");
                             if (!recursive && hasCodeFiles(targetDir.findFileByRelativePath(

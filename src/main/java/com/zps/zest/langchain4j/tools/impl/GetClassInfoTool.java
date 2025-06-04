@@ -90,6 +90,13 @@ public class GetClassInfoTool extends ThreadSafeCodeExplorationTool {
             if (file != null) {
                 content.append("## Package\n");
                 content.append("`").append(file.getPackageName()).append("`\n\n");
+                
+                // Add absolute file path
+                VirtualFile virtualFile = file.getVirtualFile();
+                if (virtualFile != null) {
+                    content.append("## File Path\n");
+                    content.append("`").append(virtualFile.getPath()).append("`\n\n");
+                }
             }
             
             // Hierarchy

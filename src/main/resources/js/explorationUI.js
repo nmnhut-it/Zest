@@ -114,15 +114,34 @@
       justify-content: space-between;
       align-items: center;
       transition: background 0.2s;
+      user-select: none;
     }
     
     .exploration-round-header:hover {
       background: #353535;
     }
     
+    .exploration-round-header::before {
+      content: '▼';
+      margin-right: 8px;
+      font-size: 12px;
+      transition: transform 0.2s;
+    }
+    
+    .exploration-round.collapsed .exploration-round-header::before {
+      transform: rotate(-90deg);
+    }
+    
     .exploration-round-content {
       padding: 15px 20px;
       background: #252525;
+      display: block;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .exploration-round.collapsed .exploration-round-content {
+      display: none;
     }
     
     .tool-execution {
@@ -137,17 +156,24 @@
       margin-bottom: 0;
     }
     
+    .tool-execution-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    
     .tool-name {
       font-weight: 600;
       color: #0084ff;
-      margin-bottom: 5px;
       font-size: 14px;
     }
     
     .tool-params {
       font-size: 12px;
       color: #999;
-      margin-bottom: 8px;
+      margin-top: 8px;
       font-family: "Consolas", "Monaco", monospace;
     }
     
@@ -161,6 +187,12 @@
       background: #1a1a1a;
       border-radius: 4px;
       border: 1px solid #333;
+      margin-top: 8px;
+    }
+    
+    .tool-execution.collapsed .tool-params,
+    .tool-execution.collapsed .tool-result {
+      display: none;
     }
     
     .tool-status {
@@ -169,7 +201,6 @@
       border-radius: 4px;
       font-size: 11px;
       font-weight: 500;
-      margin-left: 10px;
     }
     
     .tool-status.success {
@@ -184,22 +215,55 @@
     
     .exploration-summary {
       margin-top: 20px;
-      padding: 20px;
-      background: #2d2d2d;
+      padding: 0;
+      background: transparent;
       border-radius: 8px;
       border: 1px solid #3e3e3e;
+      overflow: hidden;
     }
     
-    .exploration-summary h3 {
-      margin: 0 0 15px 0;
+    .exploration-summary-header {
+      padding: 12px 20px;
+      background: #2d2d2d;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s;
+      user-select: none;
       color: #fff;
       font-size: 16px;
+    }
+    
+    .exploration-summary-header:hover {
+      background: #353535;
+    }
+    
+    .exploration-summary-header::before {
+      content: '▼';
+      margin-right: 8px;
+      font-size: 12px;
+      transition: transform 0.2s;
+    }
+    
+    .exploration-summary.collapsed .exploration-summary-header::before {
+      transform: rotate(-90deg);
     }
     
     .summary-content {
       font-size: 14px;
       line-height: 1.6;
       white-space: pre-wrap;
+      padding: 20px;
+      background: #252525;
+      display: block;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .exploration-summary.collapsed .summary-content {
+      display: none;
     }
     
     .exploration-complete-badge {
@@ -210,6 +274,14 @@
       border-radius: 4px;
       font-size: 12px;
       font-weight: 500;
+    }
+    
+    .exploration-status {
+      text-align: center;
+      padding: 10px;
+      color: #999;
+      font-size: 13px;
+      font-style: italic;
     }
   `;
   
@@ -234,6 +306,7 @@
         <div class="exploration-query"></div>
         <div class="exploration-rounds"></div>
         <div class="exploration-summary" style="display: none;"></div>
+        <div class="exploration-status">Enhancing your query with code context...</div>
       </div>
     </div>
   `;
@@ -265,16 +338,16 @@
     
     explorationData.rounds.forEach((round, index) => {
       const roundEl = document.createElement('div');
-      roundEl.className = 'exploration-round';
+      roundEl.className = 'exploration-round collapsed'; // Start collapsed
       
       const toolExecutionsHtml = round.toolExecutions.map(exec => {
         const statusClass = exec.success ? 'success' : 'failed';
         const statusText = exec.success ? 'Success' : 'Failed';
         
         return `
-          <div class="tool-execution">
-            <div class="tool-name">
-              ${exec.toolName}
+          <div class="tool-execution collapsed">
+            <div class="tool-execution-header">
+              <div class="tool-name">${exec.toolName}</div>
               <span class="tool-status ${statusClass}">${statusText}</span>
             </div>
             <div class="tool-params">Parameters: ${JSON.stringify(exec.parameters)}</div>
@@ -292,6 +365,21 @@
           ${toolExecutionsHtml}
         </div>
       `;
+      
+      // Add click handler for round collapsing
+      const roundHeader = roundEl.querySelector('.exploration-round-header');
+      roundHeader.addEventListener('click', () => {
+        roundEl.classList.toggle('collapsed');
+      });
+      
+      // Add click handlers for tool execution collapsing
+      const toolExecutions = roundEl.querySelectorAll('.tool-execution');
+      toolExecutions.forEach(toolEl => {
+        const header = toolEl.querySelector('.tool-execution-header');
+        header.addEventListener('click', () => {
+          toolEl.classList.toggle('collapsed');
+        });
+      });
       
       roundsContainer.appendChild(roundEl);
     });
@@ -328,6 +416,8 @@
         overlay.querySelector('.exploration-title span:last-child').textContent = 'Exploring Codebase...';
         overlay.querySelector('.exploration-spinner').style.display = 'block';
         overlay.querySelector('.exploration-summary').style.display = 'none';
+        overlay.querySelector('.exploration-status').style.display = 'block';
+        overlay.querySelector('.exploration-status').textContent = 'Enhancing your query with code context...';
         
         showExplorationUI();
         
@@ -382,16 +472,45 @@
           'Exploration Complete <span class="exploration-complete-badge">Done</span>';
         
         if (event.data.summary) {
-          overlay.querySelector('.exploration-summary').innerHTML = `
-            <h3>Summary</h3>
+          const summaryEl = overlay.querySelector('.exploration-summary');
+          summaryEl.innerHTML = `
+            <div class="exploration-summary-header">
+              <span>Summary</span>
+            </div>
             <div class="summary-content">${escapeHtml(event.data.summary)}</div>
           `;
-          overlay.querySelector('.exploration-summary').style.display = 'block';
+          summaryEl.style.display = 'block';
+          summaryEl.classList.add('collapsed'); // Start collapsed
+          
+          // Add click handler for summary collapsing
+          const summaryHeader = summaryEl.querySelector('.exploration-summary-header');
+          summaryHeader.addEventListener('click', () => {
+            summaryEl.classList.toggle('collapsed');
+          });
         }
+        
+        // Update status
+        overlay.querySelector('.exploration-status').textContent = 'Query enhanced! Closing in 3 seconds...';
         
         // Store the exploration result for use in the prompt
         window.__exploration_result__ = event.data;
+        
+        // Auto-close after 3 seconds
+        setTimeout(() => {
+          hideExplorationUI();
+        }, 3000);
         break;
+    }
+  };
+  
+  // Add function to mark exploration as used (for immediate closing)
+  window.markExplorationUsed = function() {
+    if (currentSessionId) {
+      overlay.querySelector('.exploration-status').textContent = 'Query enhanced successfully!';
+      // Close immediately
+      setTimeout(() => {
+        hideExplorationUI();
+      }, 500);
     }
   };
   

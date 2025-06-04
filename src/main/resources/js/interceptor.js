@@ -96,6 +96,11 @@
               data.messages[systemMsgIndex].content += explorationContext;
             }
             
+            // Mark exploration as used (will close the UI)
+            if (window.markExplorationUsed) {
+              window.markExplorationUsed();
+            }
+            
             // Clear the result
             window.__exploration_result__ = null;
             break;
@@ -149,8 +154,15 @@
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           if (systemMsgIndex >= 0) {
-            // Override existing system message
-            data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
+            // Check if we already added exploration results
+            const hasExplorationResults = data.messages[systemMsgIndex].content.includes('# CODE EXPLORATION RESULTS');
+            if (hasExplorationResults) {
+              // Don't override, the exploration results are already there
+              console.log('Preserving system message with exploration results');
+            } else {
+              // Override existing system message
+              data.messages[systemMsgIndex].content = window.__injected_system_prompt__;
+            }
           } else {
             // Add new system message at the beginning
             console.log("Adding system message to the beginning of messages", window.__injected_system_prompt__);

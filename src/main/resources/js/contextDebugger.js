@@ -321,7 +321,9 @@
     }
   });
 
-  // Auto-show in Agent Mode
+  // Auto-show in Agent Mode - DISABLED by default
+  // Uncomment the following block if you want auto-show functionality
+  /*
   setInterval(() => {
     if (window.__zest_mode__ === 'Agent Mode') {
       if (!debuggerElement.classList.contains('active')) {
@@ -332,6 +334,7 @@
       window.contextDebugger.hide();
     }
   }, 1000);
+  */
 
-  console.log('Context Debugger initialized. Press Ctrl+Shift+D to toggle.');
+  console.log('Context Debugger initialized (hidden by default). Press Ctrl+Shift+D to toggle.');
 })();

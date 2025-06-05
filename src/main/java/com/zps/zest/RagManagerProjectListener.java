@@ -1,8 +1,11 @@
 package com.zps.zest;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.ui.Messages;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -26,6 +29,26 @@ public class RagManagerProjectListener implements ProjectManagerListener {
         try {
             // Get configuration
             ConfigurationManager config = ConfigurationManager.getInstance(project);
+
+            // Check if project needs RAG indexing
+            if (config.getKnowledgeId() == null) {
+                // Schedule indexing after project is fully loaded
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    // Ask user if they want to index the project
+                    int result = Messages.showYesNoDialog(
+                        project,
+                        "This project has not been indexed for intelligent code search.\n" +
+                        "Would you like to index it now? This will take a few minutes but will enable advanced code search features.",
+                        "Index Project for Code Search?",
+                        Messages.getQuestionIcon()
+                    );
+                    
+                    if (result == Messages.YES) {
+                        OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+                        openWebUIRagAgent.indexProject(false);
+                    }
+                });
+            }
 
             // Only initialize if RAG is enabled
             if (config.isRagEnabled()) {

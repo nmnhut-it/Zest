@@ -68,4 +68,13 @@ public abstract class BaseAgentTool implements AgentTool {
         }
         return defaultValue;
     }
+    
+    /**
+     * Default implementation returns an empty JSON object.
+     * Override this method to provide specific examples.
+     */
+    @Override
+    public JsonObject getExampleParams() {
+        return new JsonObject();
+    }
 }

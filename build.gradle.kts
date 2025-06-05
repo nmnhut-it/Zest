@@ -17,22 +17,34 @@ repositories {
 intellij {
     version.set("2024.3.4.1")
     type.set("IC") // Target IDE Platform
+    // Add this to help with resource loading
+    sandboxDir = "$projectDir/build/idea-sandbox"
 
+    // Ensure all dependencies are included
+    downloadSources.set(true)
+    // This might help with classloader issues
+    sameSinceUntilBuild.set(false)
     plugins.set(listOf("java"/* Plugin Dependencies */))
 }
 
 dependencies {
-    // JUnit Jupiter (JUnit 5)
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
+    // JUnit 4 for IntelliJ platform tests
+    testImplementation("junit:junit:4.13.2")
 
     // Mockito
     testImplementation("org.mockito:mockito-core:5.11.0")
-    testImplementation("org.mockito:mockito-junit-jupiter:5.11.0") // For JUnit 5 integration
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    // ONNX Runtime - REQUIRED for ONNX models to work
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 
+    // Optional but recommended for better performance
+    implementation("ai.djl:api:0.28.0")
+    implementation("ai.djl.onnxruntime:onnxruntime-engine:0.28.0")
+
+    // If you still have issues, try adding:
+//    implementation("com.microsoft.onnxruntime:onnxruntime_gpu:1.19.2")
     // LSP4J for language server protocol support
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.1")
     
@@ -40,9 +52,31 @@ dependencies {
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")
     implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
+
+    implementation("dev.langchain4j:langchain4j:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")
+
+    // ONNX embedding models
+    implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
+    implementation("dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0")
+
+    // Document processing
+    implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")
+
+    // Apache Tika
+    implementation("org.apache.tika:tika-core:2.9.2")
+    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
+    
+    // No Lucene dependencies needed - using in-memory index instead
 }
 
 tasks {
+
+    // Clean task to also remove the sandbox
+    clean {
+        delete("$projectDir/build/idea-sandbox")
+    }
+
     // Set the JVM compatibility versions
     withType<JavaCompile> {
         sourceCompatibility = "17"
@@ -51,10 +85,13 @@ tasks {
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }
-    
-    // Configure the test task to use JUnit Platform
+    // Add this to ensure resources are properly packaged
+    processResources {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
+    // Configure the test task for JUnit 4 (IntelliJ platform tests)
     test {
-        useJUnitPlatform()
+        useJUnit()
         testLogging {
             events("passed", "skipped", "failed")
         }

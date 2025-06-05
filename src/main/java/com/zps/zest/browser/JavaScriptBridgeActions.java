@@ -1,13 +1,14 @@
 package com.zps.zest.browser;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.rag.OpenWebUIRagAgent;
+import com.zps.zest.rag.models.KnowledgeCollection;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -25,6 +26,7 @@ public class JavaScriptBridgeActions {
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
+    private final ExplorationService explorationService;
     
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -34,6 +36,7 @@ public class JavaScriptBridgeActions {
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
         this.gitService = new GitService(project);
+        this.explorationService = new ExplorationService(project);
     }
     
     /**
@@ -97,6 +100,14 @@ public class JavaScriptBridgeActions {
                 // Project info (synchronous)
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
+                    
+                case "getProjectKnowledgeId":
+                    return getProjectKnowledgeId();
+                    
+                case "getProjectKnowledgeCollection":
+                    return getProjectKnowledgeCollection();
+
+                    
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
@@ -127,6 +138,16 @@ public class JavaScriptBridgeActions {
                 case "contentUpdated":
                     return handleContentUpdated(data);
                 
+                // Exploration actions
+                case "startExploration":
+                    return explorationService.startExploration(data);
+                    
+                case "getExplorationStatus":
+                    return explorationService.getExplorationStatus(data);
+                    
+                case "getExplorationContext":
+                    return explorationService.getExplorationContext(data);
+                
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -147,7 +168,7 @@ public class JavaScriptBridgeActions {
             return gson.toJson(errorResponse);
         }
     }
-    
+
     /**
      * Handles content updated events - kept here as it's specific to browser integration.
      * ORIGINAL IMPLEMENTATION from JavaScriptBridge preserved.
@@ -178,6 +199,62 @@ public class JavaScriptBridgeActions {
     }
     
     /**
+     * Gets the project knowledge ID from configuration.
+     */
+    private String getProjectKnowledgeId() {
+        JsonObject response = new JsonObject();
+        try {
+            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+            if (knowledgeId != null && !knowledgeId.isEmpty()) {
+                response.addProperty("success", true);
+                response.addProperty("result", knowledgeId);
+            } else {
+                response.addProperty("success", false);
+                response.addProperty("error", "No knowledge base configured. Please index your project first.");
+            }
+        } catch (Exception e) {
+            LOG.error("Error getting knowledge ID", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Gets the project knowledge collection from OpenWebUI.
+     */
+    private String getProjectKnowledgeCollection() {
+        JsonObject response = new JsonObject();
+        try {
+            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+            if (knowledgeId != null && !knowledgeId.isEmpty()) {
+                // Get the RAG agent instance
+                OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+                
+                // Fetch the complete knowledge collection
+                KnowledgeCollection collection = openWebUIRagAgent.getKnowledgeCollection(knowledgeId);
+                
+                if (collection != null) {
+                    response.addProperty("success", true);
+                    // Convert the collection to JSON
+                    response.add("result", gson.toJsonTree(collection));
+                } else {
+                    response.addProperty("success", false);
+                    response.addProperty("error", "Failed to fetch knowledge collection");
+                }
+            } else {
+                response.addProperty("success", false);
+                response.addProperty("error", "No knowledge base configured. Please index your project first.");
+            }
+        } catch (Exception e) {
+            LOG.error("Error getting knowledge collection", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
      * Returns the chat response service for external access.
      */
     public ChatResponseService getChatResponseService() {
@@ -194,5 +271,6 @@ public class JavaScriptBridgeActions {
         if (fileService != null) fileService.dispose();
         if (chatResponseService != null) chatResponseService.dispose();
         if (gitService != null) gitService.dispose();
+        if (explorationService != null) explorationService.dispose();
     }
 }

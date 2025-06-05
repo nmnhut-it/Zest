@@ -127,6 +127,8 @@ public class ConfigurationManager {
     // System prompts
     private String systemPrompt;
     private String codeSystemPrompt;
+    // Knowledge base ID for code indexing
+    private String knowledgeId = null;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -208,6 +210,7 @@ public class ConfigurationManager {
         mcpEnabled = false;
         systemPrompt = DEFAULT_SYSTEM_PROMPT;
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+        knowledgeId = null;
 
         boolean configExists = false;
 
@@ -231,6 +234,7 @@ public class ConfigurationManager {
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
                 systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
                 codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+                knowledgeId = props.getProperty("knowledgeId", null);
 
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
@@ -284,6 +288,9 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", mcpServerUri);
             props.setProperty("systemPrompt", systemPrompt);
             props.setProperty("codeSystemPrompt", codeSystemPrompt);
+            if (knowledgeId != null) {
+                props.setProperty("knowledgeId", knowledgeId);
+            }
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -451,6 +458,7 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
             props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
             props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+            props.setProperty("knowledgeId", ""); // Empty by default
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -568,5 +576,13 @@ public class ConfigurationManager {
                 "---------\n" +
                 "Bạn đang trong một cuộc họp. Bạn sẽ lắng nghe, đặt câu hỏi để làm rõ và thách thức tôi bằng các câu hỏi. Bạn hỏi tôi từng câu hỏi một để giúp tôi giải quyết vấn đề hoặc tìm ra điểm yếu, hoặc để đưa ra một ý tưởng mới hoặc giải quyết các vấn đề.";
         return s;
+    }
+
+    public String getKnowledgeId() {
+        return knowledgeId;
+    }
+
+    public void setKnowledgeId(String knowledgeId) {
+        this.knowledgeId = knowledgeId;
     }
 }

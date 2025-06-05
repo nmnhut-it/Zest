@@ -4,6 +4,10 @@
       "command": "uvx",
       "args": ["mcp-server-fetch"]
     },
+    "zest": {
+      "command": "node",
+      "args": ["./mcp-server/index.js"]
+    },
     "jetbrains": {
       "command": "npx",
       "args": [

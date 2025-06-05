@@ -1,0 +1,23 @@
+{
+  "name": "zest-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server that connects to Zest Agent Proxy for code exploration",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": ["mcp", "modelcontextprotocol", "code-exploration", "intellij"],
+  "author": "Zest Team",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.0",
+    "node-fetch": "^3.3.0",
+    "abort-controller": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

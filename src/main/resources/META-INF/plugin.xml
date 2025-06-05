@@ -58,6 +58,15 @@
                     doNotActivateOnStart="false"
                     secondary="false"/>
 
+        <!-- Register the code exploration tool window -->
+<!--        <toolWindow id="Code Explorer"-->
+<!--                    anchor="bottom"-->
+<!--                    factoryClass="com.zps.zest.langchain4j.OpenCodeExplorationAction$CodeExplorationToolWindowFactory"-->
+<!--                    icon="AllIcons.Actions.Search"-->
+<!--                    canCloseContents="true"-->
+<!--                    doNotActivateOnStart="false"-->
+<!--                    secondary="false"/>-->
+
         <!-- Register notification group -->
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
@@ -69,9 +78,15 @@
         </intentionAction>
 
         <!-- Register project-level services -->
-        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>
-        <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>
-        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>
+<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>-->
+<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>-->
+<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>-->
+<!--        -->
+        <!-- Register LangChain4j services -->
+<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>-->
+<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent"/>-->
+<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent"/>-->
+
         
         <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
@@ -204,6 +219,109 @@
 <!--                description="Show a simple Git diff viewer for changed files">-->
 <!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
 <!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
+<!--        </action>-->
+
+        <!-- KNOWLEDGE BASE ACTIONS -->
+        
+        <!-- Index Project for RAG -->
+        <action id="Zest.IndexProjectAction"
+                class="com.zps.zest.rag.IndexProjectAction"
+                text="Index Project for RAG"
+                description="Index all project code signatures for intelligent search">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+        </action>
+        
+        <!-- Test LangChain4j Embeddings -->
+        <action id="Zest.TestLangChain4jAction"
+                class="com.zps.zest.langchain4j.TestLangChain4jAction"
+                text="Test LangChain4j Embeddings"
+                description="Test the LangChain4j embedding service with various features">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectAction"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Quick Search with LangChain4j -->
+        <action id="Zest.QuickTestLangChain4j"
+                class="com.zps.zest.langchain4j.QuickTestLangChain4j"
+                text="Quick Search with LangChain4j"
+                description="Search project code using local embeddings">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestLangChain4jAction"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>
+        </action>
+        
+        <!-- Index Project for Function-Level Search -->
+        <action id="Zest.IndexProjectFunctionLevel"
+                class="com.zps.zest.langchain4j.IndexProjectFunctionLevelAction"
+                text="Index Project for Function-Level Search"
+                description="Index all functions and classes for semantic code search">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.QuickTestLangChain4j"/>
+        </action>
+        
+        <!-- Test Two-Phase Code Search -->
+        <action id="Zest.TestCodeSearch"
+                class="com.zps.zest.langchain4j.TestCodeSearchAction"
+                text="Test Two-Phase Code Search"
+                description="Search for code using semantic search with related code discovery">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectFunctionLevel"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
+        </action>
+        
+        <!-- Test Query Augmentation -->
+<!--        <action id="Zest.TestQueryAugmentation"-->
+<!--                class="com.zps.zest.langchain4j.TestQueryAugmentationAction"-->
+<!--                text="Test Query Augmentation"-->
+<!--                description="Test the intelligent query augmentation feature">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>-->
+<!--        </action>-->
+        
+        <!-- Test Autonomous Agent -->
+<!--        <action id="Zest.TestAutonomousAgent"-->
+<!--                class="com.zps.zest.langchain4j.TestAutonomousAgentAction"-->
+<!--                text="Test Autonomous Agent"-->
+<!--                description="Test the autonomous code exploration agent">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQueryAugmentation"/>-->
+<!--        </action>-->
+        
+        <!-- Test Tool-Calling Agent -->
+<!--        <action id="Zest.TestToolCallingAgent"-->
+<!--                class="com.zps.zest.langchain4j.TestToolCallingAgentAction"-->
+<!--                text="Test Tool-Calling Agent"-->
+<!--                description="Test the tool-calling autonomous code exploration agent">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>-->
+<!--        </action>-->
+        
+        <!-- Test Improved Tool-Calling Agent -->
+        <action id="Zest.TestImprovedToolCallingAgent"
+                class="com.zps.zest.langchain4j.TestImprovedToolCallingAgentAction"
+                text="Test Improved Tool-Calling Agent"
+                description="Test the improved tool-calling autonomous code exploration agent with proper feedback loop">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>
+        </action>
+        
+        <!-- Start Agent Proxy Server -->
+        <action id="Zest.StartAgentProxyServer"
+                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
+                text="Start Agent Proxy Server"
+                icon="AllIcons.Nodes.Services"
+                description="Start network proxy server for external access to code exploration agent">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>
+        </action>
+        
+        <!-- Code Explorer & Assistant -->
+<!--        <action id="Zest.OpenCodeExploration"-->
+<!--                class="com.zps.zest.langchain4j.OpenCodeExplorationAction"-->
+<!--                text="Code Explorer and Assistant"-->
+<!--                description="Open the AI-powered code exploration and coding assistant">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift E"/>-->
+<!--        </action>-->
+        
+        <!-- Test Streaming LLM -->
+<!--        <action id="Zest.TestStreamingLLM"-->
+<!--                class="com.zps.zest.langchain4j.TestStreamingLLMAction"-->
+<!--                text="Test Streaming LLM"-->
+<!--                description="Test the streaming LLM service">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestToolCallingAgent"/>-->
 <!--        </action>-->
 
         <!-- DEVELOPER TOOLS -->

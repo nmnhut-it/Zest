@@ -11,6 +11,9 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.langchain4j.HybridIndexManager;
+import com.zps.zest.langchain4j.search.UnifiedSearchService;
+import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -144,7 +147,7 @@ public class WebBrowserPanel {
                 p -> ConfigurationManager.getInstance(p).getBossPrompt()
         ));
 
-        // Add Advice Mode
+        // Add Agent Mode
         this.agentMode = new BrowserMode(
                 "Agent Mode",
                 AllIcons.Actions.BuildAutoReloadChanges,
@@ -244,6 +247,47 @@ public class WebBrowserPanel {
                     StringEscapeUtils.escapeJavaScript(StringUtil.escapeStringCharacters(prompt)) + "';\nwindow.__zest_mode__ = '"  + mode.name + "';");
         } else {
             browserManager.executeJavaScript("window.__injected_system_prompt__ = null;\nwindow.__zest_mode__ = '"  + mode.name + "';");
+        }
+        
+        // If switching to Agent Mode, ensure project is indexed
+        if (mode.getName().equals("Agent Mode")) {
+            ensureProjectIndexed();
+        }
+        
+        // Dispatch a custom event for mode change
+        String modeChangeScript = "window.dispatchEvent(new CustomEvent('zestModeChanged', { detail: { mode: '" + 
+                                  StringEscapeUtils.escapeJavaScript(mode.getName()) + "' } }));";
+        browserManager.executeJavaScript(modeChangeScript);
+    }
+    
+    /**
+     * Ensures the project is indexed for Agent Mode.
+     */
+    private void ensureProjectIndexed() {
+        // Check if project is already indexed
+//        String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
+//        if (knowledgeId == null || knowledgeId.isEmpty()) {
+//            LOG.info("Project not indexed - triggering indexing for Agent Mode");
+//
+//            // Trigger indexing asynchronously
+//            OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
+//            openWebUIRagAgent.indexProject(false).thenAccept(success -> {
+//                if (success) {
+//                    LOG.info("Project indexing completed successfully for Agent Mode");
+//                } else {
+//                    LOG.warn("Project indexing failed or was cancelled");
+//                }
+//            });
+//        } else {
+//            LOG.info("Project already indexed with knowledge ID: " + knowledgeId);
+//        }
+        
+        // Also ensure local index for exploration tools
+        HybridIndexManager service = project.getService(HybridIndexManager.class);
+        if (service != null) {
+            if (!service.hasIndex()){
+                service.indexProject(false);
+            }
         }
     }
 

@@ -24,13 +24,14 @@
     }
     
     .exploration-notification-header {
-      padding: 12px 16px;
+      padding: 14px 16px;
       background: #2d2d2d;
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       cursor: pointer;
       user-select: none;
+      min-height: 48px;
     }
     
     .exploration-notification-header:hover {
@@ -39,18 +40,22 @@
     
     .exploration-notification-title {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 10px;
       font-size: 14px;
       font-weight: 500;
-      max-width: 280px;
+      max-width: 310px;
+      min-height: 20px;
     }
     
     .exploration-status-detail {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 250px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #ccc;
+      font-weight: normal;
+      word-wrap: break-word;
+      white-space: normal;
+      flex: 1;
     }
     
     .exploration-reasoning-inline {
@@ -66,6 +71,8 @@
       border-top-color: #0084ff;
       border-radius: 50%;
       animation: spin 1s linear infinite;
+      flex-shrink: 0;
+      margin-top: 2px;
     }
     
     @keyframes spin {
@@ -600,7 +607,7 @@
             // Show the reasoning as the status while processing
             const dotCount = (dots % 3) + 1;
             const dotString = '.'.repeat(dotCount);
-            const truncatedReasoning = reasoning.substring(0, 50) + (reasoning.length > 50 ? '...' : '');
+            const truncatedReasoning = reasoning.substring(0, 100) + (reasoning.length > 100 ? '...' : '');
             updateStatusText(`${truncatedReasoning}${dotString}`, true);
             dots++;
             return;
@@ -610,8 +617,8 @@
         // Fallback to generic messages if no reasoning
         const messages = [
           'Processing results',
-          'Analyzing code',
-          'Understanding structure',
+          'Analyzing code structure',
+          'Understanding implementation',
           'Connecting findings'
         ];
         
@@ -948,9 +955,9 @@
         // Extract reasoning if available
         const reasoning = event.data.reasoning || (event.data.parameters && event.data.parameters.reasoning) || '';
         
-        // Show just the reasoning as the main status
+        // Show the full reasoning (up to 120 chars) since we can wrap
         if (reasoning) {
-          const truncatedReasoning = reasoning.substring(0, 60) + (reasoning.length > 60 ? '...' : '');
+          const truncatedReasoning = reasoning.substring(0, 120) + (reasoning.length > 120 ? '...' : '');
           updateStatusText(truncatedReasoning, true);
         } else {
           // Fallback to tool name if no reasoning
@@ -985,20 +992,20 @@
           // Try to extract reasoning from LLM response
           const reasoningMatch = event.data.llmResponse.match(/REASONING[:\s]+([^\n]+)/i);
           if (reasoningMatch) {
-            const reasoning = reasoningMatch[1].trim().substring(0, 60) + (reasoningMatch[1].trim().length > 60 ? '...' : '');
+            const reasoning = reasoningMatch[1].trim().substring(0, 120) + (reasoningMatch[1].trim().length > 120 ? '...' : '');
             updateStatusText(reasoning, true);
           } else {
             // Try to find what the LLM is planning
             const planMatch = event.data.llmResponse.match(/(?:need to|should|will|going to|must)\s+([^\n.]+)/i);
             if (planMatch) {
-              const plan = planMatch[1].trim().substring(0, 60) + (planMatch[1].trim().length > 60 ? '...' : '');
+              const plan = planMatch[1].trim().substring(0, 120) + (planMatch[1].trim().length > 120 ? '...' : '');
               updateStatusText(plan, true);
             } else {
               updateStatusText(`Planning next steps for round ${roundNum}...`, true);
             }
           }
         } else {
-          updateStatusText(`Analyzing ${toolCount} results...`, true);
+          updateStatusText(`Analyzing ${toolCount} results from exploration...`, true);
         }
 
         // Update round data

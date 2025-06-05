@@ -115,7 +115,12 @@ public class ToolCallParser {
                 reasoning = json.get("reasoning").getAsString();
             }
             
-            return new ToolCall(toolName, parameters, reasoning);
+            String deepReasoning = null;
+            if (json.has("deepreasoning")) {
+                deepReasoning = json.get("deepreasoning").getAsString();
+            }
+            
+            return new ToolCall(toolName, parameters, reasoning, deepReasoning);
         } catch (Exception e) {
             LOG.warn("Invalid tool call format", e);
             return null;
@@ -201,16 +206,23 @@ public class ToolCallParser {
         private final String toolName;
         private final JsonObject parameters;
         private final String reasoning;
+        private final String deepReasoning;
         
         public ToolCall(String toolName, JsonObject parameters, String reasoning) {
+            this(toolName, parameters, reasoning, null);
+        }
+        
+        public ToolCall(String toolName, JsonObject parameters, String reasoning, String deepReasoning) {
             this.toolName = toolName;
             this.parameters = parameters;
             this.reasoning = reasoning;
+            this.deepReasoning = deepReasoning;
         }
         
         public String getToolName() { return toolName; }
         public JsonObject getParameters() { return parameters; }
         public String getReasoning() { return reasoning; }
+        public String getDeepReasoning() { return deepReasoning; }
         
         @Override
         public String toString() {
@@ -218,6 +230,7 @@ public class ToolCallParser {
                    "toolName='" + toolName + '\'' +
                    ", parameters=" + parameters +
                    ", reasoning='" + reasoning + '\'' +
+                   ", deepReasoning='" + deepReasoning + '\'' +
                    '}';
         }
     }

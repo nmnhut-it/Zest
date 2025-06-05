@@ -77,15 +77,63 @@ public final class CodeExplorationToolRegistry {
      */
     public String getToolsDescription() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Available tools:\n\n");
+        sb.append("Tools are organized by exploration phase:\n\n");
         
+        // Group tools by category
+        Map<String, List<CodeExplorationTool>> toolsByCategory = new HashMap<>();
+        toolsByCategory.put("DISCOVERY", new ArrayList<>());
+        toolsByCategory.put("ANALYSIS", new ArrayList<>());
+        toolsByCategory.put("DETAIL", new ArrayList<>());
+        
+        // Categorize tools
         for (CodeExplorationTool tool : tools.values()) {
+            String category = categorizeToolType(tool.getName());
+            toolsByCategory.get(category).add(tool);
+        }
+        
+        // Output by category with strategy hints
+        sb.append("**DISCOVERY TOOLS** (start here for broad understanding):\n");
+        for (CodeExplorationTool tool : toolsByCategory.get("DISCOVERY")) {
             sb.append("- **").append(tool.getName()).append("**: ");
             sb.append(tool.getDescription()).append("\n");
-            sb.append("  Parameters: ").append(tool.getParameterSchema().toString()).append("\n\n");
+            sb.append("  Parameters: ").append(tool.getParameterSchema().toString()).append("\n");
+        }
+        
+        sb.append("\n**ANALYSIS TOOLS** (dive deeper into specific elements):\n");
+        for (CodeExplorationTool tool : toolsByCategory.get("ANALYSIS")) {
+            sb.append("- **").append(tool.getName()).append("**: ");
+            sb.append(tool.getDescription()).append("\n");
+            sb.append("  Parameters: ").append(tool.getParameterSchema()).append("\n");
+        }
+        
+        sb.append("\n**DETAIL TOOLS** (examine implementation specifics):\n");
+        for (CodeExplorationTool tool : toolsByCategory.get("DETAIL")) {
+            sb.append("- **").append(tool.getName()).append("**: ");
+            sb.append(tool.getDescription()).append("\n");
+            sb.append("  Parameters: ").append(tool.getParameterSchema()).append("\n");
         }
         
         return sb.toString();
+    }
+    
+    /**
+     * Categorizes a tool by its type/purpose.
+     */
+    private String categorizeToolType(String toolName) {
+        // Discovery tools - broad search
+        if (toolName.contains("search") || toolName.contains("find_by_name") || 
+            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context")) {
+            return "DISCOVERY";
+        }
+        // Analysis tools - relationships and structure
+        else if (toolName.contains("find_callers") || toolName.contains("find_implementations") || 
+                 toolName.contains("find_relationships") || toolName.contains("find_usages")) {
+            return "ANALYSIS";
+        }
+        // Detail tools - specific content
+        else {
+            return "DETAIL";
+        }
     }
     
     /**

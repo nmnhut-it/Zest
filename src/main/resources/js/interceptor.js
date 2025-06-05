@@ -102,20 +102,20 @@
   function resetConversationState() {
     window.__conversation_state__.hasPerformedExploration = false;
     window.__conversation_state__.lastUserMessageCount = 0;
-    // Keep the stored exploration result if available
   }
 
   /**
    * Handles exploration for Agent Mode and returns the exploration context
    * @param {string} query - The user's query
+   * @param {string} conversationId - The conversation ID for context management
    * @returns {Promise<string>} The exploration context to add to system prompt
    */
-  async function performExploration(query) {
-    console.log('Starting exploration for query:', query);
+  async function performExploration(query, conversationId) {
+    console.log('Starting exploration for query:', query, 'conversation:', conversationId);
 
     // Start exploration
     if (window.startExploration) {
-      const sessionId = await window.startExploration(query);
+      const sessionId = await window.startExploration(query, conversationId);
 
       if (sessionId === 'indexing') {
         // Project is being indexed, wait for it to complete
@@ -154,9 +154,6 @@
                 console.log('Exploration complete after indexing');
 
                 const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
-
-                // Store the exploration result for reuse
-                window.__stored_exploration_context__ = explorationContext;
 
                 // Mark exploration as used
                 if (window.markExplorationUsed) {
@@ -214,9 +211,6 @@
 
             const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
 
-            // Store the exploration result for reuse
-            window.__stored_exploration_context__ = explorationContext;
-
             // Mark exploration as used (will close the UI)
             if (window.markExplorationUsed) {
               window.markExplorationUsed();
@@ -238,7 +232,6 @@
           if (window.__exploration_result__) {
             console.log('Found exploration result at timeout boundary');
             const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
-            window.__stored_exploration_context__ = explorationContext;
             if (window.markExplorationUsed) {
               window.markExplorationUsed();
             }
@@ -287,13 +280,12 @@
 
           // For Agent Mode, always add exploration context if available (except for git commits)
           if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
-            const explorationContext = window.__pending_exploration_context__ || window.__stored_exploration_context__;
+            const explorationContext = window.__pending_exploration_context__;
             if (explorationContext) {
               systemPrompt += explorationContext;
               window.__pending_exploration_context__ = null; // Clear pending after use
               console.log('Added exploration context to system prompt');
-            } else if (window.__stored_exploration_context__) {
-              // This shouldn't happen, but log if it does
+            } else {
               console.warn('Agent Mode but no exploration context available');
             }
           }
@@ -388,8 +380,6 @@
       if (url.includes('completed')) {
         console.log('Conversation completed, resetting state');
         resetConversationState();
-        // Clear stored exploration context when conversation ends
-        window.__stored_exploration_context__ = null;
       }
 
       console.log('Detected API response with completion data:', url);
@@ -487,13 +477,17 @@
             try {
               const data = JSON.parse(bodyText);
 
+              // Extract conversation ID from the request
+              const conversationId = data.conversation_id || data.conversationId ||
+                                    (data.metadata && data.metadata.conversation_id) ||
+                                    null;
+
               // Check if this is a new conversation
               if (isNewConversation(data)) {
                 console.log('New conversation detected - performing exploration');
 
                 // Reset exploration state
                 window.__conversation_state__.hasPerformedExploration = false;
-                window.__stored_exploration_context__ = null;
 
                 // Check if this is a new user message (not a continuation)
                 if (data.messages && Array.isArray(data.messages)) {
@@ -510,16 +504,31 @@
 
                     // Only explore if this is a new query (not empty)
                     if (actualQuery.trim()) {
-                      explorationContext = await performExploration(actualQuery);
+                      explorationContext = await performExploration(actualQuery, conversationId);
                       window.__conversation_state__.hasPerformedExploration = true;
                     }
                   }
                 }
               } else {
-                console.log('Continuing existing conversation - reusing exploration context if available');
-                // Use stored exploration context if available
-                explorationContext = window.__stored_exploration_context__ || '';
-                console.log(explorationContext)
+                console.log('Continuing existing conversation - checking for stored context in Java');
+                
+                // Try to get context from Java service
+                if (conversationId && window.intellijBridge) {
+                  try {
+                    const contextResponse = await window.intellijBridge.callIDE('getExplorationContext', {
+                      conversationId: conversationId
+                    });
+                    
+                    if (contextResponse && contextResponse.success && contextResponse.context) {
+                      explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${contextResponse.context}`;
+                      console.log('Retrieved exploration context from Java for conversation:', conversationId);
+                    } else {
+                      console.log('No stored context found for conversation:', conversationId);
+                    }
+                  } catch (e) {
+                    console.error('Error retrieving exploration context:', e);
+                  }
+                }
               }
             } catch (e) {
               console.error('Error parsing body for exploration check:', e);
@@ -531,10 +540,7 @@
             window.__pending_exploration_context__ = explorationContext;
             console.log('✓ Exploration context available:', explorationContext.substring(0, 100) + '...');
           } else if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
-            // For continuing conversations, we should already have stored context
-            if (!window.__stored_exploration_context__ && isNewConversation(JSON.parse(bodyText))) {
-              console.warn('⚠️ No exploration context obtained for new Agent Mode conversation');
-            }
+            console.warn('⚠️ No exploration context available for Agent Mode conversation');
           }
           
           // Now continue with the normal flow

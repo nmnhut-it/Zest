@@ -714,13 +714,16 @@
   });
 
   // Global functions
-  window.startExploration = async function(query) {
-    console.log('Starting exploration for query:', query);
+  window.startExploration = async function(query, conversationId) {
+    console.log('Starting exploration for query:', query, 'conversation:', conversationId);
 
     try {
       updateStatusText('Starting exploration...', true);
 
-      const response = await window.intellijBridge.callIDE('startExploration', { query });
+      const response = await window.intellijBridge.callIDE('startExploration', { 
+        query: query,
+        conversationId: conversationId 
+      });
 
       if (!response.success) {
         if (response.indexing) {

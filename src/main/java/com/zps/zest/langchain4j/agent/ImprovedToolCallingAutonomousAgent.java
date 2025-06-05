@@ -164,51 +164,113 @@ public final class ImprovedToolCallingAutonomousAgent {
      */
     private String buildConversationPrompt(List<ConversationMessage> conversation, ExplorationContext context) {
         StringBuilder prompt = new StringBuilder();
-
-        // System prompt
-        prompt.append("You are an autonomous code exploration agent with access to powerful tools for analyzing code.\n\n");
+        
+        // Check if we have any tool results in the conversation
+        boolean hasToolResults = conversation.stream()
+            .anyMatch(msg -> msg.role.equals("tool_results"));
+        
+        // Enhanced system prompt
+        prompt.append("You are an autonomous code exploration agent specialized in analyzing codebases.\n");
+        prompt.append("Your approach: systematic (high-level→specific), efficient (minimal tool calls), thorough (verify findings).\n\n");
+        
+        // Tool information
         prompt.append("Available Tools:\n").append(toolRegistry.getToolsDescription()).append("\n");
-        prompt.append("Tool calls executed so far: ").append(context.getToolCallCount()).append("/").append(MAX_TOOL_CALLS).append("\n\n");
-
-        // Instructions
-        prompt.append("""
-                Your task is to explore the codebase to answer the user's query. Use tool calls to gather information.
+        prompt.append("Progress: ").append(context.getToolCallCount()).append("/").append(MAX_TOOL_CALLS).append(" tool calls used\n\n");
+        
+        if (!hasToolResults) {
+            // Initial exploration - no tool results yet
+            prompt.append("""
+                GOAL: Begin systematic exploration to understand the codebase structure relevant to the user's query.
                 
-                Format your tool calls as JSON blocks:
+                EXPECTED OUTPUT: 
+                1. Query understanding (restate what you're looking for)
+                2. Exploration strategy (1-2 sentences)
+                3. Initial tool calls (2-4) to gather foundational information
+                
+                RESPONSE FORMAT:
+                **Understanding the query**: [Restate in your own words what the user wants to know about the codebase]
+                
+                **Exploration strategy**: [How you'll approach finding this information]
+                
+                **Initial exploration**:
                 ```json
                 {
-                  "reasoning": "Why this tool call helps answer the query"
+                  "reasoning": "What information this tool will provide",
+                  "deepreasoning": "Why this is the right starting point and what you'll look for in the results",
                   "tool": "tool_name",
-                  "parameters": {
-                    "param1": "value1",
-                    "param2": "value2"
-                  },
+                  "parameters": {...}
                 }
                 ```
                 
-                After each round of tool executions, analyze the results and decide what to explore next.
-                When you have gathered enough information, provide a summary instead of more tool calls.
-                
-                Conversation history:
+                FOCUS: Start broad to understand structure, then narrow based on query specifics.
                 """);
-
+        } else if (context.getToolCallCount() < MAX_TOOL_CALLS - 2) {
+            // Mid-exploration - have some results, can do more
+            prompt.append("""
+                GOAL: Refine understanding by exploring specific findings from previous results.
+                
+                EXPECTED OUTPUT: Either:
+                1. Additional tool calls (1-3) to fill knowledge gaps, OR
+                2. A comprehensive summary if you have sufficient information
+                
+                RESPONSE FORMAT FOR TOOL CALLS:
+                Brief analysis of what you've learned so far (1-2 sentences).
+                Then new tool calls:
+                ```json
+                {
+                  "reasoning": "What gap this fills",
+                  "deepreasoning": "How this builds on finding X from previous results",
+                  "tool": "tool_name",
+                  "parameters": {...}
+                }
+                ```
+                
+                RESPONSE FORMAT FOR SUMMARY:
+                Start with "EXPLORATION COMPLETE:" followed by your comprehensive findings.
+                """);
+        } else {
+            // Near limit - time to conclude
+            prompt.append("""
+                GOAL: Synthesize findings into actionable insights for the user's query.
+                
+                EXPECTED OUTPUT: A comprehensive summary of your exploration.
+                
+                RESPONSE FORMAT:
+                Start with "EXPLORATION COMPLETE:" then provide:
+                - Direct answer to the query
+                - Key findings with specific file/class/method references
+                - How the discovered elements relate to each other
+                
+                NO MORE TOOL CALLS - focus on synthesis.
+                """);
+        }
+        
         // Add conversation history
+        prompt.append("\n\nConversation History:\n");
         for (ConversationMessage message : conversation) {
             switch (message.role) {
                 case "user":
-                    prompt.append("\nUser: ").append(message.content).append("\n");
+                    prompt.append("\nUSER QUERY: ").append(message.content).append("\n");
                     break;
                 case "assistant":
-                    prompt.append("\nAssistant: ").append(message.content).append("\n");
+                    prompt.append("\nYOUR EXPLORATION: ").append(message.content).append("\n");
                     break;
                 case "tool_results":
-                    prompt.append("\n[Tool Results]\n").append(message.content).append("\n");
+                    prompt.append("\n[TOOL EXECUTION RESULTS]\n").append(message.content).append("\n");
                     break;
             }
         }
-
-        prompt.append("\nBased on the exploration so far, what should we explore next? Generate tool calls or provide a summary if exploration is complete.\n");
-
+        
+        // Action prompt based on stage
+        prompt.append("\n");
+        if (!hasToolResults) {
+            prompt.append("Analyze the query and begin exploration:\n");
+        } else if (context.getToolCallCount() < MAX_TOOL_CALLS - 2) {
+            prompt.append("Based on results so far, continue exploration or summarize if complete:\n");
+        } else {
+            prompt.append("Synthesize all findings into a comprehensive summary:\n");
+        }
+        
         return prompt.toString();
     }
 
@@ -480,6 +542,7 @@ public final class ImprovedToolCallingAutonomousAgent {
     private boolean isExplorationComplete(String response) {
         String lower = response.toLowerCase();
         return lower.contains("exploration complete") ||
+                response.contains("EXPLORATION COMPLETE:") ||
                 lower.contains("finished exploring") ||
                 lower.contains("summary:") ||
                 lower.contains("## executive summary") ||

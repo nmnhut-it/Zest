@@ -144,6 +144,9 @@ public class JavaScriptBridgeActions {
                     
                 case "getExplorationStatus":
                     return explorationService.getExplorationStatus(data);
+                    
+                case "getExplorationContext":
+                    return explorationService.getExplorationContext(data);
                 
                 default:
                     LOG.warn("Unknown action: " + action);

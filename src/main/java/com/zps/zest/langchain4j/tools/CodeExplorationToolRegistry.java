@@ -30,7 +30,7 @@ public final class CodeExplorationToolRegistry {
         // Core search tools
         register(new SearchCodeTool(project));
         register(new FindByNameTool(project));
-        register(new FindSimilarTool(project));
+//        register(new FindSimilarTool(project));
         register(new FindRelationshipsTool(project));
         
         // File and content tools

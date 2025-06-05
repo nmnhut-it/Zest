@@ -29,7 +29,7 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
             "- Include context: 'database connection pooling' instead of 'connection' " +
             "Examples: " +
             "- search_code({\"query\": \"user authentication logic\"}) " +
-            "- search_code({\"query\": \"calculate order total with discounts\", \"maxResults\": 5}) " +
+            "- search_code({\"query\": \"calculate order total with discounts\", \"maxResults\": 10}) " +
             "Params: query (string, required), maxResults (int, optional, default 10)");
         this.searchUtility = project.getService(CodeSearchUtility.class);
     }
@@ -69,7 +69,7 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     @Override
     protected ToolResult doExecuteInReadAction(JsonObject parameters) {
         String query = getRequiredString(parameters, "query");
-        int maxResults = getOptionalInt(parameters, "maxResults", 10);
+        int maxResults = getOptionalInt(parameters, "maxResults", 20);
         
         // Validate maxResults range
         if (maxResults < 1 || maxResults > 50) {

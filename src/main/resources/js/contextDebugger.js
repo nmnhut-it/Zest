@@ -152,9 +152,9 @@
   document.head.appendChild(styleSheet);
 
   // Create debugger element
-  const debugger = document.createElement('div');
-  debugger.className = 'context-debugger';
-  debugger.innerHTML = `
+  const debuggerElement = document.createElement('div');
+  debuggerElement.className = 'context-debugger';
+  debuggerElement.innerHTML = `
     <div class="context-debugger-header">
       <div class="context-debugger-title">
         Context Debugger
@@ -195,7 +195,7 @@
     </div>
   `;
 
-  document.body.appendChild(debugger);
+  document.body.appendChild(debuggerElement);
 
   // Make debugger draggable
   let isDragging = false;
@@ -206,7 +206,7 @@
   let xOffset = 0;
   let yOffset = 0;
 
-  const header = debugger.querySelector('.context-debugger-header');
+  const header = debuggerElement.querySelector('.context-debugger-header');
 
   function dragStart(e) {
     if (e.target.closest('.context-debugger-controls')) return;
@@ -234,7 +234,7 @@
       xOffset = currentX;
       yOffset = currentY;
 
-      debugger.style.transform = `translate(${currentX}px, ${currentY}px)`;
+      debuggerElement.style.transform = `translate(${currentX}px, ${currentY}px)`;
     }
   }
 
@@ -243,12 +243,12 @@
   document.addEventListener('mouseup', dragEnd);
 
   // Controls
-  debugger.querySelector('.context-debugger-minimize').addEventListener('click', () => {
-    debugger.classList.toggle('minimized');
+  debuggerElement.querySelector('.context-debugger-minimize').addEventListener('click', () => {
+    debuggerElement.classList.toggle('minimized');
   });
 
-  debugger.querySelector('.context-debugger-close').addEventListener('click', () => {
-    debugger.classList.remove('active');
+  debuggerElement.querySelector('.context-debugger-close').addEventListener('click', () => {
+    debuggerElement.classList.remove('active');
   });
 
   // Update functions
@@ -256,37 +256,37 @@
     if (!data) return;
 
     if (data.conversationId !== undefined) {
-      const convIdElement = debugger.querySelector('.conversation-id');
+      const convIdElement = debuggerElement.querySelector('.conversation-id');
       convIdElement.textContent = data.conversationId || 'None';
       convIdElement.classList.toggle('empty', !data.conversationId);
     }
 
     if (data.mode !== undefined) {
-      debugger.querySelector('.current-mode').textContent = data.mode || 'Unknown';
-      const badge = debugger.querySelector('.context-mode-badge');
+      debuggerElement.querySelector('.current-mode').textContent = data.mode || 'Unknown';
+      const badge = debuggerElement.querySelector('.context-mode-badge');
       badge.textContent = data.mode || 'Unknown';
       badge.classList.toggle('inactive', data.mode !== 'Agent Mode');
     }
 
     if (data.explorationStatus !== undefined) {
-      debugger.querySelector('.exploration-status').textContent = data.explorationStatus;
+      debuggerElement.querySelector('.exploration-status').textContent = data.explorationStatus;
       if (data.timestamp) {
-        debugger.querySelector('.exploration-timestamp').textContent = 
+        debuggerElement.querySelector('.exploration-timestamp').textContent = 
           new Date(data.timestamp).toLocaleTimeString();
       }
     }
 
     if (data.contextSource !== undefined) {
-      const sourceElement = debugger.querySelector('.context-source');
+      const sourceElement = debuggerElement.querySelector('.context-source');
       sourceElement.textContent = data.contextSource || 'None';
       sourceElement.classList.toggle('empty', !data.contextSource);
     }
 
     if (data.context !== undefined) {
       const length = data.context ? data.context.length : 0;
-      debugger.querySelector('.context-length').textContent = `${length} characters`;
+      debuggerElement.querySelector('.context-length').textContent = `${length} characters`;
       
-      const contentElement = debugger.querySelector('.context-content');
+      const contentElement = debuggerElement.querySelector('.context-content');
       if (data.context) {
         // Show first 500 characters of context
         const preview = data.context.substring(0, 500);
@@ -300,17 +300,17 @@
   // Global functions
   window.contextDebugger = {
     show: function() {
-      debugger.classList.add('active');
+      debuggerElement.classList.add('active');
     },
     
     hide: function() {
-      debugger.classList.remove('active');
+      debuggerElement.classList.remove('active');
     },
     
     update: updateDebugger,
     
     toggle: function() {
-      debugger.classList.toggle('active');
+      debuggerElement.classList.toggle('active');
     }
   };
 
@@ -324,7 +324,7 @@
   // Auto-show in Agent Mode
   setInterval(() => {
     if (window.__zest_mode__ === 'Agent Mode') {
-      if (!debugger.classList.contains('active')) {
+      if (!debuggerElement.classList.contains('active')) {
         window.contextDebugger.show();
       }
       window.contextDebugger.update({ mode: window.__zest_mode__ });

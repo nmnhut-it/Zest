@@ -285,6 +285,10 @@ public class JCEFBrowserManager {
             String contextDebuggerScript = loadResourceAsString("/js/contextDebugger.js");
             cefBrowser.executeJavaScript(contextDebuggerScript, frame.getURL(), 0);
 
+            // Load and inject the context toggle script
+            String contextToggleScript = loadResourceAsString("/js/context-toggle.js");
+            cefBrowser.executeJavaScript(contextToggleScript, frame.getURL(), 0);
+
             // Ensure cookie persistence
             ensureCookiePersistence();
 

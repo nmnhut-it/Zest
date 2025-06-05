@@ -10,6 +10,9 @@
   const originalFetch = window.fetch;
   let textToReplace = window.__text_to_replace_ide___;
 
+  // Global flag to control context injection
+  window.__enable_context_injection__ = true; // Default to enabled
+
   // Track conversation state
   window.__conversation_state__ = {
     currentConversationId: null,
@@ -306,8 +309,10 @@
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           let systemPrompt = window.__injected_system_prompt__;
 
-          // For Agent Mode, always add exploration context if available (except for git commits)
-          if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+          // For Agent Mode, add exploration context if available and toggle is enabled
+          if (window.__zest_mode__ === 'Agent Mode' && 
+              window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE' && 
+              window.__enable_context_injection__) {  // Check toggle state
             const explorationContext = window.__pending_exploration_context__;
             if (explorationContext) {
               systemPrompt += explorationContext;
@@ -316,6 +321,8 @@
             } else {
               console.warn('Agent Mode but no exploration context available');
             }
+          } else if (window.__zest_mode__ === 'Agent Mode' && !window.__enable_context_injection__) {
+            console.log('Context injection disabled by user toggle');
           }
 
           if (systemMsgIndex >= 0) {
@@ -337,8 +344,8 @@
           });
         }
 
-        // Add project context info to user messages if in Agent Mode
-        if (window.__zest_mode__ === 'Agent Mode' && window.__project_info__) {
+        // Add project context info to user messages if in Agent Mode and context injection is enabled
+        if (window.__zest_mode__ === 'Agent Mode' && window.__project_info__ && window.__enable_context_injection__) {
           for (let i = data.messages.length - 1; i >= 0; i--) {
             if (data.messages[i].role === 'user') {
               const info = window.__project_info__;
@@ -494,8 +501,9 @@
       // Skip exploration for git commit messages
       if (window.__zest_mode__ === 'Agent Mode' &&
           window.startExploration &&
-          window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
-        console.log('Agent Mode active: Checking if exploration is needed');
+          window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE' &&
+          window.__enable_context_injection__) {  // Check toggle state
+        console.log('Agent Mode active with context injection enabled: Checking if exploration is needed');
 
         // Parse the body to check if this is a new user message
         let bodyPromise;
@@ -716,6 +724,9 @@
           // Now continue with the normal flow
           return processRequest(input, init, newInit, url);
         });
+      } else if (window.__zest_mode__ === 'Agent Mode' && !window.__enable_context_injection__) {
+        console.log('Agent Mode active but context injection disabled by user - skipping exploration');
+        return processRequest(input, init, newInit, url);
       } else {
         // Not Agent Mode, process normally
         return processRequest(input, init, newInit, url);

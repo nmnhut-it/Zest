@@ -42,3 +42,5 @@ bin/
 .DS_Store
 zest-plugin.properties
 .idea/zest-inline-chat-command-history.xml
+/mcp-server/node_modules
+/openai-tool-server-js/node_modules

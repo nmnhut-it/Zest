@@ -54,6 +54,35 @@
   };
 
   /**
+   * Gets the conversation ID from various possible sources
+   * @param {Object} data - The request data
+   * @returns {string|null} The conversation ID or null
+   */
+  function extractConversationId(data) {
+    // Try from request data
+    let conversationId = data.conversation_id || data.conversationId ||
+                        (data.metadata && data.metadata.conversation_id) ||
+                        null;
+    
+    // If not found, try from current page URL
+    if (!conversationId) {
+      try {
+        const currentUrl = window.location.pathname;
+        const urlParts = currentUrl.split('/');
+        // OpenWebUI typically has URLs like /c/[conversation-id]
+        if (urlParts[1] === 'c' && urlParts[2]) {
+          conversationId = urlParts[2];
+          console.log('Using conversation ID from page URL:', conversationId);
+        }
+      } catch (e) {
+        console.error('Error extracting conversation ID from page URL:', e);
+      }
+    }
+    
+    return conversationId;
+  }
+
+  /**
    * Determines if this is the start of a new conversation
    * @param {Object} data - The request data
    * @returns {boolean} True if this is a new conversation
@@ -67,9 +96,8 @@
     // Count user messages
     const userMessageCount = data.messages.filter(msg => msg.role === 'user').length;
 
-    // Check for conversation ID if available
-    const conversationId = data.conversation_id || data.conversationId ||
-                          (data.metadata && data.metadata.conversation_id);
+    // Get conversation ID
+    const conversationId = extractConversationId(data);
 
     // Detect new conversation:
     // 1. First message (only 1 user message)
@@ -444,6 +472,23 @@
 
     if (isOpenWebUIEndpoint(url)) {
       console.log('Intercepting OpenWebUI API request:', url);
+      
+      // Try to extract conversation ID from URL if present
+      let urlConversationId = null;
+      try {
+        const urlObj = new URL(url, window.location.origin);
+        const pathParts = urlObj.pathname.split('/');
+        // Check if URL contains a conversation ID (typically a UUID)
+        for (const part of pathParts) {
+          if (part.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+            urlConversationId = part;
+            console.log('Found conversation ID in URL:', urlConversationId);
+            break;
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing URL for conversation ID:', e);
+      }
 
       // For Agent Mode, we need to check if exploration is needed BEFORE processing
       // Skip exploration for git commit messages
@@ -477,46 +522,78 @@
             try {
               const data = JSON.parse(bodyText);
 
-              // Extract conversation ID from the request
-              const conversationId = data.conversation_id || data.conversationId ||
-                                    (data.metadata && data.metadata.conversation_id) ||
-                                    null;
+              // Debug: Log the entire data structure to see where conversation ID is
+              console.log('Request data structure:', data);
+              console.log('Request data keys:', Object.keys(data));
+              if (data.metadata) {
+                console.log('Metadata keys:', Object.keys(data.metadata));
+              }
+
+              // Extract conversation ID using the helper function
+              const conversationId = extractConversationId(data) || urlConversationId;
+              
+              console.log('Final extracted conversation ID:', conversationId);
 
               // Check if this is a new conversation
               if (isNewConversation(data)) {
-                console.log('New conversation detected - performing exploration');
+                console.log('New conversation detected - checking if exploration needed');
 
-                // Reset exploration state
-                window.__conversation_state__.hasPerformedExploration = false;
-
-                // Check if this is a new user message (not a continuation)
-                if (data.messages && Array.isArray(data.messages)) {
-                  const userMessages = data.messages.filter(msg => msg.role === 'user');
-                  if (userMessages.length > 0 && !window.__conversation_state__.hasPerformedExploration) {
-                    // Get the latest user message
-                    const latestUserMsg = userMessages[userMessages.length - 1].content;
-
-                    // Extract the actual query (remove project info if present)
-                    const infoEndIndex = latestUserMsg.indexOf('</info>');
-                    const actualQuery = infoEndIndex >= 0
-                      ? latestUserMsg.substring(infoEndIndex + 7).trim()
-                      : latestUserMsg;
-
-                    // Only explore if this is a new query (not empty)
-                    if (actualQuery.trim()) {
-                      explorationContext = await performExploration(actualQuery, conversationId);
-                      window.__conversation_state__.hasPerformedExploration = true;
+                // First check if we already have context stored in Java for this conversation
+                let hasExistingContext = false;
+                if (conversationId && window.intellijBridge) {
+                  try {
+                    const contextCheckResponse = await window.intellijBridge.callIDE('getExplorationContext', {
+                      conversationId: conversationId || ""
+                    });
+                    
+                    if (contextCheckResponse && contextCheckResponse.success && contextCheckResponse.context) {
+                      // We already have context for this conversation
+                      explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${contextCheckResponse.context}`;
+                      hasExistingContext = true;
+                      console.log('Found existing exploration context for conversation:', conversationId);
                     }
+                  } catch (e) {
+                    console.error('Error checking for existing exploration context:', e);
                   }
+                }
+
+                // Only perform new exploration if we don't have existing context
+                if (!hasExistingContext) {
+                    // Reset exploration state for new conversation
+                    window.__conversation_state__.hasPerformedExploration = false;
+
+                    // Check if this is a new user message (not a continuation)
+                    if (data.messages && Array.isArray(data.messages)) {
+                      const userMessages = data.messages.filter(msg => msg.role === 'user');
+                      if (userMessages.length > 0 && !window.__conversation_state__.hasPerformedExploration) {
+                        // Get the latest user message
+                        const latestUserMsg = userMessages[userMessages.length - 1].content;
+
+                        // Extract the actual query (remove project info if present)
+                        const infoEndIndex = latestUserMsg.indexOf('</info>');
+                        const actualQuery = infoEndIndex >= 0
+                          ? latestUserMsg.substring(infoEndIndex + 7).trim()
+                          : latestUserMsg;
+
+                        // Only explore if this is a new query (not empty)
+                        if (actualQuery.trim()) {
+                          console.log('Performing new exploration for conversation:', conversationId);
+                          explorationContext = await performExploration(actualQuery, conversationId);
+                          window.__conversation_state__.hasPerformedExploration = true;
+                        }
+                      }
+                    }
+                } else {
+                    console.log('Skipping exploration - already have context for this conversation');
                 }
               } else {
                 console.log('Continuing existing conversation - checking for stored context in Java');
                 
                 // Try to get context from Java service
-                if (conversationId && window.intellijBridge) {
+                if (conversationId && window.intellijBridge && !window.__pending_exploration_context__) {
                   try {
                     const contextResponse = await window.intellijBridge.callIDE('getExplorationContext', {
-                      conversationId: conversationId
+                      conversationId: conversationId || ""  // Send empty string instead of null
                     });
                     
                     if (contextResponse && contextResponse.success && contextResponse.context) {
@@ -528,6 +605,8 @@
                   } catch (e) {
                     console.error('Error retrieving exploration context:', e);
                   }
+                } else if (window.__pending_exploration_context__) {
+                  console.log('Already have pending exploration context, skipping retrieval');
                 }
               }
             } catch (e) {

@@ -136,7 +136,13 @@ public class ExplorationService implements Disposable {
             }
 
             String query = data.get("query").getAsString();
-            String conversationId = data.has("conversationId") ? data.get("conversationId").getAsString() : null;
+            String conversationId = null;
+            if (data.has("conversationId") && !data.get("conversationId").isJsonNull()) {
+                String id = data.get("conversationId").getAsString();
+                if (!id.isEmpty()) {
+                    conversationId = id;
+                }
+            }
             String sessionId = UUID.randomUUID().toString();
 
             LOG.info("Starting exploration session " + sessionId + " for query: " + query +
@@ -266,7 +272,21 @@ public class ExplorationService implements Disposable {
      */
     public String getExplorationContext(JsonObject data) {
         try {
+            if (!data.has("conversationId") || data.get("conversationId").isJsonNull()) {
+                JsonObject response = new JsonObject();
+                response.addProperty("success", false);
+                response.addProperty("error", "No conversation ID provided");
+                return gson.toJson(response);
+            }
+            
             String conversationId = data.get("conversationId").getAsString();
+            if (conversationId.isEmpty()) {
+                JsonObject response = new JsonObject();
+                response.addProperty("success", false);
+                response.addProperty("error", "Empty conversation ID");
+                return gson.toJson(response);
+            }
+            
             ConversationContext context = conversationContexts.get(conversationId);
             
             JsonObject response = new JsonObject();

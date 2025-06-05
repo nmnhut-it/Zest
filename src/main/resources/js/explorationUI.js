@@ -722,7 +722,7 @@
 
       const response = await window.intellijBridge.callIDE('startExploration', { 
         query: query,
-        conversationId: conversationId 
+        conversationId: conversationId || ""  // Send empty string instead of null/undefined
       });
 
       if (!response.success) {

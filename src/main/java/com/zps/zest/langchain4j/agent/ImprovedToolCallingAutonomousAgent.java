@@ -33,7 +33,7 @@ public final class ImprovedToolCallingAutonomousAgent {
 
     // Configuration
     private static final int MAX_TOOL_CALLS = 10;
-    private static final int MAX_ROUNDS = 2;
+    private static final int MAX_ROUNDS = 1;
     private static final int MAX_RESULT_LENGTH = 2000; // Increased from 500
 
     public ImprovedToolCallingAutonomousAgent(@NotNull Project project) {
@@ -139,14 +139,27 @@ public final class ImprovedToolCallingAutonomousAgent {
                 }
             }
 
-            // Generate final summary with full context
-            String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
-            String summary = llmService.query(summaryPrompt);
-
-            if (summary != null) {
-                result.setSummary(summary);
+            // Check if total exploration results are under 1000 lines
+            String fullExplorationContent = buildFullExplorationContent(conversation, context);
+            int lineCount = countLines(fullExplorationContent);
+            
+            LOG.info("Total exploration content has " + lineCount + " lines");
+            
+            if (lineCount < 1000) {
+                // Return the full exploration content as the summary
+                LOG.info("Exploration results under 1000 lines, returning full content as summary");
+                result.setSummary(fullExplorationContent);
             } else {
-                result.setSummary("Failed to generate summary");
+                // Generate final summary with full context
+                LOG.info("Exploration results over 1000 lines, generating summary via LLM");
+                String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
+                String summary = llmService.query(summaryPrompt);
+
+                if (summary != null) {
+                    result.setSummary(summary);
+                } else {
+                    result.setSummary("Failed to generate summary");
+                }
             }
 
             result.setSuccess(true);
@@ -227,6 +240,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                 
                 RESPONSE FORMAT FOR SUMMARY:
                 Start with "EXPLORATION COMPLETE:" followed by your comprehensive findings.
+                /no_think
                 """);
         } else {
             // Near limit - time to conclude
@@ -365,6 +379,7 @@ public final class ImprovedToolCallingAutonomousAgent {
             - Include actual code snippets to show current state
             - Focus on understanding existing code, not changes
             - Provide context for how things currently work
+            /no_think
             """);
 
         return prompt.toString();
@@ -519,14 +534,28 @@ public final class ImprovedToolCallingAutonomousAgent {
             }
 
             if (!indicator.isCanceled()) {
-                indicator.setText("Generating summary...");
-                String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
-                String summary = llmService.query(summaryPrompt);
-
-                if (summary != null) {
-                    result.setSummary(summary);
+                // Check if total exploration results are under 1000 lines
+                String fullExplorationContent = buildFullExplorationContent(conversation, context);
+                int lineCount = countLines(fullExplorationContent);
+                
+                LOG.info("Total exploration content has " + lineCount + " lines");
+                
+                if (lineCount < 1000) {
+                    // Return the full exploration content as the summary
+                    LOG.info("Exploration results under 1000 lines, returning full content as summary");
+                    result.setSummary(fullExplorationContent);
                 } else {
-                    result.setSummary("Failed to generate summary");
+                    // Generate final summary with full context
+                    LOG.info("Exploration results over 1000 lines, generating summary via LLM");
+                    indicator.setText("Generating summary...");
+                    String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
+                    String summary = llmService.query(summaryPrompt);
+
+                    if (summary != null) {
+                        result.setSummary(summary);
+                    } else {
+                        result.setSummary("Failed to generate summary");
+                    }
                 }
             }
 
@@ -556,6 +585,49 @@ public final class ImprovedToolCallingAutonomousAgent {
                 lower.contains("summary:") ||
                 lower.contains("## executive summary") ||
                 lower.contains("## key findings");
+    }
+
+    /**
+     * Builds the full exploration content from conversation history.
+     */
+    private String buildFullExplorationContent(List<ConversationMessage> conversation, ExplorationContext context) {
+        StringBuilder content = new StringBuilder();
+        
+        content.append("# Code Exploration Results\n\n");
+        content.append("**Query**: ").append(context.getUserQuery()).append("\n\n");
+        
+        // Add all tool execution results
+        content.append("## Tool Execution Results\n\n");
+        
+        for (ToolExecution execution : context.getAllExecutions()) {
+            content.append("### ").append(execution.getToolName()).append("\n");
+            content.append("**Parameters**: ").append(execution.getParameters()).append("\n");
+            content.append("**Status**: ").append(execution.isSuccess() ? "Success" : "Failed").append("\n\n");
+            content.append("**Result**:\n");
+            content.append(execution.getResult()).append("\n\n");
+        }
+        
+        // Add any LLM analysis from the conversation
+        content.append("## Analysis\n\n");
+        for (ConversationMessage message : conversation) {
+            if (message.role.equals("assistant") && 
+                (message.content.contains("EXPLORATION COMPLETE") || 
+                 message.content.toLowerCase().contains("summary"))) {
+                content.append(message.content).append("\n\n");
+            }
+        }
+        
+        return content.toString();
+    }
+
+    /**
+     * Counts the number of lines in a string.
+     */
+    private int countLines(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        return text.split("\n").length;
     }
 
     /**

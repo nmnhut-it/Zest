@@ -440,8 +440,7 @@ public final class ToolCallingAutonomousAgent {
             1. **Actionable**: Provide specific findings, not general observations
             2. **Hierarchical**: Start with the most important discoveries
             3. **Connected**: Show how different pieces relate to each other
-            4. **Practical**: Include code examples where relevant
-            5. **Test-Informed**: Incorporate insights from test files about expected behavior
+            4. **Practical**: Include code examples where relevant 
             
             Please provide a comprehensive summary in the following format:
             
@@ -454,7 +453,7 @@ public final class ToolCallingAutonomousAgent {
             [List the most important classes, methods, and relationships discovered]
             [Group by functional area or component]
             [Include brief descriptions of their roles]
-            [Note which elements have comprehensive test coverage]
+            
             
             ## Architecture Insights
             [Architectural patterns and design decisions observed]
@@ -473,17 +472,6 @@ public final class ToolCallingAutonomousAgent {
             [Include examples from both source and test code]
             [Show how the code is meant to be used based on tests]
             
-            ## Test Coverage Insights
-            [What aspects are well-tested]
-            [Test patterns and strategies used]
-            [Key test scenarios that demonstrate expected behavior]
-            [Any gaps in test coverage noticed]
-            
-            ## Recommendations
-            [Specific next steps for further exploration or development]
-            [Potential areas of concern or improvement]
-            [Suggested tools or approaches for the user's task]
-            [Testing recommendations if applicable]
             
             Remember: The summary should directly address the user's original query and provide practical, actionable insights.
             Include insights from both source code and tests to give a complete picture.

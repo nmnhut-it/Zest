@@ -533,6 +533,14 @@
               const conversationId = extractConversationId(data) || urlConversationId;
               
               console.log('Final extracted conversation ID:', conversationId);
+              
+              // Update context debugger
+              if (window.contextDebugger) {
+                window.contextDebugger.update({
+                  conversationId: conversationId,
+                  mode: window.__zest_mode__
+                });
+              }
 
               // Check if this is a new conversation
               if (isNewConversation(data)) {
@@ -541,6 +549,14 @@
                 // First check if we already have context stored in Java for this conversation
                 let hasExistingContext = false;
                 if (conversationId && window.intellijBridge) {
+                  // Update debugger
+                  if (window.contextDebugger) {
+                    window.contextDebugger.update({
+                      explorationStatus: 'Checking for existing context...',
+                      timestamp: Date.now()
+                    });
+                  }
+                  
                   try {
                     const contextCheckResponse = await window.intellijBridge.callIDE('getExplorationContext', {
                       conversationId: conversationId || ""
@@ -551,6 +567,16 @@
                       explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${contextCheckResponse.context}`;
                       hasExistingContext = true;
                       console.log('Found existing exploration context for conversation:', conversationId);
+                      
+                      // Update debugger
+                      if (window.contextDebugger) {
+                        window.contextDebugger.update({
+                          explorationStatus: 'Found existing context',
+                          contextSource: 'Java Storage (Existing)',
+                          context: explorationContext,
+                          timestamp: Date.now()
+                        });
+                      }
                     }
                   } catch (e) {
                     console.error('Error checking for existing exploration context:', e);
@@ -578,19 +604,55 @@
                         // Only explore if this is a new query (not empty)
                         if (actualQuery.trim()) {
                           console.log('Performing new exploration for conversation:', conversationId);
+                          
+                          // Update debugger
+                          if (window.contextDebugger) {
+                            window.contextDebugger.update({
+                              explorationStatus: 'Starting new exploration...',
+                              contextSource: 'New Exploration',
+                              timestamp: Date.now()
+                            });
+                          }
+                          
                           explorationContext = await performExploration(actualQuery, conversationId);
                           window.__conversation_state__.hasPerformedExploration = true;
+                          
+                          // Update debugger with result
+                          if (window.contextDebugger) {
+                            window.contextDebugger.update({
+                              explorationStatus: 'Exploration complete',
+                              context: explorationContext,
+                              timestamp: Date.now()
+                            });
+                          }
                         }
                       }
                     }
                 } else {
                     console.log('Skipping exploration - already have context for this conversation');
+                    
+                    // Update debugger
+                    if (window.contextDebugger) {
+                      window.contextDebugger.update({
+                        explorationStatus: 'Using existing context',
+                        contextSource: 'Cached from previous exploration',
+                        timestamp: Date.now()
+                      });
+                    }
                 }
               } else {
                 console.log('Continuing existing conversation - checking for stored context in Java');
                 
                 // Try to get context from Java service
                 if (conversationId && window.intellijBridge && !window.__pending_exploration_context__) {
+                  // Update debugger
+                  if (window.contextDebugger) {
+                    window.contextDebugger.update({
+                      explorationStatus: 'Fetching stored context...',
+                      timestamp: Date.now()
+                    });
+                  }
+                  
                   try {
                     const contextResponse = await window.intellijBridge.callIDE('getExplorationContext', {
                       conversationId: conversationId || ""  // Send empty string instead of null
@@ -599,14 +661,43 @@
                     if (contextResponse && contextResponse.success && contextResponse.context) {
                       explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${contextResponse.context}`;
                       console.log('Retrieved exploration context from Java for conversation:', conversationId);
+                      
+                      // Update debugger
+                      if (window.contextDebugger) {
+                        window.contextDebugger.update({
+                          explorationStatus: 'Retrieved stored context',
+                          contextSource: 'Java Storage (Continuing)',
+                          context: explorationContext,
+                          timestamp: Date.now()
+                        });
+                      }
                     } else {
                       console.log('No stored context found for conversation:', conversationId);
+                      
+                      // Update debugger
+                      if (window.contextDebugger) {
+                        window.contextDebugger.update({
+                          explorationStatus: 'No context found',
+                          contextSource: 'None',
+                          context: '',
+                          timestamp: Date.now()
+                        });
+                      }
                     }
                   } catch (e) {
                     console.error('Error retrieving exploration context:', e);
                   }
                 } else if (window.__pending_exploration_context__) {
                   console.log('Already have pending exploration context, skipping retrieval');
+                  
+                  // Update debugger
+                  if (window.contextDebugger) {
+                    window.contextDebugger.update({
+                      explorationStatus: 'Using pending context',
+                      contextSource: 'Memory (Pending)',
+                      timestamp: Date.now()
+                    });
+                  }
                 }
               }
             } catch (e) {

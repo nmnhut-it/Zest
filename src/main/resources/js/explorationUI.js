@@ -43,6 +43,20 @@
       gap: 10px;
       font-size: 14px;
       font-weight: 500;
+      max-width: 280px;
+    }
+    
+    .exploration-status-detail {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 250px;
+    }
+    
+    .exploration-reasoning-inline {
+      font-size: 12px;
+      color: #999;
+      font-weight: normal;
     }
     
     .exploration-spinner-mini {
@@ -89,7 +103,7 @@
     }
     
     .exploration-progress-item {
-      padding: 8px 0;
+      padding: 10px 0;
       border-bottom: 1px solid #333;
     }
     
@@ -126,6 +140,15 @@
       color: #999;
       font-size: 12px;
       margin-top: 4px;
+    }
+    
+    .exploration-reasoning-mini {
+      color: #888;
+      font-size: 11px;
+      margin-top: 2px;
+      font-style: italic;
+      opacity: 0.9;
+      line-height: 1.3;
     }
     
     .exploration-complete-indicator {
@@ -328,6 +351,26 @@
       font-family: "Consolas", "Monaco", monospace;
     }
 
+    .tool-reasoning {
+      font-size: 13px;
+      color: #0084ff;
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: rgba(0, 132, 255, 0.1);
+      border-radius: 4px;
+      font-style: italic;
+    }
+
+    .tool-deep-reasoning {
+      font-size: 13px;
+      color: #4caf50;
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: rgba(76, 175, 80, 0.1);
+      border-radius: 4px;
+      font-style: italic;
+    }
+
     .tool-result {
       font-size: 13px;
       line-height: 1.5;
@@ -514,6 +557,8 @@
   let notificationExpanded = false;
   let pendingQuery = null; // Store query while indexing
   let currentStatus = null; // Track current status
+  let statusUpdateInterval = null; // For periodic status updates
+  let lastActivityTime = null; // Track last activity
 
   // Helper function to update status text
   function updateStatusText(statusDetail, showSpinner = true) {
@@ -529,6 +574,89 @@
     }
   }
 
+  // Helper function to start periodic status updates
+  function startStatusUpdates() {
+    // Clear any existing interval
+    if (statusUpdateInterval) {
+      clearInterval(statusUpdateInterval);
+    }
+
+    let dots = 0;
+    statusUpdateInterval = setInterval(() => {
+      if (!currentSessionId) {
+        clearInterval(statusUpdateInterval);
+        return;
+      }
+
+      // Only update if we haven't had activity recently
+      const timeSinceLastActivity = lastActivityTime ? Date.now() - lastActivityTime : 10000;
+      if (timeSinceLastActivity > 3000) {
+        // Get the last tool's reasoning for context
+        const lastTool = explorationData.toolExecutions[explorationData.toolExecutions.length - 1];
+        
+        if (lastTool) {
+          const reasoning = lastTool.reasoning || (lastTool.parameters && lastTool.parameters.reasoning) || '';
+          if (reasoning) {
+            // Show the reasoning as the status while processing
+            const dotCount = (dots % 3) + 1;
+            const dotString = '.'.repeat(dotCount);
+            const truncatedReasoning = reasoning.substring(0, 50) + (reasoning.length > 50 ? '...' : '');
+            updateStatusText(`${truncatedReasoning}${dotString}`, true);
+            dots++;
+            return;
+          }
+        }
+        
+        // Fallback to generic messages if no reasoning
+        const messages = [
+          'Processing results',
+          'Analyzing code',
+          'Understanding structure',
+          'Connecting findings'
+        ];
+        
+        const messageIndex = Math.floor(dots / 3) % messages.length;
+        const dotCount = (dots % 3) + 1;
+        const dotString = '.'.repeat(dotCount);
+        
+        updateStatusText(`${messages[messageIndex]}${dotString}`, true);
+        dots++;
+      }
+    }, 500);
+  }
+
+  // Helper function to stop status updates
+  function stopStatusUpdates() {
+    if (statusUpdateInterval) {
+      clearInterval(statusUpdateInterval);
+      statusUpdateInterval = null;
+    }
+  }
+
+  // Helper function to get user-friendly tool display names
+  function getToolDisplayName(toolName) {
+    const toolDisplayNames = {
+      'FindClassTool': '🔍 Finding',
+      'FindMethodTool': '🔍 Methods',
+      'GetClassInfoTool': '📄 Class info',
+      'GetMethodCodeTool': '📝 Method code',
+      'SearchInFilesTool': '🔎 Searching',
+      'GetFileContentTool': '📖 Reading',
+      'GetProjectStructureTool': '🏗️ Structure',
+      'GetClassHierarchyTool': '🌳 Hierarchy',
+      'FindUsagesTool': '🔗 Usages',
+      'GetDependenciesTool': '📦 Dependencies',
+      'SearchSymbolTool': '🔤 Symbols',
+      'GetRecentChangesTool': '📅 Changes',
+      'search_code': '🔎 Search',
+      'find_by_name': '🔍 Find',
+      'get_class_info': '📄 Class',
+      'read_file': '📖 Read'
+    };
+    
+    return toolDisplayNames[toolName] || `🛠️ ${toolName}`;
+  }
+
   // UI functions
   function showNotification() {
     notification.style.display = 'block';
@@ -538,6 +666,7 @@
     notification.style.display = 'none';
     notificationExpanded = false;
     notification.classList.remove('expanded');
+    stopStatusUpdates();
   }
 
   function toggleNotification() {
@@ -620,11 +749,17 @@
 
       const item = document.createElement('div');
       item.className = 'exploration-progress-item';
+      
+      // Extract reasoning if available
+      const reasoning = exec.reasoning || (exec.parameters && exec.parameters.reasoning) || '';
+      const truncatedReasoning = reasoning ? reasoning.substring(0, 50) + (reasoning.length > 50 ? '...' : '') : '';
+      
       item.innerHTML = `
         <div class="exploration-tool-name">
           ${exec.toolName}
           <span class="exploration-tool-status ${statusClass}">${statusText}</span>
         </div>
+        ${truncatedReasoning ? `<div class="exploration-reasoning-mini">${truncatedReasoning}</div>` : ''}
       `;
       progressList.appendChild(item);
     });
@@ -649,6 +784,10 @@
       const toolExecutionsHtml = round.toolExecutions.map(exec => {
         const statusClass = exec.success ? 'success' : 'failed';
         const statusText = exec.success ? 'Success' : 'Failed';
+        
+        // Extract reasoning from tool execution or parameters
+        const reasoning = exec.reasoning || (exec.parameters && exec.parameters.reasoning) || '';
+        const deepReasoning = exec.deepReasoning || (exec.parameters && exec.parameters.deepreasoning) || '';
 
         return `
           <div class="tool-execution collapsed">
@@ -656,6 +795,8 @@
               <div class="tool-name">${exec.toolName}</div>
               <span class="tool-status ${statusClass}">${statusText}</span>
             </div>
+            ${reasoning ? `<div class="tool-reasoning">💭 ${escapeHtml(reasoning)}</div>` : ''}
+            ${deepReasoning ? `<div class="tool-deep-reasoning">🧠 ${escapeHtml(deepReasoning)}</div>` : ''}
             <div class="tool-params">Parameters: ${JSON.stringify(exec.parameters)}</div>
             <div class="tool-result">${escapeHtml(exec.result)}</div>
           </div>
@@ -758,9 +899,13 @@
 
       currentSessionId = response.sessionId;
       explorationData = { rounds: [], toolExecutions: [], summary: null };
+      lastActivityTime = Date.now();
 
       // Update notification with proper structure
-      updateStatusText('Calling LLM...', true);
+      updateStatusText('Understanding your query...', true);
+
+      // Start periodic status updates
+      startStatusUpdates();
 
       // Ensure the content has the right structure
       ensureNotificationStructure();
@@ -788,11 +933,29 @@
 
     console.log('Exploration progress:', event);
 
+    // Track last activity time
+    lastActivityTime = Date.now();
+
+    // Store current status for state tracking
+    currentStatus = event.eventType;
+
     switch (event.eventType) {
       case 'tool_execution':
-        // Update status to show current tool
+        // Update status to show current tool with more context
         const toolName = event.data.toolName;
-        updateStatusText(toolName, true);
+        const toolDisplayName = getToolDisplayName(toolName);
+        
+        // Extract reasoning if available
+        const reasoning = event.data.reasoning || (event.data.parameters && event.data.parameters.reasoning) || '';
+        
+        // Show just the reasoning as the main status
+        if (reasoning) {
+          const truncatedReasoning = reasoning.substring(0, 60) + (reasoning.length > 60 ? '...' : '');
+          updateStatusText(truncatedReasoning, true);
+        } else {
+          // Fallback to tool name if no reasoning
+          updateStatusText(`Executing ${toolDisplayName}`, true);
+        }
 
         // Add tool execution to current round
         if (explorationData.rounds.length === 0) {
@@ -813,8 +976,30 @@
         break;
 
       case 'round_complete':
-        // Update status to show LLM processing
-        updateStatusText('Calling LLM...', true);
+        // Update status to show what LLM is doing
+        const roundNum = explorationData.rounds.length + 1;
+        const toolCount = event.data.toolExecutions ? event.data.toolExecutions.length : 0;
+        
+        // Extract round reasoning if available in LLM response
+        if (event.data.llmResponse) {
+          // Try to extract reasoning from LLM response
+          const reasoningMatch = event.data.llmResponse.match(/REASONING[:\s]+([^\n]+)/i);
+          if (reasoningMatch) {
+            const reasoning = reasoningMatch[1].trim().substring(0, 60) + (reasoningMatch[1].trim().length > 60 ? '...' : '');
+            updateStatusText(reasoning, true);
+          } else {
+            // Try to find what the LLM is planning
+            const planMatch = event.data.llmResponse.match(/(?:need to|should|will|going to|must)\s+([^\n.]+)/i);
+            if (planMatch) {
+              const plan = planMatch[1].trim().substring(0, 60) + (planMatch[1].trim().length > 60 ? '...' : '');
+              updateStatusText(plan, true);
+            } else {
+              updateStatusText(`Planning next steps for round ${roundNum}...`, true);
+            }
+          }
+        } else {
+          updateStatusText(`Analyzing ${toolCount} results...`, true);
+        }
 
         // Update round data
         const roundIndex = explorationData.rounds.findIndex(r => r.name === event.data.name);
@@ -830,6 +1015,9 @@
         break;
 
       case 'exploration_complete':
+        // Stop status updates
+        stopStatusUpdates();
+
         // Update UI for completion
         const titleElement = notification.querySelector('.exploration-notification-title');
         if (titleElement) {
@@ -875,6 +1063,9 @@
     if (currentSessionId) {
       // Update notification to show it's being used
       updateStatusText('Enhancing query...', true);
+      
+      // Stop status updates
+      stopStatusUpdates();
 
       // Close immediately
       setTimeout(() => {

@@ -280,6 +280,10 @@ public class JCEFBrowserManager {
             // Load and inject the exploration UI script
             String explorationUIScript = loadResourceAsString("/js/explorationUI.js");
             cefBrowser.executeJavaScript(explorationUIScript, frame.getURL(), 0);
+            
+            // Load and inject the context debugger script
+            String contextDebuggerScript = loadResourceAsString("/js/contextDebugger.js");
+            cefBrowser.executeJavaScript(contextDebuggerScript, frame.getURL(), 0);
 
             // Ensure cookie persistence
             ensureCookiePersistence();

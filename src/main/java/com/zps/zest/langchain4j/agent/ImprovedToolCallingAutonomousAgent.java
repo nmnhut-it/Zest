@@ -376,9 +376,18 @@ public final class ImprovedToolCallingAutonomousAgent {
         String toolName = toolCall.getToolName();
         JsonObject parameters = toolCall.getParameters();
 
+        // Add reasoning to parameters if available
+        JsonObject enrichedParams = parameters.deepCopy();
+        if (toolCall.getReasoning() != null) {
+            enrichedParams.addProperty("reasoning", toolCall.getReasoning());
+        }
+        if (toolCall.getDeepReasoning() != null) {
+            enrichedParams.addProperty("deepreasoning", toolCall.getDeepReasoning());
+        }
+
         CodeExplorationTool tool = toolRegistry.getTool(toolName);
         if (tool == null) {
-            return new ToolExecution(toolName, parameters,
+            return new ToolExecution(toolName, enrichedParams,
                     "Error: Unknown tool '" + toolName + "'", false);
         }
 
@@ -387,10 +396,10 @@ public final class ImprovedToolCallingAutonomousAgent {
             String resultContent = result.isSuccess() ? result.getContent() : result.getError();
 
             // NO TRUNCATION - include full content
-            return new ToolExecution(toolName, parameters, resultContent, result.isSuccess());
+            return new ToolExecution(toolName, enrichedParams, resultContent, result.isSuccess());
         } catch (Exception e) {
             LOG.error("Error executing tool: " + toolName, e);
-            return new ToolExecution(toolName, parameters,
+            return new ToolExecution(toolName, enrichedParams,
                     "Error executing tool: " + e.getMessage(), false);
         }
     }

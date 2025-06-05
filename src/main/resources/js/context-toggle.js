@@ -67,9 +67,12 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
       </svg>`;
       
+      // Set initial icon based on current state
+      const initialEmoji = window.__enable_context_injection__ ? '📑' : '📄';
+      
       // Create the button content with both SVG and emoji fallback
       toggleButton.innerHTML = `
-        <span style="font-size: 16px; line-height: 1;">📑</span>
+        <span style="font-size: 16px; line-height: 1;">${initialEmoji}</span>
         <span class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis translate-y-[0.5px]">
           Context${window.__enable_context_injection__ ? ' On' : ' Off'}
         </span>
@@ -78,19 +81,9 @@
       // Add click handler
       toggleButton.addEventListener('click', function() {
         window.__enable_context_injection__ = !window.__enable_context_injection__;
-        updateToggleButtonState(this, window.__enable_context_injection__);
         
-        // Update button text
-        const textSpan = this.querySelector('span:last-child');
-        if (textSpan) {
-          textSpan.textContent = `Context${window.__enable_context_injection__ ? ' On' : ' Off'}`;
-        }
-        
-        // Update emoji icon
-        const emojiSpan = this.querySelector('span:first-child');
-        if (emojiSpan && emojiSpan.style.fontSize === '16px') {
-          emojiSpan.textContent = window.__enable_context_injection__ ? '📑' : '📄';
-        }
+        // Sync all toggle buttons
+        syncAllToggleButtons();
         
         console.log('Context injection toggled:', window.__enable_context_injection__ ? 'ON' : 'OFF');
         
@@ -107,6 +100,26 @@
       console.warn('No suitable container found for context toggle button');
     }
   };
+
+  // Function to sync all toggle buttons to current state
+  function syncAllToggleButtons() {
+    const allButtons = document.querySelectorAll('.context-toggle-button');
+    allButtons.forEach(button => {
+      updateToggleButtonState(button, window.__enable_context_injection__);
+      
+      // Update emoji
+      const emojiSpan = button.querySelector('span:first-child');
+      if (emojiSpan && emojiSpan.style.fontSize === '16px') {
+        emojiSpan.textContent = window.__enable_context_injection__ ? '📑' : '📄';
+      }
+      
+      // Update text
+      const textSpan = button.querySelector('span:last-child');
+      if (textSpan && textSpan.textContent.includes('Context')) {
+        textSpan.textContent = `Context${window.__enable_context_injection__ ? ' On' : ' Off'}`;
+      }
+    });
+  }
 
   // Function to update button appearance based on state
   function updateToggleButtonState(button, isEnabled) {
@@ -218,6 +231,30 @@
     console.log('Force injecting context toggle button...');
     window.injectContextToggleButton();
   };
+
+  // Add function to sync button state
+  window.syncContextToggleState = function() {
+    syncAllToggleButtons();
+  };
+
+  // Periodically check and sync button states
+  setInterval(() => {
+    const buttons = document.querySelectorAll('.context-toggle-button');
+    if (buttons.length > 0) {
+      // Check if any button is out of sync
+      buttons.forEach(button => {
+        const emojiSpan = button.querySelector('span:first-child');
+        if (emojiSpan && emojiSpan.style.fontSize === '16px') {
+          const currentEmoji = emojiSpan.textContent;
+          const expectedEmoji = window.__enable_context_injection__ ? '📑' : '📄';
+          if (currentEmoji !== expectedEmoji) {
+            console.log('Button out of sync, updating...');
+            syncAllToggleButtons();
+          }
+        }
+      });
+    }
+  }, 2000); // Check every 2 seconds
 
   console.log('Context toggle script initialized. Use window.forceInjectContextToggle() to manually inject.');
 })();

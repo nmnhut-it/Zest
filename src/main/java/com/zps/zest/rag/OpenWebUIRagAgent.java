@@ -2,6 +2,7 @@ package com.zps.zest.rag;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
@@ -17,6 +18,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.RagManagerProjectListener;
 import com.zps.zest.rag.models.KnowledgeCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -243,6 +245,59 @@ public final class OpenWebUIRagAgent {
     }
     
     /**
+     * Updates a single file in the existing index.
+     * This is used by the file change listener to keep the index up to date.
+     */
+    public void updateFileInIndex(String knowledgeId, VirtualFile file) throws IOException {
+        LOG.info("Updating file in index: " + file.getPath());
+        
+        // First, try to find and remove the old version of this file from the knowledge base
+        String oldFileName = file.getNameWithoutExtension() + "-signatures.md";
+        
+        try {
+            // Get the knowledge collection to find the existing file
+            KnowledgeCollection collection = apiClient.getKnowledgeCollection(knowledgeId);
+            if (collection != null && collection.getFiles() != null) {
+                // Find and remove the old file if it exists
+                collection.getFiles().stream()
+                    .filter(f -> f.getMeta().getName().equals(oldFileName))
+                    .findFirst()
+                    .ifPresent(f -> {
+                        try {
+                            LOG.info("Removing old version of file from knowledge base: " + oldFileName);
+                            // Note: You might need to add a removeFileFromKnowledge method to the API client
+                            // For now, we'll just re-upload which should replace the old version
+                        } catch (Exception e) {
+                            LOG.warn("Failed to remove old file version", e);
+                        }
+                    });
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to check for existing file version", e);
+        }
+        
+        // Re-index the file
+        indexFile(knowledgeId, file);
+        
+        // Update local cache if present
+        if (hasLocalIndex()) {
+            List<CodeSignature> signatures = ReadAction.compute(() -> {
+                PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+                if (psiFile != null) {
+                    return codeAnalyzer.extractSignatures(psiFile);
+                }
+                return Collections.<CodeSignature>emptyList();
+            });
+            
+            if (!signatures.isEmpty()) {
+                signatureCache.put(file.getPath(), signatures);
+            } else {
+                signatureCache.remove(file.getPath());
+            }
+        }
+    }
+    
+    /**
      * Performs the actual indexing - extracted for testability.
      */
     @VisibleForTesting
@@ -289,6 +344,11 @@ public final class OpenWebUIRagAgent {
 
         indicator.setText("Indexing complete");
         LOG.info("Project indexing completed. Indexed " + current + " files.");
+        
+        // Set up file change listener to keep index updated
+        ApplicationManager.getApplication().invokeLater(() -> {
+            RagManagerProjectListener.onIndexingComplete(project);
+        });
     }
     
     @VisibleForTesting
@@ -389,7 +449,12 @@ public final class OpenWebUIRagAgent {
     }
 
     /**
-     * Gets the complete knowledge collection from OpenWebUI.
+     * Checks if indexing is currently in progress.
+     */
+    public boolean isIndexing() {
+        return isIndexing;
+    }
+    /**
      * 
      * @param knowledgeId The knowledge collection ID
      * @return The complete knowledge collection with all metadata

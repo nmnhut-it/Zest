@@ -106,6 +106,12 @@ public class JavaScriptBridgeActions {
                     
                 case "getProjectKnowledgeCollection":
                     return getProjectKnowledgeCollection();
+                    
+                case "projectIndexStatus":
+                    return getProjectIndexStatus();
+                    
+                case "indexProject":
+                    return indexProject(data);
 
                     
                 case "auth":
@@ -197,7 +203,7 @@ public class JavaScriptBridgeActions {
         response.addProperty("success", true);
         return gson.toJson(response);
     }
-    
+
     /**
      * Gets the project knowledge ID from configuration.
      */
@@ -214,6 +220,37 @@ public class JavaScriptBridgeActions {
             }
         } catch (Exception e) {
             LOG.error("Error getting knowledge ID", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+
+    /**
+     * Starts project indexing.
+     */
+    private String indexProject(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean forceRefresh = data.has("forceRefresh") && data.get("forceRefresh").getAsBoolean();
+            
+            // Get the RAG agent and start indexing
+            OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
+            
+            // Start indexing asynchronously
+            ragAgent.indexProject(forceRefresh).thenAccept(success -> {
+                if (success) {
+                    LOG.info("Project indexing completed successfully");
+                } else {
+                    LOG.error("Project indexing failed");
+                }
+            });
+            
+            response.addProperty("success", true);
+            response.addProperty("message", "Indexing started");
+            
+        } catch (Exception e) {
+            LOG.error("Error starting project indexing", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
@@ -254,6 +291,31 @@ public class JavaScriptBridgeActions {
         return gson.toJson(response);
     }
     
+    /**
+     * Gets the project index status.
+     */
+    private String getProjectIndexStatus() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            String knowledgeId = config.getKnowledgeId();
+            
+            response.addProperty("success", true);
+            response.addProperty("isIndexed", knowledgeId != null && !knowledgeId.isEmpty());
+            response.addProperty("knowledgeId", knowledgeId);
+            
+            // Check if indexing is in progress
+            OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
+            response.addProperty("isIndexing", ragAgent.isIndexing());
+            
+        } catch (Exception e) {
+            LOG.error("Error getting project index status", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+
     /**
      * Returns the chat response service for external access.
      */

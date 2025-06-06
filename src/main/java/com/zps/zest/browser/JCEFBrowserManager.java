@@ -288,6 +288,10 @@ public class JCEFBrowserManager {
             // Load and inject the context toggle script
             String contextToggleScript = loadResourceAsString("/js/context-toggle.js");
             cefBrowser.executeJavaScript(contextToggleScript, frame.getURL(), 0);
+            
+            // Load and inject the project index button script
+            String indexButtonScript = loadResourceAsString("/js/index-button.js");
+            cefBrowser.executeJavaScript(indexButtonScript, frame.getURL(), 0);
 
             // Ensure cookie persistence
             ensureCookiePersistence();

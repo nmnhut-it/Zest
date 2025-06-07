@@ -61,9 +61,29 @@
       
       // Check if project is indexed
       window.intellijBridge.callIDE("projectIndexStatus",{
-
       }).then(response => {
-        const isIndexed = response && response.isIndexed;
+        console.log('Project index status response:', response);
+        
+        // Handle both direct response and nested response formats
+        let isIndexed = false;
+        if (response) {
+          if (typeof response === 'string') {
+            try {
+              response = JSON.parse(response);
+            } catch (e) {
+              console.error('Failed to parse response:', e);
+            }
+          }
+          
+          // Check for isIndexed in different places
+          if (response.isIndexed !== undefined) {
+            isIndexed = response.isIndexed;
+          } else if (response.result && response.result.isIndexed !== undefined) {
+            isIndexed = response.result.isIndexed;
+          }
+        }
+        
+        console.log('Is indexed:', isIndexed);
         updateIndexButtonState(indexButton, isIndexed);
       }).catch(error => {
         console.error('Failed to get project index status:', error);
@@ -83,7 +103,26 @@
         // Check current index status
         window.intellijBridge.callIDE("projectIndexStatus",{
         }).then(response => {
-          const isIndexed = response && response.isIndexed;
+          console.log('Project index status response (click):', response);
+          
+          // Handle both direct response and nested response formats
+          let isIndexed = false;
+          if (response) {
+            if (typeof response === 'string') {
+              try {
+                response = JSON.parse(response);
+              } catch (e) {
+                console.error('Failed to parse response:', e);
+              }
+            }
+            
+            // Check for isIndexed in different places
+            if (response.isIndexed !== undefined) {
+              isIndexed = response.isIndexed;
+            } else if (response.result && response.result.isIndexed !== undefined) {
+              isIndexed = response.result.isIndexed;
+            }
+          }
           
           if (!isIndexed) {
             // Not indexed, start indexing
@@ -176,7 +215,32 @@
     const pollInterval = setInterval(() => {
       window.intellijBridge.callIDE("projectIndexStatus",{
       }).then(response => {
-        if (response && response.isIndexed && !response.isIndexing) {
+        console.log('Polling index status:', response);
+        
+        // Handle both direct response and nested response formats
+        let isIndexed = false;
+        let isIndexing = false;
+        
+        if (response) {
+          if (typeof response === 'string') {
+            try {
+              response = JSON.parse(response);
+            } catch (e) {
+              console.error('Failed to parse response:', e);
+            }
+          }
+          
+          // Check for values in different places
+          if (response.isIndexed !== undefined) {
+            isIndexed = response.isIndexed;
+            isIndexing = response.isIndexing || false;
+          } else if (response.result) {
+            isIndexed = response.result.isIndexed || false;
+            isIndexing = response.result.isIndexing || false;
+          }
+        }
+        
+        if (isIndexed && !isIndexing) {
           // Indexing complete
           clearInterval(pollInterval);
           

@@ -16,7 +16,9 @@ public class RagComponentFactory {
     public static OpenWebUIRagAgent createRagAgent(@NotNull Project project) {
         ConfigurationManager config = ConfigurationManager.getInstance(project);
         CodeAnalyzer analyzer = new DefaultCodeAnalyzer(project);
-        KnowledgeApiClient apiClient = createApiClient(config);
+        
+        // Use JS bridge client to avoid CORS issues
+        KnowledgeApiClient apiClient = createJSBridgeApiClient(project);
         
         return new OpenWebUIRagAgent(project, config, analyzer, apiClient);
     }
@@ -33,6 +35,12 @@ public class RagComponentFactory {
     
     /**
      * Creates the appropriate API client based on configuration.
+     * 
+     * Note: Currently uses direct HTTP calls which may face CORS issues
+     * when the OpenWebUI server doesn't allow cross-origin requests from
+     * the IDE's embedded browser. The JSBridgeApiClient provides a foundation
+     * for future implementation that would make API calls through the browser
+     * to avoid CORS restrictions.
      */
     public static KnowledgeApiClient createApiClient(@NotNull ConfigurationManager config) {
         String apiUrl = config.getApiUrl();
@@ -43,6 +51,14 @@ public class RagComponentFactory {
         }
         
         return new OpenWebUIKnowledgeClient(apiUrl, authToken);
+    }
+    
+    /**
+     * Creates a JS bridge API client for the project.
+     * This should be used when making API calls through the browser to avoid CORS.
+     */
+    public static KnowledgeApiClient createJSBridgeApiClient(@NotNull Project project) {
+        return new JSBridgeKnowledgeClient(project);
     }
 
     /**

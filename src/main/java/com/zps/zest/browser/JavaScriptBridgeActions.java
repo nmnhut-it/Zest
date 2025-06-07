@@ -112,13 +112,16 @@ public class JavaScriptBridgeActions {
                     
                 case "indexProject":
                     return indexProject(data);
-
+                    
+                case "knowledgeApiResult":
+                    return handleKnowledgeApiResult(data);
                     
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
                     LOG.info("Auth token saved successfully");
-                    return "";
+                    response.addProperty("success", true);
+                    return gson.toJson(response);
                 // Chat response handling
                 case "notifyChatResponse":
                     return chatResponseService.notifyChatResponse(data);
@@ -300,20 +303,27 @@ public class JavaScriptBridgeActions {
             ConfigurationManager config = ConfigurationManager.getInstance(project);
             String knowledgeId = config.getKnowledgeId();
             
+            boolean isIndexed = knowledgeId != null && !knowledgeId.isEmpty();
+            
             response.addProperty("success", true);
-            response.addProperty("isIndexed", knowledgeId != null && !knowledgeId.isEmpty());
-            response.addProperty("knowledgeId", knowledgeId);
+            response.addProperty("isIndexed", isIndexed);
+            response.addProperty("knowledgeId", knowledgeId != null ? knowledgeId : "");
             
             // Check if indexing is in progress
             OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
             response.addProperty("isIndexing", ragAgent.isIndexing());
+            
+            LOG.info("Project index status: isIndexed=" + isIndexed + ", knowledgeId=" + knowledgeId + ", isIndexing=" + ragAgent.isIndexing());
             
         } catch (Exception e) {
             LOG.error("Error getting project index status", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
-        return gson.toJson(response);
+        
+        String result = gson.toJson(response);
+        LOG.info("Returning project index status response: " + result);
+        return result;
     }
 
     /**
@@ -334,5 +344,37 @@ public class JavaScriptBridgeActions {
         if (chatResponseService != null) chatResponseService.dispose();
         if (gitService != null) gitService.dispose();
         if (explorationService != null) explorationService.dispose();
+    }
+    
+    /**
+     * Handles knowledge API results from JavaScript callbacks
+     */
+    private String handleKnowledgeApiResult(JsonObject data) {
+        try {
+            String callbackId = data.get("callbackId").getAsString();
+            
+            // Build the result object
+            JsonObject result = new JsonObject();
+            
+            // Copy all fields from data except callbackId
+            for (var entry : data.entrySet()) {
+                if (!entry.getKey().equals("callbackId")) {
+                    result.add(entry.getKey(), entry.getValue());
+                }
+            }
+            
+            // Pass to the JSBridgeKnowledgeClient
+            com.zps.zest.rag.JSBridgeKnowledgeClient.handleCallback(callbackId, result);
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            return gson.toJson(response);
+        } catch (Exception e) {
+            LOG.error("Error handling knowledge API result", e);
+            JsonObject response = new JsonObject();
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+            return gson.toJson(response);
+        }
     }
 }

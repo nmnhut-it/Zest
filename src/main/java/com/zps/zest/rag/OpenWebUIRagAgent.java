@@ -53,7 +53,7 @@ public final class OpenWebUIRagAgent {
         this(project, 
              ConfigurationManager.getInstance(project),
              new DefaultCodeAnalyzer(project),
-             null); // Will be created based on config
+             RagComponentFactory.createJSBridgeApiClient(project)); // Use JS bridge client
     }
     
     // Test-friendly constructor
@@ -66,16 +66,7 @@ public final class OpenWebUIRagAgent {
         this.config = config;
         this.codeAnalyzer = codeAnalyzer;
         this.signatureCache = new ConcurrentHashMap<>();
-        
-        // Create API client if not provided (for testing)
-        if (apiClient == null) {
-            this.apiClient = new OpenWebUIKnowledgeClient(
-                config.getApiUrl(), 
-                config.getAuthToken()
-            );
-        } else {
-            this.apiClient = apiClient;
-        }
+        this.apiClient = apiClient;
     }
 
     public static OpenWebUIRagAgent getInstance(Project project) {
@@ -372,16 +363,33 @@ public final class OpenWebUIRagAgent {
         }
 
         // Now we have a valid knowledge ID, verify it one more time before proceeding
-        try {
-            if (!apiClient.knowledgeExists(knowledgeId)) {
-                throw new IOException("Failed to verify newly created knowledge base");
+        // Add retries with delays to handle timing issues
+        boolean verified = false;
+        int retries = 3;
+        
+        for (int i = 0; i < retries; i++) {
+            try {
+                // Add a delay before verification to allow server to fully process
+                if (i > 0) {
+                    Thread.sleep(2000 * i); // Exponential backoff: 0s, 2s, 4s
+                }
+                
+                if (apiClient.knowledgeExists(knowledgeId)) {
+                    verified = true;
+                    LOG.info("Knowledge base verified successfully on attempt " + (i + 1));
+                    break;
+                }
+            } catch (Exception e) {
+                LOG.warn("Knowledge base verification attempt " + (i + 1) + " failed: " + e.getMessage());
             }
-        } catch (Exception e) {
-            LOG.error("Failed to verify knowledge base after creation/validation", e);
+        }
+        
+        if (!verified) {
+            LOG.error("Failed to verify knowledge base after " + retries + " attempts");
             // Clear the invalid ID
             config.setKnowledgeId(null);
             config.saveConfig();
-            throw new IOException("Knowledge base verification failed: " + e.getMessage(), e);
+            throw new IOException("Knowledge base verification failed after multiple attempts");
         }
 
         indicator.setText("Extracting project information...");

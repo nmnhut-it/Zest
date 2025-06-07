@@ -470,6 +470,10 @@ public class JCEFBrowserManager {
             // Load and inject the project index button script
             String indexButtonScript = loadResourceAsString("/js/index-button.js");
             cefBrowser.executeJavaScript(indexButtonScript, frame.getURL(), 0);
+            
+            // Load and inject the knowledge API script
+            String knowledgeApiScript = loadResourceAsString("/js/knowledgeApi.js");
+            cefBrowser.executeJavaScript(knowledgeApiScript, frame.getURL(), 0);
 
             // Ensure cookie persistence
             ensureCookiePersistence();

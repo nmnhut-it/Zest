@@ -1,10 +1,13 @@
 package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
+import com.zps.zest.browser.JCEFBrowserManager;
+import com.zps.zest.browser.WebBrowserService;
 import org.apache.commons.lang.StringEscapeUtils;
 
 import java.io.File;
@@ -21,6 +24,7 @@ import java.util.concurrent.*;
  * Implements a per-project cache to avoid reloading configuration multiple times.
  */
 public class ConfigurationManager {
+    private static final Logger LOG = Logger.getInstance(ConfigurationManager.class);
     public static final String CODE_EXPERT = "code-expert";
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
     private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
@@ -332,6 +336,19 @@ public class ConfigurationManager {
 
                     // Update the current authToken value
                     this.authToken = token.trim();
+                    
+                    // Update the browser's auth token immediately
+                    try {
+                        WebBrowserService browserService = WebBrowserService.getInstance(project);
+                        if (browserService != null && browserService.getBrowserPanel() != null) {
+                            JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
+                            if (browserManager != null) {
+                                browserManager.updateAuthTokenInBrowser(this.authToken);
+                            }
+                        }
+                    } catch (Exception ex) {
+                        LOG.warn("Could not update auth token in browser", ex);
+                    }
 
                     // Save the configuration with the new token
                     File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
@@ -534,6 +551,20 @@ public class ConfigurationManager {
 
     public void setAuthToken(String authToken) {
         this.authToken = authToken;
+        
+        // Notify the browser to update its stored auth token
+        try {
+            WebBrowserService browserService = WebBrowserService.getInstance(project);
+            if (browserService != null && browserService.getBrowserPanel() != null) {
+                JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
+                if (browserManager != null) {
+                    browserManager.updateAuthTokenInBrowser(authToken);
+                }
+            }
+        } catch (Exception e) {
+            // Log but don't fail if browser update fails
+            LOG.warn("Could not update auth token in browser", e);
+        }
     }
 
     public String getSystemPrompt() {

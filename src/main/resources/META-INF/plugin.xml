@@ -2,8 +2,8 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.850</version>  <!-- Replace with your actual version -->
-
+    <version>1.9.852</version>  <!-- Replace with your actual version -->
+    
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
     <name>Zest</name>

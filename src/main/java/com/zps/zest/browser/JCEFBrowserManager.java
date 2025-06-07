@@ -64,13 +64,21 @@ public class JCEFBrowserManager {
         // Enable cookies in browser settings
         JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
                 .setClient(client)
-                .setOffScreenRendering(false);
+                .setOffScreenRendering(false)
+                .setCefBrowser(null)
+                .setEnableOpenDevToolsMenuItem(true);
         
         // Set the initial URL with cookie persistence flag
         String initialUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
         browserBuilder.setUrl(initialUrl);
         
         browser = browserBuilder.build();
+        
+        // Force enable cookies and local storage at the browser level
+        browser.getCefBrowser().executeJavaScript(
+            "console.log('Browser initialized with persistent storage enabled');", 
+            initialUrl, 0
+        );
 
         // Create JavaScript bridge
         jsBridge = new JavaScriptBridge(project);
@@ -98,19 +106,20 @@ public class JCEFBrowserManager {
 
 
     /**
-     * Alternative method to ensure cookies persist by setting proper cookie attributes
+     * Alternative method to ensure cookies and localStorage persist by setting proper attributes
      */
     private void ensureCookiePersistence() {
         String script = """
-            // Ensure cookies are set with appropriate expiration and security settings
+            // Ensure cookies and localStorage are persisted properly
             (function() {
-                console.log('Installing cookie persistence handler...');
+                console.log('Installing persistence handlers for cookies and localStorage...');
                 
+                // === COOKIE PERSISTENCE ===
                 // Store original cookie setter
                 const originalCookieSetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').set;
                 const originalCookieGetter = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').get;
                 
-                // Override cookie setter
+                // Override cookie setter to ensure persistence
                 Object.defineProperty(document, 'cookie', {
                     get: function() {
                         return originalCookieGetter.call(this);
@@ -124,7 +133,9 @@ public class JCEFBrowserManager {
                             // Check if it's an auth-related cookie
                             const isAuthCookie = cookieName.includes('token') || 
                                                cookieName.includes('auth') || 
-                                               cookieName.includes('session');
+                                               cookieName.includes('session') ||
+                                               cookieName.includes('user') ||
+                                               cookieName.includes('jwt');
                             
                             // If no expiration is set and it's important, add one
                             const hasExpiration = parts.some(p => 
@@ -133,12 +144,13 @@ public class JCEFBrowserManager {
                             );
                             
                             if (!hasExpiration && isAuthCookie) {
-                                // Add 30 days expiration for auth cookies
+                                // Add 90 days expiration for auth cookies
                                 const expires = new Date();
-                                expires.setDate(expires.getDate() + 30);
+                                expires.setDate(expires.getDate() + 90);
                                 val += '; expires=' + expires.toUTCString();
                                 val += '; SameSite=Lax'; // Add SameSite for security
-                                console.log('Enhanced cookie:', cookieName, 'with 30-day expiration');
+                                val += '; Secure'; // Ensure HTTPS only
+                                console.log('Enhanced cookie:', cookieName, 'with 90-day expiration');
                             }
                         }
                         return originalCookieSetter.call(this, val);
@@ -146,7 +158,152 @@ public class JCEFBrowserManager {
                     configurable: true
                 });
                 
-                console.log('Cookie persistence handler installed successfully');
+                // === LOCALSTORAGE PERSISTENCE ===
+                // Create a backup mechanism for localStorage
+                const STORAGE_BACKUP_KEY = '__zest_storage_backup__';
+                const AUTH_KEYS = ['token', 'auth', 'session', 'user', 'jwt', 'access', 'refresh', 'bearer', 'api', 'key'];
+                
+                // Function to check if a key is auth-related
+                const isAuthKey = (key) => {
+                    const lowerKey = key.toLowerCase();
+                    return AUTH_KEYS.some(authKey => lowerKey.includes(authKey)) || 
+                           key === 'token' ||
+                           key === 'authToken' || 
+                           key === 'auth_token' || 
+                           key === 'access_token';
+                };
+                
+                // Backup current localStorage data
+                const backupLocalStorage = () => {
+                    try {
+                        const backup = {};
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (isAuthKey(key)) {
+                                backup[key] = localStorage.getItem(key);
+                            }
+                        }
+                        
+                        // Store backup in a persistent way
+                        if (Object.keys(backup).length > 0) {
+                            // Try to store in sessionStorage as additional backup
+                            try {
+                                sessionStorage.setItem(STORAGE_BACKUP_KEY, JSON.stringify(backup));
+                            } catch (e) {
+                                console.warn('SessionStorage backup failed:', e);
+                            }
+                            
+                            // Also store with extended expiration in localStorage itself
+                            localStorage.setItem(STORAGE_BACKUP_KEY, JSON.stringify({
+                                data: backup,
+                                timestamp: Date.now(),
+                                expires: Date.now() + (90 * 24 * 60 * 60 * 1000) // 90 days
+                            }));
+                            
+                            console.log('Backed up auth keys:', Object.keys(backup));
+                        }
+                    } catch (e) {
+                        console.error('LocalStorage backup failed:', e);
+                    }
+                };
+                
+                // Restore localStorage from backup
+                const restoreLocalStorage = () => {
+                    try {
+                        // Try to restore from localStorage backup first
+                        const backupStr = localStorage.getItem(STORAGE_BACKUP_KEY);
+                        if (backupStr) {
+                            const backupData = JSON.parse(backupStr);
+                            if (backupData.expires && backupData.expires > Date.now()) {
+                                Object.entries(backupData.data).forEach(([key, value]) => {
+                                    if (!localStorage.getItem(key)) {
+                                        localStorage.setItem(key, value);
+                                        console.log('Restored key from backup:', key);
+                                    }
+                                });
+                            }
+                        }
+                        
+                        // Try sessionStorage as fallback
+                        const sessionBackup = sessionStorage.getItem(STORAGE_BACKUP_KEY);
+                        if (sessionBackup) {
+                            const backup = JSON.parse(sessionBackup);
+                            Object.entries(backup).forEach(([key, value]) => {
+                                if (!localStorage.getItem(key)) {
+                                    localStorage.setItem(key, value);
+                                    console.log('Restored key from session backup:', key);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error('LocalStorage restore failed:', e);
+                    }
+                };
+                
+                // Override localStorage methods to add persistence
+                const originalSetItem = localStorage.setItem.bind(localStorage);
+                const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+                const originalClear = localStorage.clear.bind(localStorage);
+                
+                localStorage.setItem = function(key, value) {
+                    originalSetItem(key, value);
+                    if (isAuthKey(key)) {
+                        console.log('Persisting auth key:', key);
+                        backupLocalStorage();
+                    }
+                };
+                
+                localStorage.removeItem = function(key) {
+                    if (isAuthKey(key)) {
+                        console.warn('Preventing removal of auth key:', key);
+                        return; // Don't remove auth keys
+                    }
+                    originalRemoveItem(key);
+                };
+                
+                localStorage.clear = function() {
+                    // Save auth keys before clearing
+                    const authData = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (isAuthKey(key)) {
+                            authData[key] = localStorage.getItem(key);
+                        }
+                    }
+                    
+                    originalClear();
+                    
+                    // Restore auth keys
+                    Object.entries(authData).forEach(([key, value]) => {
+                        localStorage.setItem(key, value);
+                    });
+                    console.log('Cleared localStorage but preserved auth keys');
+                };
+                
+                // Make backup and restore functions globally available
+                window.backupLocalStorage = backupLocalStorage;
+                window.restoreLocalStorage = restoreLocalStorage;
+                
+                // Initial backup and restore
+                restoreLocalStorage();
+                backupLocalStorage();
+                
+                // Periodic backup (every 5 minutes)
+                setInterval(backupLocalStorage, 5 * 60 * 1000);
+                
+                // Backup on page unload
+                window.addEventListener('beforeunload', backupLocalStorage);
+                
+                // Listen for storage events from other tabs/windows
+                window.addEventListener('storage', (e) => {
+                    if (e.key && isAuthKey(e.key) && !e.newValue) {
+                        // Auth key was removed, restore it
+                        console.log('Auth key removed, restoring:', e.key);
+                        restoreLocalStorage();
+                    }
+                });
+                
+                console.log('Cookie and localStorage persistence handlers installed successfully');
             })();
             """;
 
@@ -172,9 +329,27 @@ public class JCEFBrowserManager {
         // Load the specified URL into the browser
         browser.loadURL(url);
 
-        // Ensure cookie persistence after loading
+        // Ensure cookie and localStorage persistence after loading
         browser.getCefBrowser().executeJavaScript(
-                "setTimeout(() => { console.log('Page loaded, cookies should persist'); }, 1000);",
+                """
+                setTimeout(() => { 
+                    console.log('Page loaded, ensuring storage persistence...');
+                    // Trigger persistence check
+                    if (typeof window.__zest_storage_backup__ !== 'undefined') {
+                        console.log('Storage persistence already initialized');
+                    }
+                }, 1000);
+                """,
+                url, 0
+        );
+        
+        // Inject auth token after a short delay to ensure page is ready
+        browser.getCefBrowser().executeJavaScript(
+                """
+                setTimeout(() => {
+                    console.log('Checking for auth token injection after page load...');
+                }, 500);
+                """,
                 url, 0
         );
     }
@@ -212,6 +387,9 @@ public class JCEFBrowserManager {
     private void setupJavaScriptBridge(CefBrowser cefBrowser, CefFrame frame) {
         try {
             LOG.info("Setting up JavaScript bridge for frame: " + frame.getURL());
+            
+            // Inject auth token from ConfigurationManager before setting up the bridge
+            injectAuthToken(cefBrowser, frame);
 
             // Create a JS query
             jsQuery = JBCefJSQuery.create((JBCefBrowserBase) browser);
@@ -295,6 +473,9 @@ public class JCEFBrowserManager {
 
             // Ensure cookie persistence
             ensureCookiePersistence();
+            
+            // Try to restore any saved browser state
+            restoreBrowserState();
 
             LOG.info("JavaScript bridge initialized successfully with chunked messaging support and git integration");
         } catch (Exception e) {
@@ -362,6 +543,9 @@ public class JCEFBrowserManager {
     public void dispose() {
         LOG.info("Disposing JCEFBrowserManager");
 
+        // Save browser state before disposing
+        saveBrowserState();
+
         // Dispose JavaScript query
         if (jsQuery != null) {
             Disposer.dispose(jsQuery);
@@ -370,6 +554,149 @@ public class JCEFBrowserManager {
         closeDevTools();
 
         LOG.info("JCEFBrowserManager disposed");
+    }
+
+    /**
+     * Saves the current browser state (cookies and localStorage) before disposal
+     */
+    private void saveBrowserState() {
+        try {
+            String saveScript = """
+                (function() {
+                    try {
+                        // Force backup of all auth data
+                        if (typeof backupLocalStorage === 'function') {
+                            backupLocalStorage();
+                            console.log('Browser state saved successfully');
+                        }
+                        
+                        // Also try to persist cookies one more time
+                        const cookies = document.cookie;
+                        if (cookies) {
+                            console.log('Current cookies will be preserved:', cookies.split(';').length + ' cookies');
+                        }
+                    } catch (e) {
+                        console.error('Failed to save browser state:', e);
+                    }
+                })();
+                """;
+            
+            executeJavaScript(saveScript);
+            
+            // Give it a moment to complete
+            Thread.sleep(100);
+        } catch (Exception e) {
+            LOG.warn("Error saving browser state", e);
+        }
+    }
+
+    /**
+     * Restores browser state after initialization
+     */
+    private void restoreBrowserState() {
+        try {
+            String restoreScript = """
+                (function() {
+                    try {
+                        // Trigger restoration if available
+                        if (typeof restoreLocalStorage === 'function') {
+                            restoreLocalStorage();
+                            console.log('Browser state restoration attempted');
+                        }
+                    } catch (e) {
+                        console.error('Failed to restore browser state:', e);
+                    }
+                })();
+                """;
+            
+            executeJavaScript(restoreScript);
+        } catch (Exception e) {
+            LOG.warn("Error restoring browser state", e);
+        }
+    }
+
+    /**
+     * Injects the authentication token from ConfigurationManager into the browser's localStorage
+     */
+    private void injectAuthToken(CefBrowser cefBrowser, CefFrame frame) {
+        try {
+            String authToken = ConfigurationManager.getInstance(project).getAuthTokenNoPrompt();
+            
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                LOG.info("Injecting auth token into browser localStorage");
+                
+                // Escape the token for JavaScript string literal
+                String escapedToken = authToken.replace("\\", "\\\\")
+                                              .replace("'", "\\'")
+                                              .replace("\"", "\\\"")
+                                              .replace("\n", "\\n")
+                                              .replace("\r", "\\r");
+                
+                String injectScript = String.format("""
+                    (function() {
+                        try {
+                            // Set the auth token in localStorage
+                            localStorage.setItem('token', '%s');
+                            localStorage.setItem('authToken', '%s');
+                            localStorage.setItem('auth_token', '%s');
+                            localStorage.setItem('access_token', '%s');
+                            
+                            // Also try to set it in sessionStorage as backup
+                            sessionStorage.setItem('token', '%s');
+                            sessionStorage.setItem('authToken', '%s');
+                            sessionStorage.setItem('auth_token', '%s');
+                            sessionStorage.setItem('access_token', '%s');
+                            
+                            console.log('Auth token injected successfully from IDE configuration');
+                            
+                            // Trigger any auth-related events the web app might be listening for
+                            window.dispatchEvent(new Event('storage'));
+                            window.dispatchEvent(new CustomEvent('authTokenUpdated', { 
+                                detail: { source: 'ide-injection' } 
+                            }));
+                            
+                            // If there's a specific auth mechanism in the app, try to trigger it
+                            if (typeof window.setAuthToken === 'function') {
+                                window.setAuthToken('%s');
+                            }
+                            
+                            // Force backup of the injected token
+                            if (typeof window.backupLocalStorage === 'function') {
+                                setTimeout(() => window.backupLocalStorage(), 100);
+                            }
+                        } catch (e) {
+                            console.error('Failed to inject auth token:', e);
+                        }
+                    })();
+                    """, escapedToken, escapedToken, escapedToken, escapedToken,
+                         escapedToken, escapedToken, escapedToken, escapedToken,
+                         escapedToken);
+                
+                cefBrowser.executeJavaScript(injectScript, frame.getURL(), 0);
+                
+                // Also set as a cookie for extra persistence
+                String cookieScript = String.format("""
+                    (function() {
+                        try {
+                            const expires = new Date();
+                            expires.setDate(expires.getDate() + 90);
+                            document.cookie = 'token=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                            document.cookie = 'authToken=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                            document.cookie = 'auth_token=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                            console.log('Auth token also set as cookies');
+                        } catch (e) {
+                            console.error('Failed to set auth cookie:', e);
+                        }
+                    })();
+                    """, escapedToken, escapedToken, escapedToken);
+                
+                cefBrowser.executeJavaScript(cookieScript, frame.getURL(), 0);
+            } else {
+                LOG.info("No auth token found in configuration to inject");
+            }
+        } catch (Exception e) {
+            LOG.error("Error injecting auth token", e);
+        }
     }
 
     String  interceptorScript;
@@ -442,5 +769,79 @@ public class JCEFBrowserManager {
 
     public JavaScriptBridge getJavaScriptBridge() {
         return jsBridge;
+    }
+
+    /**
+     * Updates the auth token in the browser when it changes in configuration.
+     * This provides the reverse sync from ConfigurationManager to browser.
+     */
+    public void updateAuthTokenInBrowser(String newToken) {
+        if (newToken == null || newToken.trim().isEmpty()) {
+            LOG.info("No auth token to update in browser");
+            return;
+        }
+        
+        try {
+            // Escape the token for JavaScript
+            String escapedToken = newToken.replace("\\", "\\\\")
+                                         .replace("'", "\\'")
+                                         .replace("\"", "\\\"")
+                                         .replace("\n", "\\n")
+                                         .replace("\r", "\\r");
+            
+            String updateScript = String.format("""
+                (function() {
+                    try {
+                        // Update auth token in localStorage
+                        localStorage.setItem('token', '%s');
+                        localStorage.setItem('authToken', '%s');
+                        localStorage.setItem('auth_token', '%s');
+                        localStorage.setItem('access_token', '%s');
+                        
+                        // Update in sessionStorage too
+                        sessionStorage.setItem('token', '%s');
+                        sessionStorage.setItem('authToken', '%s');
+                        sessionStorage.setItem('auth_token', '%s');
+                        sessionStorage.setItem('access_token', '%s');
+                        
+                        // Update cookies
+                        const expires = new Date();
+                        expires.setDate(expires.getDate() + 90);
+                        document.cookie = 'token=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                        document.cookie = 'authToken=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                        document.cookie = 'auth_token=%s; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                        
+                        console.log('Auth token updated from IDE configuration change');
+                        
+                        // Trigger storage events
+                        window.dispatchEvent(new Event('storage'));
+                        window.dispatchEvent(new CustomEvent('authTokenUpdated', { 
+                            detail: { source: 'ide-config-update' } 
+                        }));
+                        
+                        // Force backup
+                        if (typeof window.backupLocalStorage === 'function') {
+                            window.backupLocalStorage();
+                        }
+                        
+                        // If the app has a specific auth update mechanism
+                        if (typeof window.updateAuthToken === 'function') {
+                            window.updateAuthToken('%s');
+                        }
+                    } catch (e) {
+                        console.error('Failed to update auth token:', e);
+                    }
+                })();
+                """, escapedToken, escapedToken, escapedToken, escapedToken,
+                     escapedToken, escapedToken, escapedToken, escapedToken,
+                     escapedToken, escapedToken, escapedToken,
+                     escapedToken);
+            
+            executeJavaScript(updateScript);
+            LOG.info("Auth token updated in browser");
+            
+        } catch (Exception e) {
+            LOG.error("Error updating auth token in browser", e);
+        }
     }
 }

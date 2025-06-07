@@ -153,7 +153,7 @@
         console.log('Project is being indexed, waiting for completion...');
 
         // Wait for indexing to complete (with timeout)
-        const maxIndexingTime = 300000; // 5 minutes for indexing
+        const maxIndexingTime = 3000000; // 5 minutes for indexing
         const startTime = Date.now();
 
         return new Promise((resolve) => {
@@ -176,7 +176,7 @@
             explorationStarted = true;
 
             // Now wait for the actual exploration to complete
-            const explorationMaxTime = 600000; // 10 minutes for exploration after indexing
+            const explorationMaxTime = 6000000; // 10 minutes for exploration after indexing
             const explorationStartTime = Date.now();
 
             while (Date.now() - explorationStartTime < explorationMaxTime) {
@@ -309,19 +309,28 @@
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           let systemPrompt = window.__injected_system_prompt__;
 
-          // For Agent Mode OR when context injection is manually enabled, add exploration context if available
-          if ((window.__zest_mode__ === 'Agent Mode' || window.__enable_context_injection__) && 
+          // When context injection is enabled (regardless of mode), add exploration context if available
+          if (window.__enable_context_injection__ && 
               window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+            
+            // Wait for pending exploration context if it's being prepared (especially for first message)
+            let waitTime = 0;
+            const maxWaitTime = 5000; // Wait up to 5 seconds for context
+            
+            while (!window.__pending_exploration_context__ && waitTime < maxWaitTime) {
+              console.log(`Waiting for exploration context... ${waitTime}ms`);
+              await new Promise(resolve => setTimeout(resolve, 100));
+              waitTime += 100;
+            }
+            
             const explorationContext = window.__pending_exploration_context__;
             if (explorationContext) {
               systemPrompt += explorationContext;
               window.__pending_exploration_context__ = null; // Clear pending after use
               console.log('Added exploration context to system prompt');
             } else {
-              console.warn('No exploration context available');
+              console.warn('No exploration context available after waiting ' + waitTime + 'ms');
             }
-          } else if (window.__zest_mode__ === 'Agent Mode' && !window.__enable_context_injection__) {
-            console.log('Agent Mode: Context injection disabled by user toggle');
           }
 
           if (systemMsgIndex >= 0) {

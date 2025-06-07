@@ -306,10 +306,82 @@ public final class OpenWebUIRagAgent {
         
         // Get or create knowledge base
         String knowledgeId = config.getKnowledgeId();
-        if (knowledgeId == null || forceRefresh) {
-            knowledgeId = createOrResetKnowledgeBase();
-            config.setKnowledgeId(knowledgeId);
+        boolean needNewKnowledgeBase = false;
+        
+        if (knowledgeId == null || knowledgeId.isEmpty()) {
+            needNewKnowledgeBase = true;
+        } else if (!forceRefresh) {
+            // Validate existing knowledge ID
+            indicator.setText("Validating existing knowledge base...");
+            try {
+                if (!apiClient.knowledgeExists(knowledgeId)) {
+                    LOG.warn("Existing knowledge base not found: " + knowledgeId);
+                    // Clear the invalid ID from config
+                    config.setKnowledgeId(null);
+                    config.saveConfig();
+                    needNewKnowledgeBase = true;
+                } else {
+                    LOG.info("Using existing knowledge base: " + knowledgeId);
+                }
+            } catch (IOException e) {
+                LOG.warn("Failed to validate existing knowledge base: " + e.getMessage());
+                // Clear the ID and try to create new one
+                config.setKnowledgeId(null);
+                config.saveConfig();
+                needNewKnowledgeBase = true;
+            }
+        } else {
+            // Force refresh requested - clear existing ID
+            config.setKnowledgeId(null);
             config.saveConfig();
+            needNewKnowledgeBase = true;
+        }
+        
+        if (needNewKnowledgeBase) {
+            indicator.setText("Creating new knowledge base...");
+            
+            // Generate a unique name to avoid conflicts
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            String uniqueName = KNOWLEDGE_NAME_PREFIX + project.getName() + "-" + timestamp.substring(timestamp.length() - 6);
+            
+            try {
+                knowledgeId = apiClient.createKnowledgeBase(
+                    uniqueName,
+                    "Code signatures and project info for " + project.getName()
+                );
+                config.setKnowledgeId(knowledgeId);
+                config.saveConfig();
+                LOG.info("Created new knowledge base: " + knowledgeId + " with name: " + uniqueName);
+            } catch (IOException e) {
+                if (e.getMessage().contains("422")) {
+                    // Try with a different name
+                    String alternativeName = KNOWLEDGE_NAME_PREFIX + project.getName() + "-" + UUID.randomUUID().toString().substring(0, 8);
+                    LOG.warn("Got 422 error, trying with alternative name: " + alternativeName);
+                    
+                    knowledgeId = apiClient.createKnowledgeBase(
+                        alternativeName,
+                        "Code signatures and project info for " + project.getName()
+                    );
+                    config.setKnowledgeId(knowledgeId);
+                    config.saveConfig();
+                    LOG.info("Created new knowledge base with alternative name: " + knowledgeId);
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        // Now we have a valid knowledge ID, verify it one more time before proceeding
+        try {
+            if (!apiClient.knowledgeExists(knowledgeId)) {
+                throw new IOException("Failed to verify newly created knowledge base");
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to verify knowledge base after creation/validation", e);
+            // Clear the invalid ID
+            config.setKnowledgeId(null);
+            config.saveConfig();
+            throw new IOException("Knowledge base verification failed: " + e.getMessage(), e);
         }
 
         indicator.setText("Extracting project information...");
@@ -468,16 +540,26 @@ public final class OpenWebUIRagAgent {
         }
     }
 
-    private String createOrResetKnowledgeBase() throws IOException {
-        return apiClient.createKnowledgeBase(
-            KNOWLEDGE_NAME_PREFIX + project.getName(),
-            "Code signatures and project info for " + project.getName()
-        );
-    }
+
 
     private void uploadDocument(String knowledgeId, String fileName, String content) throws IOException {
         String fileId = apiClient.uploadFile(fileName, content);
+        
+        // Add a small delay between upload and adding to knowledge
+        try {
+            Thread.sleep(1000); // 1 second delay
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
         apiClient.addFileToKnowledge(knowledgeId, fileId);
+        
+        // Add another small delay after adding to knowledge
+        try {
+            Thread.sleep(500); // 500ms delay
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private List<String> queryKnowledgeBase(String knowledgeId, String query) throws IOException {

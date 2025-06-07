@@ -31,11 +31,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Main RAG agent that manages code indexing and retrieval.
- * Designed with testability in mind using dependency injection.
+ * Simplified version with better knowledge management.
  */
 @Service(Service.Level.PROJECT)
 public final class OpenWebUIRagAgent {
     private static final Logger LOG = Logger.getInstance(OpenWebUIRagAgent.class);
+    
+    // Increased timeouts
+    private static final int KNOWLEDGE_CREATE_TIMEOUT_MS = 60000; // 60 seconds
+    private static final int FILE_UPLOAD_TIMEOUT_MS = 45000; // 45 seconds
+    private static final int FILE_ADD_TIMEOUT_MS = 30000; // 30 seconds
+    
     private static final String KNOWLEDGE_NAME_PREFIX = "project-code-";
     
     private final Project project;
@@ -46,14 +52,14 @@ public final class OpenWebUIRagAgent {
     private final Gson gson = new Gson();
     
     private volatile boolean isIndexing = false;
-    private volatile boolean hasLocalIndex = false; // Track local index state
+    private volatile boolean hasLocalIndex = false;
 
     // Production constructor
     public OpenWebUIRagAgent(Project project) {
         this(project, 
              ConfigurationManager.getInstance(project),
              new DefaultCodeAnalyzer(project),
-             RagComponentFactory.createJSBridgeApiClient(project)); // Use JS bridge client
+             RagComponentFactory.createJSBridgeApiClient(project));
     }
     
     // Test-friendly constructor
@@ -71,6 +77,18 @@ public final class OpenWebUIRagAgent {
 
     public static OpenWebUIRagAgent getInstance(Project project) {
         return project.getService(OpenWebUIRagAgent.class);
+    }
+    
+    /**
+     * Generate deterministic knowledge name for the project
+     */
+    private String getProjectKnowledgeName() {
+        String projectName = project.getName();
+        // Simple hash of project path for uniqueness
+        String projectPath = project.getBasePath();
+        int hash = projectPath != null ? Math.abs(projectPath.hashCode()) : 0;
+        String hashStr = String.format("%08x", hash).substring(0, 6);
+        return KNOWLEDGE_NAME_PREFIX + projectName + "-" + hashStr;
     }
 
     /**
@@ -236,35 +254,31 @@ public final class OpenWebUIRagAgent {
     }
     
     /**
-     * Updates a single file in the existing index.
-     * This is used by the file change listener to keep the index up to date.
+     * Updates a single file in the existing index by removing old and adding new.
      */
     public void updateFileInIndex(String knowledgeId, VirtualFile file) throws IOException {
         LOG.info("Updating file in index: " + file.getPath());
         
-        // First, try to find and remove the old version of this file from the knowledge base
-        String oldFileName = file.getNameWithoutExtension() + "-signatures.md";
+        // First, try to find existing file in the knowledge base
+        String fileNamePattern = file.getNameWithoutExtension() + "-signatures";
         
         try {
-            // Get the knowledge collection to find the existing file
             KnowledgeCollection collection = apiClient.getKnowledgeCollection(knowledgeId);
             if (collection != null && collection.getFiles() != null) {
-                // Find and remove the old file if it exists
+                // Find files matching this source file
                 collection.getFiles().stream()
-                    .filter(f -> f.getMeta().getName().equals(oldFileName))
-                    .findFirst()
-                    .ifPresent(f -> {
+                    .filter(f -> f.getMeta().getName().startsWith(fileNamePattern))
+                    .forEach(f -> {
                         try {
-                            LOG.info("Removing old version of file from knowledge base: " + oldFileName);
-                            // Note: You might need to add a removeFileFromKnowledge method to the API client
-                            // For now, we'll just re-upload which should replace the old version
+                            LOG.info("Removing old file from knowledge: " + f.getMeta().getName());
+                            apiClient.removeFileFromKnowledge(knowledgeId, f.getId());
                         } catch (Exception e) {
-                            LOG.warn("Failed to remove old file version", e);
+                            LOG.warn("Failed to remove old file version: " + f.getId(), e);
                         }
                     });
             }
         } catch (Exception e) {
-            LOG.warn("Failed to check for existing file version", e);
+            LOG.warn("Failed to check for existing file versions", e);
         }
         
         // Re-index the file
@@ -289,112 +303,71 @@ public final class OpenWebUIRagAgent {
     }
     
     /**
-     * Performs the actual indexing - extracted for testability.
+     * Simplified indexing that prevents duplicates and validates knowledge ID
      */
     @VisibleForTesting
     void performIndexing(ProgressIndicator indicator, boolean forceRefresh) throws IOException {
         indicator.setText("Preparing knowledge base...");
         
-        // Get or create knowledge base
-        String knowledgeId = config.getKnowledgeId();
-        boolean needNewKnowledgeBase = false;
+        String knowledgeId = null;
         
-        if (knowledgeId == null || knowledgeId.isEmpty()) {
-            needNewKnowledgeBase = true;
-        } else if (!forceRefresh) {
-            // Validate existing knowledge ID
-            indicator.setText("Validating existing knowledge base...");
-            try {
-                if (!apiClient.knowledgeExists(knowledgeId)) {
-                    LOG.warn("Existing knowledge base not found: " + knowledgeId);
-                    // Clear the invalid ID from config
-                    config.setKnowledgeId(null);
-                    config.saveConfig();
-                    needNewKnowledgeBase = true;
-                } else {
-                    LOG.info("Using existing knowledge base: " + knowledgeId);
+        // Get the deterministic name for this project
+        String projectKnowledgeName = getProjectKnowledgeName();
+        
+        if (!forceRefresh) {
+            // Try to get existing knowledge ID from config
+            knowledgeId = config.getKnowledgeId();
+            
+            // Validate it if exists
+            if (knowledgeId != null && !knowledgeId.isEmpty()) {
+                indicator.setText("Validating existing knowledge base...");
+                try {
+                    if (apiClient.knowledgeExists(knowledgeId)) {
+                        LOG.info("Using existing knowledge base: " + knowledgeId);
+                    } else {
+                        LOG.warn("Stored knowledge ID is invalid: " + knowledgeId);
+                        knowledgeId = null;
+                        config.setKnowledgeId(null);
+                        config.saveConfig();
+                    }
+                } catch (IOException e) {
+                    LOG.warn("Failed to validate knowledge ID, will search by name: " + e.getMessage());
+                    knowledgeId = null;
                 }
-            } catch (IOException e) {
-                LOG.warn("Failed to validate existing knowledge base: " + e.getMessage());
-                // Clear the ID and try to create new one
-                config.setKnowledgeId(null);
-                config.saveConfig();
-                needNewKnowledgeBase = true;
             }
-        } else {
-            // Force refresh requested - clear existing ID
-            config.setKnowledgeId(null);
-            config.saveConfig();
-            needNewKnowledgeBase = true;
         }
         
-        if (needNewKnowledgeBase) {
-            indicator.setText("Creating new knowledge base...");
-            
-            // Generate a unique name to avoid conflicts
-            String timestamp = String.valueOf(System.currentTimeMillis());
-            String uniqueName = KNOWLEDGE_NAME_PREFIX + project.getName() + "-" + timestamp.substring(timestamp.length() - 6);
-            
+        // If we don't have a valid ID, try to find existing knowledge by name
+        if (knowledgeId == null) {
+            indicator.setText("Searching for existing knowledge base...");
             try {
-                knowledgeId = apiClient.createKnowledgeBase(
-                    uniqueName,
-                    "Code signatures and project info for " + project.getName()
-                );
-                config.setKnowledgeId(knowledgeId);
-                config.saveConfig();
-                LOG.info("Created new knowledge base: " + knowledgeId + " with name: " + uniqueName);
-            } catch (IOException e) {
-                if (e.getMessage().contains("422")) {
-                    // Try with a different name
-                    String alternativeName = KNOWLEDGE_NAME_PREFIX + project.getName() + "-" + UUID.randomUUID().toString().substring(0, 8);
-                    LOG.warn("Got 422 error, trying with alternative name: " + alternativeName);
-                    
-                    knowledgeId = apiClient.createKnowledgeBase(
-                        alternativeName,
-                        "Code signatures and project info for " + project.getName()
-                    );
+                // This will use the JS bridge to search
+                knowledgeId = findExistingKnowledgeByName(projectKnowledgeName);
+                if (knowledgeId != null) {
+                    LOG.info("Found existing knowledge base by name: " + knowledgeId);
                     config.setKnowledgeId(knowledgeId);
                     config.saveConfig();
-                    LOG.info("Created new knowledge base with alternative name: " + knowledgeId);
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        // Now we have a valid knowledge ID, verify it one more time before proceeding
-        // Add retries with delays to handle timing issues
-        boolean verified = false;
-        int retries = 3;
-        
-        for (int i = 0; i < retries; i++) {
-            try {
-                // Add a delay before verification to allow server to fully process
-                if (i > 0) {
-                    Thread.sleep(2000 * i); // Exponential backoff: 0s, 2s, 4s
-                }
-                
-                if (apiClient.knowledgeExists(knowledgeId)) {
-                    verified = true;
-                    LOG.info("Knowledge base verified successfully on attempt " + (i + 1));
-                    break;
                 }
             } catch (Exception e) {
-                LOG.warn("Knowledge base verification attempt " + (i + 1) + " failed: " + e.getMessage());
+                LOG.warn("Failed to search for existing knowledge: " + e.getMessage());
             }
         }
         
-        if (!verified) {
-            LOG.error("Failed to verify knowledge base after " + retries + " attempts");
-            // Clear the invalid ID
-            config.setKnowledgeId(null);
+        // If still no ID, create new knowledge base
+        if (knowledgeId == null) {
+            indicator.setText("Creating new knowledge base...");
+            knowledgeId = apiClient.createKnowledgeBase(
+                projectKnowledgeName,
+                "Code signatures and project info for " + project.getName()
+            );
+            config.setKnowledgeId(knowledgeId);
             config.saveConfig();
-            throw new IOException("Knowledge base verification failed after multiple attempts");
+            LOG.info("Created new knowledge base: " + knowledgeId);
         }
 
+        // Now proceed with indexing
         indicator.setText("Extracting project information...");
         
-        // Extract project info
         ProjectInfo projectInfo = ReadAction.compute(() -> codeAnalyzer.extractProjectInfo());
         
         // Create project overview document
@@ -425,10 +398,21 @@ public final class OpenWebUIRagAgent {
         indicator.setText("Indexing complete");
         LOG.info("Project indexing completed. Indexed " + current + " files.");
         
-        // Set up file change listener to keep index updated
+        // Set up file change listener
         ApplicationManager.getApplication().invokeLater(() -> {
             RagManagerProjectListener.onIndexingComplete(project);
         });
+    }
+    
+    /**
+     * Find existing knowledge by name using JS bridge
+     */
+    private String findExistingKnowledgeByName(String name) throws IOException {
+        // This should call through JS bridge
+        if (apiClient instanceof JSBridgeKnowledgeClient) {
+            return ((JSBridgeKnowledgeClient) apiClient).findKnowledgeByName(name);
+        }
+        return null;
     }
     
     @VisibleForTesting
@@ -552,22 +536,7 @@ public final class OpenWebUIRagAgent {
 
     private void uploadDocument(String knowledgeId, String fileName, String content) throws IOException {
         String fileId = apiClient.uploadFile(fileName, content);
-        
-        // Add a small delay between upload and adding to knowledge
-        try {
-            Thread.sleep(1000); // 1 second delay
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
         apiClient.addFileToKnowledge(knowledgeId, fileId);
-        
-        // Add another small delay after adding to knowledge
-        try {
-            Thread.sleep(500); // 500ms delay
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     private List<String> queryKnowledgeBase(String knowledgeId, String query) throws IOException {

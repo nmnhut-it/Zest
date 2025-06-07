@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.application.ApplicationManager;
-import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.rag.models.KnowledgeCollection;
@@ -24,16 +23,39 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
     private static final Logger LOG = Logger.getInstance(JSBridgeKnowledgeClient.class);
-    private static final int TIMEOUT_SECONDS = 30;
+    private static final int TIMEOUT_SECONDS = 60; // Increased from 30
     private static final AtomicLong callbackCounter = new AtomicLong(0);
     private static final ConcurrentHashMap<String, CompletableFuture<JsonObject>> pendingCallbacks = new ConcurrentHashMap<>();
     
     private final Project project;
     private final Gson gson = new Gson();
-    private volatile OpenWebUIKnowledgeClient fallbackClient = null;
     
     public JSBridgeKnowledgeClient(Project project) {
         this.project = project;
+    }
+    
+    /**
+     * Find knowledge base by name pattern using JS bridge
+     */
+    public String findKnowledgeByName(String namePattern) throws IOException {
+        LOG.info("Finding knowledge base by name: " + namePattern);
+        
+        try {
+            JsonObject result = executeKnowledgeApiCall(
+                String.format("KnowledgeAPI.findKnowledgeByName('%s')", 
+                    escapeJs(namePattern))
+            ).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            
+            if (result.has("success") && result.get("success").getAsBoolean()) {
+                if (result.has("knowledgeId") && !result.get("knowledgeId").isJsonNull()) {
+                    return result.get("knowledgeId").getAsString();
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            LOG.error("Error finding knowledge by name via JS bridge", e);
+            return null;
+        }
     }
     
     @Override
@@ -50,10 +72,6 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                 if (result.has("knowledgeId") && !result.get("knowledgeId").isJsonNull()) {
                     String knowledgeId = result.get("knowledgeId").getAsString();
                     LOG.info("Knowledge base created successfully with ID: " + knowledgeId);
-                    
-                    // Add a small delay to ensure the knowledge base is fully created
-                    Thread.sleep(2000);
-                    
                     return knowledgeId;
                 } else {
                     throw new IOException("No knowledge ID returned");
@@ -63,11 +81,8 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                 throw new IOException("Failed to create knowledge base: " + error);
             }
         } catch (Exception e) {
-            LOG.error("Error creating knowledge base via JS bridge, falling back to direct HTTP", e);
-            
-            // Fallback to direct HTTP client
-            ensureFallbackClient();
-            return fallbackClient.createKnowledgeBase(name, description);
+            LOG.error("Error creating knowledge base via JS bridge", e);
+            throw new IOException("Failed to create knowledge base", e);
         }
     }
     
@@ -92,11 +107,8 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                 throw new IOException("Failed to upload file: " + error);
             }
         } catch (Exception e) {
-            LOG.error("Error uploading file via JS bridge, falling back to direct HTTP", e);
-            
-            // Fallback to direct HTTP client
-            ensureFallbackClient();
-            return fallbackClient.uploadFile(fileName, content);
+            LOG.error("Error uploading file via JS bridge", e);
+            throw new IOException("Failed to upload file", e);
         }
     }
     
@@ -115,11 +127,28 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                 throw new IOException("Failed to add file to knowledge: " + error);
             }
         } catch (Exception e) {
-            LOG.error("Error adding file to knowledge via JS bridge, falling back to direct HTTP", e);
+            LOG.error("Error adding file to knowledge via JS bridge", e);
+            throw new IOException("Failed to add file to knowledge", e);
+        }
+    }
+    
+    @Override
+    public void removeFileFromKnowledge(String knowledgeId, String fileId) throws IOException {
+        LOG.info("Removing file from knowledge base: " + fileId + " from " + knowledgeId);
+        
+        try {
+            JsonObject result = executeKnowledgeApiCall(
+                String.format("KnowledgeAPI.removeFileFromKnowledge('%s', '%s')", 
+                    escapeJs(knowledgeId), escapeJs(fileId))
+            ).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             
-            // Fallback to direct HTTP client
-            ensureFallbackClient();
-            fallbackClient.addFileToKnowledge(knowledgeId, fileId);
+            if (!result.has("success") || !result.get("success").getAsBoolean()) {
+                String error = result.has("error") ? result.get("error").getAsString() : "Unknown error";
+                throw new IOException("Failed to remove file from knowledge: " + error);
+            }
+        } catch (Exception e) {
+            LOG.error("Error removing file from knowledge via JS bridge", e);
+            throw new IOException("Failed to remove file from knowledge", e);
         }
     }
     
@@ -150,11 +179,8 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                 throw new IOException("Failed to get knowledge collection: " + error);
             }
         } catch (Exception e) {
-            LOG.error("Error getting knowledge collection via JS bridge, falling back to direct HTTP", e);
-            
-            // Fallback to direct HTTP client
-            ensureFallbackClient();
-            return fallbackClient.getKnowledgeCollection(knowledgeId);
+            LOG.error("Error getting knowledge collection via JS bridge", e);
+            throw new IOException("Failed to get knowledge collection", e);
         }
     }
     
@@ -166,24 +192,13 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                     escapeJs(knowledgeId))
             ).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             
-            // The JS client now returns {success: boolean, ...}
-            // where success indicates if the call succeeded, not if the knowledge exists
             if (result.has("success") && result.get("success").getAsBoolean()) {
-                // The actual result is in the response
-                return true; // If we got a successful response, the knowledge exists
+                return true;
             }
             return false;
         } catch (Exception e) {
-            LOG.warn("Error checking if knowledge exists via JS bridge, falling back to direct HTTP", e);
-            
-            // Fallback to direct HTTP client
-            try {
-                ensureFallbackClient();
-                return fallbackClient.knowledgeExists(knowledgeId);
-            } catch (IOException ioe) {
-                LOG.error("Fallback also failed", ioe);
-                return false;
-            }
+            LOG.warn("Error checking if knowledge exists via JS bridge", e);
+            return false;
         }
     }
     
@@ -309,22 +324,5 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
                   .replace("\n", "\\n")
                   .replace("\r", "\\r")
                   .replace("\t", "\\t");
-    }
-    
-    /**
-     * Ensure the fallback client is initialized
-     */
-    private void ensureFallbackClient() throws IOException {
-        if (fallbackClient == null) {
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            String apiUrl = config.getApiUrl();
-            String authToken = config.getAuthToken();
-            
-            if (apiUrl != null && !apiUrl.isEmpty() && authToken != null && !authToken.isEmpty()) {
-                fallbackClient = new OpenWebUIKnowledgeClient(apiUrl, authToken);
-            } else {
-                throw new IOException("Cannot create fallback client: missing API URL or auth token");
-            }
-        }
     }
 }

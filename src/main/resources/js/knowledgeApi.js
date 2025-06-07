@@ -118,11 +118,11 @@ const KnowledgeAPI = {
 
     /**
      * Get list of all knowledge bases
-     * Correct endpoint: GET /api/v1/knowledge/list
+     * Correct endpoint: GET /api/v1/knowledge/
      */
     listKnowledgeBases: async function() {
         try {
-            const response = await this.makeRequest('/api/v1/knowledge/list', 'GET');
+            const response = await this.makeRequest('/api/v1/knowledge/', 'GET');
 
             return {
                 success: true,
@@ -130,6 +130,31 @@ const KnowledgeAPI = {
             };
         } catch (error) {
             console.error('Failed to list knowledge bases:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    },
+
+    /**
+     * Find knowledge base by name pattern
+     */
+    findKnowledgeByName: async function(namePattern) {
+        try {
+            const result = await this.listKnowledgeBases();
+            if (!result.success) return { success: false, error: "Failed to list knowledge bases" };
+            
+            const found = result.knowledgeBases.find(kb => 
+                kb.name.startsWith(namePattern)
+            );
+            
+            return {
+                success: true,
+                knowledgeId: found ? found.id : null
+            };
+        } catch (error) {
+            console.error('Error finding knowledge by name:', error);
             return {
                 success: false,
                 error: error.message

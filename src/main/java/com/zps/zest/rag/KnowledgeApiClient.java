@@ -61,6 +61,15 @@ public interface KnowledgeApiClient {
     KnowledgeCollection getKnowledgeCollection(String knowledgeId) throws IOException;
     
     /**
+     * Removes a file from a knowledge base.
+     * 
+     * @param knowledgeId The knowledge base ID
+     * @param fileId The file ID to remove
+     * @throws IOException if the operation fails
+     */
+    void removeFileFromKnowledge(String knowledgeId, String fileId) throws IOException;
+    
+    /**
      * Checks if a knowledge base exists by ID.
      * 
      * @param knowledgeId The knowledge base ID to check

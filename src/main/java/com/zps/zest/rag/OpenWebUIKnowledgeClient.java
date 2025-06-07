@@ -52,18 +52,10 @@ public class OpenWebUIKnowledgeClient implements KnowledgeApiClient {
         if (responseCode == 200 || responseCode == 201) {
             JsonObject response = readJsonResponse(conn);
             String knowledgeId = response.get("id").getAsString();
-            
-            // Wait a bit for the knowledge base to be fully created
-            try {
-                Thread.sleep(2000); // 2 seconds delay
-                LOG.info("Waiting for knowledge base to be ready...");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            
+            LOG.info("Created new knowledge base: " + knowledgeId + " with name: " + name);
             return knowledgeId;
         } else if (responseCode == 422) {
-            // Unprocessable Entity - might be duplicate name or validation error
+            // Unprocessable Entity - might be duplicate name
             String errorMessage = "Failed to create knowledge base (422): ";
             try {
                 if (conn.getErrorStream() != null) {
@@ -146,15 +138,7 @@ public class OpenWebUIKnowledgeClient implements KnowledgeApiClient {
         if (responseCode == 200 || responseCode == 201) {
             JsonObject response = readJsonResponse(conn);
             String fileId = response.get("id").getAsString();
-            
-            // Wait a bit for the file to be fully processed
-            try {
-                Thread.sleep(500); // 500ms delay
-                LOG.info("File uploaded: " + fileName + ", ID: " + fileId);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            
+            LOG.info("File uploaded: " + fileName + ", ID: " + fileId);
             return fileId;
         } else {
             String errorMessage = "Failed to upload file: " + responseCode;
@@ -176,15 +160,7 @@ public class OpenWebUIKnowledgeClient implements KnowledgeApiClient {
     
     @Override
     public void addFileToKnowledge(String knowledgeId, String fileId) throws IOException {
-        // Wait a bit before adding file to knowledge to ensure file is ready
-        try {
-            Thread.sleep(500);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
-        // Try the new API endpoint format first
-        String apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId + "/files/add";
+        String apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId + "/file/add";
         HttpURLConnection conn = createConnection(apiUrl, "POST");
         
         JsonObject body = new JsonObject();
@@ -193,75 +169,37 @@ public class OpenWebUIKnowledgeClient implements KnowledgeApiClient {
         writeJson(conn, body);
         
         int responseCode = conn.getResponseCode();
-        
-        // Handle 422 Unprocessable Entity
-        if (responseCode == 422) {
-            String errorDetail = "";
+        if (responseCode != 200 && responseCode != 201 && responseCode != 204) {
+            String errorMessage = "Failed to add file to knowledge: " + responseCode;
             try {
                 if (conn.getErrorStream() != null) {
                     try (InputStreamReader errorReader = new InputStreamReader(conn.getErrorStream())) {
                         JsonObject errorResponse = gson.fromJson(errorReader, JsonObject.class);
                         if (errorResponse != null && errorResponse.has("detail")) {
-                            errorDetail = errorResponse.get("detail").getAsString();
+                            errorMessage += " - " + errorResponse.get("detail").getAsString();
                         }
                     }
                 }
             } catch (Exception e) {
                 // Ignore error reading
             }
-            
-            LOG.warn("Got 422 error adding file to knowledge: " + errorDetail);
-            
-            // Wait and retry once
-            try {
-                Thread.sleep(2000);
-                conn.disconnect();
-                
-                // Retry with same endpoint
-                conn = createConnection(apiUrl, "POST");
-                writeJson(conn, body);
-                responseCode = conn.getResponseCode();
-                
-                if (responseCode == 200 || responseCode == 201 || responseCode == 204) {
-                    LOG.info("Successfully added file to knowledge on retry");
-                    return;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            throw new IOException(errorMessage);
         }
+    }
+    
+    @Override
+    public void removeFileFromKnowledge(String knowledgeId, String fileId) throws IOException {
+        String apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId + "/file/remove";
+        HttpURLConnection conn = createConnection(apiUrl, "POST");
         
-        if (responseCode == 405) {
-            // If we get 405, try the alternative endpoint format
-            conn.disconnect();
-            
-            // Try with PUT method instead
-            apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId + "/file/" + fileId;
-            conn = createConnection(apiUrl, "PUT");
-            conn.setDoOutput(false); // PUT might not need body
-            
-            responseCode = conn.getResponseCode();
-            if (responseCode != 200 && responseCode != 201 && responseCode != 204) {
-                // If still failing, try the original endpoint with different body format
-                conn.disconnect();
-                apiUrl = baseUrl + "/v1/knowledge/" + knowledgeId + "/file/add";
-                conn = createConnection(apiUrl, "POST");
-                
-                // Try with files array instead
-                JsonObject bodyAlt = new JsonObject();
-                JsonObject[] filesArray = new JsonObject[1];
-                filesArray[0] = new JsonObject();
-                filesArray[0].addProperty("id", fileId);
-                bodyAlt.add("files", gson.toJsonTree(filesArray));
-                
-                writeJson(conn, bodyAlt);
-                responseCode = conn.getResponseCode();
-            }
-        }
+        JsonObject body = new JsonObject();
+        body.addProperty("file_id", fileId);
         
+        writeJson(conn, body);
+        
+        int responseCode = conn.getResponseCode();
         if (responseCode != 200 && responseCode != 201 && responseCode != 204) {
-            // Log more details for debugging
-            String errorMessage = "Failed to add file to knowledge: " + responseCode;
+            String errorMessage = "Failed to remove file from knowledge: " + responseCode;
             try {
                 if (conn.getErrorStream() != null) {
                     try (InputStreamReader errorReader = new InputStreamReader(conn.getErrorStream())) {

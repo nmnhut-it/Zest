@@ -127,6 +127,14 @@
                 text="Cancel Inline Edit"
                 description="Cancel the inline AI editing operation">
         </action>
+        
+        <!-- Test Diff View Action for development/debugging -->
+        <action id="Zest.TestDiffViewAction"
+                class="com.zps.zest.inlinechat.TestDiffViewAction"
+                text="Test Diff View"
+                description="Test the floating diff view window">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
+        </action>
         <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"

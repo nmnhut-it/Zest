@@ -2,28 +2,16 @@ package com.zps.zest.inlinechat
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ScrollType
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
-import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.*
@@ -34,7 +22,7 @@ import java.awt.event.KeyEvent
 import javax.swing.*
 
 /**
- * A floating window that displays AI-suggested code changes alongside the editor
+ * A floating window that displays AI-suggested code changes with side-by-side diff
  */
 class FloatingCodeWindow(
     private val project: Project,
@@ -46,15 +34,8 @@ class FloatingCodeWindow(
 ) : Disposable {
     
     private var popup: JBPopup? = null
-    private var codeViewer: EditorEx? = null
-    private val positionManager = WindowPositionManager(mainEditor)
+    private var browser: JBCefBrowser? = null
     private var warningPanel: JPanel? = null
-    
-    companion object {
-        private const val WINDOW_WIDTH = 600    // Original width
-        private const val WINDOW_HEIGHT = 400   // Original height
-        private const val MARGIN = 20
-    }
     
     fun show() {
         ApplicationManager.getApplication().invokeLater {
@@ -64,12 +45,18 @@ class FloatingCodeWindow(
             
             val panel = createMainPanel()
             
+            // Calculate window dimensions based on editor width and content
+            val editorWidth = mainEditor.component.width
+            val windowWidth = minOf(editorWidth - 40, 1400)  // Leave some margin, max 1400px
+            val lineCount = maxOf(originalCode.lines().size, suggestedCode.lines().size)
+            val windowHeight = minOf(600, maxOf(400, lineCount * 20 + 150))  // Dynamic height based on content
+            
             popup = JBPopupFactory.getInstance()
                 .createComponentPopupBuilder(panel, null)
-                .setTitle("AI Suggested Changes")
+                .setTitle("AI Suggested Changes - Side by Side Diff")
                 .setMovable(true)
                 .setResizable(true)
-                .setRequestFocus(true)  // Changed to allow interaction
+                .setRequestFocus(true)
                 .setCancelOnClickOutside(false)
                 .setCancelOnOtherWindowOpen(false)
                 .setCancelKeyEnabled(true)
@@ -80,18 +67,14 @@ class FloatingCodeWindow(
                     inlineChatService.clearState()
                     true
                 }
-                .setMinSize(Dimension(400, 300))  // Original minimum size
-                .setDimensionServiceKey(project, "InlineChatFloatingWindow", false)
+                .setMinSize(Dimension(800, 400))  // Wider minimum for diff view
+                .setDimensionServiceKey(project, "InlineChatFloatingDiffWindow", false)
                 .createPopup()
             
-            // Calculate and set position
-            val windowSize = Dimension(WINDOW_WIDTH, WINDOW_HEIGHT)
-            val position = positionManager.calculateOptimalPosition(windowSize)
+            // Position at selection start
+            val position = calculatePositionAtSelection(Dimension(windowWidth, windowHeight))
             
-            // Create a relative point based on the editor component
-            val relativePoint = RelativePoint(mainEditor.component, Point(0, 0))
-            
-            // Show at the calculated position
+            popup?.size = Dimension(windowWidth, windowHeight)
             popup?.show(RelativePoint(Point(position)))
             
             // Add ESC key handler
@@ -102,7 +85,7 @@ class FloatingCodeWindow(
                 inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
                 actionMap.put("close", object : AbstractAction() {
                     override fun actionPerformed(e: ActionEvent?) {
-                        onReject()  // Treat ESC as reject
+                        onReject()
                         hide()
                     }
                 })
@@ -121,15 +104,12 @@ class FloatingCodeWindow(
                 }
                 
                 override fun beforeShown(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
-                    // Start listening for position changes when popup is shown
                     mainEditor.component.addComponentListener(resizeListener)
                 }
                 
                 override fun onClosed(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
-                    // Clean up listeners
                     mainEditor.component.removeComponentListener(resizeListener)
                     
-                    // Clean up state when popup is closed
                     val inlineChatService = project.getService(InlineChatService::class.java)
                     if (inlineChatService.floatingCodeWindow == this@FloatingCodeWindow) {
                         inlineChatService.floatingCodeWindow = null
@@ -138,6 +118,35 @@ class FloatingCodeWindow(
                 }
             })
         }
+    }
+    
+    private fun calculatePositionAtSelection(windowSize: Dimension): Point {
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        val selectionStart = if (inlineChatService.selectionStartOffset > 0) {
+            inlineChatService.selectionStartOffset
+        } else {
+            mainEditor.selectionModel.selectionStart
+        }
+        
+        // Get the position of the selection start in the editor
+        val selectionPoint = mainEditor.offsetToXY(selectionStart)
+        val editorLocation = mainEditor.component.locationOnScreen
+        
+        // Calculate position relative to screen
+        var x = editorLocation.x + selectionPoint.x + 50  // Offset to the right of selection
+        var y = editorLocation.y + selectionPoint.y - 50   // Slightly above selection
+        
+        // Ensure window fits on screen
+        val screenSize = Toolkit.getDefaultToolkit().screenSize
+        if (x + windowSize.width > screenSize.width) {
+            x = screenSize.width - windowSize.width - 20
+        }
+        if (y + windowSize.height > screenSize.height) {
+            y = screenSize.height - windowSize.height - 20
+        }
+        if (y < 0) y = 20
+        
+        return Point(x, y)
     }
     
     fun hide() {
@@ -156,7 +165,6 @@ class FloatingCodeWindow(
         ApplicationManager.getApplication().invokeLater {
             if (warningPanel == null) {
                 warningPanel = createWarningPanel(message)
-                // If popup is already shown, we need to rebuild the UI
                 popup?.content?.let { content ->
                     if (content is JPanel && content.layout is BorderLayout) {
                         val topPanel = content.getComponent(0) as? JPanel
@@ -168,7 +176,6 @@ class FloatingCodeWindow(
                     }
                 }
             } else {
-                // Update existing warning
                 val innerPanel = warningPanel!!.getComponent(0) as? JPanel
                 if (innerPanel != null) {
                     val label = innerPanel.getComponent(1) as? JBLabel
@@ -206,7 +213,6 @@ class FloatingCodeWindow(
     private fun createMainPanel(): JPanel {
         val panel = JPanel(BorderLayout())
         panel.border = JBUI.Borders.empty()
-        panel.preferredSize = Dimension(WINDOW_WIDTH, WINDOW_HEIGHT)
         
         // Create toolbar
         val toolbar = createToolbar()
@@ -222,9 +228,9 @@ class FloatingCodeWindow(
         
         panel.add(topPanel, BorderLayout.NORTH)
         
-        // Create code viewer
-        val codePanel = createCodeViewerPanel()
-        panel.add(codePanel, BorderLayout.CENTER)
+        // Create diff viewer
+        val diffPanel = createDiffViewerPanel()
+        panel.add(diffPanel, BorderLayout.CENTER)
         
         // Create action panel
         val actionPanel = createActionPanel()
@@ -242,55 +248,193 @@ class FloatingCodeWindow(
             true
         )
         
-        val titleLabel = JBLabel("AI Suggested Code")
+        val titleLabel = JBLabel("AI Suggested Changes - Side by Side Comparison")
         titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
-        titleLabel.icon = AllIcons.Actions.SuggestedRefactoringBulb
+        titleLabel.icon = AllIcons.Actions.Diff
         
         panel.add(titleLabel, BorderLayout.WEST)
         
         return panel
     }
     
-    private fun createCodeViewerPanel(): JComponent {
-        // Create a read-only editor for displaying the suggested code
-        val document = EditorFactory.getInstance().createDocument(suggestedCode)
-        codeViewer = EditorFactory.getInstance().createViewer(
-            document,
-            project
-        ) as EditorEx
+    private fun createDiffViewerPanel(): JComponent {
+        // Create JCef browser for diff view
+        browser = JBCefBrowser()
         
-        // Configure the viewer
-        codeViewer?.apply {
-            settings.apply {
-                isLineNumbersShown = true
-                isWhitespacesShown = mainEditor.settings.isWhitespacesShown
-                isIndentGuidesShown = mainEditor.settings.isIndentGuidesShown
-                isFoldingOutlineShown = false
-                isRightMarginShown = false
-                additionalLinesCount = 0
-                additionalColumnsCount = 1  // Small buffer
-                isCaretRowShown = false
-                isUseSoftWraps = false  // Disable soft wraps for better display
-                isAnimatedScrolling = false
-            }
-            
-            // Make the viewer truly read-only
-            isViewer = true
-            
-            // Apply syntax highlighting based on file type
-            val fileType = mainEditor.virtualFile?.fileType 
-                ?: FileTypeManager.getInstance().getFileTypeByExtension("java")
-            highlighter = EditorHighlighterFactory.getInstance()
-                .createEditorHighlighter(fileType, EditorColorsManager.getInstance().globalScheme, project)
-            
-            // Apply diff highlighting
-            applyDiffHighlighting()
+        // Load the diff HTML
+        val diffHtml = generateDiffHtml(originalCode, suggestedCode)
+        browser?.loadHTML(diffHtml)
+        
+        val browserComponent = browser?.component ?: JPanel()
+        browserComponent.border = JBUI.Borders.empty()
+        
+        return browserComponent
+    }
+    
+    private fun generateDiffHtml(original: String, suggested: String): String {
+        // Escape HTML characters
+        fun escapeHtml(text: String): String {
+            return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;")
         }
         
-        val scrollPane = JBScrollPane(codeViewer?.component)
-        scrollPane.border = JBUI.Borders.empty()
+        // Escape string for JavaScript
+        fun escapeForJavaScript(text: String): String {
+            return text
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+        }
         
-        return scrollPane
+        // Get file extension for syntax highlighting
+        val fileExtension = mainEditor.virtualFile?.extension ?: "java"
+        
+        // Detect if dark theme
+        val isDarkTheme = UIUtil.isUnderDarcula()
+        val themeClass = if (isDarkTheme) "dark" else "light"
+        
+        return """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Code Diff</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${if (isDarkTheme) "github-dark" else "github"}.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/diff2html/3.4.47/bundles/css/diff2html.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/diff2html/3.4.47/bundles/js/diff2html-ui.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
+            color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
+        }
+        #diff-container {
+            height: 100vh;
+            overflow: auto;
+        }
+        .d2h-wrapper {
+            font-size: 13px;
+        }
+        .d2h-file-header {
+            display: none;
+        }
+        /* Custom styling for better IDE integration */
+        .d2h-code-side-linenumber {
+            background: ${if (isDarkTheme) "#2d2d2d" else "#f7f7f7"};
+            color: ${if (isDarkTheme) "#858585" else "#666666"};
+            border-right: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+        }
+        .d2h-code-side-line {
+            padding: 0 10px;
+        }
+        .d2h-code-side-line.d2h-ins {
+            background: ${if (isDarkTheme) "rgba(87, 171, 90, 0.2)" else "rgba(40, 167, 69, 0.15)"};
+        }
+        .d2h-code-side-line.d2h-del {
+            background: ${if (isDarkTheme) "rgba(203, 36, 49, 0.2)" else "rgba(215, 58, 73, 0.15)"};
+        }
+        .d2h-code-line-ctn {
+            font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+        }
+        /* Hide file wrapper borders */
+        .d2h-file-wrapper {
+            border: none;
+        }
+        /* Adjust side-by-side view */
+        .d2h-file-side-diff {
+            width: 100%;
+        }
+        .d2h-code-wrapper {
+            width: 50%;
+        }
+    </style>
+</head>
+<body class="${themeClass}">
+    <div id="diff-container"></div>
+    <script>
+        // Enable console logging for debugging
+        console.log('Diff viewer initialized');
+        
+        // Create a unified diff using jsdiff library
+        function createUnifiedDiff(original, suggested) {
+            console.log('Creating diff...');
+            console.log('Original length:', original.length);
+            console.log('Suggested length:', suggested.length);
+            
+            // Use jsdiff to create a proper unified diff
+            const patch = Diff.createPatch(
+                'code',           // filename
+                original,         // oldStr
+                suggested,        // newStr
+                'Original',       // oldHeader
+                'AI Suggested',   // newHeader
+                { context: 3 }    // options: 3 lines of context
+            );
+            
+            console.log('Diff created, patch length:', patch.length);
+            
+            // Remove the file header lines that diff2html will add anyway
+            const lines = patch.split('\\n');
+            const diffContent = lines.slice(2).join('\\n'); // Skip the 'Index:' and '===' lines
+            
+            console.log('Processed diff content');
+            return diffContent;
+        }
+        
+        const original = "${escapeForJavaScript(escapeHtml(original))}";
+        const suggested = "${escapeForJavaScript(escapeHtml(suggested))}";
+        
+        console.log('Input data loaded');
+        
+        // Generate diff
+        const diffString = createUnifiedDiff(original, suggested);
+        console.log('Diff string generated');
+        
+        // Configure diff2html
+        const configuration = {
+            outputFormat: 'side-by-side',
+            drawFileList: false,
+            matching: 'lines',
+            highlight: true,
+            fileContentToggle: false,
+            renderNothingWhenEmpty: false,
+            synchronisedScroll: true,
+            rawTemplates: {
+                'generic-wrapper': '<div class="d2h-wrapper">{{content}}</div>'
+            }
+        };
+        
+        console.log('Configuration:', configuration);
+        
+        // Render the diff
+        const targetElement = document.getElementById('diff-container');
+        console.log('Target element found:', targetElement !== null);
+        
+        try {
+            const diff2htmlUi = new Diff2HtmlUI(targetElement, diffString, configuration);
+            diff2htmlUi.draw();
+            console.log('Diff drawn successfully');
+            
+            // Apply syntax highlighting
+            diff2htmlUi.highlightCode();
+            console.log('Syntax highlighting applied');
+        } catch (error) {
+            console.error('Error rendering diff:', error);
+            targetElement.innerHTML = '<div style="color: red; padding: 20px;">Error rendering diff: ' + error.message + '</div>';
+        }
+    </script>
+</body>
+</html>
+        """.trimIndent()
     }
     
     private fun createActionPanel(): JComponent {
@@ -325,80 +469,21 @@ class FloatingCodeWindow(
         return panel
     }
     
-    private fun applyDiffHighlighting() {
-        val viewer = codeViewer ?: return
-        val service = project.getService(InlineChatService::class.java)
-        
-        // Generate diff segments
-        val segments = service.generateDiffSegments(originalCode, suggestedCode, 0)
-        
-        // Apply highlighting to the viewer
-        val markupModel = viewer.markupModel
-        
-        segments.forEach { segment ->
-            // Skip header and footer segments
-            if (segment.type == DiffSegmentType.HEADER || segment.type == DiffSegmentType.FOOTER) {
-                return@forEach
-            }
-            
-            if (segment.startLine >= 0 && segment.startLine < viewer.document.lineCount && 
-                segment.endLine >= 0 && segment.endLine < viewer.document.lineCount) {
-                
-                try {
-                    val startOffset = viewer.document.getLineStartOffset(segment.startLine)
-                    val endOffset = viewer.document.getLineEndOffset(segment.endLine)
-                    
-                    val attributes = when (segment.type) {
-                        DiffSegmentType.INSERTED -> com.intellij.openapi.editor.markup.TextAttributes(
-                            null,
-                            JBColor(Color(198, 255, 198), Color(59, 91, 59)),
-                            null,
-                            null,
-                            Font.PLAIN
-                        )
-                        DiffSegmentType.DELETED -> com.intellij.openapi.editor.markup.TextAttributes(
-                            null,
-                            JBColor(Color(255, 220, 220), Color(91, 59, 91)),
-                            null,
-                            null,
-                            Font.PLAIN
-                        ).apply {
-                            effectType = com.intellij.openapi.editor.markup.EffectType.STRIKEOUT
-                            effectColor = JBColor.RED
-                        }
-                        DiffSegmentType.UNCHANGED -> null
-                        else -> null
-                    }
-                    
-                    if (attributes != null && startOffset >= 0 && endOffset > startOffset && endOffset <= viewer.document.textLength) {
-                        markupModel.addRangeHighlighter(
-                            startOffset,
-                            endOffset,
-                            com.intellij.openapi.editor.markup.HighlighterLayer.SYNTAX,
-                            attributes,
-                            com.intellij.openapi.editor.markup.HighlighterTargetArea.EXACT_RANGE
-                        )
-                    }
-                } catch (e: Exception) {
-                    // Skip invalid offsets
-                }
-            }
-        }
-    }
-    
     private fun repositionWindow() {
         val currentPopup = popup
         if (currentPopup?.isVisible == true) {
             ApplicationManager.getApplication().invokeLater {
                 val size = currentPopup.size
-                val newPosition = positionManager.calculateOptimalPosition(size)
+                val newPosition = calculatePositionAtSelection(size)
                 currentPopup.setLocation(newPosition)
             }
         }
     }
     
     override fun dispose() {
-        codeViewer?.let { EditorFactory.getInstance().releaseEditor(it) }
-        codeViewer = null
+        browser?.let { 
+            Disposer.dispose(it)
+        }
+        browser = null
     }
 }

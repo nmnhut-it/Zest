@@ -6,7 +6,15 @@
 
 (function() {
   // Track project index state globally
-  window.__enable_project_index__ = false;
+  window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+  
+  // Initialize context injection state if not already set
+  window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+  
+  console.log('Index button script initializing with states:');
+  console.log('- Context injection:', window.__enable_context_injection__);
+  console.log('- Project index:', window.__enable_project_index__);
+  
   // Function to create and inject the index button
   window.injectProjectIndexButton = function() {
     console.log('Injecting project index button...');
@@ -86,20 +94,44 @@
         }
         
         console.log('Is indexed:', isIndexed);
+        console.log('Context injection enabled:', window.__enable_context_injection__);
+        console.log('Current project index state:', window.__enable_project_index__);
         
-        // Check for mutual exclusion before setting state
-        if (isIndexed && window.__enable_context_injection__) {
-          console.log('Project is indexed but context injection is enabled. Keeping project index disabled.');
+        // Determine the correct initial state based on:
+        // 1. Whether project is indexed in backend
+        // 2. Whether context injection is enabled (mutual exclusion)
+        // 3. Current frontend state
+        
+        if (window.__enable_context_injection__) {
+          // Context injection is enabled, so project index must be disabled
+          console.log('Context injection is enabled, forcing project index to be disabled');
           window.__enable_project_index__ = false;
           updateIndexButtonState(indexButton, false);
+        } else if (isIndexed && window.__enable_project_index__ === undefined) {
+          // Project is indexed and state not yet initialized
+          console.log('Project is indexed and no state set, enabling project index');
+          window.__enable_project_index__ = true;
+          updateIndexButtonState(indexButton, true);
+        } else if (window.__enable_project_index__ !== undefined) {
+          // Use existing state
+          console.log('Using existing project index state:', window.__enable_project_index__);
+          updateIndexButtonState(indexButton, window.__enable_project_index__);
         } else {
-          window.__enable_project_index__ = isIndexed;
-          updateIndexButtonState(indexButton, isIndexed);
+          // Default state
+          console.log('Setting default state (not indexed)');
+          window.__enable_project_index__ = false;
+          updateIndexButtonState(indexButton, false);
         }
       }).catch(error => {
         console.error('Failed to get project index status:', error);
-        window.__enable_project_index__ = false;
-        updateIndexButtonState(indexButton, false);
+        
+        // On error, check context injection and set safe defaults
+        if (window.__enable_context_injection__) {
+          window.__enable_project_index__ = false;
+        } else if (window.__enable_project_index__ === undefined) {
+          window.__enable_project_index__ = false;
+        }
+        updateIndexButtonState(indexButton, window.__enable_project_index__);
       });
       
       // Create the button content

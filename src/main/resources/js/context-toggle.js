@@ -5,6 +5,14 @@
  */
 
 (function() {
+  // Initialize global states
+  window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+  window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+  
+  console.log('Context toggle script initializing with states:');
+  console.log('- Context injection:', window.__enable_context_injection__);
+  console.log('- Project index:', window.__enable_project_index__);
+  
   // Function to create and inject the context toggle button
   window.injectContextToggleButton = function() {
     console.log('Injecting context toggle button...');

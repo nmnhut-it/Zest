@@ -51,48 +51,48 @@ class FloatingCodeWindow(
     private var warningPanel: JPanel? = null
     
     companion object {
-        private const val WINDOW_WIDTH = 450    // Further reduced width
-        private const val WINDOW_HEIGHT = 300   // Smaller height
+        private const val WINDOW_WIDTH = 600    // Original width
+        private const val WINDOW_HEIGHT = 400   // Original height
         private const val MARGIN = 20
     }
     
     fun show() {
         ApplicationManager.getApplication().invokeLater {
-            System.out.println("FloatingCodeWindow.show() called")
             if (popup?.isVisible == true) {
-                System.out.println("Popup already visible, returning")
                 return@invokeLater
             }
             
             val panel = createMainPanel()
-            System.out.println("Main panel created")
             
             popup = JBPopupFactory.getInstance()
                 .createComponentPopupBuilder(panel, null)
-                .setTitle("Zest AI - Suggested Changes")
+                .setTitle("AI Suggested Changes")
                 .setMovable(true)
                 .setResizable(true)
                 .setRequestFocus(true)  // Changed to allow interaction
                 .setCancelOnClickOutside(false)
                 .setCancelOnOtherWindowOpen(false)
                 .setCancelKeyEnabled(true)
-                .setMinSize(Dimension(350, 250))  // Smaller minimum size
+                .setCancelCallback { 
+                    // Ensure cleanup when cancelled
+                    val inlineChatService = project.getService(InlineChatService::class.java)
+                    inlineChatService.floatingCodeWindow = null
+                    inlineChatService.clearState()
+                    true
+                }
+                .setMinSize(Dimension(400, 300))  // Original minimum size
                 .setDimensionServiceKey(project, "InlineChatFloatingWindow", false)
                 .createPopup()
-            
-            System.out.println("Popup created")
             
             // Calculate and set position
             val windowSize = Dimension(WINDOW_WIDTH, WINDOW_HEIGHT)
             val position = positionManager.calculateOptimalPosition(windowSize)
-            System.out.println("Position calculated: $position")
             
             // Create a relative point based on the editor component
             val relativePoint = RelativePoint(mainEditor.component, Point(0, 0))
             
             // Show at the calculated position
             popup?.show(RelativePoint(Point(position)))
-            System.out.println("Popup shown")
             
             // Add ESC key handler
             popup?.content?.let { content ->
@@ -102,13 +102,41 @@ class FloatingCodeWindow(
                 inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
                 actionMap.put("close", object : AbstractAction() {
                     override fun actionPerformed(e: ActionEvent?) {
+                        onReject()  // Treat ESC as reject
                         hide()
                     }
                 })
             }
             
-            // Add listener to reposition on editor changes
-            setupPositionListeners()
+            // Add listener to handle popup close and position changes
+            popup?.addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
+                private val resizeListener = object : ComponentAdapter() {
+                    override fun componentResized(e: ComponentEvent) {
+                        repositionWindow()
+                    }
+                    
+                    override fun componentMoved(e: ComponentEvent) {
+                        repositionWindow()
+                    }
+                }
+                
+                override fun beforeShown(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
+                    // Start listening for position changes when popup is shown
+                    mainEditor.component.addComponentListener(resizeListener)
+                }
+                
+                override fun onClosed(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
+                    // Clean up listeners
+                    mainEditor.component.removeComponentListener(resizeListener)
+                    
+                    // Clean up state when popup is closed
+                    val inlineChatService = project.getService(InlineChatService::class.java)
+                    if (inlineChatService.floatingCodeWindow == this@FloatingCodeWindow) {
+                        inlineChatService.floatingCodeWindow = null
+                        inlineChatService.clearState()
+                    }
+                }
+            })
         }
     }
     
@@ -177,13 +205,8 @@ class FloatingCodeWindow(
     
     private fun createMainPanel(): JPanel {
         val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.merge(
-            BorderFactory.createLineBorder(JBColor.border(), 1),
-            JBUI.Borders.empty(2),
-            true
-        )
+        panel.border = JBUI.Borders.empty()
         panel.preferredSize = Dimension(WINDOW_WIDTH, WINDOW_HEIGHT)
-        panel.background = UIUtil.getPanelBackground()
         
         // Create toolbar
         val toolbar = createToolbar()
@@ -219,8 +242,8 @@ class FloatingCodeWindow(
             true
         )
         
-        val titleLabel = JBLabel("Suggested Code")
-        titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 13f)
+        val titleLabel = JBLabel("AI Suggested Code")
+        titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
         titleLabel.icon = AllIcons.Actions.SuggestedRefactoringBulb
         
         panel.add(titleLabel, BorderLayout.WEST)
@@ -266,7 +289,6 @@ class FloatingCodeWindow(
         
         val scrollPane = JBScrollPane(codeViewer?.component)
         scrollPane.border = JBUI.Borders.empty()
-        scrollPane.preferredSize = Dimension(WINDOW_WIDTH - 20, WINDOW_HEIGHT - 120) // Account for toolbar and buttons
         
         return scrollPane
     }
@@ -329,14 +351,14 @@ class FloatingCodeWindow(
                     val attributes = when (segment.type) {
                         DiffSegmentType.INSERTED -> com.intellij.openapi.editor.markup.TextAttributes(
                             null,
-                            JBColor(Color(220, 255, 220), Color(45, 65, 45)),  // Lighter green background
+                            JBColor(Color(198, 255, 198), Color(59, 91, 59)),
                             null,
                             null,
                             Font.PLAIN
                         )
                         DiffSegmentType.DELETED -> com.intellij.openapi.editor.markup.TextAttributes(
                             null,
-                            JBColor(Color(255, 230, 230), Color(65, 45, 45)),  // Lighter red background
+                            JBColor(Color(255, 220, 220), Color(91, 59, 91)),
                             null,
                             null,
                             Font.PLAIN
@@ -362,28 +384,6 @@ class FloatingCodeWindow(
                 }
             }
         }
-    }
-    
-    private fun setupPositionListeners() {
-        // Listen for editor component resize/move
-        val resizeListener = object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) {
-                repositionWindow()
-            }
-            
-            override fun componentMoved(e: ComponentEvent) {
-                repositionWindow()
-            }
-        }
-        
-        mainEditor.component.addComponentListener(resizeListener)
-        
-        // Clean up listener when popup is closed
-        popup?.addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
-            override fun onClosed(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
-                mainEditor.component.removeComponentListener(resizeListener)
-            }
-        })
     }
     
     private fun repositionWindow() {

@@ -21,9 +21,9 @@ class InlineChatService(private val project: Project) : Disposable {
 
     companion object {
         // Debug flags - set to true to enable debug output
-        const val DEBUG_SERVICE = true
-        const val DEBUG_DIFF_SEGMENTS = true
-        const val DEBUG_CODE_EXTRACTION = true
+        const val DEBUG_SERVICE = false
+        const val DEBUG_DIFF_SEGMENTS = false
+        const val DEBUG_CODE_EXTRACTION = false
     }
 
     var inlineChatInputVisible = false
@@ -85,13 +85,8 @@ class InlineChatService(private val project: Project) : Disposable {
 
         // We still need to store the original code and selection info for the floating window
         if (extractedCode != null) {
-            // Don't generate diff segments here - let the floating window do it when needed
-            // Just enable the actions
-            inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
-            inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
-
+            // Just set the flag that we have code ready
             if (DEBUG_SERVICE) {
-                System.out.println("Diff action states: $inlineChatDiffActionState")
                 System.out.println("Extracted code successfully, ready for floating window")
             }
         } else {
@@ -430,8 +425,6 @@ class InlineChatService(private val project: Project) : Disposable {
 
         // Make sure to fully clear the diff action state map
         inlineChatDiffActionState.clear()
-        inlineChatDiffActionState["Zest.InlineChat.Accept"] = false
-        inlineChatDiffActionState["Zest.InlineChat.Discard"] = false
 
         originalCode = null
         selectionStartLine = 0

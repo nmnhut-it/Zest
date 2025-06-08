@@ -12,8 +12,8 @@ import javax.swing.SwingUtilities
 class WindowPositionManager(private val editor: Editor) {
     
     companion object {
-        private const val PREFERRED_MARGIN = 50  // Increased margin for better spacing
-        private const val MIN_MARGIN = 20      // Increased minimum margin
+        private const val PREFERRED_MARGIN = 20  // Original margin
+        private const val MIN_MARGIN = 10      // Original minimum margin
     }
     
     /**
@@ -30,15 +30,6 @@ class WindowPositionManager(private val editor: Editor) {
             editorComponent.height
         )
         
-        // Get visible area of the editor (viewport)
-        val visibleArea = editor.scrollingModel.visibleArea
-        val visibleBounds = Rectangle(
-            editorLocationOnScreen.x + visibleArea.x,
-            editorLocationOnScreen.y + visibleArea.y,
-            visibleArea.width,
-            visibleArea.height
-        )
-        
         // Get screen bounds
         val screenBounds = getScreenBounds(editorLocationOnScreen)
         
@@ -47,16 +38,16 @@ class WindowPositionManager(private val editor: Editor) {
         
         // Try positions in order of preference
         val positions = listOf(
-            // 1. Right of visible editor area
-            PositionCandidate.rightOf(visibleBounds, windowSize, screenBounds),
-            // 2. Left of visible editor area
-            PositionCandidate.leftOf(visibleBounds, windowSize, screenBounds),
+            // 1. Right of editor
+            PositionCandidate.rightOf(editorBounds, windowSize, screenBounds),
+            // 2. Left of editor
+            PositionCandidate.leftOf(editorBounds, windowSize, screenBounds),
             // 3. Below selection/cursor
-            PositionCandidate.below(selectionBounds ?: visibleBounds, windowSize, screenBounds),
+            PositionCandidate.below(selectionBounds ?: editorBounds, windowSize, screenBounds),
             // 4. Above selection/cursor
-            PositionCandidate.above(selectionBounds ?: visibleBounds, windowSize, screenBounds),
+            PositionCandidate.above(selectionBounds ?: editorBounds, windowSize, screenBounds),
             // 5. Floating in available space
-            PositionCandidate.floating(visibleBounds, windowSize, screenBounds)
+            PositionCandidate.floating(editorBounds, windowSize, screenBounds)
         )
         
         // Find the first position that fits well
@@ -72,43 +63,39 @@ class WindowPositionManager(private val editor: Editor) {
     private fun getSelectionBounds(): Rectangle? {
         val selectionModel = editor.selectionModel
         
-        val offset = if (selectionModel.hasSelection()) {
-            selectionModel.selectionStart
-        } else {
-            editor.caretModel.offset
+        if (!selectionModel.hasSelection()) {
+            // Get cursor position bounds
+            val caretModel = editor.caretModel
+            val offset = caretModel.offset
+            val point = editor.offsetToXY(offset)
+            val editorLocation = editor.component.locationOnScreen
+            
+            return Rectangle(
+                editorLocation.x + point.x,
+                editorLocation.y + point.y,
+                100, // Approximate width
+                editor.lineHeight
+            )
         }
         
-        // Get the visual position
-        val visualPosition = editor.offsetToVisualPosition(offset)
-        val point = editor.visualPositionToXY(visualPosition)
+        // Get selection bounds
+        val startOffset = selectionModel.selectionStart
+        val endOffset = selectionModel.selectionEnd
         
-        // Get editor location on screen
+        val startPoint = editor.offsetToXY(startOffset)
+        val endPoint = editor.offsetToXY(endOffset)
         val editorLocation = editor.component.locationOnScreen
         
-        // Get visible area to ensure we're calculating relative to what's visible
-        val visibleArea = editor.scrollingModel.visibleArea
-        
-        // Calculate the actual screen position
-        val screenX = editorLocation.x + point.x
-        val screenY = editorLocation.y + point.y
-        
-        if (selectionModel.hasSelection()) {
-            val endOffset = selectionModel.selectionEnd
-            val endVisualPosition = editor.offsetToVisualPosition(endOffset)
-            val endPoint = editor.visualPositionToXY(endVisualPosition)
-            
-            val width = if (visualPosition.line == endVisualPosition.line) {
-                endPoint.x - point.x
-            } else {
-                visibleArea.width - point.x
-            }
-            val height = endPoint.y - point.y + editor.lineHeight
-            
-            return Rectangle(screenX, screenY, maxOf(100, width), height)
+        val x = editorLocation.x + minOf(startPoint.x, endPoint.x)
+        val y = editorLocation.y + startPoint.y
+        val width = if (startPoint.y == endPoint.y) {
+            maxOf(startPoint.x, endPoint.x) - minOf(startPoint.x, endPoint.x)
         } else {
-            // Just cursor position
-            return Rectangle(screenX, screenY, 100, editor.lineHeight)
+            editor.component.width - minOf(startPoint.x, endPoint.x)
         }
+        val height = endPoint.y - startPoint.y + editor.lineHeight
+        
+        return Rectangle(x, y, width, height)
     }
     
     /**
@@ -167,14 +154,7 @@ class WindowPositionManager(private val editor: Editor) {
             fun rightOf(targetBounds: Rectangle, windowSize: Dimension, screenBounds: Rectangle): PositionCandidate {
                 val x = targetBounds.x + targetBounds.width + PREFERRED_MARGIN
                 val y = targetBounds.y + (targetBounds.height - windowSize.height) / 2
-                
-                // Ensure y is within screen bounds
-                val adjustedY = maxOf(
-                    screenBounds.y + MIN_MARGIN,
-                    minOf(y, screenBounds.y + screenBounds.height - windowSize.height - MIN_MARGIN)
-                )
-                
-                val position = Point(x, adjustedY)
+                val position = Point(x, y)
                 val bounds = Rectangle(position, windowSize)
                 return PositionCandidate(position, bounds, screenBounds)
             }
@@ -182,14 +162,7 @@ class WindowPositionManager(private val editor: Editor) {
             fun leftOf(targetBounds: Rectangle, windowSize: Dimension, screenBounds: Rectangle): PositionCandidate {
                 val x = targetBounds.x - windowSize.width - PREFERRED_MARGIN
                 val y = targetBounds.y + (targetBounds.height - windowSize.height) / 2
-                
-                // Ensure y is within screen bounds
-                val adjustedY = maxOf(
-                    screenBounds.y + MIN_MARGIN,
-                    minOf(y, screenBounds.y + screenBounds.height - windowSize.height - MIN_MARGIN)
-                )
-                
-                val position = Point(x, adjustedY)
+                val position = Point(x, y)
                 val bounds = Rectangle(position, windowSize)
                 return PositionCandidate(position, bounds, screenBounds)
             }

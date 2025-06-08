@@ -56,19 +56,8 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
         val inlineChatService = project.serviceOrNull<InlineChatService>() ?: return
         
-        // Add debug logging to understand the state
-        if (InlineChatService.DEBUG_SERVICE) {
-            System.out.println("InlineChatIntentionAction.invoke called")
-            System.out.println("inlineChatInputVisible: ${inlineChatService.inlineChatInputVisible}")
-            System.out.println("hasDiffAction: ${inlineChatService.hasDiffAction}")
-            System.out.println("diffActionState: ${inlineChatService.inlineChatDiffActionState}")
-        }
-        
-        // Early return if input is already visible or diff action is in progress
-        if (inlineChatService.inlineChatInputVisible || inlineChatService.hasDiffAction) {
-            if (InlineChatService.DEBUG_SERVICE) {
-                System.out.println("Early return from invoke: input visible or diff action in progress")
-            }
+        // Early return if input is already visible or floating window is active
+        if (inlineChatService.inlineChatInputVisible || inlineChatService.floatingCodeWindow != null) {
             return
         }
         
@@ -82,9 +71,9 @@ class InlineChatIntentionAction : BaseIntentionAction(), DumbAware {
             val selectionModel = editor.selectionModel
             if (selectionModel.hasSelection()) {
                 inlineChatService.selectionStartLine = editor.document.getLineNumber(selectionModel.selectionStart)
-                if (InlineChatService.DEBUG_SERVICE) {
-                    System.out.println("InlineChatIntentionAction: Selection start line set to ${inlineChatService.selectionStartLine}")
-                }
+            } else {
+                // Use current cursor line
+                inlineChatService.selectionStartLine = editor.document.getLineNumber(editor.caretModel.offset)
             }
             
             inlineChatService.inlineChatInputVisible = true

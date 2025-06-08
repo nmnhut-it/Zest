@@ -172,13 +172,15 @@ public class ExplorationService implements Disposable {
                     public void onExplorationComplete(ExplorationResult result) {
                         session.setResult(result);
                         session.setCompleted(true);
-                        notifyBrowserOfProgress(sessionId, "exploration_complete", result);
 
                         // Store context for conversation if ID is provided
                         String convId = session.getConversationId();
                         if (convId != null && result != null && result.getSummary() != null) {
                             storeConversationContext(convId, query, result.getSummary());
                         }
+
+                        notifyBrowserOfProgress(sessionId, "exploration_complete", result);
+
                     }
                 }
             );

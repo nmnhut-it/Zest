@@ -157,6 +157,15 @@ public class JavaScriptBridgeActions {
                 case "getExplorationContext":
                     return explorationService.getExplorationContext(data);
                 
+                case "getButtonStates":
+                    return getButtonStates();
+                    
+                case "setContextInjectionEnabled":
+                    return setContextInjectionEnabled(data);
+                    
+                case "setProjectIndexEnabled":
+                    return setProjectIndexEnabled(data);
+                
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
@@ -376,5 +385,59 @@ public class JavaScriptBridgeActions {
             response.addProperty("error", e.getMessage());
             return gson.toJson(response);
         }
+    }
+    
+    /**
+     * Gets the current button states from configuration.
+     */
+    private String getButtonStates() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            response.addProperty("success", true);
+            response.addProperty("contextInjectionEnabled", config.isContextInjectionEnabled());
+            response.addProperty("projectIndexEnabled", config.isProjectIndexEnabled());
+        } catch (Exception e) {
+            LOG.error("Error getting button states", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Sets the context injection enabled state.
+     */
+    private String setContextInjectionEnabled(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean enabled = data.get("enabled").getAsBoolean();
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            config.setContextInjectionEnabled(enabled);
+            response.addProperty("success", true);
+        } catch (Exception e) {
+            LOG.error("Error setting context injection state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Sets the project index enabled state.
+     */
+    private String setProjectIndexEnabled(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean enabled = data.get("enabled").getAsBoolean();
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            config.setProjectIndexEnabled(enabled);
+            response.addProperty("success", true);
+        } catch (Exception e) {
+            LOG.error("Error setting project index state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
     }
 }

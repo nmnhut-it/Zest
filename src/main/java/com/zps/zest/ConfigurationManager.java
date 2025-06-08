@@ -133,6 +133,9 @@ public class ConfigurationManager {
     private String codeSystemPrompt;
     // Knowledge base ID for code indexing
     private String knowledgeId = null;
+    // Button states
+    private boolean contextInjectionEnabled = true;
+    private boolean projectIndexEnabled = false;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -215,6 +218,8 @@ public class ConfigurationManager {
         systemPrompt = DEFAULT_SYSTEM_PROMPT;
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
         knowledgeId = null;
+        contextInjectionEnabled = true;
+        projectIndexEnabled = false;
 
         boolean configExists = false;
 
@@ -239,6 +244,23 @@ public class ConfigurationManager {
                 systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
                 codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
                 knowledgeId = props.getProperty("knowledgeId", null);
+                
+                // Load button states
+                String contextInjectionStr = props.getProperty("contextInjectionEnabled");
+                if (contextInjectionStr != null) {
+                    contextInjectionEnabled = Boolean.parseBoolean(contextInjectionStr);
+                }
+                
+                String projectIndexStr = props.getProperty("projectIndexEnabled");
+                if (projectIndexStr != null) {
+                    projectIndexEnabled = Boolean.parseBoolean(projectIndexStr);
+                }
+                
+                // Enforce mutual exclusion on load
+                if (contextInjectionEnabled && projectIndexEnabled) {
+                    // Context injection takes priority
+                    projectIndexEnabled = false;
+                }
 
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
@@ -295,6 +317,8 @@ public class ConfigurationManager {
             if (knowledgeId != null) {
                 props.setProperty("knowledgeId", knowledgeId);
             }
+            props.setProperty("contextInjectionEnabled", String.valueOf(contextInjectionEnabled));
+            props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -476,6 +500,8 @@ public class ConfigurationManager {
             props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
             props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
             props.setProperty("knowledgeId", ""); // Empty by default
+            props.setProperty("contextInjectionEnabled", "true");
+            props.setProperty("projectIndexEnabled", "false");
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -615,5 +641,31 @@ public class ConfigurationManager {
 
     public void setKnowledgeId(String knowledgeId) {
         this.knowledgeId = knowledgeId;
+    }
+    
+    public boolean isContextInjectionEnabled() {
+        return contextInjectionEnabled;
+    }
+    
+    public void setContextInjectionEnabled(boolean enabled) {
+        this.contextInjectionEnabled = enabled;
+        // Enforce mutual exclusion
+        if (enabled && projectIndexEnabled) {
+            projectIndexEnabled = false;
+        }
+        saveConfig();
+    }
+    
+    public boolean isProjectIndexEnabled() {
+        return projectIndexEnabled;
+    }
+    
+    public void setProjectIndexEnabled(boolean enabled) {
+        this.projectIndexEnabled = enabled;
+        // Enforce mutual exclusion
+        if (enabled && contextInjectionEnabled) {
+            contextInjectionEnabled = false;
+        }
+        saveConfig();
     }
 }

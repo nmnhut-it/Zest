@@ -5,15 +5,41 @@
  */
 
 (function() {
-  // Track project index state globally
-  window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+  // Initialize global states from saved configuration
+  function initializeStates() {
+    if (window.intellijBridge) {
+      window.intellijBridge.callIDE('getButtonStates', {}).then(response => {
+        if (response && response.success) {
+          window.__enable_context_injection__ = response.contextInjectionEnabled;
+          window.__enable_project_index__ = response.projectIndexEnabled;
+          console.log('Loaded button states from configuration:');
+          console.log('- Context injection:', window.__enable_context_injection__);
+          console.log('- Project index:', window.__enable_project_index__);
+          
+          // Update any existing buttons
+          if (window.syncAllProjectIndexButtons) {
+            window.syncAllProjectIndexButtons();
+          }
+        } else {
+          // Fallback to defaults if load fails
+          window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+          window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+        }
+      }).catch(error => {
+        console.error('Failed to load button states:', error);
+        // Fallback to defaults
+        window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+        window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+      });
+    } else {
+      // No bridge available, use defaults
+      window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+      window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+    }
+  }
   
-  // Initialize context injection state if not already set
-  window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
-  
-  console.log('Index button script initializing with states:');
-  console.log('- Context injection:', window.__enable_context_injection__);
-  console.log('- Project index:', window.__enable_project_index__);
+  // Initialize states on load
+  initializeStates();
   
   // Function to create and inject the index button
   window.injectProjectIndexButton = function() {
@@ -191,6 +217,15 @@
               window.__enable_project_index__ = true;
               updateIndexButtonState(indexButton, true);
               showIndexingNotification('enabled');
+              
+              // Save state to configuration
+              if (window.intellijBridge) {
+                window.intellijBridge.callIDE('setProjectIndexEnabled', {
+                  enabled: true
+                }).catch(error => {
+                  console.error('Failed to save project index state:', error);
+                });
+              }
             }
           }).catch(error => {
             console.error('Failed to get project index status:', error);
@@ -208,6 +243,15 @@
             window.__enable_project_index__ = false;
             updateIndexButtonState(indexButton, false);
             showIndexingNotification('disabled');
+            
+            // Save state to configuration
+            if (window.intellijBridge) {
+              window.intellijBridge.callIDE('setProjectIndexEnabled', {
+                enabled: false
+              }).catch(error => {
+                console.error('Failed to save project index state:', error);
+              });
+            }
           }
         }
       });
@@ -488,4 +532,11 @@
   }, 2100); // Check slightly after context-toggle to avoid conflicts
 
   console.log('Project index button script initialized. Use window.forceInjectProjectIndexButton() to manually inject.');
+  
+  // Re-initialize states when page becomes visible (in case config was changed elsewhere)
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      initializeStates();
+    }
+  });
 })();

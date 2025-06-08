@@ -1,10 +1,13 @@
 package com.zps.zest;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
+import com.zps.zest.browser.JCEFBrowserManager;
+import com.zps.zest.browser.WebBrowserService;
 import org.apache.commons.lang.StringEscapeUtils;
 
 import java.io.File;
@@ -21,6 +24,7 @@ import java.util.concurrent.*;
  * Implements a per-project cache to avoid reloading configuration multiple times.
  */
 public class ConfigurationManager {
+    private static final Logger LOG = Logger.getInstance(ConfigurationManager.class);
     public static final String CODE_EXPERT = "code-expert";
     private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
     private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
@@ -129,6 +133,9 @@ public class ConfigurationManager {
     private String codeSystemPrompt;
     // Knowledge base ID for code indexing
     private String knowledgeId = null;
+    // Button states
+    private boolean contextInjectionEnabled = true;
+    private boolean projectIndexEnabled = false;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -211,6 +218,8 @@ public class ConfigurationManager {
         systemPrompt = DEFAULT_SYSTEM_PROMPT;
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
         knowledgeId = null;
+        contextInjectionEnabled = true;
+        projectIndexEnabled = false;
 
         boolean configExists = false;
 
@@ -235,6 +244,23 @@ public class ConfigurationManager {
                 systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
                 codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
                 knowledgeId = props.getProperty("knowledgeId", null);
+                
+                // Load button states
+                String contextInjectionStr = props.getProperty("contextInjectionEnabled");
+                if (contextInjectionStr != null) {
+                    contextInjectionEnabled = Boolean.parseBoolean(contextInjectionStr);
+                }
+                
+                String projectIndexStr = props.getProperty("projectIndexEnabled");
+                if (projectIndexStr != null) {
+                    projectIndexEnabled = Boolean.parseBoolean(projectIndexStr);
+                }
+                
+                // Enforce mutual exclusion on load
+                if (contextInjectionEnabled && projectIndexEnabled) {
+                    // Context injection takes priority
+                    projectIndexEnabled = false;
+                }
 
                 String ragEnabledStr = props.getProperty("ragEnabled");
                 if (ragEnabledStr != null) {
@@ -291,6 +317,8 @@ public class ConfigurationManager {
             if (knowledgeId != null) {
                 props.setProperty("knowledgeId", knowledgeId);
             }
+            props.setProperty("contextInjectionEnabled", String.valueOf(contextInjectionEnabled));
+            props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -332,6 +360,19 @@ public class ConfigurationManager {
 
                     // Update the current authToken value
                     this.authToken = token.trim();
+                    
+                    // Update the browser's auth token immediately
+                    try {
+                        WebBrowserService browserService = WebBrowserService.getInstance(project);
+                        if (browserService != null && browserService.getBrowserPanel() != null) {
+                            JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
+                            if (browserManager != null) {
+                                browserManager.updateAuthTokenInBrowser(this.authToken);
+                            }
+                        }
+                    } catch (Exception ex) {
+                        LOG.warn("Could not update auth token in browser", ex);
+                    }
 
                     // Save the configuration with the new token
                     File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
@@ -459,6 +500,8 @@ public class ConfigurationManager {
             props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
             props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
             props.setProperty("knowledgeId", ""); // Empty by default
+            props.setProperty("contextInjectionEnabled", "true");
+            props.setProperty("projectIndexEnabled", "false");
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -534,6 +577,20 @@ public class ConfigurationManager {
 
     public void setAuthToken(String authToken) {
         this.authToken = authToken;
+        
+        // Notify the browser to update its stored auth token
+        try {
+            WebBrowserService browserService = WebBrowserService.getInstance(project);
+            if (browserService != null && browserService.getBrowserPanel() != null) {
+                JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
+                if (browserManager != null) {
+                    browserManager.updateAuthTokenInBrowser(authToken);
+                }
+            }
+        } catch (Exception e) {
+            // Log but don't fail if browser update fails
+            LOG.warn("Could not update auth token in browser", e);
+        }
     }
 
     public String getSystemPrompt() {
@@ -584,5 +641,31 @@ public class ConfigurationManager {
 
     public void setKnowledgeId(String knowledgeId) {
         this.knowledgeId = knowledgeId;
+    }
+    
+    public boolean isContextInjectionEnabled() {
+        return contextInjectionEnabled;
+    }
+    
+    public void setContextInjectionEnabled(boolean enabled) {
+        this.contextInjectionEnabled = enabled;
+        // Enforce mutual exclusion
+        if (enabled && projectIndexEnabled) {
+            projectIndexEnabled = false;
+        }
+        saveConfig();
+    }
+    
+    public boolean isProjectIndexEnabled() {
+        return projectIndexEnabled;
+    }
+    
+    public void setProjectIndexEnabled(boolean enabled) {
+        this.projectIndexEnabled = enabled;
+        // Enforce mutual exclusion
+        if (enabled && contextInjectionEnabled) {
+            contextInjectionEnabled = false;
+        }
+        saveConfig();
     }
 }

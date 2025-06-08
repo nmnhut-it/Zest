@@ -5,6 +5,42 @@
  */
 
 (function() {
+  // Initialize global states from saved configuration
+  function initializeStates() {
+    if (window.intellijBridge) {
+      window.intellijBridge.callIDE('getButtonStates', {}).then(response => {
+        if (response && response.success) {
+          window.__enable_context_injection__ = response.contextInjectionEnabled;
+          window.__enable_project_index__ = response.projectIndexEnabled;
+          console.log('Loaded button states from configuration:');
+          console.log('- Context injection:', window.__enable_context_injection__);
+          console.log('- Project index:', window.__enable_project_index__);
+          
+          // Update any existing buttons
+          if (window.syncAllToggleButtons) {
+            window.syncAllToggleButtons();
+          }
+        } else {
+          // Fallback to defaults if load fails
+          window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+          window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+        }
+      }).catch(error => {
+        console.error('Failed to load button states:', error);
+        // Fallback to defaults
+        window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+        window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+      });
+    } else {
+      // No bridge available, use defaults
+      window.__enable_context_injection__ = window.__enable_context_injection__ !== undefined ? window.__enable_context_injection__ : true;
+      window.__enable_project_index__ = window.__enable_project_index__ !== undefined ? window.__enable_project_index__ : false;
+    }
+  }
+  
+  // Initialize states on load
+  initializeStates();
+  
   // Function to create and inject the context toggle button
   window.injectContextToggleButton = function() {
     console.log('Injecting context toggle button...');
@@ -78,14 +114,40 @@
         </span>
       `;
       
-      // Add click handler
+      // Add click handler with mutual exclusion logic
       toggleButton.addEventListener('click', function() {
-        window.__enable_context_injection__ = !window.__enable_context_injection__;
+        const wasEnabled = window.__enable_context_injection__;
+        window.__enable_context_injection__ = !wasEnabled;
+        
+        // If enabling context injection, disable project index mode
+        if (window.__enable_context_injection__) {
+          // Check if project index mode is enabled
+          if (window.__enable_project_index__) {
+            window.__enable_project_index__ = false;
+            window.__project_index_was_disabled__ = true;
+            
+            // Update all project index buttons
+            if (window.syncAllProjectIndexButtons) {
+              window.syncAllProjectIndexButtons();
+            }
+            
+            console.log('Disabled project index mode due to context injection being enabled');
+          }
+        }
         
         // Sync all toggle buttons
-        syncAllToggleButtons();
+        window.syncAllToggleButtons();
         
         console.log('Context injection toggled:', window.__enable_context_injection__ ? 'ON' : 'OFF');
+        
+        // Save state to configuration
+        if (window.intellijBridge) {
+          window.intellijBridge.callIDE('setContextInjectionEnabled', {
+            enabled: window.__enable_context_injection__
+          }).catch(error => {
+            console.error('Failed to save context injection state:', error);
+          });
+        }
         
         // Show notification
         showContextToggleNotification(window.__enable_context_injection__);
@@ -102,7 +164,7 @@
   };
 
   // Function to sync all toggle buttons to current state
-  function syncAllToggleButtons() {
+  window.syncAllToggleButtons = function() {
     const allButtons = document.querySelectorAll('.context-toggle-button');
     allButtons.forEach(button => {
       updateToggleButtonState(button, window.__enable_context_injection__);
@@ -119,13 +181,13 @@
         textSpan.textContent = `Context${window.__enable_context_injection__ ? ' On' : ' Off'}`;
       }
     });
-  }
+  };
 
   // Function to update button appearance based on state
   function updateToggleButtonState(button, isEnabled) {
     if (isEnabled) {
-      // Enabled state - highlighted
-      button.className = 'context-toggle-button px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border bg-blue-500 border-blue-500 text-white hover:bg-blue-600';
+      // Enabled state - green/highlighted like index button
+      button.className = 'context-toggle-button px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border bg-green-500 border-green-500 text-white hover:bg-green-600';
     } else {
       // Disabled state - normal
       button.className = 'context-toggle-button px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border bg-transparent border-transparent text-gray-600 dark:text-gray-300 border-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800';
@@ -144,6 +206,12 @@
     const notification = document.createElement('div');
     notification.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity duration-300';
     notification.textContent = `Context injection ${isEnabled ? 'enabled' : 'disabled'}`;
+    
+    // Check if we disabled project index
+    if (isEnabled && window.__project_index_was_disabled__) {
+      notification.textContent += ' (Project index disabled)';
+      window.__project_index_was_disabled__ = false;
+    }
     
     // Add to body
     document.body.appendChild(notification);
@@ -234,7 +302,7 @@
 
   // Add function to sync button state
   window.syncContextToggleState = function() {
-    syncAllToggleButtons();
+    window.syncAllToggleButtons();
   };
 
   // Periodically check and sync button states
@@ -249,12 +317,31 @@
           const expectedEmoji = window.__enable_context_injection__ ? '📑' : '📄';
           if (currentEmoji !== expectedEmoji) {
             console.log('Button out of sync, updating...');
-            syncAllToggleButtons();
+            window.syncAllToggleButtons();
           }
         }
       });
     }
+    
+    // Enforce mutual exclusion - context injection takes priority
+    if (window.__enable_context_injection__ && window.__enable_project_index__) {
+      console.warn('Mutual exclusion violation detected! Both context and index are enabled. Context injection takes priority, disabling project index...');
+      window.__enable_project_index__ = false;
+      if (window.syncAllProjectIndexButtons) {
+        window.syncAllProjectIndexButtons();
+      }
+      // Set a flag to prevent race conditions
+      window.__mutual_exclusion_enforced__ = 'context';
+      setTimeout(() => { window.__mutual_exclusion_enforced__ = null; }, 1000);
+    }
   }, 2000); // Check every 2 seconds
 
   console.log('Context toggle script initialized. Use window.forceInjectContextToggle() to manually inject.');
+  
+  // Re-initialize states when page becomes visible (in case config was changed elsewhere)
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      initializeStates();
+    }
+  });
 })();

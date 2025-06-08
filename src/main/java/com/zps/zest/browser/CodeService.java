@@ -16,6 +16,9 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.WindowWrapper;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -177,7 +180,26 @@ public class CodeService {
                                 if (dialogResult == Messages.YES) {
                                     // Apply the changes if accepted
                                     WriteCommandAction.runWriteCommandAction(project, () -> {
+                                        // Replace the text
                                         document.replaceString(startOffset, endOffset, resultText);
+                                        
+                                        // Calculate new end offset after replacement
+                                        int newEndOffset = startOffset + resultText.length();
+                                        
+                                        // Commit document changes to PSI
+                                        PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
+                                        documentManager.commitDocument(document);
+                                        
+                                        // Get PSI file and reformat only the inserted range
+                                        PsiFile psiFile = documentManager.getPsiFile(document);
+                                        if (psiFile != null) {
+                                            try {
+                                                CodeStyleManager.getInstance(project).reformatRange(psiFile, startOffset, newEndOffset);
+                                            } catch (Exception ex) {
+                                                LOG.warn("Failed to reformat inserted code: " + ex.getMessage());
+                                                // Continue anyway - the code is inserted, just not reformatted
+                                            }
+                                        }
                                     });
                                 }
                             }
@@ -402,7 +424,26 @@ public class CodeService {
                                         // Apply the changes if accepted
                                         WriteCommandAction.runWriteCommandAction(project, () -> {
                                             try {
+                                                // Replace the text
                                                 document.replaceString(finalStartOffset, endOffset, newCode);
+                                                
+                                                // Calculate new end offset after replacement
+                                                int newEndOffset = finalStartOffset + newCode.length();
+                                                
+                                                // Commit document changes to PSI
+                                                PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
+                                                documentManager.commitDocument(document);
+                                                
+                                                // Get PSI file and reformat only the inserted range
+                                                PsiFile psiFile = documentManager.getPsiFile(document);
+                                                if (psiFile != null) {
+                                                    try {
+                                                        CodeStyleManager.getInstance(project).reformatRange(psiFile, finalStartOffset, newEndOffset);
+                                                    } catch (Exception refEx) {
+                                                        LOG.warn("Failed to reformat inserted code: " + refEx.getMessage());
+                                                        // Continue anyway - the code is inserted, just not reformatted
+                                                    }
+                                                }
 
                                                 // Show success message
                                                 ApplicationManager.getApplication().invokeLater(() -> {

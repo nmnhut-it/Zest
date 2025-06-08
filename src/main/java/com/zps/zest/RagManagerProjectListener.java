@@ -5,6 +5,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.zps.zest.rag.FileChangeListener;
 import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.jetbrains.annotations.NotNull;
 
@@ -20,6 +22,8 @@ public class RagManagerProjectListener implements ProjectManagerListener {
 
     // Store one manager per project
     private static final Map<String, PersistentRagManager> managers = new ConcurrentHashMap<>();
+    // Store file change listeners per project
+    private static final Map<String, FileChangeListener> fileListeners = new ConcurrentHashMap<>();
 
     @SuppressWarnings("removal")
     @Override
@@ -34,20 +38,12 @@ public class RagManagerProjectListener implements ProjectManagerListener {
             if (config.getKnowledgeId() == null) {
                 // Schedule indexing after project is fully loaded
                 ApplicationManager.getApplication().invokeLater(() -> {
-                    // Ask user if they want to index the project
-                    int result = Messages.showYesNoDialog(
-                        project,
-                        "This project has not been indexed for intelligent code search.\n" +
-                        "Would you like to index it now? This will take a few minutes but will enable advanced code search features.",
-                        "Index Project for Code Search?",
-                        Messages.getQuestionIcon()
-                    );
-                    
-                    if (result == Messages.YES) {
-                        OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
-                        openWebUIRagAgent.indexProject(false);
-                    }
+                    // Don't auto-prompt anymore, let user use the button in browser
+                    LOG.info("Project not indexed. User can index via browser button.");
                 });
+            } else {
+                // Project is indexed, set up file change listener
+                setupFileChangeListener(project);
             }
 
             // Only initialize if RAG is enabled
@@ -75,6 +71,15 @@ public class RagManagerProjectListener implements ProjectManagerListener {
         LOG.info("Project closing: " + project.getName());
 
         try {
+            // Stop file change listener
+            FileChangeListener fileListener = fileListeners.get(project.getLocationHash());
+            if (fileListener != null) {
+                VirtualFileManager.getInstance().removeVirtualFileListener(fileListener);
+                fileListener.shutdown();
+                fileListeners.remove(project.getLocationHash());
+                LOG.info("File change listener shut down for project: " + project.getName());
+            }
+            
             // Get manager for this project
             PersistentRagManager manager = managers.get(project.getLocationHash());
 
@@ -97,5 +102,32 @@ public class RagManagerProjectListener implements ProjectManagerListener {
     public static PersistentRagManager getManager(Project project) {
         if (project == null) return null;
         return managers.get(project.getLocationHash());
+    }
+    
+    /**
+     * Sets up the file change listener for a project.
+     */
+    private static void setupFileChangeListener(Project project) {
+        String projectKey = project.getLocationHash();
+        
+        // Check if listener already exists
+        if (fileListeners.containsKey(projectKey)) {
+            return;
+        }
+        
+        // Create and register file change listener
+        FileChangeListener listener = new FileChangeListener(project);
+        VirtualFileManager.getInstance().addVirtualFileListener(listener);
+        fileListeners.put(projectKey, listener);
+        
+        LOG.info("File change listener set up for project: " + project.getName());
+    }
+    
+    /**
+     * Sets up file change listener after indexing completes.
+     * This is called by the indexing process.
+     */
+    public static void onIndexingComplete(Project project) {
+        setupFileChangeListener(project);
     }
 }

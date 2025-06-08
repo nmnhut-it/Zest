@@ -59,4 +59,33 @@ public interface KnowledgeApiClient {
      * @throws IOException if the operation fails
      */
     KnowledgeCollection getKnowledgeCollection(String knowledgeId) throws IOException;
+    
+    /**
+     * Removes a file from a knowledge base.
+     * 
+     * @param knowledgeId The knowledge base ID
+     * @param fileId The file ID to remove
+     * @throws IOException if the operation fails
+     */
+    void removeFileFromKnowledge(String knowledgeId, String fileId) throws IOException;
+    
+    /**
+     * Checks if a knowledge base exists by ID.
+     * 
+     * @param knowledgeId The knowledge base ID to check
+     * @return true if the knowledge base exists, false otherwise
+     * @throws IOException if the operation fails
+     */
+    default boolean knowledgeExists(String knowledgeId) throws IOException {
+        // Default implementation using getKnowledgeCollection
+        try {
+            KnowledgeCollection collection = getKnowledgeCollection(knowledgeId);
+            return collection != null;
+        } catch (IOException e) {
+            if (e.getMessage() != null && e.getMessage().contains("404")) {
+                return false;
+            }
+            throw e;
+        }
+    }
 }

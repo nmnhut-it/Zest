@@ -32,8 +32,8 @@ public final class ImprovedToolCallingAutonomousAgent {
     private final ToolCallParser toolCallParser;
 
     // Configuration
-    private static final int MAX_TOOL_CALLS = 10;
-    private static final int MAX_ROUNDS = 1;
+    private static final int MAX_TOOL_CALLS = 20;
+    private static final int MAX_ROUNDS = 3;
     private static final int MAX_RESULT_LENGTH = 2000; // Increased from 500
 
     public ImprovedToolCallingAutonomousAgent(@NotNull Project project) {
@@ -223,7 +223,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                 GOAL: Refine understanding by exploring specific findings from previous results.
                 
                 EXPECTED OUTPUT: Either:
-                1. Additional tool calls (1-3) to fill knowledge gaps, OR
+                1. Additional tool calls (1-5) to fill knowledge gaps, OR
                 2. A comprehensive summary if you have sufficient information
                 
                 RESPONSE FORMAT FOR TOOL CALLS:
@@ -301,7 +301,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                         Available tools:
                         %s
                         
-                        Generate 1-3 tool calls in JSON format to continue the exploration.
+                        Generate 1-5 tool calls in JSON format to continue the exploration.
                         """, context.getUserQuery(), context.getToolCallCount(), MAX_TOOL_CALLS,
                 toolRegistry.getToolsDescription());
     }

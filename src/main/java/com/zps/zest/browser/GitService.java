@@ -200,50 +200,55 @@ public class GitService {
         }
     }
 
-    /**
-     * Handles git push operation asynchronously
-     */
-    public String handleGitPush() {
-        String projectPath = project.getBasePath();
-        if (projectPath == null) {
-            return createErrorResponse("Project path not found");
-        }
-        
-        // Run push operation in background
-        new Task.Backgroundable(project, "Git Push", false) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                try {
-                    // Show status message and notify UI
-                    showStatusMessage(project, "Pushing changes to remote...");
-                    notifyUI(project, "GitUI.showPushInProgress()");
-                    
-                    String result = executeGitCommand(projectPath, "git push");
-                    LOG.info("Push executed successfully: " + result);
-                    
-                    // Show success message and notify UI
-                    showStatusMessage(project, "Push completed successfully!");
-                    notifyUI(project, "GitUI.showPushSuccess()");
-                    
-                    // Refresh the git file list in the browser after a short delay
-                    refreshGitFileListDelayed();
-                } catch (Exception e) {
-                    LOG.error("Error during push operation", e);
-                    
-                    // Show error message and notify UI
-                    String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
-                    showStatusMessage(project, "Push failed: " + errorMsg);
-                    notifyUI(project, "GitUI.showPushError('" + escapeJsString(errorMsg) + "')");
-                }
-            }
-        }.queue();
-        
-        JsonObject response = new JsonObject();
-        response.addProperty("success", true);
-        response.addProperty("message", "Push operation started");
-        return gson.toJson(response);
+ /**
+ * Handles git push operation asynchronously
+ */
+public String handleGitPush() {
+    String projectPath = project.getBasePath();
+    if (projectPath == null) {
+        return createErrorResponse("Project path not found");
     }
-    
+
+    // Run push operation in background
+    new Task.Backgroundable(project, "Git Push", false) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+            try {
+                // Show status message and notify UI
+                showStatusMessage(project, "Pushing changes to remote...");
+                notifyUI(project, "GitUI.showPushInProgress()");
+
+                String result = executeGitCommand(projectPath, "git push");
+                LOG.info("Push executed successfully: " + result);
+
+                // Show success message and notify UI
+                showStatusMessage(project, "Push completed successfully!");
+                notifyUI(project, "GitUI.showPushSuccess()");
+
+                // Close the Git modal explicitly
+                notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
+
+                // Refresh the git file list in the browser after a short delay
+                refreshGitFileListDelayed();
+            } catch (Exception e) {
+                LOG.error("Error during push operation", e);
+
+                // Show error message and notify UI
+                String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                showStatusMessage(project, "Push failed: " + errorMsg);
+                notifyUI(project, "GitUI.showPushError('" + escapeJsString(errorMsg) + "')");
+
+                // Close the Git modal even on error
+                notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
+            }
+        }
+    }.queue();
+
+    JsonObject response = new JsonObject();
+    response.addProperty("success", true);
+    response.addProperty("message", "Push operation started");
+    return gson.toJson(response);
+}
     /**
      * Shows a simple status message in the tool window
      */

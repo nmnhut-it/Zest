@@ -106,13 +106,22 @@ public class JavaScriptBridgeActions {
                     
                 case "getProjectKnowledgeCollection":
                     return getProjectKnowledgeCollection();
-
+                    
+                case "projectIndexStatus":
+                    return getProjectIndexStatus();
+                    
+                case "indexProject":
+                    return indexProject(data);
+                    
+                case "knowledgeApiResult":
+                    return handleKnowledgeApiResult(data);
                     
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
                     LOG.info("Auth token saved successfully");
-                    return "";
+                    response.addProperty("success", true);
+                    return gson.toJson(response);
                 // Chat response handling
                 case "notifyChatResponse":
                     return chatResponseService.notifyChatResponse(data);
@@ -147,6 +156,15 @@ public class JavaScriptBridgeActions {
                     
                 case "getExplorationContext":
                     return explorationService.getExplorationContext(data);
+                
+                case "getButtonStates":
+                    return getButtonStates();
+                    
+                case "setContextInjectionEnabled":
+                    return setContextInjectionEnabled(data);
+                    
+                case "setProjectIndexEnabled":
+                    return setProjectIndexEnabled(data);
                 
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -197,7 +215,7 @@ public class JavaScriptBridgeActions {
         response.addProperty("success", true);
         return gson.toJson(response);
     }
-    
+
     /**
      * Gets the project knowledge ID from configuration.
      */
@@ -214,6 +232,37 @@ public class JavaScriptBridgeActions {
             }
         } catch (Exception e) {
             LOG.error("Error getting knowledge ID", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+
+    /**
+     * Starts project indexing.
+     */
+    private String indexProject(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean forceRefresh = data.has("forceRefresh") && data.get("forceRefresh").getAsBoolean();
+            
+            // Get the RAG agent and start indexing
+            OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
+            
+            // Start indexing asynchronously
+            ragAgent.indexProject(forceRefresh).thenAccept(success -> {
+                if (success) {
+                    LOG.info("Project indexing completed successfully");
+                } else {
+                    LOG.error("Project indexing failed");
+                }
+            });
+            
+            response.addProperty("success", true);
+            response.addProperty("message", "Indexing started");
+            
+        } catch (Exception e) {
+            LOG.error("Error starting project indexing", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
@@ -255,6 +304,38 @@ public class JavaScriptBridgeActions {
     }
     
     /**
+     * Gets the project index status.
+     */
+    private String getProjectIndexStatus() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            String knowledgeId = config.getKnowledgeId();
+            
+            boolean isIndexed = knowledgeId != null && !knowledgeId.isEmpty();
+            
+            response.addProperty("success", true);
+            response.addProperty("isIndexed", isIndexed);
+            response.addProperty("knowledgeId", knowledgeId != null ? knowledgeId : "");
+            
+            // Check if indexing is in progress
+            OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
+            response.addProperty("isIndexing", ragAgent.isIndexing());
+            
+            LOG.info("Project index status: isIndexed=" + isIndexed + ", knowledgeId=" + knowledgeId + ", isIndexing=" + ragAgent.isIndexing());
+            
+        } catch (Exception e) {
+            LOG.error("Error getting project index status", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        
+        String result = gson.toJson(response);
+        LOG.info("Returning project index status response: " + result);
+        return result;
+    }
+
+    /**
      * Returns the chat response service for external access.
      */
     public ChatResponseService getChatResponseService() {
@@ -272,5 +353,91 @@ public class JavaScriptBridgeActions {
         if (chatResponseService != null) chatResponseService.dispose();
         if (gitService != null) gitService.dispose();
         if (explorationService != null) explorationService.dispose();
+    }
+    
+    /**
+     * Handles knowledge API results from JavaScript callbacks
+     */
+    private String handleKnowledgeApiResult(JsonObject data) {
+        try {
+            String callbackId = data.get("callbackId").getAsString();
+            
+            // Build the result object
+            JsonObject result = new JsonObject();
+            
+            // Copy all fields from data except callbackId
+            for (var entry : data.entrySet()) {
+                if (!entry.getKey().equals("callbackId")) {
+                    result.add(entry.getKey(), entry.getValue());
+                }
+            }
+            
+            // Pass to the JSBridgeKnowledgeClient
+            com.zps.zest.rag.JSBridgeKnowledgeClient.handleCallback(callbackId, result);
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            return gson.toJson(response);
+        } catch (Exception e) {
+            LOG.error("Error handling knowledge API result", e);
+            JsonObject response = new JsonObject();
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+            return gson.toJson(response);
+        }
+    }
+    
+    /**
+     * Gets the current button states from configuration.
+     */
+    private String getButtonStates() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            response.addProperty("success", true);
+            response.addProperty("contextInjectionEnabled", config.isContextInjectionEnabled());
+            response.addProperty("projectIndexEnabled", config.isProjectIndexEnabled());
+        } catch (Exception e) {
+            LOG.error("Error getting button states", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Sets the context injection enabled state.
+     */
+    private String setContextInjectionEnabled(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean enabled = data.get("enabled").getAsBoolean();
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            config.setContextInjectionEnabled(enabled);
+            response.addProperty("success", true);
+        } catch (Exception e) {
+            LOG.error("Error setting context injection state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Sets the project index enabled state.
+     */
+    private String setProjectIndexEnabled(JsonObject data) {
+        JsonObject response = new JsonObject();
+        try {
+            boolean enabled = data.get("enabled").getAsBoolean();
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            config.setProjectIndexEnabled(enabled);
+            response.addProperty("success", true);
+        } catch (Exception e) {
+            LOG.error("Error setting project index state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
     }
 }

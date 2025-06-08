@@ -152,6 +152,15 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
             System.out.println("=== DiffHighLightingPass.doCollectInformation ===")
         }
         
+        // Skip highlighting if we're using floating window mode
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        if (inlineChatService.floatingCodeWindow != null || inlineChatService.diffSegments.isEmpty()) {
+            if (DEBUG_HIGHLIGHTING) {
+                System.out.println("  -> Skipping highlighting: Floating window is active or no diff segments")
+            }
+            return
+        }
+        
         // Use ReadAction to ensure thread safety
         ReadAction.run<Throwable> {
             val uri = file?.url ?: return@run

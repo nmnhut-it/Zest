@@ -245,34 +245,65 @@ fun processInlineChatCommand(
                         // Validate the implementation using the function in InlineChatService
                         val isValid = inlineChatService.validateImplementation(originalText, inlineChatService.extractedCode!!)
                         
-                        if (!isValid) {
-                            // Add warning message to the floating toolbar instead of showing a notification
-                            ApplicationManager.getApplication().invokeLater {
-                                inlineChatService.floatingToolbar?.setWarningMessage(
+                        // Show floating code window instead of inline preview
+                        ApplicationManager.getApplication().invokeLater {
+                            // Create and show floating window
+                            val floatingWindow = FloatingCodeWindow(
+                                project,
+                                editor,
+                                inlineChatService.extractedCode!!,
+                                originalText,
+                                onAccept = {
+                                    // Apply the changes
+                                    ApplicationManager.getApplication().invokeLater {
+                                        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
+                                            project,
+                                            "Apply Inline Chat Changes",
+                                            null,
+                                            Runnable {
+                                                val document = editor.document
+                                                document.replaceString(
+                                                    selectionStartOffset,
+                                                    selectionEndOffset,
+                                                    inlineChatService.extractedCode!!
+                                                )
+                                                
+                                                // Clear the selection after applying
+                                                editor.selectionModel.removeSelection()
+                                                
+                                                // Clear state (without triggering reanalysis)
+                                                inlineChatService.clearState()
+                                            }
+                                        )
+                                    }
+                                },
+                                onReject = {
+                                    // Just clear the state
+                                    ApplicationManager.getApplication().invokeLater {
+                                        // Clear the selection
+                                        editor.selectionModel.removeSelection()
+                                        
+                                        // Clear state (without triggering reanalysis)
+                                        inlineChatService.clearState()
+                                    }
+                                }
+                            )
+                            
+                            // Store reference in service
+                            inlineChatService.floatingCodeWindow = floatingWindow
+                            
+                            // Initialize warning before showing if validation failed
+                            if (!isValid) {
+                                floatingWindow.initializeWarning(
                                     "The suggested changes may have significantly altered the code structure. Please review carefully."
                                 )
                             }
-                        }
-                        
-                        // Show inline preview directly in the editor
-                        ApplicationManager.getApplication().invokeLater {
-                            // Create and show inline preview
-                            val preview = InlineChatEditorPreview(project, editor)
-                            inlineChatService.editorPreview = preview
                             
-                            preview.showPreview(
-                                originalText,
-                                inlineChatService.extractedCode!!,
-                                selectionStartOffset,
-                                selectionEndOffset
-                            )
+                            floatingWindow.show()
                             
                             if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Inline preview shown in editor")
+                                System.out.println("Floating code window shown")
                             }
-                            
-                            // Show floating toolbar for Accept/Reject actions
-                            inlineChatService.showFloatingToolbar(editor)
                         }
                         
                         // No notification needed - UI feedback is in the editor and toolbar
@@ -280,18 +311,10 @@ fun processInlineChatCommand(
                         // Force editor refresh to show highlights
                         ApplicationManager.getApplication().invokeLater {
                             if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Forcing editor refresh...")
-                            }
-                            editor.contentComponent.repaint()
-                            
-                            // Force Code Vision refresh
-                            com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-                            
-                            if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("DaemonCodeAnalyzer restarted for Code Vision refresh")
+                                System.out.println("Preparing UI for floating window...")
                             }
                             
-                            // Commit document to ensure changes are visible
+                            // Just ensure the document is committed
                             try {
                                 com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(editor.document)
                                 if (DEBUG_RESPONSE_HANDLING) {
@@ -302,10 +325,6 @@ fun processInlineChatCommand(
                                     System.out.println("Error committing document: ${e.message}")
                                 }
                             }
-                            
-                            // Note: Code Vision refresh happens automatically when
-                            // inlineChatDiffActionState is updated. If buttons don't appear,
-                            // ensure Code Vision is enabled in settings.
                         }
                     } else {
                         if (DEBUG_RESPONSE_HANDLING) {
@@ -492,15 +511,14 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 
                 when (params.action) {
                     "accept" -> {
-                        // If we have an inline preview, accept it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.acceptPreview()
-                            // Clear the selection after accepting changes
-                            editor.selectionModel.removeSelection()
-                            // No notification needed - UI feedback is in the editor
+                        // Close floating window - it handles the accept action
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            // The floating window handles applying changes in its onAccept callback
+                            // Just close it here
+                            floatingWindow.hide()
                         } else {
-                            // Fallback to old behavior if no preview
+                            // Fallback to old behavior if no floating window
                             val newCode = inlineChatService.applyChanges()
                             if (newCode != null) {
                                 // Ensure document modifications are done in a write action on EDT
@@ -534,10 +552,10 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         }
                     }
                     "discard" -> {
-                        // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        // Close floating window - it handles the reject action
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            floatingWindow.hide()
                         }
                         
                         // Clear the selection after we're done processing
@@ -546,10 +564,10 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         // No notification needed - UI feedback is in the editor
                     }
                     "cancel" -> {
-                        // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        // Close floating window
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            floatingWindow.hide()
                         }
                         
                         // Clear the selection after we're done processing
@@ -562,12 +580,9 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                     }
                 }
                 
-                // Clear state and reset highlights
+                // Clear state and reset
                 inlineChatService.taskInProgress = false
                 inlineChatService.clearState()
-                
-                // Force clear all highlights (this will run on EDT from within the method)
-                inlineChatService.forceClearAllHighlights()
                 
                 result.complete(true)
             } catch (e: Exception) {

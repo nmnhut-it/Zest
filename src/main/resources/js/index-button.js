@@ -5,6 +5,8 @@
  */
 
 (function() {
+  // Track project index state globally
+  window.__enable_project_index__ = false;
   // Function to create and inject the index button
   window.injectProjectIndexButton = function() {
     console.log('Injecting project index button...');
@@ -84,9 +86,19 @@
         }
         
         console.log('Is indexed:', isIndexed);
-        updateIndexButtonState(indexButton, isIndexed);
+        
+        // Check for mutual exclusion before setting state
+        if (isIndexed && window.__enable_context_injection__) {
+          console.log('Project is indexed but context injection is enabled. Keeping project index disabled.');
+          window.__enable_project_index__ = false;
+          updateIndexButtonState(indexButton, false);
+        } else {
+          window.__enable_project_index__ = isIndexed;
+          updateIndexButtonState(indexButton, isIndexed);
+        }
       }).catch(error => {
         console.error('Failed to get project index status:', error);
+        window.__enable_project_index__ = false;
         updateIndexButtonState(indexButton, false);
       });
       
@@ -100,48 +112,72 @@
       
       // Add click handler
       indexButton.addEventListener('click', function() {
-        // Check current index status
-        window.intellijBridge.callIDE("projectIndexStatus",{
-        }).then(response => {
-          console.log('Project index status response (click):', response);
+        console.log('Index button clicked. Current state:', window.__enable_project_index__);
+        
+        // Check the current frontend state, not backend status
+        if (!window.__enable_project_index__) {
+          // Currently OFF, user wants to turn it ON
           
-          // Handle both direct response and nested response formats
-          let isIndexed = false;
-          if (response) {
-            if (typeof response === 'string') {
-              try {
-                response = JSON.parse(response);
-              } catch (e) {
-                console.error('Failed to parse response:', e);
+          // Check if context injection is enabled
+          if (window.__enable_context_injection__) {
+            alert('Please disable Context Injection first before enabling Project Index mode.');
+            // Ensure button state is correct after alert
+            updateIndexButtonState(indexButton, false);
+            return;
+          }
+          
+          // Check if project needs indexing first
+          window.intellijBridge.callIDE("projectIndexStatus",{}).then(response => {
+            let isIndexed = false;
+            if (response) {
+              if (typeof response === 'string') {
+                try {
+                  response = JSON.parse(response);
+                } catch (e) {
+                  console.error('Failed to parse response:', e);
+                }
+              }
+              
+              if (response.isIndexed !== undefined) {
+                isIndexed = response.isIndexed;
+              } else if (response.result && response.result.isIndexed !== undefined) {
+                isIndexed = response.result.isIndexed;
               }
             }
             
-            // Check for isIndexed in different places
-            if (response.isIndexed !== undefined) {
-              isIndexed = response.isIndexed;
-            } else if (response.result && response.result.isIndexed !== undefined) {
-              isIndexed = response.result.isIndexed;
+            if (!isIndexed) {
+              // Not indexed yet, need to index first
+              if (confirm('Index this project for intelligent code search? This may take a few minutes.')) {
+                window.__enable_project_index__ = true;
+                startProjectIndexing();
+              } else {
+                // User cancelled, ensure button state is correct
+                updateIndexButtonState(indexButton, false);
+              }
+            } else {
+              // Already indexed, just enable the mode
+              window.__enable_project_index__ = true;
+              updateIndexButtonState(indexButton, true);
+              showIndexingNotification('enabled');
             }
-          }
-          
-          if (!isIndexed) {
-            // Not indexed, start indexing
-            if (confirm('Index this project for intelligent code search? This may take a few minutes.')) {
+          }).catch(error => {
+            console.error('Failed to get project index status:', error);
+            if (confirm('Index this project for intelligent code search?')) {
+              window.__enable_project_index__ = true;
               startProjectIndexing();
+            } else {
+              // User cancelled, ensure button state is correct
+              updateIndexButtonState(indexButton, false);
             }
-          } else {
-            // Already indexed, offer to refresh
-            if (confirm('Project is already indexed. Do you want to refresh the index?')) {
-              startProjectIndexing(true);
-            }
+          });
+        } else {
+          // Currently ON, user wants to turn it OFF
+          if (confirm('Project index is currently active. Do you want to turn it off?')) {
+            window.__enable_project_index__ = false;
+            updateIndexButtonState(indexButton, false);
+            showIndexingNotification('disabled');
           }
-        }).catch(error => {
-          console.error('Failed to get project index status:', error);
-          // Default to asking to index
-          if (confirm('Index this project for intelligent code search?')) {
-            startProjectIndexing();
-          }
-        });
+        }
       });
       
       buttonContainer.appendChild(indexButton);
@@ -163,7 +199,7 @@
       // Update text
       const textSpan = button.querySelector('span:last-child');
       if (textSpan) {
-        textSpan.textContent = 'Indexed ✓';
+        textSpan.textContent = 'Index On';
       }
     } else {
       // Not indexed state - normal
@@ -172,10 +208,18 @@
       // Update text
       const textSpan = button.querySelector('span:last-child');
       if (textSpan) {
-        textSpan.textContent = 'Index Project';
+        textSpan.textContent = 'Index Off';
       }
     }
   }
+  
+  // Function to sync all project index buttons
+  window.syncAllProjectIndexButtons = function() {
+    const allButtons = document.querySelectorAll('.project-index-button');
+    allButtons.forEach(button => {
+      updateIndexButtonState(button, window.__enable_project_index__);
+    });
+  };
 
   // Function to start project indexing
   function startProjectIndexing(forceRefresh = false) {
@@ -205,7 +249,7 @@
       // Reset button state
       buttons.forEach(button => {
         button.disabled = false;
-        updateIndexButtonState(button, false);
+        updateIndexButtonState(button, window.__enable_project_index__);
       });
     });
   }
@@ -250,6 +294,9 @@
             updateIndexButtonState(button, true);
           });
           
+          // Update global state
+          window.__enable_project_index__ = true;
+          
           showIndexingNotification('complete');
         }
       }).catch(error => {
@@ -281,6 +328,14 @@
       case 'error':
         message = 'Failed to index project. Please try again.';
         bgColor = 'bg-red-600';
+        break;
+      case 'disabled':
+        message = 'Project index mode disabled.';
+        bgColor = 'bg-gray-600';
+        break;
+      case 'enabled':
+        message = 'Project index mode enabled.';
+        bgColor = 'bg-green-600';
         break;
     }
     
@@ -366,6 +421,39 @@
     console.log('Force injecting project index button...');
     window.injectProjectIndexButton();
   };
+
+  // Force sync all button states
+  window.forceIndexButtonSync = function() {
+    console.log('Force syncing all index button states to:', window.__enable_project_index__);
+    const allButtons = document.querySelectorAll('.project-index-button');
+    allButtons.forEach(button => {
+      updateIndexButtonState(button, window.__enable_project_index__);
+    });
+  };
+
+  // Periodically check for mutual exclusion
+  setInterval(() => {
+    // Only enforce if context-toggle.js hasn't already enforced it
+    if (window.__enable_context_injection__ && window.__enable_project_index__ && window.__mutual_exclusion_enforced__ !== 'context') {
+      // This should rarely happen since context-toggle.js handles it
+      console.warn('Mutual exclusion backup check: Both enabled, following context priority...');
+      window.__enable_project_index__ = false;
+      window.syncAllProjectIndexButtons();
+    }
+    
+    // Also ensure button states are correct
+    const buttons = document.querySelectorAll('.project-index-button');
+    buttons.forEach(button => {
+      const textSpan = button.querySelector('span:last-child');
+      if (textSpan) {
+        const currentText = textSpan.textContent;
+        const expectedText = window.__enable_project_index__ ? 'Index On' : 'Index Off';
+        if (currentText !== expectedText && currentText !== 'Indexing...') {
+          updateIndexButtonState(button, window.__enable_project_index__);
+        }
+      }
+    });
+  }, 2100); // Check slightly after context-toggle to avoid conflicts
 
   console.log('Project index button script initialized. Use window.forceInjectProjectIndexButton() to manually inject.');
 })();

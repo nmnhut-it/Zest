@@ -303,6 +303,13 @@
         if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
           window.enhanceWithProjectKnowledge(data);
         }
+        
+        // Check for project index mode
+        if (window.__enable_project_index__ && !window.__enable_context_injection__) {
+          // Project index mode is enabled, add knowledge collection if available
+          console.log('Project index mode is enabled, checking for knowledge collection...');
+          // This will be handled by the Project Mode enhancer
+        }
 
         // Handle system message based on mode
         if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {

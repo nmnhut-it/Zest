@@ -21,9 +21,9 @@ class InlineChatService(private val project: Project) : Disposable {
 
     companion object {
         // Debug flags - set to true to enable debug output
-        const val DEBUG_SERVICE = false
-        const val DEBUG_DIFF_SEGMENTS = false
-        const val DEBUG_CODE_EXTRACTION = false
+        const val DEBUG_SERVICE = true
+        const val DEBUG_DIFF_SEGMENTS = true
+        const val DEBUG_CODE_EXTRACTION = true
     }
 
     var inlineChatInputVisible = false
@@ -83,15 +83,16 @@ class InlineChatService(private val project: Project) : Disposable {
             System.out.println("Extracted code: ${extractedCode?.take(200) ?: "NULL"}")
         }
 
-        // Don't generate diff segments for main editor when using floating window
-        // The floating window will handle its own diff display
+        // We still need to store the original code and selection info for the floating window
         if (extractedCode != null) {
-            // Just enable the actions without generating segments
+            // Don't generate diff segments here - let the floating window do it when needed
+            // Just enable the actions
             inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
             inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
 
             if (DEBUG_SERVICE) {
                 System.out.println("Diff action states: $inlineChatDiffActionState")
+                System.out.println("Extracted code successfully, ready for floating window")
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -107,20 +108,34 @@ class InlineChatService(private val project: Project) : Disposable {
         if (DEBUG_CODE_EXTRACTION) {
             System.out.println("=== InlineChatService.extractCodeFromResponse ===")
             System.out.println("Looking for code blocks in response...")
+            System.out.println("Response preview: ${response.take(500)}")
         }
 
-        val codeBlockRegex = Regex("```(?:java)?\\s*([\\s\\S]*?)```")
-        val match = codeBlockRegex.find(response)
-
-        if (DEBUG_CODE_EXTRACTION) {
-            System.out.println("Regex match found: ${match != null}")
+        // Try multiple patterns to extract code
+        val patterns = listOf(
+            Regex("```(?:java|kotlin)?\\s*\\n([\\s\\S]*?)\\n```", RegexOption.MULTILINE),
+            Regex("```\\s*\\n([\\s\\S]*?)\\n```", RegexOption.MULTILINE),
+            Regex("```([\\s\\S]*?)```", RegexOption.MULTILINE)
+        )
+        
+        for (pattern in patterns) {
+            val match = pattern.find(response)
             if (match != null) {
-                System.out.println("Match groups count: ${match.groups.size}")
-                System.out.println("Extracted code preview: ${match.groups[1]?.value?.take(100)}")
+                val code = match.groupValues[1].trim()
+                if (DEBUG_CODE_EXTRACTION) {
+                    System.out.println("Code extracted with pattern: $pattern")
+                    System.out.println("Extracted code length: ${code.length}")
+                    System.out.println("Extracted code preview: ${code.take(200)}")
+                }
+                return code
             }
         }
 
-        return match?.groups?.get(1)?.value?.trim()
+        if (DEBUG_CODE_EXTRACTION) {
+            System.out.println("No code blocks found in response!")
+        }
+
+        return null
     }
 
     /**

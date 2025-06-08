@@ -17,8 +17,8 @@ import kotlinx.coroutines.launch
 import org.eclipse.lsp4j.*
 
 // Debug flags for Utils.kt
-private const val DEBUG_PROCESS_COMMAND = false
-private const val DEBUG_RESPONSE_HANDLING = false
+private const val DEBUG_PROCESS_COMMAND = true
+private const val DEBUG_RESPONSE_HANDLING = true
 
 /**
  * Location information with start offset

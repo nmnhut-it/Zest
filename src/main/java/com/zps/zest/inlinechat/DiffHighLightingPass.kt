@@ -24,6 +24,28 @@ import java.awt.Color
 import java.awt.Font
 
 /**
+ * Type of diff segment
+ */
+enum class DiffSegmentType {
+    UNCHANGED,
+    INSERTED,
+    DELETED,
+    HEADER,
+    FOOTER, 
+    COMMENT
+}
+
+/**
+ * Represents a segment of a diff
+ */
+data class DiffSegment(
+    val startLine: Int,
+    val endLine: Int,
+    val type: DiffSegmentType,
+    val content: String
+)
+
+/**
  * Registers the diff highlighting pass factory
  */
 class DiffHighlighterRegister : TextEditorHighlightingPassFactoryRegistrar {
@@ -153,7 +175,6 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
         }
         
         // Skip highlighting if we're using floating window mode
-        val inlineChatService = project.getService(InlineChatService::class.java)
         if (inlineChatService.floatingCodeWindow != null || inlineChatService.diffSegments.isEmpty()) {
             if (DEBUG_HIGHLIGHTING) {
                 System.out.println("  -> Skipping highlighting: Floating window is active or no diff segments")
@@ -333,25 +354,3 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
         }
     }
 }
-
-/**
- * Type of diff segment
- */
-enum class DiffSegmentType {
-    UNCHANGED,
-    INSERTED,
-    DELETED,
-    HEADER,
-    FOOTER, 
-    COMMENT
-}
-
-/**
- * Represents a segment of a diff
- */
-data class DiffSegment(
-    val startLine: Int,
-    val endLine: Int,
-    val type: DiffSegmentType,
-    val content: String
-)

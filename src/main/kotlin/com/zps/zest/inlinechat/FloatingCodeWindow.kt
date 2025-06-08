@@ -58,11 +58,14 @@ class FloatingCodeWindow(
     
     fun show() {
         ApplicationManager.getApplication().invokeLater {
+            System.out.println("FloatingCodeWindow.show() called")
             if (popup?.isVisible == true) {
+                System.out.println("Popup already visible, returning")
                 return@invokeLater
             }
             
             val panel = createMainPanel()
+            System.out.println("Main panel created")
             
             popup = JBPopupFactory.getInstance()
                 .createComponentPopupBuilder(panel, null)
@@ -75,18 +78,21 @@ class FloatingCodeWindow(
                 .setCancelKeyEnabled(true)
                 .setMinSize(Dimension(350, 250))  // Smaller minimum size
                 .setDimensionServiceKey(project, "InlineChatFloatingWindow", false)
-                .setAlpha(0.97f)  // Slight transparency for better visual separation
                 .createPopup()
+            
+            System.out.println("Popup created")
             
             // Calculate and set position
             val windowSize = Dimension(WINDOW_WIDTH, WINDOW_HEIGHT)
             val position = positionManager.calculateOptimalPosition(windowSize)
+            System.out.println("Position calculated: $position")
             
             // Create a relative point based on the editor component
             val relativePoint = RelativePoint(mainEditor.component, Point(0, 0))
             
             // Show at the calculated position
             popup?.show(RelativePoint(Point(position)))
+            System.out.println("Popup shown")
             
             // Add ESC key handler
             popup?.content?.let { content ->
@@ -276,7 +282,6 @@ class FloatingCodeWindow(
         
         val acceptButton = JButton("Accept")
         acceptButton.icon = AllIcons.Actions.Checked
-        acceptButton.isDefaultButton = true  // Make it visually prominent
         acceptButton.addActionListener {
             onAccept()
             hide()

@@ -95,49 +95,20 @@ object DiffResourceLoader {
         /* Diff2Html styles */
         $diff2htmlCss
         
-        /* Custom styles */
+        /* Minimal custom styles - let diff2html handle most styling */
         body {
             margin: 0;
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
-            color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
         }
         #diff-container {
             height: 100vh;
             overflow: auto;
         }
-        .d2h-wrapper {
-            font-size: 13px;
-        }
+        
+        /* Hide file header as we don't need it */
         .d2h-file-header {
-            display: none;
-        }
-        .d2h-code-side-linenumber {
-            background: ${if (isDarkTheme) "#2d2d2d" else "#f7f7f7"};
-            color: ${if (isDarkTheme) "#858585" else "#666666"};
-            border-right: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
-        }
-        .d2h-code-side-line {
-            padding: 0 10px;
-        }
-        .d2h-code-side-line.d2h-ins {
-            background: ${if (isDarkTheme) "rgba(87, 171, 90, 0.2)" else "rgba(40, 167, 69, 0.15)"};
-        }
-        .d2h-code-side-line.d2h-del {
-            background: ${if (isDarkTheme) "rgba(203, 36, 49, 0.2)" else "rgba(215, 58, 73, 0.15)"};
-        }
-        .d2h-code-line-ctn {
-            font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
-        }
-        .d2h-file-wrapper {
-            border: none;
-        }
-        .d2h-file-side-diff {
-            width: 100%;
-        }
-        .d2h-code-wrapper {
-            width: 50%;
+            display: none !important;
         }
     </style>
 </head>
@@ -166,16 +137,14 @@ object DiffResourceLoader {
                 suggested,
                 'Original',
                 'AI Suggested',
-                { context: 3 }
+                { context: 999 }  // Show all lines
             );
             
             console.log('Diff created, patch length:', patch.length);
+            console.log('First 500 chars of patch:', patch.substring(0, 500));
             
-            const lines = patch.split('\\n');
-            const diffContent = lines.slice(2).join('\\n');
-            
-            console.log('Processed diff content');
-            return diffContent;
+            // Return the full patch - diff2html needs the header
+            return patch;
         }
         
         // Embedded code data
@@ -194,7 +163,8 @@ object DiffResourceLoader {
             highlight: true,
             fileContentToggle: false,
             renderNothingWhenEmpty: false,
-            synchronisedScroll: true
+            synchronisedScroll: true,
+            colorScheme: '${if (isDarkTheme) "dark" else "light"}'  // Use diff2html's built-in dark mode
         };
         
         console.log('Configuration:', configuration);

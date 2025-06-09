@@ -288,6 +288,20 @@ class FloatingCodeWindow(
         
         panel.add(titleLabel, BorderLayout.WEST)
         
+        // Add DevTools button to the right side
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
+        rightPanel.background = panel.background
+        
+        val devToolsButton = JButton("DevTools")
+        devToolsButton.icon = AllIcons.Debugger.Console
+        devToolsButton.toolTipText = "Open Chrome DevTools (F12)"
+        devToolsButton.addActionListener {
+            browser?.openDevtools()
+        }
+        
+        rightPanel.add(devToolsButton)
+        panel.add(rightPanel, BorderLayout.EAST)
+        
         return panel
     }
     
@@ -301,7 +315,7 @@ class FloatingCodeWindow(
         println("=== First 500 chars of HTML: ${diffHtml.take(500)} ===")
         
         // Test with simple HTML first (comment out for production)
-        val testSimpleHtml = true  // Changed to true for testing
+        val testSimpleHtml = false  // Changed to false to test the actual diff viewer
         if (testSimpleHtml) {
             val simpleTestHtml = """
                 <!DOCTYPE html>

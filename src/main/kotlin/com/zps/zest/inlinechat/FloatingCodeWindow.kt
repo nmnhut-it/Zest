@@ -35,21 +35,21 @@ class FloatingCodeWindow(
     private val onAccept: () -> Unit,
     private val onReject: () -> Unit
 ) : Disposable {
-    
+
     companion object {
         // Reusable browser instance for performance
         private var sharedBrowser: JBCefBrowser? = null
-        
+
         private fun getOrCreateBrowser(): JBCefBrowser {
             println("=== getOrCreateBrowser called ===")
-            
+
             if (sharedBrowser == null || sharedBrowser!!.isDisposed) {
                 println("Creating new JBCefBrowser instance...")
-                
+
                 // Enable JCef DevTools
                 System.setProperty("ide.browser.jcef.debug.port", "9222")
                 System.setProperty("ide.browser.jcef.headless", "false")
-                
+
                 try {
                     sharedBrowser = JBCefBrowser()
                     println("JBCefBrowser created successfully")
@@ -58,7 +58,7 @@ class FloatingCodeWindow(
                     e.printStackTrace()
                     throw e
                 }
-                
+
                 // Enable DevTools
                 sharedBrowser?.jbCefClient?.setProperty("chromiumSwitches", "--remote-debugging-port=9223")
             } else {
@@ -66,7 +66,7 @@ class FloatingCodeWindow(
             }
             return sharedBrowser!!
         }
-        
+
         /**
          * Create a loading state window
          */
@@ -89,7 +89,7 @@ class FloatingCodeWindow(
             }
         }
     }
-    
+
     private var popup: JBPopup? = null
     private var browser: JBCefBrowser? = null
     private var warningPanel: JPanel? = null
@@ -97,21 +97,21 @@ class FloatingCodeWindow(
     private var loadingPanel: JPanel? = null
     private var contentPanel: JPanel? = null
     private var mainPanel: JPanel? = null
-    
+
     fun show() {
         ApplicationManager.getApplication().invokeLater {
             if (popup?.isVisible == true) {
                 return@invokeLater
             }
-            
+
             val panel = createMainPanel()
-            
+
             // Calculate window dimensions based on editor width and content
             val editorWidth = mainEditor.component.width
             val windowWidth = minOf(editorWidth - 40, 1400)  // Leave some margin, max 1400px
             val lineCount = maxOf(originalCode.lines().size, suggestedCode.lines().size)
             val windowHeight = minOf(600, maxOf(400, lineCount * 20 + 150))  // Dynamic height based on content
-            
+
             popup = JBPopupFactory.getInstance()
                 .createComponentPopupBuilder(panel, null)
                 .setTitle("AI Suggested Changes - Side by Side Diff")
@@ -121,7 +121,7 @@ class FloatingCodeWindow(
                 .setCancelOnClickOutside(false)
                 .setCancelOnOtherWindowOpen(false)
                 .setCancelKeyEnabled(true)
-                .setCancelCallback { 
+                .setCancelCallback {
                     // Ensure cleanup when cancelled
                     val inlineChatService = project.getService(InlineChatService::class.java)
                     inlineChatService.floatingCodeWindow = null
@@ -131,18 +131,18 @@ class FloatingCodeWindow(
                 .setMinSize(Dimension(800, 400))  // Wider minimum for diff view
                 .setDimensionServiceKey(project, "InlineChatFloatingDiffWindow", false)
                 .createPopup()
-            
+
             // Position at selection start
             val position = calculatePositionAtSelection(Dimension(windowWidth, windowHeight))
-            
+
             popup?.size = Dimension(windowWidth, windowHeight)
             popup?.show(RelativePoint(Point(position)))
-            
+
             // Add ESC key handler
             popup?.content?.let { content ->
                 val inputMap = content.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
                 val actionMap = content.actionMap
-                
+
                 inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
                 actionMap.put("close", object : AbstractAction() {
                     override fun actionPerformed(e: ActionEvent?) {
@@ -151,26 +151,26 @@ class FloatingCodeWindow(
                     }
                 })
             }
-            
+
             // Add listener to handle popup close and position changes
             popup?.addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
                 private val resizeListener = object : ComponentAdapter() {
                     override fun componentResized(e: ComponentEvent) {
                         repositionWindow()
                     }
-                    
+
                     override fun componentMoved(e: ComponentEvent) {
                         repositionWindow()
                     }
                 }
-                
+
                 override fun beforeShown(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
                     mainEditor.component.addComponentListener(resizeListener)
                 }
-                
+
                 override fun onClosed(event: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
                     mainEditor.component.removeComponentListener(resizeListener)
-                    
+
                     val inlineChatService = project.getService(InlineChatService::class.java)
                     if (inlineChatService.floatingCodeWindow == this@FloatingCodeWindow) {
                         inlineChatService.floatingCodeWindow = null
@@ -180,7 +180,7 @@ class FloatingCodeWindow(
             })
         }
     }
-    
+
     /**
      * Update the content of the floating window with the LLM response
      */
@@ -188,47 +188,47 @@ class FloatingCodeWindow(
         ApplicationManager.getApplication().invokeLater {
             isLoading = false
             suggestedCode = newSuggestedCode
-            
+
             // Stop any loading animation timer
             loadingPanel?.let { panel ->
                 (panel.getClientProperty("loadingTimer") as? javax.swing.Timer)?.stop()
             }
-            
+
             // Update warning if validation failed
             if (!isValid) {
                 showWarning("The suggested changes may have significantly altered the code structure. Please review carefully.")
             }
-            
+
             // Refresh the content
             mainPanel?.let { panel ->
                 panel.removeAll()
-                
+
                 // Create top panel that includes toolbar and potential warning
                 val topPanel = JPanel(BorderLayout())
                 val toolbar = createToolbar()
                 topPanel.add(toolbar, BorderLayout.NORTH)
-                
+
                 // Add warning panel if it exists
                 warningPanel?.let {
                     topPanel.add(it, BorderLayout.SOUTH)
                 }
-                
+
                 panel.add(topPanel, BorderLayout.NORTH)
-                
+
                 // Create diff viewer
                 val diffPanel = createDiffViewerPanel()
                 panel.add(diffPanel, BorderLayout.CENTER)
-                
+
                 // Create action panel
                 val actionPanel = createActionPanel()
                 panel.add(actionPanel, BorderLayout.SOUTH)
-                
+
                 panel.revalidate()
                 panel.repaint()
             }
         }
     }
-    
+
     private fun calculatePositionAtSelection(windowSize: Dimension): Point {
         val inlineChatService = project.getService(InlineChatService::class.java)
         val selectionStart = if (inlineChatService.selectionStartOffset > 0) {
@@ -236,15 +236,15 @@ class FloatingCodeWindow(
         } else {
             mainEditor.selectionModel.selectionStart
         }
-        
+
         // Get the position of the selection start in the editor
         val selectionPoint = mainEditor.offsetToXY(selectionStart)
         val editorLocation = mainEditor.component.locationOnScreen
-        
+
         // Calculate position relative to screen
         var x = editorLocation.x + selectionPoint.x + 50  // Offset to the right of selection
         var y = editorLocation.y + selectionPoint.y - 50   // Slightly above selection
-        
+
         // Ensure window fits on screen
         val screenSize = Toolkit.getDefaultToolkit().screenSize
         if (x + windowSize.width > screenSize.width) {
@@ -254,10 +254,10 @@ class FloatingCodeWindow(
             y = screenSize.height - windowSize.height - 20
         }
         if (y < 0) y = 20
-        
+
         return Point(x, y)
     }
-    
+
     fun hide() {
         ApplicationManager.getApplication().invokeLater {
             popup?.cancel()
@@ -265,11 +265,11 @@ class FloatingCodeWindow(
             dispose()
         }
     }
-    
+
     fun initializeWarning(message: String) {
         warningPanel = createWarningPanel(message)
     }
-    
+
     fun showWarning(message: String) {
         ApplicationManager.getApplication().invokeLater {
             if (warningPanel == null) {
@@ -293,36 +293,36 @@ class FloatingCodeWindow(
             }
         }
     }
-    
+
     private fun createWarningPanel(message: String): JPanel {
         val panel = JPanel(BorderLayout())
         val warningBorderColor = JBColor(Color(255, 190, 0), Color(210, 130, 0))
         val warningBackgroundColor = JBColor(Color(255, 250, 220), Color(80, 70, 40))
-        
+
         panel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(warningBorderColor, 1, true),
             BorderFactory.createEmptyBorder(8, 8, 8, 8)
         )
         panel.background = warningBackgroundColor
-        
+
         val warningIcon = JBLabel(AllIcons.General.BalloonWarning)
         val warningLabel = JBLabel(message, SwingConstants.LEFT)
         warningLabel.font = warningLabel.font.deriveFont(Font.PLAIN, 12f)
-        
+
         val innerPanel = JPanel(BorderLayout(8, 0))
         innerPanel.background = panel.background
         innerPanel.add(warningIcon, BorderLayout.WEST)
         innerPanel.add(warningLabel, BorderLayout.CENTER)
-        
+
         panel.add(innerPanel, BorderLayout.CENTER)
-        
+
         return panel
     }
-    
+
     private fun createMainPanel(): JPanel {
         mainPanel = JPanel(BorderLayout())
         mainPanel!!.border = JBUI.Borders.empty()
-        
+
         if (isLoading) {
             // Show loading state
             loadingPanel = createLoadingPanel()
@@ -330,67 +330,67 @@ class FloatingCodeWindow(
         } else {
             // Create toolbar
             val toolbar = createToolbar()
-            
+
             // Create top panel that includes toolbar and potential warning
             val topPanel = JPanel(BorderLayout())
             topPanel.add(toolbar, BorderLayout.NORTH)
-            
+
             // Add warning panel if it exists
             warningPanel?.let {
                 topPanel.add(it, BorderLayout.SOUTH)
             }
-            
+
             mainPanel!!.add(topPanel, BorderLayout.NORTH)
-            
+
             // Create diff viewer
             val diffPanel = createDiffViewerPanel()
             mainPanel!!.add(diffPanel, BorderLayout.CENTER)
-            
+
             // Create action panel
             val actionPanel = createActionPanel()
             mainPanel!!.add(actionPanel, BorderLayout.SOUTH)
         }
-        
+
         return mainPanel!!
     }
-    
+
     private fun createLoadingPanel(): JPanel {
         val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
         panel.border = JBUI.Borders.empty(50)
-        
+
         val centerPanel = JPanel()
         centerPanel.layout = BoxLayout(centerPanel, BoxLayout.Y_AXIS)
         centerPanel.background = panel.background
-        
+
         // Add spinning icon
         val loadingIcon = JBLabel(AllIcons.Process.Big.Step_1)
         loadingIcon.alignmentX = Component.CENTER_ALIGNMENT
         centerPanel.add(loadingIcon)
-        
+
         centerPanel.add(Box.createVerticalStrut(20))
-        
+
         // Add loading text
         val loadingLabel = JBLabel("Processing your request...")
         loadingLabel.font = loadingLabel.font.deriveFont(Font.BOLD, 16f)
         loadingLabel.alignmentX = Component.CENTER_ALIGNMENT
         centerPanel.add(loadingLabel)
-        
+
         centerPanel.add(Box.createVerticalStrut(10))
-        
+
         val detailLabel = JBLabel("AI is analyzing your code and generating suggestions")
         detailLabel.font = detailLabel.font.deriveFont(14f)
         detailLabel.foreground = UIUtil.getContextHelpForeground()
         detailLabel.alignmentX = Component.CENTER_ALIGNMENT
         centerPanel.add(detailLabel)
-        
+
         // Center the content
         val wrapper = JPanel(GridBagLayout())
         wrapper.background = panel.background
         wrapper.add(centerPanel)
-        
+
         panel.add(wrapper, BorderLayout.CENTER)
-        
+
         // Animate the loading icon
         val timer = javax.swing.Timer(100) { _ ->
             val icons = listOf(
@@ -408,13 +408,13 @@ class FloatingCodeWindow(
             loadingIcon.icon = icons[nextIndex]
         }
         timer.start()
-        
+
         // Store timer reference to stop it later
         panel.putClientProperty("loadingTimer", timer)
-        
+
         return panel
     }
-    
+
     private fun createToolbar(): JComponent {
         val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
@@ -423,39 +423,39 @@ class FloatingCodeWindow(
             JBUI.Borders.empty(8, 12),
             true
         )
-        
+
         val titleLabel = JBLabel("AI Suggested Changes - Side by Side Comparison")
         titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
         titleLabel.icon = AllIcons.Actions.Diff
-        
+
         panel.add(titleLabel, BorderLayout.WEST)
-        
+
         // Add DevTools button to the right side
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
         rightPanel.background = panel.background
-        
+
         val devToolsButton = JButton("DevTools")
         devToolsButton.icon = AllIcons.Debugger.Console
         devToolsButton.toolTipText = "Open Chrome DevTools (F12)"
         devToolsButton.addActionListener {
             browser?.openDevtools()
         }
-        
+
         rightPanel.add(devToolsButton)
         panel.add(rightPanel, BorderLayout.EAST)
-        
+
         return panel
     }
-    
+
     private fun createDiffViewerPanel(): JComponent {
         // Use shared browser instance for better performance
         browser = getOrCreateBrowser()
-        
+
         // For debugging: print the HTML to console
         val diffHtml = generateDiffHtml(originalCode, suggestedCode)
         println("=== Generated HTML length: ${diffHtml.length} ===")
         println("=== First 500 chars of HTML: ${diffHtml.take(500)} ===")
-        
+
         // Test with simple HTML first (comment out for production)
         val testSimpleHtml = false  // Changed to false to test the actual diff viewer
         if (testSimpleHtml) {
@@ -500,10 +500,10 @@ class FloatingCodeWindow(
             // Load the diff HTML
             browser?.loadHTML(diffHtml)
         }
-        
+
         val browserComponent = browser?.component ?: JPanel()
         browserComponent.border = JBUI.Borders.empty()
-        
+
         // Add keyboard shortcuts for DevTools
         browserComponent.isFocusable = true
         browserComponent.addKeyListener(object : java.awt.event.KeyAdapter() {
@@ -513,7 +513,7 @@ class FloatingCodeWindow(
                 }
             }
         })
-        
+
         // Add context menu for DevTools
         browserComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mousePressed(e: java.awt.event.MouseEvent) {
@@ -521,13 +521,13 @@ class FloatingCodeWindow(
                     showDevToolsMenu(e)
                 }
             }
-            
+
             override fun mouseReleased(e: java.awt.event.MouseEvent) {
                 if (e.isPopupTrigger) {
                     showDevToolsMenu(e)
                 }
             }
-            
+
             private fun showDevToolsMenu(e: java.awt.event.MouseEvent) {
                 val popup = JPopupMenu()
                 val devToolsItem = JMenuItem("Open DevTools")
@@ -543,19 +543,19 @@ class FloatingCodeWindow(
                 popup.show(e.component, e.x, e.y)
             }
         })
-        
+
         return browserComponent
     }
-    
+
     private fun generateDiffHtml(original: String, suggested: String): String {
         try {
             println("=== generateDiffHtml called ===")
             println("Original length: ${original.length}")
             println("Suggested length: ${suggested.length}")
-            
+
             // Detect if dark theme
             val isDarkTheme = UIUtil.isUnderDarcula()
-            
+
             // Detect language from editor file type
             val virtualFile = FileDocumentManager.getInstance().getFile(mainEditor.document)
             val fileType = virtualFile?.fileType
@@ -606,9 +606,9 @@ class FloatingCodeWindow(
                     }
                 }
             }
-            
+
             println("Detected language: $language")
-            
+
             // Use the DiffResourceLoader to generate HTML with embedded resources
             return DiffResourceLoader.generateInlineHtml(original, suggested, isDarkTheme, language)
         } catch (e: Exception) {
@@ -629,7 +629,7 @@ class FloatingCodeWindow(
             """.trimIndent()
         }
     }
-    
+
     private fun createActionPanel(): JComponent {
         val panel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 8))
         panel.background = UIUtil.getPanelBackground()
@@ -638,30 +638,30 @@ class FloatingCodeWindow(
             JBUI.Borders.empty(8),
             true
         )
-        
+
         val acceptButton = JButton("Accept")
         acceptButton.icon = AllIcons.Actions.Checked
         acceptButton.addActionListener {
             onAccept()
             hide()
         }
-        
+
         val rejectButton = JButton("Reject")
         rejectButton.icon = AllIcons.Actions.Close
         rejectButton.addActionListener {
             onReject()
             hide()
         }
-        
+
         panel.add(rejectButton)
         panel.add(acceptButton)
-        
+
         // Make Accept the default button
         SwingUtilities.getRootPane(panel)?.defaultButton = acceptButton
-        
+
         return panel
     }
-    
+
     private fun repositionWindow() {
         val currentPopup = popup
         if (currentPopup?.isVisible == true) {
@@ -672,13 +672,13 @@ class FloatingCodeWindow(
             }
         }
     }
-    
+
     override fun dispose() {
         // Stop any loading animation timer
         loadingPanel?.let { panel ->
             (panel.getClientProperty("loadingTimer") as? javax.swing.Timer)?.stop()
         }
-        
+
         // Don't dispose the shared browser - just clear our reference
         browser = null
     }

@@ -6,6 +6,7 @@ import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import com.zps.zest.CodeContext
 import com.zps.zest.LlmApiCallStage
 import com.zps.zest.ZestNotifications
@@ -225,11 +226,26 @@ fun processInlineChatCommand(
                             null,
                             Runnable {
                                 val document = editor.document
+                                
+                                // Replace the text
                                 document.replaceString(
                                     selectionStartOffset,
                                     selectionEndOffset,
                                     inlineChatService.extractedCode!!
                                 )
+                                
+                                // Reformat the replaced section
+                                val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                if (psiFile != null) {
+                                    val newEndOffset = selectionStartOffset + inlineChatService.extractedCode!!.length
+                                    
+                                    // Commit the document first
+                                    com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                    
+                                    // Reformat the replaced range
+                                    val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                    codeStyleManager.reformatRange(psiFile, selectionStartOffset, newEndOffset)
+                                }
                                 
                                 // Clear the selection after applying
                                 editor.selectionModel.removeSelection()
@@ -329,11 +345,26 @@ fun processInlineChatCommand(
                                                 null,
                                                 Runnable {
                                                     val document = editor.document
+                                                    
+                                                    // Replace the text
                                                     document.replaceString(
                                                         selectionStartOffset,
                                                         selectionEndOffset,
                                                         inlineChatService.extractedCode!!
                                                     )
+                                                    
+                                                    // Reformat the replaced section
+                                                    val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                                    if (psiFile != null) {
+                                                        val newEndOffset = selectionStartOffset + inlineChatService.extractedCode!!.length
+                                                        
+                                                        // Commit the document first
+                                                        com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                                        
+                                                        // Reformat the replaced range
+                                                        val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                                        codeStyleManager.reformatRange(psiFile, selectionStartOffset, newEndOffset)
+                                                    }
                                                     
                                                     // Clear the selection after applying
                                                     editor.selectionModel.removeSelection()
@@ -614,11 +645,35 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                                     if (selectionModel.hasSelection()) {
                                         val startOffset = selectionModel.selectionStart
                                         val endOffset = selectionModel.selectionEnd
+                                        
+                                        // Replace the text
                                         document.replaceString(startOffset, endOffset, newCode)
+                                        
+                                        // Reformat the replaced section
+                                        val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                        if (psiFile != null) {
+                                            val newEndOffset = startOffset + newCode.length
+                                            
+                                            // Commit the document first
+                                            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                            
+                                            // Reformat the replaced range
+                                            val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                            codeStyleManager.reformatRange(psiFile, startOffset, newEndOffset)
+                                        }
+                                        
                                         // Clear the selection after replacing
                                         editor.selectionModel.removeSelection()
                                     } else {
                                         document.setText(newCode)
+                                        
+                                        // Reformat the entire document
+                                        val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                        if (psiFile != null) {
+                                            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                            val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                            codeStyleManager.reformat(psiFile)
+                                        }
                                     }
                                 })
                                 

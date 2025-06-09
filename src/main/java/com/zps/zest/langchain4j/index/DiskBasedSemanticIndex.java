@@ -48,14 +48,15 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     private final Map<String, EmbeddingMetadata> metadataMap = new ConcurrentHashMap<>();
     private final Map<String, String> segmentsMap = new ConcurrentHashMap<>();
     
-    // LRU cache for embeddings
-    private final LinkedHashMap<String, float[]> embeddingCache = new LinkedHashMap<String, float[]>(
+    // LRU cache for embeddings (synchronized for thread safety)
+    private final Map<String, float[]> embeddingCache = Collections.synchronizedMap(
+        new LinkedHashMap<String, float[]>(
         CACHE_SIZE + 1, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, float[]> eldest) {
             return size() > CACHE_SIZE;
         }
-    };
+    });
     
     // Track positions in embedding file
     private final Map<String, Integer> embeddingPositions = new ConcurrentHashMap<>();
@@ -189,6 +190,12 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
         int position = nextPosition;
         embeddingPositions.put(id, position);
         
+        // Check if we need to expand the file
+        long requiredSize = (long)(position + 1) * embeddingDimension * Float.BYTES;
+        if (requiredSize > embeddingsBuffer.capacity()) {
+            expandEmbeddingsFile(requiredSize);
+        }
+        
         // Write to buffer
         embeddingsBuffer.position(position * embeddingDimension * Float.BYTES);
         for (float value : embedding) {
@@ -197,6 +204,31 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
         
         nextPosition++;
         return position;
+    }
+    
+    /**
+     * Expands the memory-mapped file when more space is needed.
+     */
+    private void expandEmbeddingsFile(long minSize) throws IOException {
+        // Calculate new size (double current size or minSize, whichever is larger)
+        long newSize = Math.max(minSize, embeddingsBuffer.capacity() * 2);
+        
+        // Unmap current buffer
+        embeddingsBuffer = null;
+        embeddingsChannel.close();
+        
+        // Resize file
+        embeddingsRaf.setLength(newSize);
+        
+        // Remap
+        embeddingsChannel = embeddingsRaf.getChannel();
+        embeddingsBuffer = embeddingsChannel.map(
+            FileChannel.MapMode.READ_WRITE,
+            0,
+            newSize
+        );
+        
+        LOG.info("Expanded embeddings file to " + (newSize / 1024 / 1024) + " MB");
     }
     
     /**

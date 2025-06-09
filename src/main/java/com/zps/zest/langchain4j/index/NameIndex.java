@@ -383,6 +383,20 @@ public class NameIndex {
     }
     
     /**
+     * Removes an element from the index.
+     */
+    public boolean removeElement(String id) {
+        elementStorage.remove(id);
+        
+        // Remove from token index
+        for (Map.Entry<String, Set<String>> entry : tokenIndex.entrySet()) {
+            entry.getValue().remove(id);
+        }
+        
+        return true;
+    }
+    
+    /**
      * Storage class for indexed elements.
      */
     protected static class IndexedElement {

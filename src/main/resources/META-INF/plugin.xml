@@ -66,6 +66,14 @@
                 id="zest.settings"
                 parentId="tools"
                 nonDefaultProject="true"/>
+        
+        <!-- Register the Hybrid Index settings -->
+        <projectConfigurable 
+                instance="com.zps.zest.langchain4j.HybridIndexConfigurable"
+                displayName="Hybrid Code Search Index"
+                id="zest.hybrid.index"
+                parentId="tools"
+                nonDefaultProject="true"/>
         <!-- Register the code exploration tool window -->
 <!--        <toolWindow id="Code Explorer"-->
 <!--                    anchor="bottom"-->

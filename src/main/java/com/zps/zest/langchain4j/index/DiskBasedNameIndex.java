@@ -29,18 +29,26 @@ public class DiskBasedNameIndex extends NameIndex {
     private final Path indexPath;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     
-    // LRU cache for frequently accessed elements
-    private final LinkedHashMap<String, NameIndex.IndexedElement> elementCache = 
+    // LRU cache for frequently accessed elements (synchronized for thread safety)
+    private final Map<String, NameIndex.IndexedElement> elementCache = Collections.synchronizedMap(
         new LinkedHashMap<String, NameIndex.IndexedElement>(
         CACHE_SIZE + 1, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, NameIndex.IndexedElement> eldest) {
-            return size() > CACHE_SIZE;
+            if (size() > CACHE_SIZE) {
+                // Mark as dirty to ensure it gets saved
+                isDirty = true;
+                return true;
+            }
+            return false;
         }
-    };
+    });
     
     // In-memory token index (relatively small, can keep in memory)
     private final Map<String, Set<String>> tokenIndex = new ConcurrentHashMap<>();
+    
+    // Track which elements exist (for efficient disk lookups)
+    private final Set<String> knownElementIds = ConcurrentHashMap.newKeySet();
     
     // Track dirty state
     private boolean isDirty = false;
@@ -69,6 +77,9 @@ public class DiskBasedNameIndex extends NameIndex {
             
             // Add to cache
             elementCache.put(id, element);
+            
+            // Track as known element
+            knownElementIds.add(id);
             
             // Mark as dirty
             isDirty = true;
@@ -158,6 +169,33 @@ public class DiskBasedNameIndex extends NameIndex {
         commit();
         elementCache.clear();
         tokenIndex.clear();
+        knownElementIds.clear();
+    }
+    
+    /**
+     * Removes an element from the index.
+     */
+    public boolean removeElement(String id) {
+        lock.writeLock().lock();
+        try {
+            // Remove from cache
+            elementCache.remove(id);
+            
+            // Remove from known elements
+            knownElementIds.remove(id);
+            
+            // Remove from token index
+            for (Map.Entry<String, Set<String>> entry : tokenIndex.entrySet()) {
+                entry.getValue().remove(id);
+            }
+            
+            // Mark as dirty to save changes
+            isDirty = true;
+            
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
     
     /**
@@ -168,6 +206,11 @@ public class DiskBasedNameIndex extends NameIndex {
         IndexedElement cached = elementCache.get(id);
         if (cached != null) {
             return cached;
+        }
+        
+        // Check if element exists
+        if (!knownElementIds.contains(id)) {
+            return null;
         }
         
         // Load from disk if not in cache
@@ -183,8 +226,27 @@ public class DiskBasedNameIndex extends NameIndex {
      * Loads a specific element from disk.
      */
     private IndexedElement loadElementFromDisk(String id) throws IOException {
-        // For efficiency, we'll load all elements when needed
-        // In a production system, you might want individual file access
+        // Use individual file per element for better performance
+        Path elementPath = indexPath.resolve("elements").resolve(getElementFileName(id));
+        if (!Files.exists(elementPath)) {
+            // Fallback to loading from the main elements file
+            return loadElementFromMainFile(id);
+        }
+        
+        try (Reader reader = Files.newBufferedReader(elementPath)) {
+            IndexedElement element = GSON.fromJson(reader, IndexedElement.class);
+            if (element != null) {
+                // Add to cache
+                elementCache.put(id, element);
+            }
+            return element;
+        }
+    }
+    
+    /**
+     * Loads element from the main elements file (fallback).
+     */
+    private IndexedElement loadElementFromMainFile(String id) throws IOException {
         Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
         if (!Files.exists(elementsPath)) {
             return null;
@@ -204,6 +266,14 @@ public class DiskBasedNameIndex extends NameIndex {
     }
     
     /**
+     * Gets a safe file name for an element ID.
+     */
+    private String getElementFileName(String id) {
+        // Replace problematic characters for file names
+        return id.replaceAll("[^a-zA-Z0-9.-]", "_") + ".json";
+    }
+    
+    /**
      * Loads the index from disk.
      */
     private void loadFromDisk() throws IOException {
@@ -220,7 +290,35 @@ public class DiskBasedNameIndex extends NameIndex {
             }
         }
         
-        LOG.info("Loaded name index from disk with " + tokenIndex.size() + " tokens");
+        // Load known element IDs
+        Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
+        if (Files.exists(elementsPath)) {
+            try (Reader reader = Files.newBufferedReader(elementsPath)) {
+                Type mapType = new TypeToken<Map<String, IndexedElement>>(){}.getType();
+                Map<String, IndexedElement> allElements = GSON.fromJson(reader, mapType);
+                if (allElements != null) {
+                    knownElementIds.addAll(allElements.keySet());
+                }
+            }
+        }
+        
+        // Also check for individual element files
+        Path elementsDir = indexPath.resolve("elements");
+        if (Files.exists(elementsDir) && Files.isDirectory(elementsDir)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(elementsDir, "*.json")) {
+                for (Path path : stream) {
+                    String filename = path.getFileName().toString();
+                    if (filename.endsWith(".json")) {
+                        String id = filename.substring(0, filename.length() - 5)
+                            .replace("_", ".");
+                        knownElementIds.add(id);
+                    }
+                }
+            }
+        }
+        
+        LOG.info("Loaded name index from disk with " + tokenIndex.size() + " tokens and " + 
+                 knownElementIds.size() + " known elements");
     }
     
     /**

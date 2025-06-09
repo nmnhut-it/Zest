@@ -10,6 +10,9 @@ import java.lang.reflect.Type;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -31,23 +34,34 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
     private final Path elementsPath;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     
-    // LRU cache for frequently accessed elements
-    private final LinkedHashMap<String, ElementStructure> elementCache = 
+    // Executor for disk write operations
+    private final ExecutorService diskWriteExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "StructuralIndex-DiskWriter");
+        t.setDaemon(true);
+        return t;
+    });
+    
+    // LRU cache for frequently accessed elements (synchronized for thread safety)
+    private final Map<String, ElementStructure> elementCache = Collections.synchronizedMap(
         new LinkedHashMap<String, ElementStructure>(CACHE_SIZE + 1, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, ElementStructure> eldest) {
             if (size() > CACHE_SIZE) {
-                // Write to disk before eviction
-                try {
-                    saveElementToDisk(eldest.getKey(), eldest.getValue());
-                } catch (IOException e) {
-                    LOG.error("Failed to save element to disk before eviction: " + eldest.getKey(), e);
-                }
+                // Write to disk before eviction in a separate thread to avoid blocking
+                ElementStructure toSave = eldest.getValue();
+                String elementId = eldest.getKey();
+                diskWriteExecutor.execute(() -> {
+                    try {
+                        saveElementToDisk(elementId, toSave);
+                    } catch (IOException e) {
+                        LOG.error("Failed to save element to disk before eviction: " + elementId, e);
+                    }
+                });
                 return true;
             }
             return false;
         }
-    };
+    });
     
     // Keep reverse indices in memory (they're accessed frequently)
     private final Map<String, Set<String>> callers = new ConcurrentHashMap<>();
@@ -307,9 +321,10 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
      */
     private Path getElementPath(String elementId) {
         // Use hash-based directory structure to avoid too many files in one directory
-        String hash = Integer.toHexString(elementId.hashCode());
-        String dir1 = hash.length() > 2 ? hash.substring(0, 2) : "00";
-        String dir2 = hash.length() > 4 ? hash.substring(2, 4) : "00";
+        int hash = Math.abs(elementId.hashCode());
+        String hashStr = String.format("%08x", hash);
+        String dir1 = hashStr.substring(0, 2);
+        String dir2 = hashStr.substring(2, 4);
         String filename = elementId.replaceAll("[^a-zA-Z0-9.-]", "_") + ".json";
         
         return elementsPath.resolve(dir1).resolve(dir2).resolve(filename);
@@ -324,8 +339,8 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
         Map<String, ElementStructure> toWrite = new HashMap<>(writeBuffer);
         writeBuffer.clear();
         
-        // Write in background
-        new Thread(() -> {
+        // Write in background using the executor
+        diskWriteExecutor.execute(() -> {
             for (Map.Entry<String, ElementStructure> entry : toWrite.entrySet()) {
                 try {
                     saveElementToDisk(entry.getKey(), entry.getValue());
@@ -333,7 +348,7 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
                     LOG.error("Failed to save element to disk: " + entry.getKey(), e);
                 }
             }
-        }).start();
+        });
     }
     
     /**
@@ -492,6 +507,17 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
      * Closes the index and saves state.
      */
     public void close() throws IOException {
+        // Shutdown executor
+        diskWriteExecutor.shutdown();
+        try {
+            if (!diskWriteExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                diskWriteExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            diskWriteExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        
         saveToDisk();
         clear();
     }

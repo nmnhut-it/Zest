@@ -35,6 +35,25 @@ class FloatingCodeWindow(
     private val onReject: () -> Unit
 ) : Disposable {
     
+    companion object {
+        // Reusable browser instance for performance
+        private var sharedBrowser: JBCefBrowser? = null
+        
+        private fun getOrCreateBrowser(): JBCefBrowser {
+            if (sharedBrowser == null || sharedBrowser!!.isDisposed) {
+                // Enable JCef DevTools
+                System.setProperty("ide.browser.jcef.debug.port", "9222")
+                System.setProperty("ide.browser.jcef.headless", "false")
+                
+                sharedBrowser = JBCefBrowser()
+                
+                // Enable DevTools
+                sharedBrowser?.jbCefClient?.setProperty("chromiumSwitches", "--remote-debugging-port=9223")
+            }
+            return sharedBrowser!!
+        }
+    }
+    
     private var popup: JBPopup? = null
     private var browser: JBCefBrowser? = null
     private var warningPanel: JPanel? = null
@@ -260,15 +279,8 @@ class FloatingCodeWindow(
     }
     
     private fun createDiffViewerPanel(): JComponent {
-        // Enable JCef DevTools
-        System.setProperty("ide.browser.jcef.debug.port", "9222")
-        System.setProperty("ide.browser.jcef.headless", "false")
-        
-        // Create JCef browser for diff view
-        browser = JBCefBrowser()
-        
-        // Enable DevTools
-        browser?.jbCefClient?.setProperty("chromiumSwitches", "--remote-debugging-port=9223")
+        // Use shared browser instance for better performance
+        browser = getOrCreateBrowser()
         
         // For debugging: print the HTML to console
         val diffHtml = generateDiffHtml(originalCode, suggestedCode)
@@ -323,176 +335,11 @@ class FloatingCodeWindow(
             println("Original length: ${original.length}")
             println("Suggested length: ${suggested.length}")
             
-            // Escape HTML characters
-            fun escapeHtml(text: String): String {
-                return text
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\"", "&quot;")
-                    .replace("'", "&#39;")
-            }
+            // Detect if dark theme
+            val isDarkTheme = UIUtil.isUnderDarcula()
             
-            // Escape string for JavaScript
-            fun escapeForJavaScript(text: String): String {
-                return text
-                    .replace("\\", "\\\\")
-                    .replace("\"", "\\\"")
-                    .replace("\n", "\\n")
-                    .replace("\r", "\\r")
-                    .replace("\t", "\\t")
-                    .replace("\'", "\\\'")
-            }
-        
-        // Get file extension for syntax highlighting
-        val fileExtension = mainEditor.virtualFile?.extension ?: "java"
-        
-        // Detect if dark theme
-        val isDarkTheme = UIUtil.isUnderDarcula()
-        val themeClass = if (isDarkTheme) "dark" else "light"
-        
-            val escapedOriginal = escapeForJavaScript(escapeHtml(original))
-            val escapedSuggested = escapeForJavaScript(escapeHtml(suggested))
-            
-            println("Escaped original length: ${escapedOriginal.length}")
-            println("Escaped suggested length: ${escapedSuggested.length}")
-            
-            return """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Code Diff</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${if (isDarkTheme) "github-dark" else "github"}.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/diff2html/3.4.47/bundles/css/diff2html.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/diff2html/3.4.47/bundles/js/diff2html-ui.min.js"></script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
-            color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
-        }
-        #diff-container {
-            height: 100vh;
-            overflow: auto;
-        }
-        .d2h-wrapper {
-            font-size: 13px;
-        }
-        .d2h-file-header {
-            display: none;
-        }
-        /* Custom styling for better IDE integration */
-        .d2h-code-side-linenumber {
-            background: ${if (isDarkTheme) "#2d2d2d" else "#f7f7f7"};
-            color: ${if (isDarkTheme) "#858585" else "#666666"};
-            border-right: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
-        }
-        .d2h-code-side-line {
-            padding: 0 10px;
-        }
-        .d2h-code-side-line.d2h-ins {
-            background: ${if (isDarkTheme) "rgba(87, 171, 90, 0.2)" else "rgba(40, 167, 69, 0.15)"};
-        }
-        .d2h-code-side-line.d2h-del {
-            background: ${if (isDarkTheme) "rgba(203, 36, 49, 0.2)" else "rgba(215, 58, 73, 0.15)"};
-        }
-        .d2h-code-line-ctn {
-            font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
-        }
-        /* Hide file wrapper borders */
-        .d2h-file-wrapper {
-            border: none;
-        }
-        /* Adjust side-by-side view */
-        .d2h-file-side-diff {
-            width: 100%;
-        }
-        .d2h-code-wrapper {
-            width: 50%;
-        }
-    </style>
-</head>
-<body class="${themeClass}">
-    <div id="diff-container"></div>
-    <script>
-        // Enable console logging for debugging
-        console.log('Diff viewer initialized');
-        
-        // Create a unified diff using jsdiff library
-        function createUnifiedDiff(original, suggested) {
-            console.log('Creating diff...');
-            console.log('Original length:', original.length);
-            console.log('Suggested length:', suggested.length);
-            
-            // Use jsdiff to create a proper unified diff
-            const patch = Diff.createPatch(
-                'code',           // filename
-                original,         // oldStr
-                suggested,        // newStr
-                'Original',       // oldHeader
-                'AI Suggested',   // newHeader
-                { context: 3 }    // options: 3 lines of context
-            );
-            
-            console.log('Diff created, patch length:', patch.length);
-            
-            // Remove the file header lines that diff2html will add anyway
-            const lines = patch.split('\\n');
-            const diffContent = lines.slice(2).join('\\n'); // Skip the 'Index:' and '===' lines
-            
-            console.log('Processed diff content');
-            return diffContent;
-        }
-        
-        const original = "${escapedOriginal}";
-        const suggested = "${escapedSuggested}";
-        
-        console.log('Input data loaded');
-        
-        // Generate diff
-        const diffString = createUnifiedDiff(original, suggested);
-        console.log('Diff string generated');
-        
-        // Configure diff2html
-        const configuration = {
-            outputFormat: 'side-by-side',
-            drawFileList: false,
-            matching: 'lines',
-            highlight: true,
-            fileContentToggle: false,
-            renderNothingWhenEmpty: false,
-            synchronisedScroll: true,
-            rawTemplates: {
-                'generic-wrapper': '<div class="d2h-wrapper">{{content}}</div>'
-            }
-        };
-        
-        console.log('Configuration:', configuration);
-        
-        // Render the diff
-        const targetElement = document.getElementById('diff-container');
-        console.log('Target element found:', targetElement !== null);
-        
-        try {
-            const diff2htmlUi = new Diff2HtmlUI(targetElement, diffString, configuration);
-            diff2htmlUi.draw();
-            console.log('Diff drawn successfully');
-            
-            // Apply syntax highlighting
-            diff2htmlUi.highlightCode();
-            console.log('Syntax highlighting applied');
-        } catch (error) {
-            console.error('Error rendering diff:', error);
-            targetElement.innerHTML = '<div style="color: red; padding: 20px;">Error rendering diff: ' + error.message + '</div>';
-        }
-    </script>
-</body>
-</html>
-        """.trimIndent()
+            // Use the DiffResourceLoader to generate HTML with embedded resources
+            return DiffResourceLoader.generateInlineHtml(original, suggested, isDarkTheme)
         } catch (e: Exception) {
             println("ERROR in generateDiffHtml: ${e.message}")
             e.printStackTrace()
@@ -556,9 +403,7 @@ class FloatingCodeWindow(
     }
     
     override fun dispose() {
-        browser?.let { 
-            Disposer.dispose(it)
-        }
+        // Don't dispose the shared browser - just clear our reference
         browser = null
     }
 }

@@ -200,13 +200,20 @@ public class WebBrowserPanel {
         buttonPanel.add(modeButton);
 
         // Add Quick Commit button
-        JButton quickCommitBtn = new JButton("⚡ Commit");
+        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
         quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z → C)");
         quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
         buttonPanel.add(quickCommitBtn);
+        
+        // Add Full Git Commit button
+        JButton fullCommitBtn = new JButton("📝 Git Commit");
+        fullCommitBtn.setToolTipText("Full Git Commit with File Selection");
+        fullCommitBtn.addActionListener(e -> triggerFullGitCommit());
+        buttonPanel.add(fullCommitBtn);
 
-        // Create URL field
+        // URL field - hidden but still functional
         JBTextField urlField = new JBTextField();
+        urlField.setVisible(false); // Hide the URL field
         urlField.addActionListener(e -> loadUrl(urlField.getText()));
         urlField.addKeyListener(new KeyAdapter() {
             @Override
@@ -288,6 +295,22 @@ public class WebBrowserPanel {
     private void triggerQuickCommitAndPush() {
         // Use the new web-based quick commit pipeline
         browserManager.executeJavaScript("if (window.QuickCommitPipeline) { window.QuickCommitPipeline.execute(); }");
+    }
+    
+    /**
+     * Triggers the full git commit flow with file selection
+     */
+    private void triggerFullGitCommit() {
+        // Call the existing git commit action for full flow
+        ActionManager am = ActionManager.getInstance();
+        AnAction gitAction = am.getAction("Zest.GitCommitMessageGeneratorAction");
+        if (gitAction != null) {
+            DataContext dataContext = DataManager.getInstance().getDataContext(mainPanel);
+            AnActionEvent event = AnActionEvent.createFromDataContext(
+                ActionPlaces.UNKNOWN, null, dataContext
+            );
+            gitAction.actionPerformed(event);
+        }
     }
     /**
      * Sets the active browser mode.

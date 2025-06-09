@@ -96,7 +96,7 @@ const GitUI = {
                             border-radius: 8px;
                             background: ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.8)'};
                             color: ${isDark ? '#e0e0e0' : '#333'};
-                            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+                            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
                             font-size: 14px;
                             line-height: 1.5;
                             resize: vertical;
@@ -104,7 +104,8 @@ const GitUI = {
                             transition: all 0.2s;
                         " placeholder="Generating commit message..." disabled
                           onfocus="this.style.borderColor='#3b82f6'"
-                          onblur="this.style.borderColor='${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}'"></textarea>
+                          onblur="this.style.borderColor='${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}'"
+                          oninput="GitUI.styleCommitMessage(this)"></textarea>
                         
                         <!-- Files Summary -->
                         <div id="files-summary" style="
@@ -421,10 +422,11 @@ const GitUI = {
                             background: ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.8)'};
                             color: ${isDark ? '#e5e7eb' : '#374151'};
                             font-size: 14px;
-                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
                             resize: vertical;
                             outline: none;
                             transition: all 0.2s ease;
+                            line-height: 1.5;
                         "
                         onfocus="
                             this.style.borderColor = '#3b82f6';
@@ -434,6 +436,7 @@ const GitUI = {
                             this.style.borderColor = '${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)'}';
                             this.style.boxShadow = 'none';
                         "
+                        oninput="GitUI.styleCommitMessage(this)"
                     ></textarea>
                     
                     <button id="write-msg-btn" title="Generate commit message" style="
@@ -462,6 +465,59 @@ const GitUI = {
                     </button>
                 </div>
             </div>
+            
+            <style id="commit-message-styles">
+                /* First line styling */
+                .commit-first-line {
+                    font-weight: 600;
+                    color: ${isDark ? '#60a5fa' : '#2563eb'};
+                }
+                
+                /* Rest of message styling */
+                .commit-body {
+                    color: ${isDark ? '#d1d5db' : '#4b5563'};
+                }
+                
+                /* Collapsed file list */
+                #file-list-container.collapsed {
+                    max-height: 0;
+                    overflow: hidden;
+                    opacity: 0;
+                    padding: 0;
+                    margin: 0;
+                    border: none;
+                    transition: all 0.3s ease;
+                }
+                
+                #file-list-container.expanded {
+                    max-height: 400px;
+                    opacity: 1;
+                    transition: all 0.3s ease;
+                }
+                
+                /* Expanded message area */
+                #commit-message-input.expanded {
+                    min-height: 200px;
+                    max-height: 400px;
+                }
+                
+                /* Toggle button for file list */
+                #toggle-file-list {
+                    cursor: pointer;
+                    user-select: none;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 13px;
+                    color: ${isDark ? '#9ca3af' : '#6b7280'};
+                    margin-bottom: 8px;
+                    transition: color 0.2s;
+                }
+                
+                #toggle-file-list:hover {
+                    color: ${isDark ? '#d1d5db' : '#374151'};
+                }
+            </style>
         `;
     },
 
@@ -479,7 +535,7 @@ const GitUI = {
                 overflow: hidden;
                 padding: 8px 16px;
             ">
-                <!-- Select All Section -->
+                <!-- Select All Section with Toggle -->
                 <div style="
                     margin-bottom: 8px;
                     padding: 6px 10px;
@@ -487,6 +543,9 @@ const GitUI = {
                     border: 1px solid ${isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)'};
                     border-radius: 5px;
                     flex-shrink: 0;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
                 ">
                     <label style="
                         display: flex;
@@ -505,10 +564,15 @@ const GitUI = {
                         ">
                         <span>Select All Files</span>
                     </label>
+                    
+                    <div id="toggle-file-list" title="Toggle file list">
+                        <span id="toggle-icon">▼</span>
+                        <span id="toggle-text">Hide Files</span>
+                    </div>
                 </div>
 
                 <!-- File List Container -->
-                <div id="file-list-container" style="
+                <div id="file-list-container" class="expanded" style="
                     border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
                     border-radius: 5px;
                     padding: 8px;
@@ -925,6 +989,71 @@ const GitUI = {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    },
+    
+    /**
+     * Style commit message with first line highlighting
+     */
+    styleCommitMessage: function(textarea) {
+        // This is just for visual feedback while typing
+        // The actual git commit will use the raw text
+        const lines = textarea.value.split('\n');
+        if (lines.length > 0) {
+            // We can't style inside textarea, but we can adjust the size
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 300) + 'px';
+        }
+    },
+    
+    /**
+     * Clean commit message from markdown formatting
+     */
+    cleanCommitMessage: function(message) {
+        if (!message) return '';
+        
+        // Remove markdown code block indicators
+        message = message.replace(/^```[\w-]*\n?/gm, '');
+        message = message.replace(/\n?```$/gm, '');
+        
+        // Remove any remaining triple backticks
+        message = message.replace(/```/g, '');
+        
+        // Trim extra whitespace
+        message = message.trim();
+        
+        return message;
+    },
+    
+    /**
+     * Toggle file list visibility
+     */
+    toggleFileList: function() {
+        const container = document.getElementById('file-list-container');
+        const toggleIcon = document.getElementById('toggle-icon');
+        const toggleText = document.getElementById('toggle-text');
+        const messageInput = document.getElementById('commit-message-input');
+        
+        if (container && toggleIcon && toggleText && messageInput) {
+            if (container.classList.contains('expanded')) {
+                // Collapse
+                container.classList.remove('expanded');
+                container.classList.add('collapsed');
+                toggleIcon.textContent = '▶';
+                toggleText.textContent = 'Show Files';
+                
+                // Expand message area
+                messageInput.classList.add('expanded');
+            } else {
+                // Expand
+                container.classList.remove('collapsed');
+                container.classList.add('expanded');
+                toggleIcon.textContent = '▼';
+                toggleText.textContent = 'Hide Files';
+                
+                // Normal message area
+                messageInput.classList.remove('expanded');
+            }
+        }
     }
 };
 

@@ -369,6 +369,16 @@ const GitModal = {
                 }
             });
         }
+        
+        // Toggle file list
+        const toggleBtn = document.getElementById('toggle-file-list');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Toggling file list');
+                GitUI.toggleFileList();
+            });
+        }
 
         // Modal backdrop click to close
         const modal = document.getElementById('git-file-selection-modal');
@@ -464,27 +474,8 @@ const GitModal = {
            let commitMessage = await this.callOpenWebUIAPI(prompt);
            console.log("raw resp from commit msg", commitMessage);
 
-           // Handle code blocks properly
-           // Check if the entire message is wrapped in code blocks
-           const isEntireMessageCodeBlock = /^\s*```[\s\S]*```\s*$/.test(commitMessage);
-
-           if (isEntireMessageCodeBlock) {
-               // If the entire message is a code block, just remove the outer triple backticks
-               // and any language identifier that might be after the opening backticks
-               commitMessage = commitMessage.replace(/^\s*```(?:\w*\n?)/, '').replace(/```\s*$/, '');
-           } else {
-               // Only remove embedded code blocks if they're not the entire message
-               commitMessage = commitMessage.replace(/(```[\s\S]*?\r?\n?```)/g, '');
-           }
-
-           // Clean up the message while preserving intentional line breaks
-           commitMessage = commitMessage.split('\n')
-               .map(line => line.trim()) // Trim each line
-               .filter(line => line) // Remove empty lines
-               .join('\n'); // Join with newlines
-
-           // Trim extra whitespace at beginning and end
-           commitMessage = commitMessage.trim();
+           // Clean up the message - remove markdown formatting
+           commitMessage = GitUI.cleanCommitMessage(commitMessage);
            console.log("Processed commit message:", commitMessage);
 
            // Update UI with generated message
@@ -494,7 +485,10 @@ const GitModal = {
 
            // Auto-resize textarea
            messageInput.style.height = 'auto';
-           messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+           messageInput.style.height = Math.min(messageInput.scrollHeight, 300) + 'px';
+           
+           // Collapse file list to show full message
+           GitUI.toggleFileList();
 
        } catch (error) {
            console.error('Error generating commit message:', error);
@@ -584,14 +578,14 @@ const GitModal = {
      // Add diffs with better formatting
      prompt += "\n## File changes:\n";
      Object.entries(diffs).forEach(([path, diff]) => {
-         prompt += `\n### ${path}\n\`\`\`diff\n`;
+         prompt += `\n### ${path}\n---diff\n`;
          // Limit diff size but keep enough context
          const lines = diff.split('\n').slice(0, 75);
          prompt += lines.join('\n');
          if (diff.split('\n').length > 75) {
              prompt += '\n... (diff truncated for brevity)';
          }
-         prompt += '\n```\n';
+         prompt += '\n---\n';
      });
 
      // Instructions for structured long commit format
@@ -612,7 +606,6 @@ const GitModal = {
     - Breaking changes (BREAKING CHANGE: description)
 
  Example output format:
- \`\`\`
  feat(user-profile): implement password reset functionality
 
  Add secure password reset flow with email verification and rate limiting.
@@ -624,9 +617,8 @@ const GitModal = {
  - Added unit and integration tests
 
  BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset
- \`\`\`
 
- Please provide ONLY the commit message, no additional explanation.`;
+ Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.`;
 
      return prompt;
  },
@@ -1030,7 +1022,11 @@ const QuickCommitPipeline = {
             const prompt = this.buildCommitPrompt(this.context.files, diffs);
             
             // Call OpenWebUI API
-            const message = await this.callOpenWebUIAPI(prompt);
+            let message = await this.callOpenWebUIAPI(prompt);
+            
+            // Clean the message from markdown formatting
+            message = this.cleanCommitMessage(message);
+            
             this.context.message = message;
             
             // Update UI
@@ -1061,6 +1057,25 @@ const QuickCommitPipeline = {
             }
             this.enableButtons();
         }
+    },
+    
+    /**
+     * Clean commit message from markdown formatting
+     */
+    cleanCommitMessage(message) {
+        if (!message) return '';
+        
+        // Remove markdown code block indicators
+        message = message.replace(/^```[\w-]*\n?/gm, '');
+        message = message.replace(/\n?```$/gm, '');
+        
+        // Remove any remaining triple backticks
+        message = message.replace(/```/g, '');
+        
+        // Trim extra whitespace
+        message = message.trim();
+        
+        return message;
     },
     
     /**
@@ -1103,10 +1118,10 @@ const QuickCommitPipeline = {
         prompt += "\nKey changes:\n";
         Object.entries(diffs).forEach(([path, diff]) => {
             const lines = diff.split('\n').slice(0, 50);
-            prompt += `\n${path}:\n\`\`\`diff\n${lines.join('\n')}\n\`\`\`\n`;
+            prompt += `\n${path}:\n---diff\n${lines.join('\n')}\n---\n`;
         });
         
-        prompt += "\nProvide ONLY the commit message, no explanations. Use conventional commit format when appropriate.";
+        prompt += "\nProvide ONLY the commit message, no explanations, no markdown formatting, no code blocks. Use conventional commit format when appropriate.";
         
         return prompt;
     },

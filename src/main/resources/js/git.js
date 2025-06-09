@@ -483,12 +483,19 @@ const GitModal = {
            messageInput.disabled = false;
            messageInput.placeholder = 'Enter commit message...';
 
-           // Auto-resize textarea
+           // Auto-resize textarea to show full message
            messageInput.style.height = 'auto';
-           messageInput.style.height = Math.min(messageInput.scrollHeight, 300) + 'px';
+           const newHeight = Math.min(messageInput.scrollHeight, 500);
+           messageInput.style.height = newHeight + 'px';
            
-           // Collapse file list to show full message
-           GitUI.toggleFileList();
+           // Make sure it's marked as expanded
+           messageInput.classList.add('expanded');
+           
+           // Collapse file list to show full message (only if not already collapsed)
+           const container = document.getElementById('file-list-container');
+           if (container && container.classList.contains('expanded')) {
+               GitUI.toggleFileList();
+           }
 
        } catch (error) {
            console.error('Error generating commit message:', error);
@@ -750,7 +757,19 @@ const GitModal = {
                 // Update the status display
                 if (response && response.success) {
                     GitUI.showCommitSuccess();
-                    // Status overlay now has a close button instead of auto-closing the modal
+                    
+                    // Clear the commit message
+                    if (messageInput) {
+                        messageInput.value = '';
+                        messageInput.style.height = '48px'; // Reset to minimum height
+                    }
+                    
+                    // Refresh the file list instead of closing
+                    GitStatus.showMessage('Refreshing file list...');
+                    setTimeout(() => {
+                        GitModal.refreshFileList();
+                    }, 1000);
+                    
                 } else {
                     const errorMsg = response && response.error ? response.error : 'Unknown error occurred during commit';
                     GitUI.showCommitError(errorMsg);
@@ -800,8 +819,13 @@ const GitModal = {
                     
                     // Update the status display
                     if (response && response.success) {
-//                        GitUI.showPushSuccess();
-                        // Status overlay now has a close button instead of auto-closing the modal
+                        GitUI.showPushSuccess();
+                        GitStatus.showMessage('Push completed successfully!');
+                        
+                        // Close the modal after successful push
+                        setTimeout(() => {
+                            GitModal.hideModal();
+                        }, 1500);
                     } else {
                         const errorMsg = response && response.error ? response.error : 'Unknown error occurred during push';
                         GitUI.showPushError(errorMsg);
@@ -824,6 +848,57 @@ const GitModal = {
             
             // Re-enable push button
             if (pushBtn) pushBtn.disabled = false;
+        }
+    },
+
+    /**
+     * Refresh the file list
+     */
+    refreshFileList: function() {
+        console.log('Refreshing git file list...');
+        
+        // Call IDE to get updated git status
+        if (window.intellijBridge && window.intellijBridge.callIDE) {
+            window.intellijBridge.callIDE('getGitStatus')
+                .then(function(response) {
+                    if (response && response.changedFiles) {
+                        console.log('Got updated file list:', response.changedFiles);
+                        
+                        // Detect current theme
+                        const isDark = document.documentElement.classList.contains('dark') ||
+                                      document.body.classList.contains('dark') ||
+                                      window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        
+                        // Populate the updated file list
+                        GitModal.populateFileList(response.changedFiles, isDark);
+                        
+                        // If no more files, close the modal
+                        if (!response.changedFiles.trim()) {
+                            GitStatus.showMessage('All changes committed!');
+                            setTimeout(() => {
+                                GitModal.hideModal();
+                            }, 1500);
+                        } else {
+                            GitStatus.showMessage('File list refreshed');
+                            
+                            // Re-expand file list if it was collapsed
+                            const container = document.getElementById('file-list-container');
+                            const toggleIcon = document.getElementById('toggle-icon');
+                            const toggleText = document.getElementById('toggle-text');
+                            
+                            if (container && container.classList.contains('collapsed')) {
+                                container.classList.remove('collapsed');
+                                container.classList.add('expanded');
+                                if (toggleIcon) toggleIcon.textContent = '▼';
+                                if (toggleText) toggleText.textContent = 'Hide Files';
+                            }
+                        }
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Failed to refresh file list:', error);
+                    GitStatus.showMessage('Error refreshing file list');
+                });
         }
     },
 
@@ -914,6 +989,7 @@ window.GitModal = GitModal;
 // Explicitly expose methods for the Java bridge
 window.GitModal.populateFileList = GitModal.populateFileList.bind(GitModal);
 window.GitModal.hideModal = GitModal.hideModal.bind(GitModal);
+window.GitModal.refreshFileList = GitModal.refreshFileList.bind(GitModal);
 
 // 3. Optional: Add a method to check if the modal is currently open
 GitModal.isOpen = function() {

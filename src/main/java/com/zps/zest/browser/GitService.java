@@ -135,8 +135,7 @@ public class GitService {
                         showStatusMessage(project, "Commit completed successfully!");
                         notifyUI(project, "GitUI.showCommitSuccess()");
                         
-                        // Refresh the git file list in the browser after a short delay
-                        refreshGitFileListDelayed();
+                        // Don't auto-refresh here - let the JavaScript handle it
                     } catch (Exception e) {
                         LOG.error("Error during commit operation", e);
                         
@@ -225,11 +224,8 @@ public String handleGitPush() {
                 showStatusMessage(project, "Push completed successfully!");
                 notifyUI(project, "GitUI.showPushSuccess()");
 
-                // Close the Git modal explicitly
+                // Close the Git modal after successful push
                 notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
-
-                // Refresh the git file list in the browser after a short delay
-                refreshGitFileListDelayed();
             } catch (Exception e) {
                 LOG.error("Error during push operation", e);
 
@@ -237,9 +233,6 @@ public String handleGitPush() {
                 String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
                 showStatusMessage(project, "Push failed: " + errorMsg);
                 notifyUI(project, "GitUI.showPushError('" + escapeJsString(errorMsg) + "')");
-
-                // Close the Git modal even on error
-                notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
             }
         }
     }.queue();

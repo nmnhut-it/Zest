@@ -497,8 +497,8 @@ const GitUI = {
                 
                 /* Expanded message area */
                 #commit-message-input.expanded {
-                    min-height: 200px;
-                    max-height: 400px;
+                    min-height: 300px;
+                    max-height: 500px;
                 }
                 
                 /* Toggle button for file list */
@@ -1043,6 +1043,8 @@ const GitUI = {
                 
                 // Expand message area
                 messageInput.classList.add('expanded');
+                
+                return true; // Collapsed
             } else {
                 // Expand
                 container.classList.remove('collapsed');
@@ -1052,8 +1054,11 @@ const GitUI = {
                 
                 // Normal message area
                 messageInput.classList.remove('expanded');
+                
+                return false; // Expanded
             }
         }
+        return null; // No change
     }
 };
 

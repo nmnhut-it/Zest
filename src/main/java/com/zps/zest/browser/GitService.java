@@ -801,6 +801,89 @@ public String handleGitPush() {
     }
     
     /**
+     * Gets the current git status for quick commit
+     */
+    public String getGitStatus() {
+        LOG.info("Getting git status for quick commit");
+        
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Get all changed files including untracked
+            String changedFiles = "";
+            String stagedFiles = "";
+            String untrackedFiles = "";
+            
+            try {
+                // Get unstaged changes
+                changedFiles = executeGitCommand(projectPath, "git diff --name-status");
+            } catch (Exception e) {
+                LOG.warn("Error getting unstaged changes: " + e.getMessage());
+            }
+            
+            try {
+                // Get staged changes
+                stagedFiles = executeGitCommand(projectPath, "git diff --cached --name-status");
+            } catch (Exception e) {
+                LOG.warn("Error getting staged changes: " + e.getMessage());
+            }
+            
+            try {
+                // Get untracked files
+                untrackedFiles = executeGitCommand(projectPath, "git ls-files --others --exclude-standard");
+            } catch (Exception e) {
+                LOG.warn("Error getting untracked files: " + e.getMessage());
+            }
+            
+            // Combine all changes
+            StringBuilder allChanges = new StringBuilder();
+            
+            // Add staged files first
+            if (!stagedFiles.trim().isEmpty()) {
+                allChanges.append(stagedFiles);
+                if (!allChanges.toString().endsWith("\n")) {
+                    allChanges.append("\n");
+                }
+            }
+            
+            // Add unstaged files
+            if (!changedFiles.trim().isEmpty()) {
+                String[] changedLines = changedFiles.split("\n");
+                for (String line : changedLines) {
+                    if (!line.trim().isEmpty() && !stagedFiles.contains(line.substring(2))) {
+                        allChanges.append(line).append("\n");
+                    }
+                }
+            }
+            
+            // Add untracked files with 'A' status
+            if (!untrackedFiles.trim().isEmpty()) {
+                String[] untracked = untrackedFiles.split("\n");
+                for (String file : untracked) {
+                    if (!file.trim().isEmpty()) {
+                        allChanges.append("A\t").append(file).append("\n");
+                    }
+                }
+            }
+            
+            String result = allChanges.toString();
+            LOG.info("Git status collected: " + (result.isEmpty() ? "No changes" : result.split("\n").length + " files"));
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("changedFiles", result);
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error getting git status", e);
+            return createErrorResponse("Failed to get git status: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Disposes of any resources and clears active contexts.
      */
     public void dispose() {

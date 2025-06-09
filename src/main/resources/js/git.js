@@ -931,3 +931,456 @@ GitModal.isOpen = function() {
 
 window.GitModal.isOpen = GitModal.isOpen.bind(GitModal);
 console.log('Git integration module loaded successfully');
+
+// Quick Commit Pipeline
+const QuickCommitPipeline = {
+    /**
+     * Main entry point for quick commit & push
+     */
+    async execute() {
+        console.log('Starting Quick Commit Pipeline');
+        
+        // Reset state
+        this.context = {
+            files: [],
+            message: '',
+            filesCount: 0,
+            status: 'initializing'
+        };
+        
+        try {
+            // Show UI immediately
+            this.showUI();
+            
+            // Execute pipeline stages
+            await this.collectChanges();
+            await this.generateMessage();
+            await this.waitForUserAction();
+            
+        } catch (error) {
+            console.error('Quick commit pipeline error:', error);
+            this.showError(error.message);
+        }
+    },
+    
+    /**
+     * Show the quick commit UI
+     */
+    showUI() {
+        console.log('Showing quick commit UI');
+        
+        // Detect theme
+        const isDark = document.documentElement.classList.contains('dark') ||
+                      document.body.classList.contains('dark') ||
+                      window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        // Create and inject UI
+        const html = GitUI.createQuickCommitOverlay(isDark);
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        document.body.appendChild(container.firstElementChild);
+        
+        // Setup event listeners
+        this.setupEventListeners();
+    },
+    
+    /**
+     * Collect git changes
+     */
+    async collectChanges() {
+        this.updateStatus('📊', 'Analyzing changes...');
+        
+        try {
+            // Call IDE to get changed files
+            const response = await window.intellijBridge.callIDE('getGitStatus');
+            
+            if (response && response.changedFiles) {
+                const parsedFiles = GitUtils.parseChangedFiles(response.changedFiles);
+                this.context.files = parsedFiles;
+                this.context.filesCount = parsedFiles.length;
+                
+                // Update UI
+                const filesText = document.getElementById('files-count-text');
+                if (filesText) {
+                    const fileWord = parsedFiles.length === 1 ? 'file' : 'files';
+                    filesText.textContent = `${parsedFiles.length} ${fileWord} ready to commit`;
+                }
+                
+                console.log(`Found ${parsedFiles.length} changed files`);
+            } else {
+                throw new Error('No changes found');
+            }
+        } catch (error) {
+            console.error('Error collecting changes:', error);
+            throw new Error('Failed to analyze changes');
+        }
+    },
+    
+    /**
+     * Generate commit message
+     */
+    async generateMessage() {
+        this.updateStatus('✨', 'Generating commit message...');
+        
+        try {
+            // Get diffs for all files
+            const diffs = await this.getFileDiffs(this.context.files);
+            
+            // Build prompt
+            const prompt = this.buildCommitPrompt(this.context.files, diffs);
+            
+            // Call OpenWebUI API
+            const message = await this.callOpenWebUIAPI(prompt);
+            this.context.message = message;
+            
+            // Update UI
+            const messageArea = document.getElementById('quick-commit-message');
+            if (messageArea) {
+                messageArea.value = message;
+                messageArea.disabled = false;
+                
+                // Auto-resize
+                messageArea.style.height = 'auto';
+                messageArea.style.height = Math.min(messageArea.scrollHeight, 300) + 'px';
+            }
+            
+            // Enable buttons
+            this.enableButtons();
+            
+            this.updateStatus('✅', 'Ready to commit');
+            
+        } catch (error) {
+            console.error('Error generating message:', error);
+            this.updateStatus('❌', 'Failed to generate message');
+            
+            // Still enable manual editing
+            const messageArea = document.getElementById('quick-commit-message');
+            if (messageArea) {
+                messageArea.disabled = false;
+                messageArea.placeholder = 'Enter commit message manually...';
+            }
+            this.enableButtons();
+        }
+    },
+    
+    /**
+     * Get diffs for files
+     */
+    async getFileDiffs(files) {
+        const diffs = {};
+        
+        for (const file of files) {
+            try {
+                const response = await window.intellijBridge.callIDE('getFileDiff', {
+                    filePath: file.filePath,
+                    status: file.status
+                });
+                
+                if (response && response.diff) {
+                    diffs[file.filePath] = response.diff;
+                }
+            } catch (error) {
+                console.error('Error getting diff for', file.filePath, error);
+            }
+        }
+        
+        return diffs;
+    },
+    
+    /**
+     * Build commit prompt
+     */
+    buildCommitPrompt(files, diffs) {
+        let prompt = "Generate a concise git commit message for these changes:\n\n";
+        
+        // Add file list
+        prompt += "Changed files:\n";
+        files.forEach(file => {
+            prompt += `- ${file.status} ${file.filePath}\n`;
+        });
+        
+        // Add diffs (limited)
+        prompt += "\nKey changes:\n";
+        Object.entries(diffs).forEach(([path, diff]) => {
+            const lines = diff.split('\n').slice(0, 50);
+            prompt += `\n${path}:\n\`\`\`diff\n${lines.join('\n')}\n\`\`\`\n`;
+        });
+        
+        prompt += "\nProvide ONLY the commit message, no explanations. Use conventional commit format when appropriate.";
+        
+        return prompt;
+    },
+    
+    /**
+     * Call OpenWebUI API
+     */
+    async callOpenWebUIAPI(prompt) {
+        const currentUrl = window.location.origin;
+        const apiUrl = `${currentUrl}/api/chat/completions`;
+        
+        const authToken = this.getAuthTokenFromCookie();
+        if (!authToken) {
+            throw new Error('Not authenticated');
+        }
+        
+        window.__zest_usage__ = "CHAT_QUICK_COMMIT";
+        
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                model: "Qwen2.5-Coder-7B",
+                messages: [{
+                    role: "user",
+                    content: prompt
+                }],
+                stream: false,
+                temperature: 0.7,
+                max_tokens: 150
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('API request failed');
+        }
+        
+        const data = await response.json();
+        if (data.choices && data.choices[0]) {
+            return data.choices[0].message.content.trim();
+        }
+        
+        throw new Error('Invalid API response');
+    },
+    
+    /**
+     * Get auth token
+     */
+    getAuthTokenFromCookie() {
+        if (document.cookie) {
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'token' || name === 'auth-token') {
+                    return decodeURIComponent(value);
+                }
+            }
+        }
+        return localStorage.getItem('token') || localStorage.getItem('auth-token');
+    },
+    
+    /**
+     * Wait for user action
+     */
+    async waitForUserAction() {
+        return new Promise((resolve, reject) => {
+            this.actionResolve = resolve;
+            this.actionReject = reject;
+        });
+    },
+    
+    /**
+     * Handle commit
+     */
+    async handleCommit(shouldPush = false) {
+        const messageArea = document.getElementById('quick-commit-message');
+        const message = messageArea ? messageArea.value.trim() : '';
+        
+        if (!message) {
+            this.showError('Please enter a commit message');
+            return;
+        }
+        
+        this.showProgress('Committing changes...');
+        
+        try {
+            // Prepare selected files (all files)
+            const selectedFiles = this.context.files.map(f => ({
+                path: f.filePath,
+                status: f.status
+            }));
+            
+            // Call IDE to commit
+            await window.intellijBridge.callIDE('commitWithMessage', {
+                message: message,
+                selectedFiles: selectedFiles,
+                shouldPush: false
+            });
+            
+            if (shouldPush) {
+                this.showProgress('Pushing to remote...');
+                await window.intellijBridge.callIDE('gitPush');
+                this.showSuccess('✨ Committed and pushed successfully!');
+            } else {
+                this.showSuccess('✅ Committed successfully!');
+            }
+            
+            // Close after success
+            setTimeout(() => this.close(), 1500);
+            
+        } catch (error) {
+            console.error('Commit error:', error);
+            this.showError('Failed to commit: ' + error.message);
+        }
+    },
+    
+    /**
+     * Setup event listeners
+     */
+    setupEventListeners() {
+        // Close button
+        const closeBtn = document.getElementById('close-quick-commit');
+        if (closeBtn) {
+            closeBtn.onclick = () => this.close();
+        }
+        
+        // Regenerate button
+        const regenerateBtn = document.getElementById('regenerate-message');
+        if (regenerateBtn) {
+            regenerateBtn.onclick = () => this.regenerateMessage();
+        }
+        
+        // Commit only button
+        const commitBtn = document.getElementById('commit-only');
+        if (commitBtn) {
+            commitBtn.onclick = () => this.handleCommit(false);
+        }
+        
+        // Commit & Push button
+        const commitPushBtn = document.getElementById('commit-and-push');
+        if (commitPushBtn) {
+            commitPushBtn.onclick = () => this.handleCommit(true);
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', this.handleKeyboard);
+        
+        // Click outside to close
+        const overlay = document.getElementById('quick-commit-overlay');
+        if (overlay) {
+            overlay.onclick = (e) => {
+                if (e.target === overlay) this.close();
+            };
+        }
+    },
+    
+    /**
+     * Handle keyboard shortcuts
+     */
+    handleKeyboard(e) {
+        if (e.key === 'Escape') {
+            QuickCommitPipeline.close();
+        } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            QuickCommitPipeline.handleCommit(e.shiftKey);
+        }
+    },
+    
+    /**
+     * Update status
+     */
+    updateStatus(icon, text) {
+        const statusIcon = document.getElementById('status-icon');
+        const statusText = document.getElementById('status-text');
+        
+        if (statusIcon) statusIcon.textContent = icon;
+        if (statusText) statusText.textContent = text;
+    },
+    
+    /**
+     * Show progress
+     */
+    showProgress(text) {
+        const progressSection = document.getElementById('progress-section');
+        const progressText = document.getElementById('progress-text');
+        const progressBar = document.getElementById('progress-bar');
+        
+        if (progressSection) progressSection.style.display = 'block';
+        if (progressText) progressText.textContent = text;
+        if (progressBar) progressBar.style.width = '50%';
+        
+        // Disable buttons
+        this.disableButtons();
+    },
+    
+    /**
+     * Show success
+     */
+    showSuccess(text) {
+        this.updateStatus('✨', text);
+        const progressBar = document.getElementById('progress-bar');
+        if (progressBar) progressBar.style.width = '100%';
+    },
+    
+    /**
+     * Show error
+     */
+    showError(text) {
+        this.updateStatus('❌', text);
+        this.enableButtons();
+        
+        const progressSection = document.getElementById('progress-section');
+        if (progressSection) progressSection.style.display = 'none';
+    },
+    
+    /**
+     * Enable buttons
+     */
+    enableButtons() {
+        ['regenerate-message', 'commit-only', 'commit-and-push'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+        });
+    },
+    
+    /**
+     * Disable buttons
+     */
+    disableButtons() {
+        ['regenerate-message', 'commit-only', 'commit-and-push'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+            }
+        });
+    },
+    
+    /**
+     * Regenerate message
+     */
+    async regenerateMessage() {
+        const messageArea = document.getElementById('quick-commit-message');
+        if (messageArea) {
+            messageArea.value = '';
+            messageArea.disabled = true;
+        }
+        
+        await this.generateMessage();
+    },
+    
+    /**
+     * Close the overlay
+     */
+    close() {
+        const overlay = document.getElementById('quick-commit-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        
+        // Clean up
+        document.removeEventListener('keydown', this.handleKeyboard);
+        
+        if (this.actionReject) {
+            this.actionReject(new Error('User cancelled'));
+        }
+    }
+};
+
+// Expose globally
+window.QuickCommitPipeline = QuickCommitPipeline;

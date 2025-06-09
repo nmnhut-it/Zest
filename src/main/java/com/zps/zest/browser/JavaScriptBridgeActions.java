@@ -142,6 +142,9 @@ public class JavaScriptBridgeActions {
                     
                 case "openFileDiffInIDE":
                     return gitService.openFileDiffInIDE(data);
+                    
+                case "getGitStatus":
+                    return gitService.getGitStatus();
                 
                 // Content update handling
                 case "contentUpdated":

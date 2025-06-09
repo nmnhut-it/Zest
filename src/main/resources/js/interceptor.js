@@ -153,7 +153,7 @@
         console.log('Project is being indexed, waiting for completion...');
 
         // Wait for indexing to complete (with timeout)
-        const maxIndexingTime = 3000000; // 5 minutes for indexing
+        const maxIndexingTime = 7200000; // 2 hours for indexing
         const startTime = Date.now();
 
         return new Promise((resolve) => {
@@ -176,7 +176,7 @@
             explorationStarted = true;
 
             // Now wait for the actual exploration to complete
-            const explorationMaxTime = 6000000; // 10 minutes for exploration after indexing
+            const explorationMaxTime = 3600000; // 1 hour for exploration after indexing
             const explorationStartTime = Date.now();
 
             while (Date.now() - explorationStartTime < explorationMaxTime) {
@@ -232,7 +232,7 @@
         });
       } else if (sessionId) {
         // Wait for exploration to complete (with timeout)
-        const maxWaitTime = 600000; // 600 seconds (10 minutes) for exploration
+        const maxWaitTime = 3600000; // 3600 seconds (1 hour) for exploration
         const startTime = Date.now();
 
         while (Date.now() - startTime < maxWaitTime) {

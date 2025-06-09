@@ -164,6 +164,10 @@ public class ConfigurationManager {
     // Button states
     private boolean contextInjectionEnabled = true;
     private boolean projectIndexEnabled = false;
+    
+    // Documentation search configuration
+    private String docsPath = "docs";
+    private boolean docsSearchEnabled = false;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -249,6 +253,8 @@ public class ConfigurationManager {
         knowledgeId = null;
         contextInjectionEnabled = true;
         projectIndexEnabled = false;
+        docsPath = "docs";
+        docsSearchEnabled = false;
 
         boolean configExists = false;
 
@@ -327,6 +333,17 @@ public class ConfigurationManager {
                 if (mcpEnabledStr != null) {
                     mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
                 }
+                
+                // Load documentation search configuration
+                String docsPathStr = props.getProperty("docsPath");
+                if (docsPathStr != null && !docsPathStr.trim().isEmpty()) {
+                    docsPath = docsPathStr.trim();
+                }
+                
+                String docsSearchEnabledStr = props.getProperty("docsSearchEnabled");
+                if (docsSearchEnabledStr != null) {
+                    docsSearchEnabled = Boolean.parseBoolean(docsSearchEnabledStr);
+                }
 
                 try {
                     maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
@@ -377,6 +394,8 @@ public class ConfigurationManager {
             }
             props.setProperty("contextInjectionEnabled", String.valueOf(contextInjectionEnabled));
             props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
+            props.setProperty("docsPath", docsPath);
+            props.setProperty("docsSearchEnabled", String.valueOf(docsSearchEnabled));
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -561,6 +580,8 @@ public class ConfigurationManager {
             props.setProperty("knowledgeId", ""); // Empty by default
             props.setProperty("contextInjectionEnabled", "true");
             props.setProperty("projectIndexEnabled", "false");
+            props.setProperty("docsPath", "docs");
+            props.setProperty("docsSearchEnabled", "false");
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -743,6 +764,24 @@ public class ConfigurationManager {
         }
         
         this.commitPromptTemplate = commitPromptTemplate;
+        saveConfig();
+    }
+    
+    public String getDocsPath() {
+        return docsPath;
+    }
+    
+    public void setDocsPath(String docsPath) {
+        this.docsPath = docsPath;
+        saveConfig();
+    }
+    
+    public boolean isDocsSearchEnabled() {
+        return docsSearchEnabled;
+    }
+    
+    public void setDocsSearchEnabled(boolean docsSearchEnabled) {
+        this.docsSearchEnabled = docsSearchEnabled;
         saveConfig();
     }
     

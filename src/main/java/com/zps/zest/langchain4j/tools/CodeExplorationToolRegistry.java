@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j.tools;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.tools.impl.*;
 import org.jetbrains.annotations.NotNull;
 
@@ -46,6 +47,13 @@ public final class CodeExplorationToolRegistry {
         // Navigation tools
         register(new GetCurrentContextTool(project));
         register(new FindUsagesTool(project));
+        
+        // Documentation search tool (if enabled)
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+        if (config.isDocsSearchEnabled()) {
+            register(new SearchDocsTool(project));
+            LOG.info("Registered documentation search tool");
+        }
         
         LOG.info("Registered " + tools.size() + " code exploration tools");
     }

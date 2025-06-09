@@ -44,6 +44,10 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBRadioButton projectIndexRadio;
     private JBTextField knowledgeIdField;
     
+    // Documentation Search Settings
+    private JBTextField docsPathField;
+    private JBCheckBox docsSearchEnabledCheckbox;
+    
     // System Prompts
     private JBTextArea systemPromptArea;
     private JBTextArea codeSystemPromptArea;
@@ -227,6 +231,33 @@ public class ZestSettingsConfigurable implements Configurable {
             indexButton.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
         });
         
+        // Documentation Search Section
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2; gbc.weightx = 0;
+        panel.add(new TitledSeparator("Documentation Search"), gbc);
+        
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        docsSearchEnabledCheckbox = new JBCheckBox("Enable documentation search", config.isDocsSearchEnabled());
+        panel.add(docsSearchEnabledCheckbox, gbc);
+        
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
+        panel.add(new JBLabel("Docs Path:"), gbc);
+        
+        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
+        docsPathField = new JBTextField(config.getDocsPath());
+        docsPathField.setEnabled(config.isDocsSearchEnabled());
+        panel.add(docsPathField, gbc);
+        
+        // Enable/disable docs path field based on checkbox
+        docsSearchEnabledCheckbox.addItemListener(e -> {
+            docsPathField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
+        });
+        
+        // Add description
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        JBLabel docsDescription = new JBLabel("<html><i>Search markdown documentation files using natural language queries</i></html>");
+        docsDescription.setFont(docsDescription.getFont().deriveFont(Font.ITALIC));
+        panel.add(docsDescription, gbc);
+        
         // Add vertical glue
         gbc.gridx = 0; gbc.gridy = row; gbc.weighty = 1.0;
         panel.add(Box.createVerticalGlue(), gbc);
@@ -380,7 +411,9 @@ public class ZestSettingsConfigurable implements Configurable {
                !knowledgeIdField.getText().equals(config.getKnowledgeId() != null ? config.getKnowledgeId() : "") ||
                !systemPromptArea.getText().equals(config.getSystemPrompt()) ||
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
-               !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate());
+               !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate()) ||
+               !docsPathField.getText().equals(config.getDocsPath()) ||
+               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled();
     }
     
     @Override
@@ -420,6 +453,8 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setSystemPrompt(systemPromptArea.getText());
         config.setCodeSystemPrompt(codeSystemPromptArea.getText());
         config.setCommitPromptTemplate(newCommitTemplate);
+        config.setDocsPath(docsPathField.getText().trim());
+        config.setDocsSearchEnabled(docsSearchEnabledCheckbox.isSelected());
         
         // Save to file
         config.saveConfig();
@@ -447,6 +482,9 @@ public class ZestSettingsConfigurable implements Configurable {
         systemPromptArea.setText(config.getSystemPrompt());
         codeSystemPromptArea.setText(config.getCodeSystemPrompt());
         commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
+        docsPathField.setText(config.getDocsPath());
+        docsPathField.setEnabled(config.isDocsSearchEnabled());
+        docsSearchEnabledCheckbox.setSelected(config.isDocsSearchEnabled());
     }
     
     private void validateCommitTemplate() {

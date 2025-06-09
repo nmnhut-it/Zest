@@ -28,6 +28,9 @@
         <!-- Register the selection gutter icon manager -->
         <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
+        <!-- Initialize JCef settings -->
+        <listener class="com.zps.zest.inlinechat.JCefInitializer"
+                  topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
 
     <!-- Extension points defined by the plugin.
@@ -126,6 +129,30 @@
                 class="com.zps.zest.inlinechat.InlineChatCancelAction"
                 text="Cancel Inline Edit"
                 description="Cancel the inline AI editing operation">
+        </action>
+        
+        <!-- Test Diff View Action for development/debugging -->
+        <action id="Zest.TestDiffViewAction"
+                class="com.zps.zest.inlinechat.TestDiffViewAction"
+                text="Test Diff View"
+                description="Test the floating diff view window">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
+        </action>
+        
+        <!-- Simple JCef Test Action -->
+        <action id="Zest.TestSimpleJCefAction"
+                class="com.zps.zest.inlinechat.TestSimpleJCefAction"
+                text="Test Simple JCef"
+                description="Test if JCef is working properly">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>
+        </action>
+        
+        <!-- JCef Diagnostics Action -->
+        <action id="Zest.JCefDiagnosticAction"
+                class="com.zps.zest.inlinechat.JCefDiagnosticAction"
+                text="JCef Diagnostics"
+                description="Check JCef configuration and troubleshoot issues">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>
         </action>
         <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"

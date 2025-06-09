@@ -293,8 +293,25 @@ class InlineChatEditorPreview(
         
         try {
             WriteCommandAction.runWriteCommandAction(project, "Accept Inline Chat Changes", null, Runnable {
+                // Get the current selection range that contains the preview
+                val startOffset = originalStartOffset
+                val endOffset = originalStartOffset + modifiedContentLength
+                
+                // Get the PSI file for reformatting
+                val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+                
                 // Just clear the preview highlighting, keep the text
                 clearPreviewHighlighters()
+                
+                // Reformat the accepted code
+                if (psiFile != null && startOffset >= 0 && endOffset <= editor.document.textLength) {
+                    // Commit the document first
+                    com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(editor.document)
+                    
+                    // Reformat the replaced range
+                    val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                    codeStyleManager.reformatRange(psiFile, startOffset, endOffset)
+                }
                 
                 // Reset state
                 originalContent = null

@@ -6,6 +6,7 @@ import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import com.zps.zest.CodeContext
 import com.zps.zest.LlmApiCallStage
 import com.zps.zest.ZestNotifications
@@ -209,6 +210,75 @@ fun processInlineChatCommand(
         inlineChatService.selectionStartOffset = selectionStartOffset
         inlineChatService.selectionEndOffset = selectionEndOffset
         
+        // Show floating window immediately with loading state
+        ApplicationManager.getApplication().invokeLater {
+            // Create floating window in loading state
+            val floatingWindow = FloatingCodeWindow.createLoadingWindow(
+                project,
+                editor,
+                originalText,
+                onAccept = {
+                    // Apply the changes
+                    ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
+                            project,
+                            "Apply Inline Chat Changes",
+                            null,
+                            Runnable {
+                                val document = editor.document
+                                
+                                // Replace the text
+                                document.replaceString(
+                                    selectionStartOffset,
+                                    selectionEndOffset,
+                                    inlineChatService.extractedCode!!
+                                )
+                                
+                                // Reformat the replaced section
+                                val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                if (psiFile != null) {
+                                    val newEndOffset = selectionStartOffset + inlineChatService.extractedCode!!.length
+                                    
+                                    // Commit the document first
+                                    com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                    
+                                    // Reformat the replaced range
+                                    val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                    codeStyleManager.reformatRange(psiFile, selectionStartOffset, newEndOffset)
+                                }
+                                
+                                // Clear the selection after applying
+                                editor.selectionModel.removeSelection()
+                                
+                                // Clear state (without triggering reanalysis)
+                                inlineChatService.clearState()
+                            }
+                        )
+                    }
+                },
+                onReject = {
+                    // Just clear the state
+                    ApplicationManager.getApplication().invokeLater {
+                        // Clear the selection
+                        editor.selectionModel.removeSelection()
+                        
+                        // Clear state (without triggering reanalysis)
+                        inlineChatService.clearState()
+                    }
+                }
+            )
+            
+            // Store reference in service
+            inlineChatService.floatingCodeWindow = floatingWindow
+            
+            // Show the window
+            floatingWindow.show()
+            
+            if (DEBUG_PROCESS_COMMAND) {
+                System.out.println("Floating code window shown in loading state")
+            }
+        }
+        
         // Use the response provider to get the LLM response
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -245,34 +315,90 @@ fun processInlineChatCommand(
                         // Validate the implementation using the function in InlineChatService
                         val isValid = inlineChatService.validateImplementation(originalText, inlineChatService.extractedCode!!)
                         
-                        if (!isValid) {
-                            // Add warning message to the floating toolbar instead of showing a notification
-                            ApplicationManager.getApplication().invokeLater {
-                                inlineChatService.floatingToolbar?.setWarningMessage(
-                                    "The suggested changes may have significantly altered the code structure. Please review carefully."
-                                )
-                            }
-                        }
-                        
-                        // Show inline preview directly in the editor
+                        // Update the existing floating window with the content
                         ApplicationManager.getApplication().invokeLater {
-                            // Create and show inline preview
-                            val preview = InlineChatEditorPreview(project, editor)
-                            inlineChatService.editorPreview = preview
-                            
-                            preview.showPreview(
-                                originalText,
-                                inlineChatService.extractedCode!!,
-                                selectionStartOffset,
-                                selectionEndOffset
-                            )
-                            
-                            if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Inline preview shown in editor")
+                            val floatingWindow = inlineChatService.floatingCodeWindow
+                            if (floatingWindow != null) {
+                                // Update the content
+                                floatingWindow.updateContent(inlineChatService.extractedCode!!, isValid)
+                                
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("Floating code window updated with content")
+                                }
+                            } else {
+                                // Fallback: create window if it doesn't exist (shouldn't happen)
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("WARNING: Floating window was null, creating new one")
+                                }
+                                
+                                val newFloatingWindow = FloatingCodeWindow(
+                                    project,
+                                    editor,
+                                    inlineChatService.extractedCode!!,
+                                    originalText,
+                                    onAccept = {
+                                        // Apply the changes
+                                        ApplicationManager.getApplication().invokeLater {
+                                            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
+                                                project,
+                                                "Apply Inline Chat Changes",
+                                                null,
+                                                Runnable {
+                                                    val document = editor.document
+                                                    
+                                                    // Replace the text
+                                                    document.replaceString(
+                                                        selectionStartOffset,
+                                                        selectionEndOffset,
+                                                        inlineChatService.extractedCode!!
+                                                    )
+                                                    
+                                                    // Reformat the replaced section
+                                                    val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                                    if (psiFile != null) {
+                                                        val newEndOffset = selectionStartOffset + inlineChatService.extractedCode!!.length
+                                                        
+                                                        // Commit the document first
+                                                        com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                                        
+                                                        // Reformat the replaced range
+                                                        val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                                        codeStyleManager.reformatRange(psiFile, selectionStartOffset, newEndOffset)
+                                                    }
+                                                    
+                                                    // Clear the selection after applying
+                                                    editor.selectionModel.removeSelection()
+                                                    
+                                                    // Clear state (without triggering reanalysis)
+                                                    inlineChatService.clearState()
+                                                }
+                                            )
+                                        }
+                                    },
+                                    onReject = {
+                                        // Just clear the state
+                                        ApplicationManager.getApplication().invokeLater {
+                                            // Clear the selection
+                                            editor.selectionModel.removeSelection()
+                                            
+                                            // Clear state (without triggering reanalysis)
+                                            inlineChatService.clearState()
+                                        }
+                                    }
+                                )
+                                
+                                // Store reference in service
+                                inlineChatService.floatingCodeWindow = newFloatingWindow
+                                
+                                // Initialize warning if validation failed
+                                if (!isValid) {
+                                    newFloatingWindow.initializeWarning(
+                                        "The suggested changes may have significantly altered the code structure. Please review carefully."
+                                    )
+                                }
+                                
+                                newFloatingWindow.show()
                             }
-                            
-                            // Show floating toolbar for Accept/Reject actions
-                            inlineChatService.showFloatingToolbar(editor)
                         }
                         
                         // No notification needed - UI feedback is in the editor and toolbar
@@ -280,18 +406,10 @@ fun processInlineChatCommand(
                         // Force editor refresh to show highlights
                         ApplicationManager.getApplication().invokeLater {
                             if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Forcing editor refresh...")
-                            }
-                            editor.contentComponent.repaint()
-                            
-                            // Force Code Vision refresh
-                            com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-                            
-                            if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("DaemonCodeAnalyzer restarted for Code Vision refresh")
+                                System.out.println("Preparing UI for floating window...")
                             }
                             
-                            // Commit document to ensure changes are visible
+                            // Just ensure the document is committed
                             try {
                                 com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(editor.document)
                                 if (DEBUG_RESPONSE_HANDLING) {
@@ -302,14 +420,17 @@ fun processInlineChatCommand(
                                     System.out.println("Error committing document: ${e.message}")
                                 }
                             }
-                            
-                            // Note: Code Vision refresh happens automatically when
-                            // inlineChatDiffActionState is updated. If buttons don't appear,
-                            // ensure Code Vision is enabled in settings.
                         }
                     } else {
                         if (DEBUG_RESPONSE_HANDLING) {
                             System.out.println("No code extracted from response!")
+                        }
+                        
+                        // Hide the loading window and show error
+                        ApplicationManager.getApplication().invokeLater {
+                            val floatingWindow = inlineChatService.floatingCodeWindow
+                            floatingWindow?.hide()
+                            inlineChatService.floatingCodeWindow = null
                         }
                         
                         // Show a notification with a snippet of the response
@@ -327,6 +448,13 @@ fun processInlineChatCommand(
                 } else {
                     if (DEBUG_RESPONSE_HANDLING) {
                         System.out.println("ERROR: No response from LLM!")
+                    }
+                    
+                    // Hide the loading window
+                    ApplicationManager.getApplication().invokeLater {
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        floatingWindow?.hide()
+                        inlineChatService.floatingCodeWindow = null
                     }
                     
                     ZestNotifications.showError(
@@ -348,6 +476,13 @@ fun processInlineChatCommand(
                 if (DEBUG_RESPONSE_HANDLING) {
                     System.out.println("ERROR in coroutine: ${e.message}")
                     e.printStackTrace()
+                }
+                
+                // Hide the loading window on error
+                ApplicationManager.getApplication().invokeLater {
+                    val floatingWindow = inlineChatService.floatingCodeWindow
+                    floatingWindow?.hide()
+                    inlineChatService.floatingCodeWindow = null
                 }
                 
                 // Make sure to clear task in progress flag even on error
@@ -492,15 +627,14 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                 
                 when (params.action) {
                     "accept" -> {
-                        // If we have an inline preview, accept it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.acceptPreview()
-                            // Clear the selection after accepting changes
-                            editor.selectionModel.removeSelection()
-                            // No notification needed - UI feedback is in the editor
+                        // Close floating window - it handles the accept action
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            // The floating window handles applying changes in its onAccept callback
+                            // Just close it here
+                            floatingWindow.hide()
                         } else {
-                            // Fallback to old behavior if no preview
+                            // Fallback to old behavior if no floating window
                             val newCode = inlineChatService.applyChanges()
                             if (newCode != null) {
                                 // Ensure document modifications are done in a write action on EDT
@@ -511,11 +645,35 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                                     if (selectionModel.hasSelection()) {
                                         val startOffset = selectionModel.selectionStart
                                         val endOffset = selectionModel.selectionEnd
+                                        
+                                        // Replace the text
                                         document.replaceString(startOffset, endOffset, newCode)
+                                        
+                                        // Reformat the replaced section
+                                        val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                        if (psiFile != null) {
+                                            val newEndOffset = startOffset + newCode.length
+                                            
+                                            // Commit the document first
+                                            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                            
+                                            // Reformat the replaced range
+                                            val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                            codeStyleManager.reformatRange(psiFile, startOffset, newEndOffset)
+                                        }
+                                        
                                         // Clear the selection after replacing
                                         editor.selectionModel.removeSelection()
                                     } else {
                                         document.setText(newCode)
+                                        
+                                        // Reformat the entire document
+                                        val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                                        if (psiFile != null) {
+                                            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                                            val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                            codeStyleManager.reformat(psiFile)
+                                        }
                                     }
                                 })
                                 
@@ -534,10 +692,10 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         }
                     }
                     "discard" -> {
-                        // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        // Close floating window - it handles the reject action
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            floatingWindow.hide()
                         }
                         
                         // Clear the selection after we're done processing
@@ -546,10 +704,10 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                         // No notification needed - UI feedback is in the editor
                     }
                     "cancel" -> {
-                        // If we have an inline preview, hide it
-                        val preview = inlineChatService.editorPreview
-                        if (preview != null && preview.isPreviewActive()) {
-                            preview.hidePreview()
+                        // Close floating window
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        if (floatingWindow != null) {
+                            floatingWindow.hide()
                         }
                         
                         // Clear the selection after we're done processing
@@ -562,12 +720,9 @@ fun resolveInlineChatEdit(project: Project, params: ChatEditResolveParams): Defe
                     }
                 }
                 
-                // Clear state and reset highlights
+                // Clear state and reset
                 inlineChatService.taskInProgress = false
                 inlineChatService.clearState()
-                
-                // Force clear all highlights (this will run on EDT from within the method)
-                inlineChatService.forceClearAllHighlights()
                 
                 result.complete(true)
             } catch (e: Exception) {

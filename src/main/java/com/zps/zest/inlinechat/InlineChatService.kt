@@ -48,6 +48,9 @@ class InlineChatService(private val project: Project) : Disposable {
     // Preview manager for inline preview
     var editorPreview: InlineChatEditorPreview? = null
 
+    // Floating code window for showing suggestions
+    var floatingCodeWindow: FloatingCodeWindow? = null
+
     // Current floating toolbar (if shown)
     var floatingToolbar: InlineChatFloatingToolbar? = null
     
@@ -80,40 +83,11 @@ class InlineChatService(private val project: Project) : Disposable {
             System.out.println("Extracted code: ${extractedCode?.take(200) ?: "NULL"}")
         }
 
-        // Generate diff segments
+        // We still need to store the original code and selection info for the floating window
         if (extractedCode != null) {
-            diffSegments = generateDiffSegments(originalText, extractedCode!!, selectionStartLine)
-
+            // Just set the flag that we have code ready
             if (DEBUG_SERVICE) {
-                System.out.println("Generated ${diffSegments.size} diff segments")
-                System.out.println("Setting diff action states to true")
-            }
-
-            // Enable diff actions
-            inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
-            inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
-
-            if (DEBUG_SERVICE) {
-                System.out.println("Diff action states: $inlineChatDiffActionState")
-                System.out.println("Selection start line for Code Vision: $selectionStartLine")
-            }
-
-            // Notify Code Vision providers about the change
-            ApplicationManager.getApplication().invokeLater {
-                if (DEBUG_SERVICE) {
-                    System.out.println("Triggering DaemonCodeAnalyzer restart for Code Vision update")
-                }
-                com.intellij.codeInsight.daemon.DaemonCodeAnalyzer.getInstance(project).restart()
-
-                // Show floating toolbar
-                val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
-                if (editor != null) {
-                    if (DEBUG_SERVICE) {
-                        System.out.println("Showing floating toolbar for Accept/Reject actions")
-                    }
-                    floatingToolbar = InlineChatFloatingToolbar(project, editor)
-                    floatingToolbar?.show()
-                }
+                System.out.println("Extracted code successfully, ready for floating window")
             }
         } else {
             if (DEBUG_SERVICE) {
@@ -129,20 +103,34 @@ class InlineChatService(private val project: Project) : Disposable {
         if (DEBUG_CODE_EXTRACTION) {
             System.out.println("=== InlineChatService.extractCodeFromResponse ===")
             System.out.println("Looking for code blocks in response...")
+            System.out.println("Response preview: ${response.take(500)}")
         }
 
-        val codeBlockRegex = Regex("```(?:java)?\\s*([\\s\\S]*?)```")
-        val match = codeBlockRegex.find(response)
-
-        if (DEBUG_CODE_EXTRACTION) {
-            System.out.println("Regex match found: ${match != null}")
+        // Try multiple patterns to extract code
+        val patterns = listOf(
+            Regex("```(?:java|kotlin)?\\s*\\n([\\s\\S]*?)\\n```", RegexOption.MULTILINE),
+            Regex("```\\s*\\n([\\s\\S]*?)\\n```", RegexOption.MULTILINE),
+            Regex("```([\\s\\S]*?)```", RegexOption.MULTILINE)
+        )
+        
+        for (pattern in patterns) {
+            val match = pattern.find(response)
             if (match != null) {
-                System.out.println("Match groups count: ${match.groups.size}")
-                System.out.println("Extracted code preview: ${match.groups[1]?.value?.take(100)}")
+                val code = match.groupValues[1].trim()
+                if (DEBUG_CODE_EXTRACTION) {
+                    System.out.println("Code extracted with pattern: $pattern")
+                    System.out.println("Extracted code length: ${code.length}")
+                    System.out.println("Extracted code preview: ${code.take(200)}")
+                }
+                return code
             }
         }
 
-        return match?.groups?.get(1)?.value?.trim()
+        if (DEBUG_CODE_EXTRACTION) {
+            System.out.println("No code blocks found in response!")
+        }
+
+        return null
     }
 
     /**
@@ -437,37 +425,26 @@ class InlineChatService(private val project: Project) : Disposable {
 
         // Make sure to fully clear the diff action state map
         inlineChatDiffActionState.clear()
-        inlineChatDiffActionState["Zest.InlineChat.Accept"] = false
-        inlineChatDiffActionState["Zest.InlineChat.Discard"] = false
 
         originalCode = null
         selectionStartLine = 0
         selectionStartOffset = 0
         selectionEndOffset = 0
         editorPreview = null
+        
+        // Close floating code window if open
+        floatingCodeWindow?.hide()
+        floatingCodeWindow = null
+        
         location = null
         inlineChatInputVisible = false
 
-        // Hide floating toolbar if shown - only do this when the task is done or cancelled
-        // NOT when it's still in progress
-        if (hasDiffAction || inlineChatInputVisible || taskInProgress) {
-            // If we have active diff actions, input visible, or a task in progress, keep the toolbar
-            if (DEBUG_SERVICE) {
-                System.out.println("Keeping toolbar visible - hasDiffAction: $hasDiffAction, inlineChatInputVisible: $inlineChatInputVisible, taskInProgress: $taskInProgress")
-            }
-        } else {
-            // Otherwise, hide it
-            if (DEBUG_SERVICE) {
-                System.out.println("Hiding toolbar - no active tasks or actions")
-            }
-            floatingToolbar?.hide()
-            floatingToolbar = null
-        }
+        // Hide floating toolbar if shown
+        floatingToolbar?.hide()
+        floatingToolbar = null
 
         if (DEBUG_SERVICE) {
-            System.out.println("All state cleared - diffSegments: ${diffSegments.size}, diffActionState: ${inlineChatDiffActionState.size}")
-            System.out.println("hasDiffAction after clearing: ${hasDiffAction}")
-            System.out.println("taskInProgress: $taskInProgress")
+            System.out.println("All state cleared")
         }
     }
 
@@ -590,36 +567,6 @@ class InlineChatService(private val project: Project) : Disposable {
         }
     }
 
-    /**
-     * Show the floating toolbar for Accept/Reject actions
-     */
-    fun showFloatingToolbar(editor: Editor) {
-        ApplicationManager.getApplication().invokeLater {
-            // Only hide the existing toolbar if we're going to show a new one at a different position
-            // This prevents flickering when refreshing the UI
-            if (floatingToolbar != null) {
-                floatingToolbar?.hide()
-            }
-            floatingToolbar = InlineChatFloatingToolbar(project, editor)
-
-            // Check if we need to show a warning about structural changes
-            if (originalCode != null && extractedCode != null) {
-                val isValid = validateImplementation(originalCode!!, extractedCode!!)
-                if (!isValid) {
-                    floatingToolbar?.setWarningMessage(
-                        "The suggested changes may have significantly altered the code structure. Please review carefully."
-                    )
-                }
-            }
-
-            floatingToolbar?.show()
-
-            // Make sure toolbar is visible while task is active
-            inlineChatDiffActionState["Zest.InlineChat.Accept"] = true
-            inlineChatDiffActionState["Zest.InlineChat.Discard"] = true
-        }
-    }
-
     override fun dispose() {
         inlineChatInputVisible = false
         inlineChatDiffActionState.clear()
@@ -631,6 +578,11 @@ class InlineChatService(private val project: Project) : Disposable {
         selectionStartLine = 0
         selectionStartOffset = 0
         selectionEndOffset = 0
+        
+        // Close floating code window
+        floatingCodeWindow?.hide()
+        floatingCodeWindow = null
+        
         floatingToolbar?.hide()
         floatingToolbar = null
         taskInProgress = false

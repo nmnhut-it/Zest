@@ -67,6 +67,11 @@ abstract class InlineChatCodeVisionProvider : CodeVisionProvider<Any>, DumbAware
             val project = editor.project ?: return@compute READY_EMPTY
             val inlineChatService = project.getService(InlineChatService::class.java) ?: return@compute READY_EMPTY
             
+            // Don't show code vision buttons when using floating window
+            if (inlineChatService.floatingCodeWindow != null) {
+                return@compute READY_EMPTY
+            }
+            
             // Check if we have diff actions
             val hasAction = inlineChatService.inlineChatDiffActionState[id] == true
             

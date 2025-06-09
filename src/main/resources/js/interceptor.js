@@ -136,7 +136,8 @@
   }
 
   /**
-   * Handles exploration for Agent Mode and returns the exploration context
+   * Handles exploration for context injection and returns the exploration context
+   * Works in ALL modes when context injection is enabled
    * @param {string} query - The user's query
    * @param {string} conversationId - The conversation ID for context management
    * @returns {Promise<string>} The exploration context to add to system prompt
@@ -309,12 +310,12 @@
           // This will be handled by the Project Mode enhancer
         }
 
-        // Handle system message based on mode
-        if (window.__zest_mode__ !== 'Neutral Mode' && window.__injected_system_prompt__) {
+        // Handle system message - always process when we have a system prompt
+        if (window.__injected_system_prompt__) {
           const systemMsgIndex = data.messages.findIndex(msg => msg.role === 'system');
           let systemPrompt = window.__injected_system_prompt__;
 
-          // When context injection is enabled (regardless of mode), add exploration context if available
+          // When context injection is enabled (works in ALL modes), add exploration context if available
           if (window.__enable_context_injection__ && 
               window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
             
@@ -332,7 +333,7 @@
             if (explorationContext) {
               systemPrompt += explorationContext;
               window.__pending_exploration_context__ = null; // Clear pending after use
-              console.log('Added exploration context to system prompt');
+              console.log('Added exploration context to system prompt in mode: ' + window.__zest_mode__);
             } else {
               console.warn('No exploration context available after waiting ' + waitTime + 'ms');
             }
@@ -349,16 +350,10 @@
               content: systemPrompt
             });
           }
-        } else if (!data.messages.some(msg => msg.role === 'system') && window.__injected_system_prompt__) {
-          // Not in Agent Mode, add system message only if it doesn't exist
-          data.messages.unshift({
-            role: 'system',
-            content: window.__injected_system_prompt__
-          });
         }
 
-        // Add project context info to user messages if in Agent Mode OR context injection is enabled
-        if ((window.__zest_mode__ === 'Agent Mode' || window.__enable_context_injection__) && window.__project_info__) {
+        // Add project context info to user messages when context injection is enabled (works in ALL modes)
+        if (window.__enable_context_injection__ && window.__project_info__) {
           for (let i = data.messages.length - 1; i >= 0; i--) {
             if (data.messages[i].role === 'user') {
               const info = window.__project_info__;
@@ -510,12 +505,12 @@
         console.error('Error parsing URL for conversation ID:', e);
       }
 
-      // For Agent Mode OR when context injection is manually enabled, check if exploration is needed
+      // Check if exploration is needed when context injection is enabled (works in ALL modes)
       // Skip exploration for git commit messages
-      if ((window.__zest_mode__ === 'Agent Mode' || window.__enable_context_injection__) &&
+      if (window.__enable_context_injection__ &&
           window.startExploration &&
           window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
-        console.log('Context injection enabled: Checking if exploration is needed');
+        console.log('Context injection enabled in mode "' + window.__zest_mode__ + '": Checking if exploration is needed');
 
         // Parse the body to check if this is a new user message
         let bodyPromise;
@@ -729,18 +724,15 @@
           if (explorationContext) {
             window.__pending_exploration_context__ = explorationContext;
             console.log('✓ Exploration context available:', explorationContext.substring(0, 100) + '...');
-          } else if (window.__zest_mode__ === 'Agent Mode' && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
-            console.warn('⚠️ No exploration context available for Agent Mode conversation');
+          } else if (window.__enable_context_injection__ && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+            console.warn('⚠️ No exploration context available for conversation with context injection enabled');
           }
           
           // Now continue with the normal flow
           return processRequest(input, init, newInit, url);
         });
-      } else if ((window.__zest_mode__ !== 'Agent Mode' && !window.__enable_context_injection__)) {
-        // Neither Agent Mode nor manual context injection enabled
-        return processRequest(input, init, newInit, url);
       } else {
-        // Process normally for other cases
+        // Context injection not enabled, process normally
         return processRequest(input, init, newInit, url);
       }
     } else {

@@ -237,7 +237,7 @@ public class NameIndex {
     /**
      * Tokenizes a signature for indexing.
      */
-    private Set<String> tokenizeSignature(String signature) {
+    protected Set<String> tokenizeSignature(String signature) {
         Set<String> tokens = new HashSet<>();
         // Extract identifiers from the signature
         String[] parts = signature.split("[^a-zA-Z0-9_]+");
@@ -260,7 +260,7 @@ public class NameIndex {
     /**
      * Extracts simple name from fully qualified identifier.
      */
-    private String extractSimpleName(String id) {
+    protected String extractSimpleName(String id) {
         // Handle method names (com.example.Class#method)
         if (id.contains("#")) {
             return id.substring(id.lastIndexOf("#") + 1);
@@ -287,7 +287,7 @@ public class NameIndex {
     /**
      * Splits identifier into space-separated words.
      */
-    private String splitIdentifier(String identifier) {
+    protected String splitIdentifier(String identifier) {
         // Handle camelCase
         String result = CAMEL_CASE_PATTERN.matcher(identifier).replaceAll(" ");
         
@@ -303,7 +303,7 @@ public class NameIndex {
     /**
      * Tokenizes identifier into individual words.
      */
-    private List<String> tokenizeIdentifier(String identifier) {
+    protected List<String> tokenizeIdentifier(String identifier) {
         String split = splitIdentifier(identifier);
         return Arrays.stream(split.split("\\s+"))
             .filter(s -> !s.isEmpty())
@@ -313,7 +313,7 @@ public class NameIndex {
     /**
      * Extracts package name from qualified identifier.
      */
-    private String extractPackage(String id) {
+    protected String extractPackage(String id) {
         int lastDot = id.lastIndexOf(".");
         int hashIndex = id.indexOf("#");
         
@@ -347,7 +347,7 @@ public class NameIndex {
     /**
      * Extracts class name from qualified identifier.
      */
-    private String extractClassName(String id) {
+    protected String extractClassName(String id) {
         if (id.contains("#")) {
             // Method: extract class name
             String classPart = id.substring(0, id.indexOf("#"));
@@ -385,7 +385,7 @@ public class NameIndex {
     /**
      * Storage class for indexed elements.
      */
-    private static class IndexedElement {
+    protected static class IndexedElement {
         final String id;
         final String signature;
         final String type;

@@ -30,10 +30,11 @@ public class DiskBasedNameIndex extends NameIndex {
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     
     // LRU cache for frequently accessed elements
-    private final LinkedHashMap<String, IndexedElement> elementCache = new LinkedHashMap<String, IndexedElement>(
+    private final LinkedHashMap<String, NameIndex.IndexedElement> elementCache = 
+        new LinkedHashMap<String, NameIndex.IndexedElement>(
         CACHE_SIZE + 1, 0.75f, true) {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, IndexedElement> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, NameIndex.IndexedElement> eldest) {
             return size() > CACHE_SIZE;
         }
     };
@@ -45,8 +46,6 @@ public class DiskBasedNameIndex extends NameIndex {
     private boolean isDirty = false;
     
     public DiskBasedNameIndex(Project project) throws IOException {
-        super();
-        
         // Create index directory
         String projectPath = project.getBasePath();
         if (projectPath == null) {

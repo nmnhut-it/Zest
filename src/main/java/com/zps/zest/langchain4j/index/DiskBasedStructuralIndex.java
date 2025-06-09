@@ -63,8 +63,6 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
     private final Map<String, ElementStructure> writeBuffer = new ConcurrentHashMap<>();
     
     public DiskBasedStructuralIndex(Project project) throws IOException {
-        super();
-        
         // Create index directory
         String projectPath = project.getBasePath();
         if (projectPath == null) {

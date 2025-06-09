@@ -35,6 +35,10 @@ public final class HybridIndexSettings implements PersistentStateComponent<Hybri
     private boolean autoPersist = true;
     private int autoPersistIntervalMinutes = 10;
     
+    public HybridIndexSettings() {
+        // Default constructor required for service
+    }
+    
     public static HybridIndexSettings getInstance(Project project) {
         return project.getService(HybridIndexSettings.class);
     }

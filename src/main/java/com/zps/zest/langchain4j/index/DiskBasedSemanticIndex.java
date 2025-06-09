@@ -12,6 +12,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
@@ -41,7 +42,7 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     // Memory-mapped file for embeddings
     private RandomAccessFile embeddingsRaf;
     private FileChannel embeddingsChannel;
-    private ByteBuffer embeddingsBuffer;
+    private MappedByteBuffer embeddingsBuffer;
     
     // Metadata and segments in memory (relatively small)
     private final Map<String, EmbeddingMetadata> metadataMap = new ConcurrentHashMap<>();
@@ -61,8 +62,6 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     private int nextPosition = 0;
     
     public DiskBasedSemanticIndex(Project project) throws IOException {
-        super();
-        
         this.embeddingService = new LocalEmbeddingService();
         this.embeddingDimension = embeddingService.getDimension();
         

@@ -63,21 +63,21 @@ public class HybridIndexConfigurable implements Configurable {
         autoPersistCheckBox.addActionListener(e -> updateUIState());
         
         JPanel panel = FormBuilder.createFormBuilder()
-            .addComponent(new JBLabel("Storage Configuration").withFont(JBUI.Fonts.label().deriveFont(Font.BOLD)))
+            .addComponent(createBoldLabel("Storage Configuration"))
             .addComponent(useDiskStorageCheckBox)
             .addVerticalGap(10)
             
-            .addComponent(new JBLabel("Cache Sizes (for disk-based storage)").withFont(JBUI.Fonts.label().deriveFont(Font.BOLD)))
+            .addComponent(createBoldLabel("Cache Sizes (for disk-based storage)"))
             .addLabeledComponent("Name index cache size:", nameIndexCacheSizeSpinner)
             .addLabeledComponent("Semantic index cache size:", semanticIndexCacheSizeSpinner)
             .addLabeledComponent("Structural index cache size:", structuralIndexCacheSizeSpinner)
             .addVerticalGap(10)
             
-            .addComponent(new JBLabel("Memory Configuration").withFont(JBUI.Fonts.label().deriveFont(Font.BOLD)))
+            .addComponent(createBoldLabel("Memory Configuration"))
             .addLabeledComponent("Maximum memory usage (MB):", maxMemoryUsageSpinner)
             .addVerticalGap(10)
             
-            .addComponent(new JBLabel("Persistence Configuration").withFont(JBUI.Fonts.label().deriveFont(Font.BOLD)))
+            .addComponent(createBoldLabel("Persistence Configuration"))
             .addComponent(autoPersistCheckBox)
             .addLabeledComponent("Auto-persist interval (minutes):", autoPersistIntervalSpinner)
             .addVerticalGap(20)
@@ -90,6 +90,13 @@ public class HybridIndexConfigurable implements Configurable {
             .getPanel();
         
         return panel;
+    }
+    
+    private JBLabel createBoldLabel(String text) {
+        JBLabel label = new JBLabel(text);
+        Font font = label.getFont();
+        label.setFont(font.deriveFont(Font.BOLD));
+        return label;
     }
     
     private void updateUIState() {

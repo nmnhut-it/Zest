@@ -20,6 +20,8 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.JPopupMenu
+import javax.swing.JMenuItem
 
 /**
  * A floating window that displays AI-suggested code changes with side-by-side diff
@@ -258,39 +260,89 @@ class FloatingCodeWindow(
     }
     
     private fun createDiffViewerPanel(): JComponent {
+        // Enable JCef DevTools
+        System.setProperty("ide.browser.jcef.debug.port", "9222")
+        System.setProperty("ide.browser.jcef.headless", "false")
+        
         // Create JCef browser for diff view
         browser = JBCefBrowser()
         
-        // Load the diff HTML
+        // Enable DevTools
+        browser?.jbCefClient?.setProperty("chromiumSwitches", "--remote-debugging-port=9223")
+        
+        // For debugging: print the HTML to console
         val diffHtml = generateDiffHtml(originalCode, suggestedCode)
-        browser?.loadHTML(diffHtml)
+        println("=== Generated HTML length: ${diffHtml.length} ===")
+        println("=== First 500 chars of HTML: ${diffHtml.take(500)} ===")
+        
+        // Test with simple HTML first (comment out for production)
+        val testSimpleHtml = false
+        if (testSimpleHtml) {
+            val simpleTestHtml = """
+                <!DOCTYPE html>
+                <html>
+                <head><title>Test</title></head>
+                <body style="background: lightblue; padding: 20px;">
+                    <h1>JCef Test</h1>
+                    <p>If you see this, JCef is working!</p>
+                    <pre>Original code length: ${originalCode.length}</pre>
+                    <pre>Suggested code length: ${suggestedCode.length}</pre>
+                </body>
+                </html>
+            """.trimIndent()
+            browser?.loadHTML(simpleTestHtml)
+        } else {
+            // Load the diff HTML
+            browser?.loadHTML(diffHtml)
+        }
         
         val browserComponent = browser?.component ?: JPanel()
         browserComponent.border = JBUI.Borders.empty()
+        
+        // Add context menu for DevTools
+        browserComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mousePressed(e: java.awt.event.MouseEvent) {
+                if (e.isPopupTrigger || e.button == java.awt.event.MouseEvent.BUTTON3) {
+                    val popup = JPopupMenu()
+                    val devToolsItem = JMenuItem("Open DevTools")
+                    devToolsItem.addActionListener {
+                        browser?.openDevtools()
+                    }
+                    popup.add(devToolsItem)
+                    popup.show(e.component, e.x, e.y)
+                }
+            }
+        })
         
         return browserComponent
     }
     
     private fun generateDiffHtml(original: String, suggested: String): String {
-        // Escape HTML characters
-        fun escapeHtml(text: String): String {
-            return text
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;")
-        }
-        
-        // Escape string for JavaScript
-        fun escapeForJavaScript(text: String): String {
-            return text
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
-        }
+        try {
+            println("=== generateDiffHtml called ===")
+            println("Original length: ${original.length}")
+            println("Suggested length: ${suggested.length}")
+            
+            // Escape HTML characters
+            fun escapeHtml(text: String): String {
+                return text
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;")
+                    .replace("'", "&#39;")
+            }
+            
+            // Escape string for JavaScript
+            fun escapeForJavaScript(text: String): String {
+                return text
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t")
+                    .replace("\'", "\\\'")
+            }
         
         // Get file extension for syntax highlighting
         val fileExtension = mainEditor.virtualFile?.extension ?: "java"
@@ -299,7 +351,13 @@ class FloatingCodeWindow(
         val isDarkTheme = UIUtil.isUnderDarcula()
         val themeClass = if (isDarkTheme) "dark" else "light"
         
-        return """
+            val escapedOriginal = escapeForJavaScript(escapeHtml(original))
+            val escapedSuggested = escapeForJavaScript(escapeHtml(suggested))
+            
+            println("Escaped original length: ${escapedOriginal.length}")
+            println("Escaped suggested length: ${escapedSuggested.length}")
+            
+            return """
 <!DOCTYPE html>
 <html>
 <head>
@@ -390,8 +448,8 @@ class FloatingCodeWindow(
             return diffContent;
         }
         
-        const original = "${escapeForJavaScript(escapeHtml(original))}";
-        const suggested = "${escapeForJavaScript(escapeHtml(suggested))}";
+        const original = "${escapedOriginal}";
+        const suggested = "${escapedSuggested}";
         
         console.log('Input data loaded');
         
@@ -435,6 +493,23 @@ class FloatingCodeWindow(
 </body>
 </html>
         """.trimIndent()
+        } catch (e: Exception) {
+            println("ERROR in generateDiffHtml: ${e.message}")
+            e.printStackTrace()
+            // Return a simple error page
+            return """
+<!DOCTYPE html>
+<html>
+<head><title>Error</title></head>
+<body style="background: #ffcccc; padding: 20px;">
+    <h1>Error generating diff</h1>
+    <p>${e.message}</p>
+    <pre>Original length: ${original.length}</pre>
+    <pre>Suggested length: ${suggested.length}</pre>
+</body>
+</html>
+            """.trimIndent()
+        }
     }
     
     private fun createActionPanel(): JComponent {

@@ -28,6 +28,9 @@
         <!-- Register the selection gutter icon manager -->
         <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
+        <!-- Initialize JCef settings -->
+        <listener class="com.zps.zest.inlinechat.JCefInitializer"
+                  topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
 
     <!-- Extension points defined by the plugin.
@@ -134,6 +137,14 @@
                 text="Test Diff View"
                 description="Test the floating diff view window">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
+        </action>
+        
+        <!-- Simple JCef Test Action -->
+        <action id="Zest.TestSimpleJCefAction"
+                class="com.zps.zest.inlinechat.TestSimpleJCefAction"
+                text="Test Simple JCef"
+                description="Test if JCef is working properly">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>
         </action>
         <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"

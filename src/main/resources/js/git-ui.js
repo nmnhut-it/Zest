@@ -53,7 +53,7 @@ const GitUI = {
                                 background: ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
                                 padding: 3px 8px;
                                 border-radius: 4px;
-                            ">Ctrl+Shift+Z → C</span>
+                            ">Ctrl+Shift+Z, C</span>
                         </div>
                         <button id="close-quick-commit" style="
                             background: transparent;

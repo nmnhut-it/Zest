@@ -239,6 +239,17 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
         
+        <!-- Quick Commit & Push -->
+        <action id="Zest.QuickCommitAction"
+                class="com.zps.zest.QuickCommitAction"
+                text="Quick Commit &amp; Push"
+                icon="icons/zpsChat16.svg"
+                description="Quick commit and push with auto-generated message">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+            <add-to-group group-id="VcsGroups" anchor="last"/>
+        </action>
+        
         <!-- Simple Git Diff Viewer -->
 <!--        <action id="Zest.ShowGitDiffAction"-->
 <!--                class="com.zps.zest.diff.ShowGitDiffAction"-->

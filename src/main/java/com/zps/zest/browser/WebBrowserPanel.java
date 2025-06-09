@@ -25,7 +25,6 @@ import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -111,9 +110,6 @@ public class WebBrowserPanel {
 
         // Set default mode
         setMode(browserModes.get(0));
-        
-        // Setup keyboard shortcuts
-        setupQuickCommitShortcut();
 
         browserManager.getBrowser().getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
             @Override
@@ -201,7 +197,7 @@ public class WebBrowserPanel {
 
         // Add Quick Commit button
         JButton quickCommitBtn = new JButton("⚡ Quick Commit");
-        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z → C)");
+        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
         quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
         buttonPanel.add(quickCommitBtn);
         
@@ -228,65 +224,6 @@ public class WebBrowserPanel {
         panel.add(urlField, BorderLayout.CENTER);
 
         return panel;
-    }
-    
-    /**
-     * Sets up two-step keyboard shortcut for quick commit
-     */
-    private void setupQuickCommitShortcut() {
-        // Flag to track if first key was pressed
-        final boolean[] waitingForSecondKey = {false};
-        
-        InputMap inputMap = mainPanel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
-        ActionMap actionMap = mainPanel.getActionMap();
-        
-        // First step: Ctrl+Shift+Z
-        inputMap.put(KeyStroke.getKeyStroke("ctrl shift Z"), "quickCommitFirstStep");
-        
-        actionMap.put("quickCommitFirstStep", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                waitingForSecondKey[0] = true;
-                
-                // Show hint in status or as tooltip
-                showStatusMessage("Press 'C' to commit & push...");
-                
-                // Set timeout to cancel if no second key
-                Timer timer = new Timer(2000, evt -> {
-                    waitingForSecondKey[0] = false;
-                    showStatusMessage("");
-                });
-                timer.setRepeats(false);
-                timer.start();
-            }
-        });
-        
-        // Second step: C key
-        inputMap.put(KeyStroke.getKeyStroke("C"), "quickCommitSecondStep");
-        inputMap.put(KeyStroke.getKeyStroke("c"), "quickCommitSecondStep");
-        
-        actionMap.put("quickCommitSecondStep", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (waitingForSecondKey[0]) {
-                    waitingForSecondKey[0] = false;
-                    showStatusMessage("");
-                    triggerQuickCommitAndPush();
-                }
-            }
-        });
-    }
-    
-    /**
-     * Shows a temporary status message
-     */
-    private void showStatusMessage(String message) {
-        // Simple implementation - you can enhance this
-        if (!message.isEmpty()) {
-            browserManager.executeJavaScript(
-                "if (window.showStatusMessage) { window.showStatusMessage('" + message + "'); }"
-            );
-        }
     }
     
     /**

@@ -30,8 +30,8 @@ import javax.swing.JMenuItem
 class FloatingCodeWindow(
     private val project: Project,
     private val mainEditor: Editor,
-    private val suggestedCode: String,
-    private val originalCode: String,
+    private var suggestedCode: String,
+    private var originalCode: String,
     private val onAccept: () -> Unit,
     private val onReject: () -> Unit
 ) : Disposable {
@@ -66,11 +66,37 @@ class FloatingCodeWindow(
             }
             return sharedBrowser!!
         }
+        
+        /**
+         * Create a loading state window
+         */
+        fun createLoadingWindow(
+            project: Project,
+            mainEditor: Editor,
+            originalCode: String,
+            onAccept: () -> Unit,
+            onReject: () -> Unit
+        ): FloatingCodeWindow {
+            return FloatingCodeWindow(
+                project,
+                mainEditor,
+                "", // Empty suggested code initially
+                originalCode,
+                onAccept,
+                onReject
+            ).apply {
+                isLoading = true
+            }
+        }
     }
     
     private var popup: JBPopup? = null
     private var browser: JBCefBrowser? = null
     private var warningPanel: JPanel? = null
+    private var isLoading = false  // Default to false, will be set by factory method
+    private var loadingPanel: JPanel? = null
+    private var contentPanel: JPanel? = null
+    private var mainPanel: JPanel? = null
     
     fun show() {
         ApplicationManager.getApplication().invokeLater {
@@ -152,6 +178,54 @@ class FloatingCodeWindow(
                     }
                 }
             })
+        }
+    }
+    
+    /**
+     * Update the content of the floating window with the LLM response
+     */
+    fun updateContent(newSuggestedCode: String, isValid: Boolean = true) {
+        ApplicationManager.getApplication().invokeLater {
+            isLoading = false
+            suggestedCode = newSuggestedCode
+            
+            // Stop any loading animation timer
+            loadingPanel?.let { panel ->
+                (panel.getClientProperty("loadingTimer") as? javax.swing.Timer)?.stop()
+            }
+            
+            // Update warning if validation failed
+            if (!isValid) {
+                showWarning("The suggested changes may have significantly altered the code structure. Please review carefully.")
+            }
+            
+            // Refresh the content
+            mainPanel?.let { panel ->
+                panel.removeAll()
+                
+                // Create top panel that includes toolbar and potential warning
+                val topPanel = JPanel(BorderLayout())
+                val toolbar = createToolbar()
+                topPanel.add(toolbar, BorderLayout.NORTH)
+                
+                // Add warning panel if it exists
+                warningPanel?.let {
+                    topPanel.add(it, BorderLayout.SOUTH)
+                }
+                
+                panel.add(topPanel, BorderLayout.NORTH)
+                
+                // Create diff viewer
+                val diffPanel = createDiffViewerPanel()
+                panel.add(diffPanel, BorderLayout.CENTER)
+                
+                // Create action panel
+                val actionPanel = createActionPanel()
+                panel.add(actionPanel, BorderLayout.SOUTH)
+                
+                panel.revalidate()
+                panel.repaint()
+            }
         }
     }
     
@@ -246,30 +320,97 @@ class FloatingCodeWindow(
     }
     
     private fun createMainPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty()
+        mainPanel = JPanel(BorderLayout())
+        mainPanel!!.border = JBUI.Borders.empty()
         
-        // Create toolbar
-        val toolbar = createToolbar()
-        
-        // Create top panel that includes toolbar and potential warning
-        val topPanel = JPanel(BorderLayout())
-        topPanel.add(toolbar, BorderLayout.NORTH)
-        
-        // Add warning panel if it exists
-        warningPanel?.let {
-            topPanel.add(it, BorderLayout.SOUTH)
+        if (isLoading) {
+            // Show loading state
+            loadingPanel = createLoadingPanel()
+            mainPanel!!.add(loadingPanel!!, BorderLayout.CENTER)
+        } else {
+            // Create toolbar
+            val toolbar = createToolbar()
+            
+            // Create top panel that includes toolbar and potential warning
+            val topPanel = JPanel(BorderLayout())
+            topPanel.add(toolbar, BorderLayout.NORTH)
+            
+            // Add warning panel if it exists
+            warningPanel?.let {
+                topPanel.add(it, BorderLayout.SOUTH)
+            }
+            
+            mainPanel!!.add(topPanel, BorderLayout.NORTH)
+            
+            // Create diff viewer
+            val diffPanel = createDiffViewerPanel()
+            mainPanel!!.add(diffPanel, BorderLayout.CENTER)
+            
+            // Create action panel
+            val actionPanel = createActionPanel()
+            mainPanel!!.add(actionPanel, BorderLayout.SOUTH)
         }
         
-        panel.add(topPanel, BorderLayout.NORTH)
+        return mainPanel!!
+    }
+    
+    private fun createLoadingPanel(): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.background = UIUtil.getPanelBackground()
+        panel.border = JBUI.Borders.empty(50)
         
-        // Create diff viewer
-        val diffPanel = createDiffViewerPanel()
-        panel.add(diffPanel, BorderLayout.CENTER)
+        val centerPanel = JPanel()
+        centerPanel.layout = BoxLayout(centerPanel, BoxLayout.Y_AXIS)
+        centerPanel.background = panel.background
         
-        // Create action panel
-        val actionPanel = createActionPanel()
-        panel.add(actionPanel, BorderLayout.SOUTH)
+        // Add spinning icon
+        val loadingIcon = JBLabel(AllIcons.Process.Big.Step_1)
+        loadingIcon.alignmentX = Component.CENTER_ALIGNMENT
+        centerPanel.add(loadingIcon)
+        
+        centerPanel.add(Box.createVerticalStrut(20))
+        
+        // Add loading text
+        val loadingLabel = JBLabel("Processing your request...")
+        loadingLabel.font = loadingLabel.font.deriveFont(Font.BOLD, 16f)
+        loadingLabel.alignmentX = Component.CENTER_ALIGNMENT
+        centerPanel.add(loadingLabel)
+        
+        centerPanel.add(Box.createVerticalStrut(10))
+        
+        val detailLabel = JBLabel("AI is analyzing your code and generating suggestions")
+        detailLabel.font = detailLabel.font.deriveFont(14f)
+        detailLabel.foreground = UIUtil.getContextHelpForeground()
+        detailLabel.alignmentX = Component.CENTER_ALIGNMENT
+        centerPanel.add(detailLabel)
+        
+        // Center the content
+        val wrapper = JPanel(GridBagLayout())
+        wrapper.background = panel.background
+        wrapper.add(centerPanel)
+        
+        panel.add(wrapper, BorderLayout.CENTER)
+        
+        // Animate the loading icon
+        val timer = javax.swing.Timer(100) { _ ->
+            val icons = listOf(
+                AllIcons.Process.Big.Step_1,
+                AllIcons.Process.Big.Step_2,
+                AllIcons.Process.Big.Step_3,
+                AllIcons.Process.Big.Step_4,
+                AllIcons.Process.Big.Step_5,
+                AllIcons.Process.Big.Step_6,
+                AllIcons.Process.Big.Step_7,
+                AllIcons.Process.Big.Step_8
+            )
+            val currentIndex = icons.indexOf(loadingIcon.icon)
+            val nextIndex = (currentIndex + 1) % icons.size
+            loadingIcon.icon = icons[nextIndex]
+        }
+        timer.start()
+        
+        // Store timer reference to stop it later
+        panel.putClientProperty("loadingTimer", timer)
         
         return panel
     }
@@ -533,6 +674,11 @@ class FloatingCodeWindow(
     }
     
     override fun dispose() {
+        // Stop any loading animation timer
+        loadingPanel?.let { panel ->
+            (panel.getClientProperty("loadingTimer") as? javax.swing.Timer)?.stop()
+        }
+        
         // Don't dispose the shared browser - just clear our reference
         browser = null
     }

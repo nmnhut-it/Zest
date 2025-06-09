@@ -209,6 +209,60 @@ fun processInlineChatCommand(
         inlineChatService.selectionStartOffset = selectionStartOffset
         inlineChatService.selectionEndOffset = selectionEndOffset
         
+        // Show floating window immediately with loading state
+        ApplicationManager.getApplication().invokeLater {
+            // Create floating window in loading state
+            val floatingWindow = FloatingCodeWindow.createLoadingWindow(
+                project,
+                editor,
+                originalText,
+                onAccept = {
+                    // Apply the changes
+                    ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
+                            project,
+                            "Apply Inline Chat Changes",
+                            null,
+                            Runnable {
+                                val document = editor.document
+                                document.replaceString(
+                                    selectionStartOffset,
+                                    selectionEndOffset,
+                                    inlineChatService.extractedCode!!
+                                )
+                                
+                                // Clear the selection after applying
+                                editor.selectionModel.removeSelection()
+                                
+                                // Clear state (without triggering reanalysis)
+                                inlineChatService.clearState()
+                            }
+                        )
+                    }
+                },
+                onReject = {
+                    // Just clear the state
+                    ApplicationManager.getApplication().invokeLater {
+                        // Clear the selection
+                        editor.selectionModel.removeSelection()
+                        
+                        // Clear state (without triggering reanalysis)
+                        inlineChatService.clearState()
+                    }
+                }
+            )
+            
+            // Store reference in service
+            inlineChatService.floatingCodeWindow = floatingWindow
+            
+            // Show the window
+            floatingWindow.show()
+            
+            if (DEBUG_PROCESS_COMMAND) {
+                System.out.println("Floating code window shown in loading state")
+            }
+        }
+        
         // Use the response provider to get the LLM response
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -245,64 +299,74 @@ fun processInlineChatCommand(
                         // Validate the implementation using the function in InlineChatService
                         val isValid = inlineChatService.validateImplementation(originalText, inlineChatService.extractedCode!!)
                         
-                        // Show floating code window instead of inline preview
+                        // Update the existing floating window with the content
                         ApplicationManager.getApplication().invokeLater {
-                            // Create and show floating window
-                            val floatingWindow = FloatingCodeWindow(
-                                project,
-                                editor,
-                                inlineChatService.extractedCode!!,
-                                originalText,
-                                onAccept = {
-                                    // Apply the changes
-                                    ApplicationManager.getApplication().invokeLater {
-                                        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
-                                            project,
-                                            "Apply Inline Chat Changes",
-                                            null,
-                                            Runnable {
-                                                val document = editor.document
-                                                document.replaceString(
-                                                    selectionStartOffset,
-                                                    selectionEndOffset,
-                                                    inlineChatService.extractedCode!!
-                                                )
-                                                
-                                                // Clear the selection after applying
-                                                editor.selectionModel.removeSelection()
-                                                
-                                                // Clear state (without triggering reanalysis)
-                                                inlineChatService.clearState()
-                                            }
-                                        )
-                                    }
-                                },
-                                onReject = {
-                                    // Just clear the state
-                                    ApplicationManager.getApplication().invokeLater {
-                                        // Clear the selection
-                                        editor.selectionModel.removeSelection()
-                                        
-                                        // Clear state (without triggering reanalysis)
-                                        inlineChatService.clearState()
-                                    }
+                            val floatingWindow = inlineChatService.floatingCodeWindow
+                            if (floatingWindow != null) {
+                                // Update the content
+                                floatingWindow.updateContent(inlineChatService.extractedCode!!, isValid)
+                                
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("Floating code window updated with content")
                                 }
-                            )
-                            
-                            // Store reference in service
-                            inlineChatService.floatingCodeWindow = floatingWindow
-                            
-                            // Initialize warning before showing if validation failed
-                            if (!isValid) {
-                                floatingWindow.initializeWarning(
-                                    "The suggested changes may have significantly altered the code structure. Please review carefully."
+                            } else {
+                                // Fallback: create window if it doesn't exist (shouldn't happen)
+                                if (DEBUG_RESPONSE_HANDLING) {
+                                    System.out.println("WARNING: Floating window was null, creating new one")
+                                }
+                                
+                                val newFloatingWindow = FloatingCodeWindow(
+                                    project,
+                                    editor,
+                                    inlineChatService.extractedCode!!,
+                                    originalText,
+                                    onAccept = {
+                                        // Apply the changes
+                                        ApplicationManager.getApplication().invokeLater {
+                                            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(
+                                                project,
+                                                "Apply Inline Chat Changes",
+                                                null,
+                                                Runnable {
+                                                    val document = editor.document
+                                                    document.replaceString(
+                                                        selectionStartOffset,
+                                                        selectionEndOffset,
+                                                        inlineChatService.extractedCode!!
+                                                    )
+                                                    
+                                                    // Clear the selection after applying
+                                                    editor.selectionModel.removeSelection()
+                                                    
+                                                    // Clear state (without triggering reanalysis)
+                                                    inlineChatService.clearState()
+                                                }
+                                            )
+                                        }
+                                    },
+                                    onReject = {
+                                        // Just clear the state
+                                        ApplicationManager.getApplication().invokeLater {
+                                            // Clear the selection
+                                            editor.selectionModel.removeSelection()
+                                            
+                                            // Clear state (without triggering reanalysis)
+                                            inlineChatService.clearState()
+                                        }
+                                    }
                                 )
-                            }
-                            
-                            floatingWindow.show()
-                            
-                            if (DEBUG_RESPONSE_HANDLING) {
-                                System.out.println("Floating code window shown")
+                                
+                                // Store reference in service
+                                inlineChatService.floatingCodeWindow = newFloatingWindow
+                                
+                                // Initialize warning if validation failed
+                                if (!isValid) {
+                                    newFloatingWindow.initializeWarning(
+                                        "The suggested changes may have significantly altered the code structure. Please review carefully."
+                                    )
+                                }
+                                
+                                newFloatingWindow.show()
                             }
                         }
                         
@@ -331,6 +395,13 @@ fun processInlineChatCommand(
                             System.out.println("No code extracted from response!")
                         }
                         
+                        // Hide the loading window and show error
+                        ApplicationManager.getApplication().invokeLater {
+                            val floatingWindow = inlineChatService.floatingCodeWindow
+                            floatingWindow?.hide()
+                            inlineChatService.floatingCodeWindow = null
+                        }
+                        
                         // Show a notification with a snippet of the response
                         val previewLength = minOf(100, response.length)
                         val preview = response.substring(0, previewLength) + (if (response.length > previewLength) "..." else "")
@@ -346,6 +417,13 @@ fun processInlineChatCommand(
                 } else {
                     if (DEBUG_RESPONSE_HANDLING) {
                         System.out.println("ERROR: No response from LLM!")
+                    }
+                    
+                    // Hide the loading window
+                    ApplicationManager.getApplication().invokeLater {
+                        val floatingWindow = inlineChatService.floatingCodeWindow
+                        floatingWindow?.hide()
+                        inlineChatService.floatingCodeWindow = null
                     }
                     
                     ZestNotifications.showError(
@@ -367,6 +445,13 @@ fun processInlineChatCommand(
                 if (DEBUG_RESPONSE_HANDLING) {
                     System.out.println("ERROR in coroutine: ${e.message}")
                     e.printStackTrace()
+                }
+                
+                // Hide the loading window on error
+                ApplicationManager.getApplication().invokeLater {
+                    val floatingWindow = inlineChatService.floatingCodeWindow
+                    floatingWindow?.hide()
+                    inlineChatService.floatingCodeWindow = null
                 }
                 
                 // Make sure to clear task in progress flag even on error

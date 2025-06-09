@@ -186,10 +186,8 @@
 
                 const explorationContext = `\n\n# CODE EXPLORATION RESULTS\n${window.__exploration_result__.summary || 'No summary available'}`;
 
-                // Mark exploration as used
-                if (window.markExplorationUsed) {
-                  window.markExplorationUsed();
-                }
+                // Don't mark exploration as used here - let the UI stay open
+                // The exploration UI will auto-close after showing the results
 
                 // Clear the result
                 window.__exploration_result__ = null;

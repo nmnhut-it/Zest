@@ -270,9 +270,28 @@ public class ConfigurationManager {
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-                systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
-                codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
-                commitPromptTemplate = props.getProperty("commitPromptTemplate", DEFAULT_COMMIT_PROMPT_TEMPLATE);
+                systemPrompt = unescapeFromProperties(props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT));
+                codeSystemPrompt = unescapeFromProperties(props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT));
+                String loadedTemplate = unescapeFromProperties(props.getProperty("commitPromptTemplate"));
+                // Validate and use default if invalid or missing
+                if (loadedTemplate == null || loadedTemplate.trim().isEmpty()) {
+                    commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
+                    LOG.info("Commit prompt template was empty, using default");
+                    // Save the default template back to config for next time
+                    saveConfig();
+                } else {
+                    // Validate template has required placeholders
+                    com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
+                        com.zps.zest.validation.CommitTemplateValidator.validate(loadedTemplate);
+                    if (validation.isValid) {
+                        commitPromptTemplate = loadedTemplate;
+                    } else {
+                        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
+                        LOG.warn("Invalid commit prompt template: " + validation.errorMessage + ". Using default.");
+                        // Save the default template back to config
+                        saveConfig();
+                    }
+                }
                 knowledgeId = props.getProperty("knowledgeId", null);
                 
                 // Load button states
@@ -342,9 +361,10 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", String.valueOf(ragEnabled));
             props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
             props.setProperty("mcpServerUri", mcpServerUri);
-            props.setProperty("systemPrompt", systemPrompt);
-            props.setProperty("codeSystemPrompt", codeSystemPrompt);
-            props.setProperty("commitPromptTemplate", commitPromptTemplate);
+            props.setProperty("systemPrompt", escapeForProperties(systemPrompt));
+            props.setProperty("codeSystemPrompt", escapeForProperties(codeSystemPrompt));
+            // Save multi-line template with proper escaping
+            props.setProperty("commitPromptTemplate", escapeForProperties(commitPromptTemplate));
             if (knowledgeId != null) {
                 props.setProperty("knowledgeId", knowledgeId);
             }
@@ -528,9 +548,9 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", "false");
             props.setProperty("mcpEnabled", "false");
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-            props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
-            props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
-            props.setProperty("commitPromptTemplate", DEFAULT_COMMIT_PROMPT_TEMPLATE);
+            props.setProperty("systemPrompt", escapeForProperties(DEFAULT_SYSTEM_PROMPT));
+            props.setProperty("codeSystemPrompt", escapeForProperties(DEFAULT_CODE_SYSTEM_PROMPT));
+            props.setProperty("commitPromptTemplate", escapeForProperties(DEFAULT_COMMIT_PROMPT_TEMPLATE));
             props.setProperty("knowledgeId", ""); // Empty by default
             props.setProperty("contextInjectionEnabled", "true");
             props.setProperty("projectIndexEnabled", "false");
@@ -706,7 +726,41 @@ public class ConfigurationManager {
     }
     
     public void setCommitPromptTemplate(String commitPromptTemplate) {
+        // Validate before setting
+        com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
+            com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
+        
+        if (!validation.isValid) {
+            LOG.error("Invalid commit prompt template: " + validation.errorMessage);
+            throw new IllegalArgumentException("Invalid template: " + validation.errorMessage);
+        }
+        
         this.commitPromptTemplate = commitPromptTemplate;
         saveConfig();
+    }
+    
+    /**
+     * Escapes a string for safe storage in Properties file.
+     * Handles newlines and other special characters.
+     */
+    private String escapeForProperties(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\")
+                   .replace("\n", "\\n")
+                   .replace("\r", "\\r")
+                   .replace("\t", "\\t")
+                   .replace("\f", "\\f");
+    }
+    
+    /**
+     * Unescapes a string loaded from Properties file.
+     */
+    private String unescapeFromProperties(String input) {
+        if (input == null) return "";
+        return input.replace("\\n", "\n")
+                   .replace("\\r", "\r")
+                   .replace("\\t", "\t")
+                   .replace("\\f", "\f")
+                   .replace("\\\\", "\\");
     }
 }

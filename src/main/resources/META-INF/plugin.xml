@@ -60,7 +60,12 @@
                     canCloseContents="true"
                     doNotActivateOnStart="false"
                     secondary="false"/>
-
+        <projectConfigurable
+                instance="com.zps.zest.settings.ZestSettingsConfigurable"
+                displayName="Zest Plugin"
+                id="zest.settings"
+                parentId="tools"
+                nonDefaultProject="true"/>
         <!-- Register the code exploration tool window -->
 <!--        <toolWindow id="Code Explorer"-->
 <!--                    anchor="bottom"-->
@@ -371,5 +376,6 @@
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
     </actions>
 </idea-plugin>

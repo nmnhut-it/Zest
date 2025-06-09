@@ -48,15 +48,16 @@ object DiffResourceLoader {
     /**
      * Generate inline HTML with all resources embedded
      */
-    fun generateInlineHtml(originalCode: String, suggestedCode: String, isDarkTheme: Boolean): String {
-        LOG.info("Generating inline HTML for diff viewer")
+    fun generateInlineHtml(originalCode: String, suggestedCode: String, isDarkTheme: Boolean, language: String = "java"): String {
+        LOG.info("Generating inline HTML for diff viewer with language: $language")
         
         // Check if resources exist
         val requiredResources = listOf(
             "js/${if (isDarkTheme) "github-dark" else "github"}.css",
             "js/diff2html.min.css",
             "js/diff.min.js",
-            "js/diff2html-ui.min.js"
+            "js/diff2html-ui.min.js",
+            "js/highlight.min.js"  // Add highlight.js
         )
         
         val missingResources = requiredResources.filter { 
@@ -75,10 +76,11 @@ object DiffResourceLoader {
         // Load JS files
         val diffJs = loadResource("js/diff.min.js") ?: ""
         val diff2htmlJs = loadResource("js/diff2html-ui.min.js") ?: ""
+        val highlightJs = loadResource("js/highlight.min.js") ?: ""
         
-        if (highlightCss.isEmpty() || diff2htmlCss.isEmpty() || diffJs.isEmpty() || diff2htmlJs.isEmpty()) {
+        if (highlightCss.isEmpty() || diff2htmlCss.isEmpty() || diffJs.isEmpty() || diff2htmlJs.isEmpty() || highlightJs.isEmpty()) {
             LOG.warn("Some resources could not be loaded")
-            LOG.warn("highlightCss: ${highlightCss.length}, diff2htmlCss: ${diff2htmlCss.length}, diffJs: ${diffJs.length}, diff2htmlJs: ${diff2htmlJs.length}")
+            LOG.warn("highlightCss: ${highlightCss.length}, diff2htmlCss: ${diff2htmlCss.length}, diffJs: ${diffJs.length}, diff2htmlJs: ${diff2htmlJs.length}, highlightJs: ${highlightJs.length}")
         }
         
         // Return HTML with inline resources
@@ -110,10 +112,31 @@ object DiffResourceLoader {
         .d2h-file-header {
             display: none !important;
         }
+        
+        /* Ensure syntax highlighting is visible */
+        .d2h-code-line-ctn {
+            font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+        }
+        
+        /* For dark theme, ensure highlighted syntax has proper contrast */
+        ${if (isDarkTheme) """
+        .hljs-keyword { color: #569cd6 !important; }
+        .hljs-string { color: #ce9178 !important; }
+        .hljs-number { color: #b5cea8 !important; }
+        .hljs-comment { color: #6a9955 !important; }
+        .hljs-class .hljs-title { color: #4ec9b0 !important; }
+        .hljs-function .hljs-title { color: #dcdcaa !important; }
+        .hljs-variable { color: #9cdcfe !important; }
+        .hljs-type { color: #4ec9b0 !important; }
+        """ else ""}
     </style>
 </head>
 <body>
     <div id="diff-container"></div>
+    <script>
+        /* highlight.js library */
+        $highlightJs
+    </script>
     <script>
         /* jsdiff library */
         $diffJs
@@ -126,13 +149,42 @@ object DiffResourceLoader {
         // Application code
         console.log('Diff viewer initialized');
         
-        function createUnifiedDiff(original, suggested) {
+        function createUnifiedDiff(original, suggested, language) {
             console.log('Creating diff...');
             console.log('Original length:', original.length);
             console.log('Suggested length:', suggested.length);
+            console.log('Language:', language);
+            
+            // Use a filename with extension to help highlight.js detect the language
+            const extensions = {
+                'java': '.java',
+                'javascript': '.js',
+                'typescript': '.ts',
+                'python': '.py',
+                'cpp': '.cpp',
+                'csharp': '.cs',
+                'kotlin': '.kt',
+                'go': '.go',
+                'rust': '.rs',
+                'ruby': '.rb',
+                'php': '.php',
+                'swift': '.swift',
+                'scala': '.scala',
+                'html': '.html',
+                'css': '.css',
+                'xml': '.xml',
+                'json': '.json',
+                'yaml': '.yaml',
+                'sql': '.sql',
+                'text': '.txt'
+            };
+            
+            const extension = extensions[language.toLowerCase()] || '';
+            const filename = 'code' + extension;
+            console.log('Using filename:', filename);
             
             const patch = Diff.createPatch(
-                'code',
+                filename,
                 original,
                 suggested,
                 'Original',
@@ -150,10 +202,11 @@ object DiffResourceLoader {
         // Embedded code data
         const original = ${escapeForJavaScript(originalCode)};
         const suggested = ${escapeForJavaScript(suggestedCode)};
+        const language = '${language}';
         
         console.log('Input data loaded');
         
-        const diffString = createUnifiedDiff(original, suggested);
+        const diffString = createUnifiedDiff(original, suggested, language);
         console.log('Diff string generated');
         
         const configuration = {
@@ -177,8 +230,31 @@ object DiffResourceLoader {
             diff2htmlUi.draw();
             console.log('Diff drawn successfully');
             
+            // Check if highlight.js is available
+            if (typeof hljs !== 'undefined') {
+                console.log('highlight.js is available, version:', hljs.versionString || 'unknown');
+                console.log('Registered languages:', Object.keys(hljs.listLanguages ? hljs.listLanguages() : []));
+            } else {
+                console.warn('highlight.js is NOT available');
+            }
+            
             diff2htmlUi.highlightCode();
             console.log('Syntax highlighting applied');
+            
+            // Debug: Check if highlighting was actually applied
+            setTimeout(() => {
+                const codeElements = document.querySelectorAll('.d2h-code-line-ctn');
+                console.log('Code elements found:', codeElements.length);
+                if (codeElements.length > 0) {
+                    const hasHighlighting = Array.from(codeElements).some(el => 
+                        el.querySelector('.hljs-keyword, .hljs-string, .hljs-number, .hljs-comment')
+                    );
+                    console.log('Syntax highlighting detected:', hasHighlighting);
+                    if (!hasHighlighting) {
+                        console.warn('No syntax highlighting classes found. Check if highlight.js is working properly.');
+                    }
+                }
+            }, 100);
         } catch (error) {
             console.error('Error rendering diff:', error);
             targetElement.innerHTML = '<div style="color: red; padding: 20px;">Error rendering diff: ' + error.message + '</div>';

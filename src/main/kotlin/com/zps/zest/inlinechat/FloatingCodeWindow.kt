@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -414,8 +415,61 @@ class FloatingCodeWindow(
             // Detect if dark theme
             val isDarkTheme = UIUtil.isUnderDarcula()
             
+            // Detect language from editor file type
+            val virtualFile = FileDocumentManager.getInstance().getFile(mainEditor.document)
+            val fileType = virtualFile?.fileType
+            val language = when (fileType?.name?.toLowerCase()) {
+                "java" -> "java"
+                "kotlin" -> "kotlin"
+                "javascript" -> "javascript"
+                "typescript" -> "typescript"
+                "python" -> "python"
+                "c++" -> "cpp"
+                "c#" -> "csharp"
+                "go" -> "go"
+                "rust" -> "rust"
+                "ruby" -> "ruby"
+                "php" -> "php"
+                "swift" -> "swift"
+                "scala" -> "scala"
+                "html" -> "html"
+                "css" -> "css"
+                "xml" -> "xml"
+                "json" -> "json"
+                "yaml" -> "yaml"
+                "sql" -> "sql"
+                else -> {
+                    // Try to get from file extension as fallback
+                    val extension = virtualFile?.extension?.toLowerCase()
+                    when (extension) {
+                        "java" -> "java"
+                        "kt", "kts" -> "kotlin"
+                        "js", "jsx" -> "javascript"
+                        "ts", "tsx" -> "typescript"
+                        "py" -> "python"
+                        "cpp", "cc", "cxx" -> "cpp"
+                        "cs" -> "csharp"
+                        "go" -> "go"
+                        "rs" -> "rust"
+                        "rb" -> "ruby"
+                        "php" -> "php"
+                        "swift" -> "swift"
+                        "scala" -> "scala"
+                        "html", "htm" -> "html"
+                        "css" -> "css"
+                        "xml" -> "xml"
+                        "json" -> "json"
+                        "yaml", "yml" -> "yaml"
+                        "sql" -> "sql"
+                        else -> "text" // default to plain text
+                    }
+                }
+            }
+            
+            println("Detected language: $language")
+            
             // Use the DiffResourceLoader to generate HTML with embedded resources
-            return DiffResourceLoader.generateInlineHtml(original, suggested, isDarkTheme)
+            return DiffResourceLoader.generateInlineHtml(original, suggested, isDarkTheme, language)
         } catch (e: Exception) {
             println("ERROR in generateDiffHtml: ${e.message}")
             e.printStackTrace()

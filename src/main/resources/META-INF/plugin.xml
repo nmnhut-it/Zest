@@ -146,6 +146,14 @@
                 description="Test if JCef is working properly">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>
         </action>
+        
+        <!-- JCef Diagnostics Action -->
+        <action id="Zest.JCefDiagnosticAction"
+                class="com.zps.zest.inlinechat.JCefDiagnosticAction"
+                text="JCef Diagnostics"
+                description="Check JCef configuration and troubleshoot issues">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>
+        </action>
         <!-- Agent-based Test Writing --> 
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"

@@ -40,15 +40,28 @@ class FloatingCodeWindow(
         private var sharedBrowser: JBCefBrowser? = null
         
         private fun getOrCreateBrowser(): JBCefBrowser {
+            println("=== getOrCreateBrowser called ===")
+            
             if (sharedBrowser == null || sharedBrowser!!.isDisposed) {
+                println("Creating new JBCefBrowser instance...")
+                
                 // Enable JCef DevTools
                 System.setProperty("ide.browser.jcef.debug.port", "9222")
                 System.setProperty("ide.browser.jcef.headless", "false")
                 
-                sharedBrowser = JBCefBrowser()
+                try {
+                    sharedBrowser = JBCefBrowser()
+                    println("JBCefBrowser created successfully")
+                } catch (e: Exception) {
+                    println("ERROR creating JBCefBrowser: ${e.message}")
+                    e.printStackTrace()
+                    throw e
+                }
                 
                 // Enable DevTools
                 sharedBrowser?.jbCefClient?.setProperty("chromiumSwitches", "--remote-debugging-port=9223")
+            } else {
+                println("Reusing existing JBCefBrowser instance")
             }
             return sharedBrowser!!
         }
@@ -288,21 +301,45 @@ class FloatingCodeWindow(
         println("=== First 500 chars of HTML: ${diffHtml.take(500)} ===")
         
         // Test with simple HTML first (comment out for production)
-        val testSimpleHtml = false
+        val testSimpleHtml = true  // Changed to true for testing
         if (testSimpleHtml) {
             val simpleTestHtml = """
                 <!DOCTYPE html>
                 <html>
-                <head><title>Test</title></head>
-                <body style="background: lightblue; padding: 20px;">
-                    <h1>JCef Test</h1>
-                    <p>If you see this, JCef is working!</p>
-                    <pre>Original code length: ${originalCode.length}</pre>
-                    <pre>Suggested code length: ${suggestedCode.length}</pre>
+                <head>
+                    <title>Test</title>
+                    <meta charset="UTF-8">
+                </head>
+                <body style="background: lightblue; padding: 20px; font-family: Arial, sans-serif;">
+                    <h1>🎉 JCef Test - It's Working!</h1>
+                    <p><strong>If you see this, JCef is properly configured!</strong></p>
+                    <div style="background: white; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p>Original code length: <strong>${originalCode.length}</strong> characters</p>
+                        <p>Suggested code length: <strong>${suggestedCode.length}</strong> characters</p>
+                    </div>
+                    <div style="background: #ffffcc; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #ff9900;">
+                        <p style="color: red; font-weight: bold;">👉 Right-click anywhere for DevTools menu!</p>
+                        <p style="color: red;">Or press F12 to open DevTools</p>
+                    </div>
+                    <div style="background: #ccffcc; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                        <p><strong>To see the actual diff view:</strong></p>
+                        <ol>
+                            <li>Edit FloatingCodeWindow.kt</li>
+                            <li>Change line ~291: <code>val testSimpleHtml = false</code></li>
+                            <li>Rebuild and test again</li>
+                        </ol>
+                    </div>
+                    <script>
+                        console.log('Test page loaded successfully!');
+                        console.log('Original code length:', ${originalCode.length});
+                        console.log('Suggested code length:', ${suggestedCode.length});
+                    </script>
                 </body>
                 </html>
             """.trimIndent()
+            println("Loading simple test HTML...")
             browser?.loadHTML(simpleTestHtml)
+            println("Simple test HTML loaded")
         } else {
             // Load the diff HTML
             browser?.loadHTML(diffHtml)
@@ -311,18 +348,43 @@ class FloatingCodeWindow(
         val browserComponent = browser?.component ?: JPanel()
         browserComponent.border = JBUI.Borders.empty()
         
+        // Add keyboard shortcuts for DevTools
+        browserComponent.isFocusable = true
+        browserComponent.addKeyListener(object : java.awt.event.KeyAdapter() {
+            override fun keyPressed(e: java.awt.event.KeyEvent) {
+                if (e.keyCode == java.awt.event.KeyEvent.VK_F12) {
+                    browser?.openDevtools()
+                }
+            }
+        })
+        
         // Add context menu for DevTools
         browserComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mousePressed(e: java.awt.event.MouseEvent) {
                 if (e.isPopupTrigger || e.button == java.awt.event.MouseEvent.BUTTON3) {
-                    val popup = JPopupMenu()
-                    val devToolsItem = JMenuItem("Open DevTools")
-                    devToolsItem.addActionListener {
-                        browser?.openDevtools()
-                    }
-                    popup.add(devToolsItem)
-                    popup.show(e.component, e.x, e.y)
+                    showDevToolsMenu(e)
                 }
+            }
+            
+            override fun mouseReleased(e: java.awt.event.MouseEvent) {
+                if (e.isPopupTrigger) {
+                    showDevToolsMenu(e)
+                }
+            }
+            
+            private fun showDevToolsMenu(e: java.awt.event.MouseEvent) {
+                val popup = JPopupMenu()
+                val devToolsItem = JMenuItem("Open DevTools")
+                devToolsItem.addActionListener {
+                    browser?.openDevtools()
+                }
+                val reloadItem = JMenuItem("Reload")
+                reloadItem.addActionListener {
+                    browser?.cefBrowser?.reload()
+                }
+                popup.add(devToolsItem)
+                popup.add(reloadItem)
+                popup.show(e.component, e.x, e.y)
             }
         })
         

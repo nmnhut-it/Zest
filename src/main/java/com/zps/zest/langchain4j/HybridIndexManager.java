@@ -50,6 +50,7 @@ public final class HybridIndexManager {
     // Track indexed files
     private final Map<String, Long> indexedFiles = new ConcurrentHashMap<>();
     private volatile boolean isIndexing = false;
+    private volatile CompletableFuture<Boolean> currentIndexingFuture = null;
     
     // Statistics
     private final AtomicInteger totalFilesIndexed = new AtomicInteger(0);
@@ -102,38 +103,14 @@ public final class HybridIndexManager {
      * Indexes the entire project.
      */
     public void indexProject(boolean forceReindex) {
-        if (isIndexing) {
+        if (isIndexing && currentIndexingFuture != null && !currentIndexingFuture.isDone()) {
             LOG.info("Indexing already in progress");
             return;
         }
         
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                try {
-                    isIndexing = true;
-                    performBatchIndexing(indicator, forceReindex);
-                } catch (Exception e) {
-                    LOG.error("Error during indexing", e);
-                } finally {
-                    isIndexing = false;
-                }
-            }
-        });
-    }
-    
-    /**
-     * Indexes the entire project and returns a CompletableFuture.
-     * @return CompletableFuture that completes when indexing is done
-     */
-    public CompletableFuture<Boolean> indexProjectAsync(boolean forceReindex) {
+        // Create a future for tracking
         CompletableFuture<Boolean> future = new CompletableFuture<>();
-        
-        if (isIndexing) {
-            LOG.info("Indexing already in progress");
-            future.complete(false);
-            return future;
-        }
+        currentIndexingFuture = future;
         
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
             @Override
@@ -144,9 +121,43 @@ public final class HybridIndexManager {
                     future.complete(true);
                 } catch (Exception e) {
                     LOG.error("Error during indexing", e);
-                    future.complete(false);
+                    future.completeExceptionally(e);
                 } finally {
                     isIndexing = false;
+                    currentIndexingFuture = null;
+                }
+            }
+        });
+    }
+    
+    /**
+     * Indexes the entire project and returns a CompletableFuture.
+     * @return CompletableFuture that completes when indexing is done
+     */
+    public CompletableFuture<Boolean> indexProjectAsync(boolean forceReindex) {
+        // If already indexing, return the existing future
+        if (isIndexing && currentIndexingFuture != null && !currentIndexingFuture.isDone()) {
+            LOG.info("Indexing already in progress - returning existing future");
+            return currentIndexingFuture;
+        }
+        
+        // Create new future for this indexing operation
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        currentIndexingFuture = future;
+        
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    isIndexing = true;
+                    performBatchIndexing(indicator, forceReindex);
+                    future.complete(true);
+                } catch (Exception e) {
+                    LOG.error("Error during indexing", e);
+                    future.completeExceptionally(e);
+                } finally {
+                    isIndexing = false;
+                    currentIndexingFuture = null;
                 }
             }
         });
@@ -518,6 +529,36 @@ public final class HybridIndexManager {
      */
     public boolean isIndexing() {
         return isIndexing;
+    }
+    
+    /**
+     * Gets the current indexing future if indexing is in progress.
+     * @return the current indexing CompletableFuture, or null if not indexing
+     */
+    public CompletableFuture<Boolean> getCurrentIndexingFuture() {
+        return currentIndexingFuture;
+    }
+    
+    /**
+     * Gets detailed indexing status.
+     * @return a map with indexing status details
+     */
+    public Map<String, Object> getIndexingStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("isIndexing", isIndexing);
+        status.put("hasIndex", hasIndex());
+        status.put("totalFilesIndexed", totalFilesIndexed.get());
+        status.put("totalSignaturesIndexed", totalSignaturesIndexed.get());
+        
+        if (isIndexing && currentIndexingFuture != null) {
+            status.put("inProgress", true);
+            status.put("isDone", currentIndexingFuture.isDone());
+            status.put("isCompletedExceptionally", currentIndexingFuture.isCompletedExceptionally());
+        } else {
+            status.put("inProgress", false);
+        }
+        
+        return status;
     }
     
     /**

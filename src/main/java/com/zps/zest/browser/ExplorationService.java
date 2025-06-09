@@ -73,6 +73,54 @@ public class ExplorationService implements Disposable {
      */
     public String startExploration(JsonObject data) {
         try {
+            // Check if indexing is in progress
+            HybridIndexManager hybridIndexManager = project.getService(HybridIndexManager.class);
+            
+            // If indexing is in progress, wait for it to complete
+            if (hybridIndexManager.isIndexing()) {
+                LOG.info("Indexing is already in progress - waiting for completion");
+                
+                CompletableFuture<Boolean> indexingFuture = hybridIndexManager.getCurrentIndexingFuture();
+                if (indexingFuture != null) {
+                    // Notify browser that we're waiting for indexing
+                    JsonObject waitingResponse = new JsonObject();
+                    waitingResponse.addProperty("success", false);
+                    waitingResponse.addProperty("indexing", true);
+                    waitingResponse.addProperty("message", "Code indexing is in progress. Please wait...");
+                    
+                    // Handle the indexing completion
+                    indexingFuture.thenAccept(success -> {
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                            if (browserPanel != null) {
+                                if (success && hybridIndexManager.hasIndex()) {
+                                    String script = "if (window.handleIndexingComplete) { window.handleIndexingComplete(); }";
+                                    browserPanel.executeJavaScript(script);
+                                } else {
+                                    String script = "if (window.handleIndexingError) { window.handleIndexingError('Indexing failed. Please try again.'); }";
+                                    browserPanel.executeJavaScript(script);
+                                }
+                            }
+                        });
+                    }).exceptionally(throwable -> {
+                        LOG.error("Exception while waiting for indexing", throwable);
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                            if (browserPanel != null) {
+                                String script = String.format(
+                                    "if (window.handleIndexingError) { window.handleIndexingError('%s'); }",
+                                    throwable.getMessage() != null ? throwable.getMessage().replace("'", "\\'") : "Unknown error"
+                                );
+                                browserPanel.executeJavaScript(script);
+                            }
+                        });
+                        return null;
+                    });
+                    
+                    return gson.toJson(waitingResponse);
+                }
+            }
+            
             // Check if project has hybrid index for code exploration
             boolean hasIndex = checkHybridIndex();
             if (!hasIndex) {
@@ -88,11 +136,10 @@ public class ExplorationService implements Disposable {
                 ApplicationManager.getApplication().executeOnPooledThread(() -> {
                     try {
                         // Trigger hybrid indexing (this builds the indices for search tools)
-                        HybridIndexManager hybridIndexManager = project.getService(HybridIndexManager.class);
                         CompletableFuture<Boolean> indexingFuture = hybridIndexManager.indexProjectAsync(false);
 
                         indexingFuture.thenAccept(success -> {
-                            if (success) {
+                            if (success && hybridIndexManager.hasIndex()) {
                                 LOG.info("Hybrid project index built successfully");
 
                                 // Notify browser that indexing is complete
@@ -104,27 +151,41 @@ public class ExplorationService implements Disposable {
                                     }
                                 });
                             } else {
-                                LOG.error("Failed to build hybrid index");
-                                // Notify browser of indexing failure
+                                LOG.warn("Hybrid index build completed but index not available");
+                                // Notify error
                                 ApplicationManager.getApplication().invokeLater(() -> {
                                     WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
                                     if (browserPanel != null) {
-                                        String script = "if (window.handleIndexingError) { window.handleIndexingError('Failed to build hybrid index'); }";
+                                        String script = "if (window.handleIndexingError) { window.handleIndexingError('Index build failed. Please try again.'); }";
                                         browserPanel.executeJavaScript(script);
                                     }
                                 });
                             }
+                        }).exceptionally(throwable -> {
+                            LOG.error("Exception during hybrid indexing", throwable);
+                            // Notify browser of indexing error
+                            ApplicationManager.getApplication().invokeLater(() -> {
+                                WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+                                if (browserPanel != null) {
+                                    String script = String.format(
+                                        "if (window.handleIndexingError) { window.handleIndexingError('%s'); }",
+                                        throwable.getMessage() != null ? throwable.getMessage().replace("'", "\\'") : "Unknown error"
+                                    );
+                                    browserPanel.executeJavaScript(script);
+                                }
+                            });
+                            return null;
                         });
 
                     } catch (Exception e) {
-                        LOG.error("Error during hybrid indexing", e);
+                        LOG.error("Error starting hybrid indexing", e);
                         // Notify browser of indexing error
                         ApplicationManager.getApplication().invokeLater(() -> {
                             WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
                             if (browserPanel != null) {
                                 String script = String.format(
                                     "if (window.handleIndexingError) { window.handleIndexingError('%s'); }",
-                                    e.getMessage().replace("'", "\\'")
+                                    e.getMessage() != null ? e.getMessage().replace("'", "\\'") : "Unknown error"
                                 );
                                 browserPanel.executeJavaScript(script);
                             }

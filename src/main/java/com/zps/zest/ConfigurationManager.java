@@ -102,6 +102,33 @@ public class ConfigurationManager {
             "- Check for available tools before suggesting manual operations\n" +
             "\n" +
             "    Ask questions to clarify requirements, explain reasoning, and think step-by-step while maintaining system awareness. Provide clear code examples with explanations./no_think";
+    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = "Generate a well-structured git commit message based on the changes below.\n\n" +
+            "## Changed files:\n" +
+            "{FILES_LIST}\n\n" +
+            "## File changes:\n" +
+            "{DIFFS}\n\n" +
+            "## Instructions:\n" +
+            "Please follow this structure for the commit message:\n\n" +
+            "1. First line: Short summary (50-72 chars) following conventional commit format\n" +
+            "   - format: <type>(<scope>): <subject>\n" +
+            "   - example: feat(auth): implement OAuth2 login\n\n" +
+            "2. Body: Detailed explanation of what changed and why\n" +
+            "   - Separated from summary by a blank line\n" +
+            "   - Explain what and why, not how\n" +
+            "   - Wrap at 72 characters\n\n" +
+            "3. Footer (optional):\n" +
+            "   - Breaking changes (BREAKING CHANGE: description)\n\n" +
+            "Example output:\n" +
+            "feat(user-profile): implement password reset functionality\n\n" +
+            "Add secure password reset flow with email verification and rate limiting.\n" +
+            "This change improves security by requiring email confirmation before\n" +
+            "allowing password changes.\n\n" +
+            "- Added PasswordResetController with email verification\n" +
+            "- Implemented rate limiting to prevent brute force attacks\n" +
+            "- Added unit and integration tests\n\n" +
+            "BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset\n\n" +
+            "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
+    
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
 
@@ -131,6 +158,7 @@ public class ConfigurationManager {
     // System prompts
     private String systemPrompt;
     private String codeSystemPrompt;
+    private String commitPromptTemplate;
     // Knowledge base ID for code indexing
     private String knowledgeId = null;
     // Button states
@@ -217,6 +245,7 @@ public class ConfigurationManager {
         mcpEnabled = false;
         systemPrompt = DEFAULT_SYSTEM_PROMPT;
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
         knowledgeId = null;
         contextInjectionEnabled = true;
         projectIndexEnabled = false;
@@ -243,6 +272,7 @@ public class ConfigurationManager {
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
                 systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
                 codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+                commitPromptTemplate = props.getProperty("commitPromptTemplate", DEFAULT_COMMIT_PROMPT_TEMPLATE);
                 knowledgeId = props.getProperty("knowledgeId", null);
                 
                 // Load button states
@@ -314,6 +344,7 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", mcpServerUri);
             props.setProperty("systemPrompt", systemPrompt);
             props.setProperty("codeSystemPrompt", codeSystemPrompt);
+            props.setProperty("commitPromptTemplate", commitPromptTemplate);
             if (knowledgeId != null) {
                 props.setProperty("knowledgeId", knowledgeId);
             }
@@ -499,6 +530,7 @@ public class ConfigurationManager {
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
             props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
             props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+            props.setProperty("commitPromptTemplate", DEFAULT_COMMIT_PROMPT_TEMPLATE);
             props.setProperty("knowledgeId", ""); // Empty by default
             props.setProperty("contextInjectionEnabled", "true");
             props.setProperty("projectIndexEnabled", "false");
@@ -666,6 +698,15 @@ public class ConfigurationManager {
         if (enabled && contextInjectionEnabled) {
             contextInjectionEnabled = false;
         }
+        saveConfig();
+    }
+    
+    public String getCommitPromptTemplate() {
+        return commitPromptTemplate;
+    }
+    
+    public void setCommitPromptTemplate(String commitPromptTemplate) {
+        this.commitPromptTemplate = commitPromptTemplate;
         saveConfig();
     }
 }

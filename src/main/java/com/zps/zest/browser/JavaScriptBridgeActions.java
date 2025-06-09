@@ -168,6 +168,9 @@ public class JavaScriptBridgeActions {
                     
                 case "setProjectIndexEnabled":
                     return setProjectIndexEnabled(data);
+                    
+                case "getCommitPromptTemplate":
+                    return getCommitPromptTemplate();
                 
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -438,6 +441,24 @@ public class JavaScriptBridgeActions {
             response.addProperty("success", true);
         } catch (Exception e) {
             LOG.error("Error setting project index state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Gets the commit prompt template from configuration.
+     */
+    private String getCommitPromptTemplate() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            String template = config.getCommitPromptTemplate();
+            response.addProperty("success", true);
+            response.addProperty("template", template);
+        } catch (Exception e) {
+            LOG.error("Error getting commit prompt template", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }

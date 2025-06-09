@@ -16,6 +16,7 @@ import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.utils.GitCommandExecutor;
+import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -943,47 +944,85 @@ class CommitPromptGenerationStage implements PipelineStage {
             throw new PipelineExecutionException("No changed files detected");
         }
 
-        // Build the prompt for the LLM
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("# Git Commit Message Generator\n\n");
-
-        // Add instructions for the LLM
-        prompt.append("## Instructions\n");
-        prompt.append("Generate a well-structured, concise commit message based on the changes below. ");
-        prompt.append("Focus on the WHY and WHAT, not just the how.\n\n");
-
-        prompt.append("## Current Branch\n");
-        prompt.append("`").append(branchName).append("`\n\n");
-
-        prompt.append("## Changed Files\n");
-        prompt.append("```").append("\n").append(changedFiles).append("```\n\n");
-
-        prompt.append("## Git Diff\n");
-        prompt.append("```diff\n").append(gitDiff).append("```\n\n");
-
-        prompt.append("## Output Format\n");
-        prompt.append("Please format your response with TWO separate code blocks as follows:\n\n");
-
-        prompt.append("### Short Message (for -m flag)\n");
-        prompt.append("```commit-short\n");
-        prompt.append("<short summary>\n");
-        prompt.append("```\n\n");
-        prompt.append("The short message **should not exceed 50 characters** and should be a summary of the changes.\n\n");
-
-        prompt.append("### Long Message (for commit template)\n");
-        prompt.append("```commit-long\n");
-        prompt.append("<type>(<scope>): <short summary>\n\n");
-        prompt.append("<longer description explaining the changes in detail>\n\n");
-        prompt.append("<any breaking changes or issues closed>\n");
-        prompt.append("```\n\n");
-
-        prompt.append("The commit messages should be clear, concise, and follow best practices. ");
-        prompt.append("Keep both blocks formatted for easy copying and pasting./no_think");
+        // Get the configurable commit prompt template
+        ConfigurationManager config = ConfigurationManager.getInstance(gitContext.getProject());
+        String template = config.getCommitPromptTemplate();
+        
+        // Build files list
+        StringBuilder filesList = new StringBuilder();
+        
+        // Group files by status if selectedFiles is available
+        if (selectedFiles != null && !selectedFiles.isEmpty()) {
+            // Group files by status
+            java.util.Map<String, java.util.List<String>> filesByStatus = new java.util.HashMap<>();
+            filesByStatus.put("M", new ArrayList<>());
+            filesByStatus.put("A", new ArrayList<>());
+            filesByStatus.put("D", new ArrayList<>());
+            filesByStatus.put("R", new ArrayList<>());
+            filesByStatus.put("C", new ArrayList<>());
+            filesByStatus.put("U", new ArrayList<>());
+            
+            for (GitCommitContext.SelectedFile file : selectedFiles) {
+                String status = file.getStatus();
+                if (filesByStatus.containsKey(status)) {
+                    filesByStatus.get(status).add(file.getPath());
+                } else {
+                    filesByStatus.get("U").add(file.getPath());
+                }
+            }
+            
+            java.util.Map<String, String> statusMap = new java.util.HashMap<>();
+            statusMap.put("M", "Modified");
+            statusMap.put("A", "Added");
+            statusMap.put("D", "Deleted");
+            statusMap.put("R", "Renamed");
+            statusMap.put("C", "Copied");
+            statusMap.put("U", "Other");
+            
+            // Output files grouped by status
+            for (java.util.Map.Entry<String, java.util.List<String>> entry : filesByStatus.entrySet()) {
+                if (!entry.getValue().isEmpty()) {
+                    filesList.append("\n### ").append(statusMap.get(entry.getKey())).append(" files:\n");
+                    for (String path : entry.getValue()) {
+                        filesList.append("- ").append(path).append("\n");
+                    }
+                }
+            }
+        } else {
+            // Use raw changed files
+            filesList.append(changedFiles);
+        }
+        
+        // Build diffs section
+        StringBuilder diffsSection = new StringBuilder();
+        
+        // If we have selected files with individual diffs
+        if (selectedFiles != null && !selectedFiles.isEmpty() && gitDiff != null && !gitDiff.isEmpty()) {
+            // Simple approach - just format the entire diff
+            String[] lines = gitDiff.split("\n");
+            int lineCount = Math.min(lines.length, 75);
+            
+            for (int i = 0; i < lineCount; i++) {
+                diffsSection.append(lines[i]).append("\n");
+            }
+            
+            if (lines.length > 75) {
+                diffsSection.append("... (diff truncated for brevity)\n");
+            }
+        } else if (gitDiff != null && !gitDiff.isEmpty()) {
+            // Use the full diff if available
+            diffsSection.append(gitDiff);
+        }
+        
+        // Replace placeholders in template
+        String prompt = template
+            .replace("{FILES_LIST}", filesList.toString().trim())
+            .replace("{DIFFS}", diffsSection.toString().trim());
 
         // Store the prompt in the context
-        gitContext.setPrompt(prompt.toString());
+        gitContext.setPrompt(prompt);
 
-        LOG.info("Commit message prompt created successfully");
+        LOG.info("Commit message prompt created successfully using configurable template");
     }
 
     /**

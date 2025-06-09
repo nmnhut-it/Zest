@@ -178,6 +178,120 @@ const GitUtils = {
 // Git modal operations
 const GitModal = {
     /**
+     * Get commit prompt template from IDE configuration
+     */
+    getCommitPromptTemplate: async function() {
+        try {
+            const response = await window.intellijBridge.callIDE('getCommitPromptTemplate');
+            if (response && response.success && response.template) {
+                return response.template;
+            }
+        } catch (error) {
+            console.error('Error getting commit prompt template:', error);
+        }
+        
+        // Return default template if fetch fails
+        return `Generate a well-structured git commit message based on the changes below.
+
+## Changed files:
+{FILES_LIST}
+
+## File changes:
+{DIFFS}
+
+## Instructions:
+Please follow this structure for the commit message:
+
+1. First line: Short summary (50-72 chars) following conventional commit format
+   - format: <type>(<scope>): <subject>
+   - example: feat(auth): implement OAuth2 login
+
+2. Body: Detailed explanation of what changed and why
+   - Separated from summary by a blank line
+   - Explain what and why, not how
+   - Wrap at 72 characters
+
+3. Footer (optional):
+   - Breaking changes (BREAKING CHANGE: description)
+
+Example output:
+feat(user-profile): implement password reset functionality
+
+Add secure password reset flow with email verification and rate limiting.
+This change improves security by requiring email confirmation before
+allowing password changes.
+
+- Added PasswordResetController with email verification
+- Implemented rate limiting to prevent brute force attacks
+- Added unit and integration tests
+
+BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset
+
+Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.`;
+    },
+    
+    /**
+     * Build commit prompt using the configurable template
+     */
+    buildCommitPromptWithTemplate: async function(selectedFiles, diffs) {
+        // Get the template
+        const template = await this.getCommitPromptTemplate();
+        
+        // Build files list
+        let filesList = '';
+        
+        // Group files by status
+        const filesByStatus = {
+            'M': [], 'A': [], 'D': [], 'R': [], 'C': [], 'U': []
+        };
+
+        selectedFiles.forEach(file => {
+            const status = file.status || file.filePath?.charAt(0) || 'U';
+            if (filesByStatus[status]) {
+                filesByStatus[status].push(file.path || file.filePath);
+            } else {
+                filesByStatus['U'].push(file.path || file.filePath);
+            }
+        });
+
+        const statusMap = {
+            'M': 'Modified',
+            'A': 'Added',
+            'D': 'Deleted',
+            'R': 'Renamed',
+            'C': 'Copied',
+            'U': 'Other'
+        };
+
+        // Output files grouped by status
+        Object.entries(filesByStatus).forEach(([status, files]) => {
+            if (files.length > 0) {
+                filesList += `\n### ${statusMap[status]} files:\n`;
+                files.forEach(path => filesList += `- ${path}\n`);
+            }
+        });
+        
+        // Build diffs section
+        let diffsSection = '';
+        Object.entries(diffs).forEach(([path, diff]) => {
+            diffsSection += `\n### ${path}\n---diff\n`;
+            const lines = diff.split('\n').slice(0, 75);
+            diffsSection += lines.join('\n');
+            if (diff.split('\n').length > 75) {
+                diffsSection += '\n... (diff truncated for brevity)';
+            }
+            diffsSection += '\n---\n';
+        });
+        
+        // Replace placeholders in template
+        let prompt = template
+            .replace('{FILES_LIST}', filesList.trim())
+            .replace('{DIFFS}', diffsSection.trim());
+            
+        return prompt;
+    },
+    
+    /**
      * Show file selection modal with changed files
      */
     showFileSelectionModal: function(changedFiles) {
@@ -467,8 +581,8 @@ const GitModal = {
            // Get diffs for selected files
            const diffs = await this.getFileDiffs(selectedFiles);
 
-           // Build prompt
-           const prompt = this.buildCommitPrompt(selectedFiles, diffs);
+           // Build prompt using the configurable template
+           const prompt = await this.buildCommitPromptWithTemplate(selectedFiles, diffs);
 
            // Call OpenWebUI API
            let commitMessage = await this.callOpenWebUIAPI(prompt);
@@ -539,96 +653,6 @@ const GitModal = {
         return diffs;
     },
 
- /**
-  * Build a comprehensive commit prompt that follows a structured long-format style
-  * @param {Array} selectedFiles - Array of file objects with path and status
-  * @param {Object} diffs - Object with file paths as keys and diff content as values
-  * @return {String} - The formatted commit prompt
-  */
- buildCommitPrompt: function(selectedFiles, diffs) {
-     let prompt = "Generate a detailed git commit message following a structured long-format style:\n\n";
-
-     // Add file list with better organization
-     prompt += "## Changed files:\n";
-
-     // Group files by status for better organization
-     const filesByStatus = {
-         'M': [], 'A': [], 'D': [], 'R': [], 'C': [], 'U': []
-     };
-
-     selectedFiles.forEach(file => {
-         const status = file.status || 'U'; // Default to 'U' for unknown
-         if (filesByStatus[status]) {
-             filesByStatus[status].push(file.path);
-         } else {
-             filesByStatus['U'].push(file.path);
-         }
-     });
-
-     const statusMap = {
-         'M': 'Modified',
-         'A': 'Added',
-         'D': 'Deleted',
-         'R': 'Renamed',
-         'C': 'Copied',
-         'U': 'Other'
-     };
-
-     // Output files grouped by status
-     Object.entries(filesByStatus).forEach(([status, files]) => {
-         if (files.length > 0) {
-             prompt += `\n### ${statusMap[status]} files:\n`;
-             files.forEach(path => prompt += `- ${path}\n`);
-         }
-     });
-
-     // Add diffs with better formatting
-     prompt += "\n## File changes:\n";
-     Object.entries(diffs).forEach(([path, diff]) => {
-         prompt += `\n### ${path}\n---diff\n`;
-         // Limit diff size but keep enough context
-         const lines = diff.split('\n').slice(0, 75);
-         prompt += lines.join('\n');
-         if (diff.split('\n').length > 75) {
-             prompt += '\n... (diff truncated for brevity)';
-         }
-         prompt += '\n---\n';
-     });
-
-     // Instructions for structured long commit format
-     prompt += `
- ## Commit Message Format Instructions:
- Please follow this structure for the long-format commit message:
-
- 1. First line: Short summary (50-72 chars) following conventional commit format
-    - format: <type>(<scope>): <subject>
-    - example: feat(auth): implement OAuth2 login
-
- 2. Body: Detailed explanation of what changed and why
-    - Separated from summary by a blank line
-    - Explain what and why, not how
-    - Wrap at 72 characters
-
- 3. Footer (optional):
-    - Breaking changes (BREAKING CHANGE: description)
-
- Example output format:
- feat(user-profile): implement password reset functionality
-
- Add secure password reset flow with email verification and rate limiting.
- This change improves security by requiring email confirmation before
- allowing password changes.
-
- - Added PasswordResetController with email verification
- - Implemented rate limiting to prevent brute force attacks
- - Added unit and integration tests
-
- BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset
-
- Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.`;
-
-     return prompt;
- },
 
     /**
      * Call OpenWebUI API
@@ -1094,8 +1118,8 @@ const QuickCommitPipeline = {
             // Get diffs for all files
             const diffs = await this.getFileDiffs(this.context.files);
             
-            // Build prompt
-            const prompt = this.buildCommitPrompt(this.context.files, diffs);
+            // Build prompt using the shared template
+            const prompt = await GitModal.buildCommitPromptWithTemplate(this.context.files, diffs);
             
             // Call OpenWebUI API
             let message = await this.callOpenWebUIAPI(prompt);
@@ -1178,30 +1202,7 @@ const QuickCommitPipeline = {
         return diffs;
     },
     
-    /**
-     * Build commit prompt
-     */
-    buildCommitPrompt(files, diffs) {
-        let prompt = "Generate a concise git commit message for these changes:\n\n";
-        
-        // Add file list
-        prompt += "Changed files:\n";
-        files.forEach(file => {
-            prompt += `- ${file.status} ${file.filePath}\n`;
-        });
-        
-        // Add diffs (limited)
-        prompt += "\nKey changes:\n";
-        Object.entries(diffs).forEach(([path, diff]) => {
-            const lines = diff.split('\n').slice(0, 50);
-            prompt += `\n${path}:\n---diff\n${lines.join('\n')}\n---\n`;
-        });
-        
-        prompt += "\nProvide ONLY the commit message, no explanations, no markdown formatting, no code blocks. Use conventional commit format when appropriate.";
-        
-        return prompt;
-    },
-    
+
     /**
      * Call OpenWebUI API
      */

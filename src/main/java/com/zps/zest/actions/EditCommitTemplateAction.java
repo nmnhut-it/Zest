@@ -149,16 +149,35 @@ public class EditCommitTemplateAction extends AnAction {
                 .replace("{DATE}", "2024-01-15")
                 .replace("{USER_NAME}", System.getProperty("user.name", "developer"));
             
-            // Show preview in a dialog
+            // Show preview in a custom dialog
             JTextArea previewArea = new JTextArea(preview);
             previewArea.setEditable(false);
             previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            previewArea.setCaretPosition(0);
             
             JScrollPane scrollPane = new JScrollPane(previewArea);
             scrollPane.setPreferredSize(new Dimension(700, 500));
             
-            Messages.showMessageDialog(project, scrollPane, 
-                "Template Preview", Messages.getInformationIcon());
+            // Create a custom dialog to show the preview
+            DialogWrapper previewDialog = new DialogWrapper(project, false) {
+                {
+                    setTitle("Template Preview");
+                    init();
+                }
+                
+                @Nullable
+                @Override
+                protected JComponent createCenterPanel() {
+                    return scrollPane;
+                }
+                
+                @Override
+                protected Action[] createActions() {
+                    return new Action[]{getOKAction()};
+                }
+            };
+            
+            previewDialog.show();
         }
         
         @Override

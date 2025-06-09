@@ -37,7 +37,7 @@ public class ConfigurationManager {
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
     // Default system prompts
-    private static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
+    public static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
             "\n" +
             "CORE APPROACH:\n" +
             "\n" +
@@ -57,7 +57,7 @@ public class ConfigurationManager {
             "   - Explain reasoning to help users understand solutions\n" +
             "\n" +
             "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n/no_think\n";
-    private static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
+    public static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
             "\n" +
             "    CORE CODING METHODOLOGY:\n" +
             "\n" +
@@ -270,8 +270,15 @@ public class ConfigurationManager {
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-                systemPrompt = unescapeFromProperties(props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT));
-                codeSystemPrompt = unescapeFromProperties(props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT));
+                systemPrompt = unescapeFromProperties(props.getProperty("systemPrompt"));
+                if (systemPrompt == null || systemPrompt.trim().isEmpty()) {
+                    systemPrompt = DEFAULT_SYSTEM_PROMPT;
+                }
+                
+                codeSystemPrompt = unescapeFromProperties(props.getProperty("codeSystemPrompt"));
+                if (codeSystemPrompt == null || codeSystemPrompt.trim().isEmpty()) {
+                    codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+                }
                 String loadedTemplate = unescapeFromProperties(props.getProperty("commitPromptTemplate"));
                 // Validate and use default if invalid or missing
                 if (loadedTemplate == null || loadedTemplate.trim().isEmpty()) {

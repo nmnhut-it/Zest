@@ -12,9 +12,13 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTextField
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.zps.zest.CodeContext
+import com.zps.zest.LlmApiCallStage
+import com.zps.zest.ZestNotifications
 import java.awt.*
 import java.awt.event.ActionEvent
 import java.awt.event.ComponentAdapter
@@ -23,6 +27,9 @@ import java.awt.event.KeyEvent
 import javax.swing.*
 import javax.swing.JPopupMenu
 import javax.swing.JMenuItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * A floating window that displays AI-suggested code changes with side-by-side diff
@@ -97,6 +104,11 @@ class FloatingCodeWindow(
     private var loadingPanel: JPanel? = null
     private var contentPanel: JPanel? = null
     private var mainPanel: JPanel? = null
+    private var followUpField: JBTextField? = null
+    private var followUpLoadingTimer: javax.swing.Timer? = null
+    private var acceptButton: JButton? = null
+    private var rejectButton: JButton? = null
+    private var diffLoadingOverlay: JPanel? = null
 
     fun show() {
         ApplicationManager.getApplication().invokeLater {
@@ -110,11 +122,11 @@ class FloatingCodeWindow(
             val editorWidth = mainEditor.component.width
             val windowWidth = minOf(editorWidth - 40, 1400)  // Leave some margin, max 1400px
             val lineCount = maxOf(originalCode.lines().size, suggestedCode.lines().size)
-            val windowHeight = minOf(600, maxOf(400, lineCount * 20 + 150))  // Dynamic height based on content
+            val windowHeight = minOf(700, maxOf(500, lineCount * 20 + 150))
 
             popup = JBPopupFactory.getInstance()
-                .createComponentPopupBuilder(panel, null)
-                .setTitle("AI Suggested Changes - Side by Side Diff")
+                .createComponentPopupBuilder(panel, followUpField) // Focus on follow-up field
+                .setTitle("AI Suggested Changes")
                 .setMovable(true)
                 .setResizable(true)
                 .setRequestFocus(true)
@@ -128,7 +140,7 @@ class FloatingCodeWindow(
                     inlineChatService.clearState()
                     true
                 }
-                .setMinSize(Dimension(800, 400))  // Wider minimum for diff view
+                .setMinSize(Dimension(800, 500))  // Larger minimum for better usability
                 .setDimensionServiceKey(project, "InlineChatFloatingDiffWindow", false)
                 .createPopup()
 
@@ -138,19 +150,8 @@ class FloatingCodeWindow(
             popup?.size = Dimension(windowWidth, windowHeight)
             popup?.show(RelativePoint(Point(position)))
 
-            // Add ESC key handler
-            popup?.content?.let { content ->
-                val inputMap = content.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
-                val actionMap = content.actionMap
-
-                inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
-                actionMap.put("close", object : AbstractAction() {
-                    override fun actionPerformed(e: ActionEvent?) {
-                        onReject()
-                        hide()
-                    }
-                })
-            }
+            // Setup keyboard shortcuts
+            setupKeyboardShortcuts()
 
             // Add listener to handle popup close and position changes
             popup?.addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
@@ -181,6 +182,50 @@ class FloatingCodeWindow(
         }
     }
 
+    private fun setupKeyboardShortcuts() {
+        popup?.content?.let { content ->
+            val inputMap = content.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+            val actionMap = content.actionMap
+
+            // ESC to close
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "close")
+            actionMap.put("close", object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent?) {
+                    onReject()
+                    hide()
+                }
+            })
+
+            // Ctrl+Enter or Alt+A to accept
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.CTRL_DOWN_MASK), "accept")
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, KeyEvent.ALT_DOWN_MASK), "accept")
+            actionMap.put("accept", object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent?) {
+                    onAccept()
+                    hide()
+                }
+            })
+
+            // Ctrl+Shift+Enter or Alt+R to reject
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.CTRL_DOWN_MASK or KeyEvent.SHIFT_DOWN_MASK), "reject")
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.ALT_DOWN_MASK), "reject")
+            actionMap.put("reject", object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent?) {
+                    onReject()
+                    hide()
+                }
+            })
+
+            // F12 for DevTools
+            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_F12, 0), "devtools")
+            actionMap.put("devtools", object : AbstractAction() {
+                override fun actionPerformed(e: ActionEvent?) {
+                    browser?.openDevtools()
+                }
+            })
+        }
+    }
+
     /**
      * Update the content of the floating window with the LLM response
      */
@@ -203,28 +248,19 @@ class FloatingCodeWindow(
             mainPanel?.let { panel ->
                 panel.removeAll()
 
-                // Create top panel that includes toolbar and potential warning
-                val topPanel = JPanel(BorderLayout())
-                val toolbar = createToolbar()
-                topPanel.add(toolbar, BorderLayout.NORTH)
-
-                // Add warning panel if it exists
-                warningPanel?.let {
-                    topPanel.add(it, BorderLayout.SOUTH)
-                }
-
-                panel.add(topPanel, BorderLayout.NORTH)
+                // Create top section with follow-up and actions
+                val topSection = createTopSection()
+                panel.add(topSection, BorderLayout.NORTH)
 
                 // Create diff viewer
                 val diffPanel = createDiffViewerPanel()
                 panel.add(diffPanel, BorderLayout.CENTER)
 
-                // Create action panel
-                val actionPanel = createActionPanel()
-                panel.add(actionPanel, BorderLayout.SOUTH)
-
                 panel.revalidate()
                 panel.repaint()
+
+                // Focus on follow-up field
+                followUpField?.requestFocusInWindow()
             }
         }
     }
@@ -274,14 +310,12 @@ class FloatingCodeWindow(
         ApplicationManager.getApplication().invokeLater {
             if (warningPanel == null) {
                 warningPanel = createWarningPanel(message)
-                popup?.content?.let { content ->
-                    if (content is JPanel && content.layout is BorderLayout) {
-                        val topPanel = content.getComponent(0) as? JPanel
-                        if (topPanel != null && topPanel.layout is BorderLayout) {
-                            topPanel.add(warningPanel, BorderLayout.SOUTH)
-                            topPanel.revalidate()
-                            topPanel.repaint()
-                        }
+                // Add warning to the top section if it exists
+                mainPanel?.let { panel ->
+                    (panel.getComponent(0) as? JPanel)?.let { topSection ->
+                        topSection.add(warningPanel, BorderLayout.SOUTH)
+                        topSection.revalidate()
+                        topSection.repaint()
                     }
                 }
             } else {
@@ -328,27 +362,13 @@ class FloatingCodeWindow(
             loadingPanel = createLoadingPanel()
             mainPanel!!.add(loadingPanel!!, BorderLayout.CENTER)
         } else {
-            // Create toolbar
-            val toolbar = createToolbar()
-
-            // Create top panel that includes toolbar and potential warning
-            val topPanel = JPanel(BorderLayout())
-            topPanel.add(toolbar, BorderLayout.NORTH)
-
-            // Add warning panel if it exists
-            warningPanel?.let {
-                topPanel.add(it, BorderLayout.SOUTH)
-            }
-
-            mainPanel!!.add(topPanel, BorderLayout.NORTH)
+            // Create top section with follow-up and actions
+            val topSection = createTopSection()
+            mainPanel!!.add(topSection, BorderLayout.NORTH)
 
             // Create diff viewer
             val diffPanel = createDiffViewerPanel()
             mainPanel!!.add(diffPanel, BorderLayout.CENTER)
-
-            // Create action panel
-            val actionPanel = createActionPanel()
-            mainPanel!!.add(actionPanel, BorderLayout.SOUTH)
         }
 
         return mainPanel!!
@@ -415,91 +435,118 @@ class FloatingCodeWindow(
         return panel
     }
 
-    private fun createToolbar(): JComponent {
+    private fun createTopSection(): JPanel {
+        val topSection = JPanel(BorderLayout())
+        topSection.background = UIUtil.getPanelBackground()
+
+        // Create follow-up panel with visible background
+        val followUpPanel = createFollowUpPanel()
+        topSection.add(followUpPanel, BorderLayout.CENTER)
+
+        // Create minimal action panel
+        val actionPanel = createMinimalActionPanel()
+        topSection.add(actionPanel, BorderLayout.EAST)
+
+        // Add warning panel if it exists
+        warningPanel?.let {
+            topSection.add(it, BorderLayout.SOUTH)
+        }
+
+        return topSection
+    }
+
+    private fun createFollowUpPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
+        
+        // Make the background more visible - different color based on theme
+        val bgColor = if (UIUtil.isUnderDarcula()) {
+            JBColor(Color(60, 63, 65), Color(45, 48, 50))  // Darker than editor background
+        } else {
+            JBColor(Color(245, 245, 247), Color(230, 230, 235))  // Slightly darker than editor
+        }
+        panel.background = bgColor
+        
         panel.border = JBUI.Borders.merge(
             JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0),
-            JBUI.Borders.empty(8, 12),
+            JBUI.Borders.empty(12, 12, 12, 8),
             true
         )
 
-        val titleLabel = JBLabel("AI Suggested Changes - Side by Side Comparison")
-        titleLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
-        titleLabel.icon = AllIcons.Actions.Diff
-
-        panel.add(titleLabel, BorderLayout.WEST)
-
-        // Add DevTools button to the right side
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
-        rightPanel.background = panel.background
-
-        val devToolsButton = JButton("DevTools")
-        devToolsButton.icon = AllIcons.Debugger.Console
-        devToolsButton.toolTipText = "Open Chrome DevTools (F12)"
-        devToolsButton.addActionListener {
-            browser?.openDevtools()
+        // Create text field with contrasting background
+        followUpField = JBTextField()
+        followUpField!!.toolTipText = "Type a refinement request and press Enter to update the suggestion (Ctrl+Enter to accept current)"
+        
+        // Make the text field background slightly different from panel background
+        val fieldBgColor = if (UIUtil.isUnderDarcula()) {
+            JBColor(Color(69, 73, 74), Color(50, 53, 55))
+        } else {
+            JBColor(Color(255, 255, 255), Color(240, 240, 243))
+        }
+        followUpField!!.background = fieldBgColor
+        
+        // Add some padding to the text field
+        followUpField!!.border = BorderFactory.createCompoundBorder(
+            JBUI.Borders.customLine(JBColor.border(), 1),
+            JBUI.Borders.empty(8, 12)
+        )
+        
+        // Increase font size slightly for better visibility
+        followUpField!!.font = followUpField!!.font.deriveFont(followUpField!!.font.size + 1f)
+        
+        // Add key listener for Enter key
+        followUpField!!.addActionListener {
+            handleFollowUp()
         }
 
-        rightPanel.add(devToolsButton)
-        panel.add(rightPanel, BorderLayout.EAST)
+        // Add helpful placeholder text with examples
+        followUpField!!.emptyText.text = "Refine suggestion (e.g., 'add error handling') — Press Enter"
+        
+        panel.add(followUpField!!, BorderLayout.CENTER)
+
+        return panel
+    }
+
+    private fun createMinimalActionPanel(): JPanel {
+        val panel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0))
+        panel.background = UIUtil.getPanelBackground()
+        panel.border = JBUI.Borders.empty(12, 0, 12, 12)
+
+        // Create compact buttons
+        acceptButton = JButton("Accept")
+        acceptButton!!.icon = AllIcons.Actions.Checked
+        acceptButton!!.toolTipText = "Accept changes (Ctrl+Enter)"
+        acceptButton!!.putClientProperty("JButton.buttonType", "segmented-only")
+        acceptButton!!.addActionListener {
+            onAccept()
+            hide()
+        }
+
+        rejectButton = JButton("Reject")
+        rejectButton!!.icon = AllIcons.Actions.Close
+        rejectButton!!.toolTipText = "Reject changes (Escape)"
+        rejectButton!!.putClientProperty("JButton.buttonType", "segmented-only")
+        rejectButton!!.addActionListener {
+            onReject()
+            hide()
+        }
+
+        panel.add(acceptButton!!)
+        panel.add(rejectButton!!)
 
         return panel
     }
 
     private fun createDiffViewerPanel(): JComponent {
+        // Create a container panel that can hold both browser and overlay
+        val containerPanel = JPanel(BorderLayout())
+        containerPanel.border = JBUI.Borders.empty()
+        
         // Use shared browser instance for better performance
         browser = getOrCreateBrowser()
 
-        // For debugging: print the HTML to console
+        // Generate and load the diff HTML
         val diffHtml = generateDiffHtml(originalCode, suggestedCode)
-        println("=== Generated HTML length: ${diffHtml.length} ===")
-        println("=== First 500 chars of HTML: ${diffHtml.take(500)} ===")
-
-        // Test with simple HTML first (comment out for production)
-        val testSimpleHtml = false  // Changed to false to test the actual diff viewer
-        if (testSimpleHtml) {
-            val simpleTestHtml = """
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Test</title>
-                    <meta charset="UTF-8">
-                </head>
-                <body style="background: lightblue; padding: 20px; font-family: Arial, sans-serif;">
-                    <h1>🎉 JCef Test - It's Working!</h1>
-                    <p><strong>If you see this, JCef is properly configured!</strong></p>
-                    <div style="background: white; padding: 15px; border-radius: 5px; margin: 10px 0;">
-                        <p>Original code length: <strong>${originalCode.length}</strong> characters</p>
-                        <p>Suggested code length: <strong>${suggestedCode.length}</strong> characters</p>
-                    </div>
-                    <div style="background: #ffffcc; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #ff9900;">
-                        <p style="color: red; font-weight: bold;">👉 Right-click anywhere for DevTools menu!</p>
-                        <p style="color: red;">Or press F12 to open DevTools</p>
-                    </div>
-                    <div style="background: #ccffcc; padding: 15px; border-radius: 5px; margin: 10px 0;">
-                        <p><strong>To see the actual diff view:</strong></p>
-                        <ol>
-                            <li>Edit FloatingCodeWindow.kt</li>
-                            <li>Change line ~291: <code>val testSimpleHtml = false</code></li>
-                            <li>Rebuild and test again</li>
-                        </ol>
-                    </div>
-                    <script>
-                        console.log('Test page loaded successfully!');
-                        console.log('Original code length:', ${originalCode.length});
-                        console.log('Suggested code length:', ${suggestedCode.length});
-                    </script>
-                </body>
-                </html>
-            """.trimIndent()
-            println("Loading simple test HTML...")
-            browser?.loadHTML(simpleTestHtml)
-            println("Simple test HTML loaded")
-        } else {
-            // Load the diff HTML
-            browser?.loadHTML(diffHtml)
-        }
+        browser?.loadHTML(diffHtml)
 
         val browserComponent = browser?.component ?: JPanel()
         browserComponent.border = JBUI.Borders.empty()
@@ -530,7 +577,7 @@ class FloatingCodeWindow(
 
             private fun showDevToolsMenu(e: java.awt.event.MouseEvent) {
                 val popup = JPopupMenu()
-                val devToolsItem = JMenuItem("Open DevTools")
+                val devToolsItem = JMenuItem("Open DevTools (F12)")
                 devToolsItem.addActionListener {
                     browser?.openDevtools()
                 }
@@ -544,7 +591,259 @@ class FloatingCodeWindow(
             }
         })
 
-        return browserComponent
+        // Add browser to container
+        containerPanel.add(browserComponent, BorderLayout.CENTER)
+        
+        return containerPanel
+    }
+
+    private fun handleFollowUp() {
+        val followUpText = followUpField?.text?.trim() ?: ""
+        if (followUpText.isEmpty()) return
+
+        // Disable input during processing
+        followUpField?.isEnabled = false
+        acceptButton?.isEnabled = false
+        rejectButton?.isEnabled = false
+        
+        // Show loading state in the follow-up field
+        showFollowUpLoading()
+        
+        // Show loading overlay on the diff viewer
+        showDiffViewerLoading()
+
+        // Get the inline chat service
+        val inlineChatService = project.getService(InlineChatService::class.java)
+        
+        // Create a new command that includes the follow-up context
+        val contextualCommand = buildString {
+            append("The user has reviewed your suggested changes and has the following follow-up request:\n")
+            append("\"$followUpText\"\n\n")
+            append("Please update your suggestion based on this feedback. ")
+            append("Keep the same overall structure but apply the requested refinements.")
+        }
+
+        // Process the follow-up command
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Create ChatEditParams with the follow-up command
+                val params = ChatEditParams(
+                    location = inlineChatService.location ?: return@launch,
+                    command = contextualCommand
+                )
+
+                // Process the command (this will get a new LLM response)
+                processInlineChatCommand(project, params, object : LlmResponseProvider {
+                    override suspend fun getLlmResponse(codeContext: CodeContext): String? {
+                        // Include the current suggested code in the context
+                        codeContext.setPrompt(buildString {
+                            append("Original code:\n```\n")
+                            append(originalCode)
+                            append("\n```\n\n")
+                            append("Current suggestion:\n```\n")
+                            append(suggestedCode)
+                            append("\n```\n\n")
+                            append("User feedback: ")
+                            append(followUpText)
+                            append("\n\nPlease provide an updated code suggestion based on the user's feedback.")
+                        })
+                        
+                        val llmStage = LlmApiCallStage()
+                        llmStage.process(codeContext)
+                        return codeContext.getApiResponse()
+                    }
+                })
+
+                // Wait a bit for the response to be processed
+                kotlinx.coroutines.delay(500)
+
+                // Update the UI with the new suggestion
+                ApplicationManager.getApplication().invokeLater {
+                    val newSuggestedCode = inlineChatService.extractedCode
+                    if (newSuggestedCode != null && newSuggestedCode != suggestedCode) {
+                        // Update the content with the new suggestion
+                        suggestedCode = newSuggestedCode
+                        
+                        // Refresh the diff viewer
+                        val diffHtml = generateDiffHtml(originalCode, suggestedCode)
+                        browser?.loadHTML(diffHtml)
+                        
+                        // Clear and re-enable the follow-up field
+                        followUpField?.text = ""
+                        followUpField?.isEnabled = true
+                        acceptButton?.isEnabled = true
+                        rejectButton?.isEnabled = true
+                        followUpField?.requestFocusInWindow()
+                        
+                        // Stop loading animation
+                        stopFollowUpLoading()
+                        hideDiffViewerLoading()
+                    } else {
+                        // No new suggestion or error
+                        followUpField?.isEnabled = true
+                        acceptButton?.isEnabled = true
+                        rejectButton?.isEnabled = true
+                        followUpField?.requestFocusInWindow()
+                        stopFollowUpLoading()
+                        hideDiffViewerLoading()
+                        
+                        if (newSuggestedCode == null) {
+                            ZestNotifications.showWarning(
+                                project,
+                                "Follow-up Request",
+                                "Unable to process follow-up request. Please try rephrasing."
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    followUpField?.isEnabled = true
+                    acceptButton?.isEnabled = true
+                    rejectButton?.isEnabled = true
+                    followUpField?.requestFocusInWindow()
+                    stopFollowUpLoading()
+                    hideDiffViewerLoading()
+                    
+                    ZestNotifications.showError(
+                        project,
+                        "Follow-up Error",
+                        "Error processing follow-up: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun showFollowUpLoading() {
+        // Change the field background to indicate processing
+        val processingBgColor = if (UIUtil.isUnderDarcula()) {
+            JBColor(Color(45, 60, 45), Color(35, 50, 35))  // Slight green tint
+        } else {
+            JBColor(Color(240, 250, 240), Color(225, 240, 225))  // Light green tint
+        }
+        followUpField?.background = processingBgColor
+        
+        followUpField?.emptyText?.text = "Processing..."
+        
+        // Animate dots in placeholder
+        var dotCount = 0
+        followUpLoadingTimer = javax.swing.Timer(400) { _ ->
+            dotCount = (dotCount + 1) % 4
+            val dots = ".".repeat(dotCount)
+            followUpField?.emptyText?.text = "Processing$dots"
+        }
+        followUpLoadingTimer?.start()
+    }
+
+    private fun stopFollowUpLoading() {
+        followUpLoadingTimer?.stop()
+        followUpLoadingTimer = null
+        followUpField?.emptyText?.text = "Refine suggestion (e.g., 'add error handling') — Press Enter"
+        
+        // Restore original background color
+        val fieldBgColor = if (UIUtil.isUnderDarcula()) {
+            JBColor(Color(69, 73, 74), Color(50, 53, 55))
+        } else {
+            JBColor(Color(255, 255, 255), Color(240, 240, 243))
+        }
+        followUpField?.background = fieldBgColor
+    }
+
+    private fun showDiffViewerLoading() {
+        browser?.component?.let { browserComponent ->
+            // Create loading overlay if it doesn't exist
+            if (diffLoadingOverlay == null) {
+                diffLoadingOverlay = createDiffLoadingOverlay()
+            }
+            
+            // Get the parent container of the browser
+            val parent = browserComponent.parent
+            if (parent is JPanel && parent.layout is BorderLayout) {
+                // Add overlay on top of browser
+                parent.add(diffLoadingOverlay!!, BorderLayout.CENTER)
+                parent.revalidate()
+                parent.repaint()
+                
+                // Move browser to back
+                parent.setComponentZOrder(diffLoadingOverlay!!, 0)
+                parent.setComponentZOrder(browserComponent, 1)
+            }
+        }
+    }
+
+    private fun hideDiffViewerLoading() {
+        diffLoadingOverlay?.let { overlay ->
+            overlay.parent?.let { parent ->
+                parent.remove(overlay)
+                parent.revalidate()
+                parent.repaint()
+            }
+        }
+    }
+
+    private fun createDiffLoadingOverlay(): JPanel {
+        val overlay = object : JPanel() {
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                // Semi-transparent background
+                g.color = Color(0, 0, 0, 50)
+                g.fillRect(0, 0, width, height)
+            }
+        }
+        overlay.isOpaque = false
+        overlay.layout = GridBagLayout()
+        
+        // Create loading content panel
+        val loadingPanel = JPanel()
+        loadingPanel.layout = BoxLayout(loadingPanel, BoxLayout.Y_AXIS)
+        loadingPanel.background = UIUtil.getPanelBackground()
+        loadingPanel.border = BorderFactory.createCompoundBorder(
+            JBUI.Borders.customLine(JBColor.border()),
+            JBUI.Borders.empty(20)
+        )
+        
+        // Add loading icon
+        val loadingIcon = JBLabel(AllIcons.Process.Big.Step_1)
+        loadingIcon.alignmentX = Component.CENTER_ALIGNMENT
+        loadingPanel.add(loadingIcon)
+        
+        loadingPanel.add(Box.createVerticalStrut(10))
+        
+        // Add loading text
+        val loadingLabel = JBLabel("AI is refining the suggestion...")
+        loadingLabel.font = UIUtil.getLabelFont().deriveFont(Font.BOLD, 14f)
+        loadingLabel.alignmentX = Component.CENTER_ALIGNMENT
+        loadingPanel.add(loadingLabel)
+        
+        loadingPanel.add(Box.createVerticalStrut(8))
+        
+        val tipLabel = JBLabel("This may take a few seconds")
+        tipLabel.font = UIUtil.getLabelFont().deriveFont(12f)
+        tipLabel.foreground = UIUtil.getContextHelpForeground()
+        tipLabel.alignmentX = Component.CENTER_ALIGNMENT
+        loadingPanel.add(tipLabel)
+        
+        overlay.add(loadingPanel)
+        
+        // Animate the loading icon
+        javax.swing.Timer(100) { _ ->
+            val icons = listOf(
+                AllIcons.Process.Big.Step_1,
+                AllIcons.Process.Big.Step_2,
+                AllIcons.Process.Big.Step_3,
+                AllIcons.Process.Big.Step_4,
+                AllIcons.Process.Big.Step_5,
+                AllIcons.Process.Big.Step_6,
+                AllIcons.Process.Big.Step_7,
+                AllIcons.Process.Big.Step_8
+            )
+            val currentIndex = icons.indexOf(loadingIcon.icon)
+            val nextIndex = (currentIndex + 1) % icons.size
+            loadingIcon.icon = icons[nextIndex]
+        }.start()
+        
+        return overlay
     }
 
     private fun generateDiffHtml(original: String, suggested: String): String {
@@ -630,38 +929,6 @@ class FloatingCodeWindow(
         }
     }
 
-    private fun createActionPanel(): JComponent {
-        val panel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 8))
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = JBUI.Borders.merge(
-            JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0),
-            JBUI.Borders.empty(8),
-            true
-        )
-
-        val acceptButton = JButton("Accept")
-        acceptButton.icon = AllIcons.Actions.Checked
-        acceptButton.addActionListener {
-            onAccept()
-            hide()
-        }
-
-        val rejectButton = JButton("Reject")
-        rejectButton.icon = AllIcons.Actions.Close
-        rejectButton.addActionListener {
-            onReject()
-            hide()
-        }
-
-        panel.add(rejectButton)
-        panel.add(acceptButton)
-
-        // Make Accept the default button
-        SwingUtilities.getRootPane(panel)?.defaultButton = acceptButton
-
-        return panel
-    }
-
     private fun repositionWindow() {
         val currentPopup = popup
         if (currentPopup?.isVisible == true) {
@@ -674,10 +941,11 @@ class FloatingCodeWindow(
     }
 
     override fun dispose() {
-        // Stop any loading animation timer
+        // Stop any timers
         loadingPanel?.let { panel ->
             (panel.getClientProperty("loadingTimer") as? javax.swing.Timer)?.stop()
         }
+        followUpLoadingTimer?.stop()
 
         // Don't dispose the shared browser - just clear our reference
         browser = null

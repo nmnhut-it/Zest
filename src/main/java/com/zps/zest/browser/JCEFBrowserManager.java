@@ -64,7 +64,7 @@ public class JCEFBrowserManager {
         // Enable cookies in browser settings
         JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
                 .setClient(client)
-                .setOffScreenRendering(false)
+                .setOffScreenRendering(true)
                 .setCefBrowser(null)
                 .setEnableOpenDevToolsMenuItem(true);
         

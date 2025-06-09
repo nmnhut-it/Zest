@@ -230,31 +230,67 @@ object DiffResourceLoader {
             diff2htmlUi.draw();
             console.log('Diff drawn successfully');
             
-            // Check if highlight.js is available
+            // Initialize highlight.js before using it
             if (typeof hljs !== 'undefined') {
                 console.log('highlight.js is available, version:', hljs.versionString || 'unknown');
-                console.log('Registered languages:', Object.keys(hljs.listLanguages ? hljs.listLanguages() : []));
+                
+                // Register the language alias if needed
+                const languageAliases = {
+                    'kotlin': ['kt', 'kts'],
+                    'typescript': ['ts', 'tsx'],
+                    'javascript': ['js', 'jsx']
+                };
+                
+                // Configure highlight.js
+                hljs.configure({
+                    tabReplace: '    ', // 4 spaces
+                    useBR: false
+                });
+                
+                console.log('highlight.js configured');
             } else {
                 console.warn('highlight.js is NOT available');
             }
             
+            // Apply syntax highlighting using diff2html's method
             diff2htmlUi.highlightCode();
-            console.log('Syntax highlighting applied');
+            console.log('Syntax highlighting applied via diff2htmlUi');
             
-            // Debug: Check if highlighting was actually applied
+            // Fallback: manually highlight if diff2html didn't do it
             setTimeout(() => {
                 const codeElements = document.querySelectorAll('.d2h-code-line-ctn');
                 console.log('Code elements found:', codeElements.length);
-                if (codeElements.length > 0) {
+                
+                if (codeElements.length > 0 && typeof hljs !== 'undefined') {
+                    let highlightedCount = 0;
+                    codeElements.forEach((element) => {
+                        // Check if already highlighted
+                        if (!element.querySelector('.hljs-keyword, .hljs-string, .hljs-number, .hljs-comment')) {
+                            // Try to highlight manually
+                            const codeText = element.textContent || '';
+                            if (codeText.trim()) {
+                                try {
+                                    const result = hljs.highlight(codeText, { language: language });
+                                    element.innerHTML = result.value;
+                                    highlightedCount++;
+                                } catch (e) {
+                                    console.warn('Failed to highlight element:', e);
+                                }
+                            }
+                        }
+                    });
+                    
+                    if (highlightedCount > 0) {
+                        console.log('Manually highlighted ' + highlightedCount + ' code elements');
+                    }
+                    
+                    // Final check
                     const hasHighlighting = Array.from(codeElements).some(el => 
                         el.querySelector('.hljs-keyword, .hljs-string, .hljs-number, .hljs-comment')
                     );
-                    console.log('Syntax highlighting detected:', hasHighlighting);
-                    if (!hasHighlighting) {
-                        console.warn('No syntax highlighting classes found. Check if highlight.js is working properly.');
-                    }
+                    console.log('Final syntax highlighting check:', hasHighlighting ? 'SUCCESS' : 'FAILED');
                 }
-            }, 100);
+            }, 200);
         } catch (error) {
             console.error('Error rendering diff:', error);
             targetElement.innerHTML = '<div style="color: red; padding: 20px;">Error rendering diff: ' + error.message + '</div>';

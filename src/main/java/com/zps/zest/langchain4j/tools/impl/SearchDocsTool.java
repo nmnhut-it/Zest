@@ -332,16 +332,7 @@ public class SearchDocsTool extends ThreadSafeCodeExplorationTool {
         return absolutePath;
     }
     
-    /**
-     * Helper to get optional boolean parameter.
-     */
-    private boolean getOptionalBoolean(JsonObject parameters, String name, boolean defaultValue) {
-        if (parameters.has(name) && !parameters.get(name).isJsonNull()) {
-            return parameters.get(name).getAsBoolean();
-        }
-        return defaultValue;
-    }
-    
+
     /**
      * Shuts down the indexing executor service.
      * Should be called when the tool is no longer needed.

@@ -91,6 +91,20 @@ public abstract class BaseCodeExplorationTool implements CodeExplorationTool {
     }
     
     /**
+     * Helper method to get an optional boolean parameter.
+     */
+    protected boolean getOptionalBoolean(JsonObject params, String paramName, boolean defaultValue) {
+        if (!params.has(paramName)) {
+            return defaultValue;
+        }
+        JsonElement element = params.get(paramName);
+        if (element.isJsonNull() || !element.isJsonPrimitive()) {
+            return defaultValue;
+        }
+        return element.getAsBoolean();
+    }
+    
+    /**
      * Helper method to create metadata JSON object.
      */
     protected JsonObject createMetadata() {

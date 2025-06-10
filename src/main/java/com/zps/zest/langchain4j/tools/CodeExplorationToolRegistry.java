@@ -48,6 +48,13 @@ public final class CodeExplorationToolRegistry {
         register(new GetCurrentContextTool(project));
         register(new FindUsagesTool(project));
         
+        // File manipulation tools
+        register(new CreateFileTool(project));
+        register(new ReplaceInFileTool(project));
+        
+        // Project structure tools
+        register(new GetProjectStructureTool(project));
+        
         // Documentation search tool (if enabled)
         ConfigurationManager config = ConfigurationManager.getInstance(project);
         if (config.isDocsSearchEnabled()) {
@@ -130,7 +137,8 @@ public final class CodeExplorationToolRegistry {
     private String categorizeToolType(String toolName) {
         // Discovery tools - broad search
         if (toolName.contains("search") || toolName.contains("find_by_name") || 
-            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context")) {
+            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context") ||
+            toolName.equals("get_project_structure")) {
             return "DISCOVERY";
         }
         // Analysis tools - relationships and structure
@@ -138,7 +146,7 @@ public final class CodeExplorationToolRegistry {
                  toolName.contains("find_relationships") || toolName.contains("find_usages")) {
             return "ANALYSIS";
         }
-        // Detail tools - specific content
+        // Detail tools - specific content and file operations
         else {
             return "DETAIL";
         }

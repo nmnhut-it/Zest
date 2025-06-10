@@ -105,6 +105,10 @@ public class AgentProxyServer {
     public void removeRequestListener(RequestListener listener) {
         requestListeners.remove(listener);
     }
+    
+    public List<RequestListener> getRequestListeners() {
+        return new ArrayList<>(requestListeners);
+    }
 
     private void notifyRequestStarted(String requestId, String endpoint, String method) {
         for (RequestListener listener : requestListeners) {
@@ -527,7 +531,7 @@ public class AgentProxyServer {
     /**
      * Performs code exploration asynchronously.
      */
-    private CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport,
+    CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport,
                                                        AgentProxyConfiguration requestConfig,
                                                        String requestId) {
         return CompletableFuture.supplyAsync(() -> {
@@ -599,7 +603,7 @@ public class AgentProxyServer {
     /**
      * Augments a query with code context and rewrites it.
      */
-    private CompletableFuture<JsonObject> augmentQueryAsync(String query, String requestId) {
+    CompletableFuture<JsonObject> augmentQueryAsync(String query, String requestId) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(config);

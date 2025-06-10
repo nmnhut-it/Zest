@@ -1,28 +1,36 @@
 package com.zps.zest.langchain4j.agent.network;
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.ComboBox;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
 
 /**
  * Action to start the Agent Proxy Server for external access.
  */
 public class StartAgentProxyAction extends AnAction {
     
-    private static AgentProxyServer currentServer;
+    private static JavalinProxyServer currentServer;
+    private static AgentProxyServer delegateServer; // For monitoring
     private static AgentProxyMonitorWindowOptimized monitorWindow;
     
     public StartAgentProxyAction() {
         super("Start Agent Proxy Server", 
               "Start a network proxy for the code exploration agent", 
               null);
+    }
+    
+    @Override
+    public @NotNull ActionUpdateThread getActionUpdateThread() {
+        return ActionUpdateThread.EDT;
     }
     
     @Override
@@ -61,27 +69,39 @@ public class StartAgentProxyAction extends AnAction {
             // Start server in background
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 try {
-                    currentServer = new AgentProxyServer(project, port, config);
+                    // Use Javalin server instead
+                    currentServer = new JavalinProxyServer(project, port, config);
+                    delegateServer = currentServer.getDelegateServer(); // Get the delegate for monitoring
+                    
+                    // Ensure project is initialized before starting
+                    if (!project.isInitialized()) {
+//                        LOG.warn("Project not fully initialized, waiting...");
+                        Thread.sleep(2000); // Wait 2 seconds
+                    }
+                    
                     currentServer.start();
                     
                     SwingUtilities.invokeLater(() -> {
                         // Show monitor window
-                        monitorWindow = new AgentProxyMonitorWindowOptimized(project, currentServer, port);
+                        monitorWindow = new AgentProxyMonitorWindowOptimized(project, delegateServer, port);
                         monitorWindow.setVisible(true);
                         
-                        String message = String.format(
-                            "Agent Proxy Server started successfully!\n\n" +
-                            "Port: %d\n" +
-                            "OpenAPI spec: http://localhost:%d/zest/openapi.json\n" +
-                            "Monitor window is now open to track requests.\n\n" +
-                            "You can now connect your MCP server or Open WebUI to this proxy.",
-                            port, port
-                        );
+                        String message = """
+                            Agent Proxy Server started successfully!
+                            
+                            Port: %d
+                            OpenAPI spec: http://localhost:%d/zest/openapi.json
+                            Swagger UI: http://localhost:%d/zest/docs
+                            ReDoc: http://localhost:%d/zest/redoc
+                            Monitor window is now open to track requests.
+                            
+                            You can now connect your MCP server or Open WebUI to this proxy.
+                            """.formatted(port, port, port, port);
                         
                         Messages.showInfoMessage(project, message, "Agent Proxy Server Started");
                     });
                     
-                } catch (IOException ex) {
+                } catch (Exception ex) {
                     SwingUtilities.invokeLater(() -> {
                         Messages.showErrorDialog(
                             project,
@@ -115,11 +135,15 @@ public class StartAgentProxyAction extends AnAction {
             currentServer.stop();
             currentServer = null;
         }
+        if (delegateServer != null) {
+            delegateServer.stop();
+            delegateServer = null;
+        }
         if (monitorWindow != null) {
             monitorWindow.dispose();
             monitorWindow = null;
         }
-        Messages.showInfoMessage("Agent Proxy Server stopped", "Server Stopped");
+        Messages.showInfoMessage("Agent Proxy Server Stopped", "Server Stopped");
     }
     
     /**
@@ -127,7 +151,7 @@ public class StartAgentProxyAction extends AnAction {
      */
     private static class AgentProxyDialog extends com.intellij.openapi.ui.DialogWrapper {
         private JSpinner portSpinner;
-        private JComboBox<String> configPresetCombo;
+        private ComboBox<String> configPresetCombo;
         private JCheckBox includeTestsCheckBox;
         private JCheckBox deepExplorationCheckBox;
         private JSpinner maxToolCallsSpinner;
@@ -143,7 +167,7 @@ public class StartAgentProxyAction extends AnAction {
         protected JComponent createCenterPanel() {
             JPanel panel = new JPanel(new GridBagLayout());
             GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(5, 5, 5, 5);
+            gbc.insets = JBUI.insets(5);
             gbc.fill = GridBagConstraints.HORIZONTAL;
             
             // Port configuration
@@ -159,7 +183,7 @@ public class StartAgentProxyAction extends AnAction {
             panel.add(new JLabel("Configuration:"), gbc);
             
             gbc.gridx = 1;
-            configPresetCombo = new JComboBox<>(new String[]{
+            configPresetCombo = new ComboBox<>(new String[]{
                 "Default (Balanced)",
                 "Quick Augmentation (Fast)",
                 "Deep Exploration (Thorough)"
@@ -197,13 +221,13 @@ public class StartAgentProxyAction extends AnAction {
             
             // Info panel
             gbc.gridy = 7;
-            JTextArea infoArea = new JTextArea(
-                "The proxy server allows external tools (like MCP servers) to access\n" +
-                "the code exploration agent. Configure the settings based on your needs:\n" +
-                "- Quick: Fast responses, less thorough\n" +
-                "- Default: Balanced performance\n" +
-                "- Deep: Comprehensive exploration, slower"
-            );
+            JTextArea infoArea = new JTextArea("""
+                The proxy server allows external tools (like MCP servers) to access
+                the code exploration agent. Configure the settings based on your needs:
+                - Quick: Fast responses, less thorough
+                - Default: Balanced performance
+                - Deep: Comprehensive exploration, slower
+                """);
             infoArea.setEditable(false);
             infoArea.setBackground(panel.getBackground());
             panel.add(infoArea, gbc);

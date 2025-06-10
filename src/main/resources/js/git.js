@@ -796,7 +796,17 @@ Please provide ONLY the commit message, no additional explanation, no markdown f
                     
                 } else {
                     const errorMsg = response && response.error ? response.error : 'Unknown error occurred during commit';
-                    GitUI.showCommitError(errorMsg);
+                    
+                    // Check for specific error patterns
+                    if (errorMsg.includes('No changes to commit') || errorMsg.includes('nothing to commit')) {
+                        GitUI.showCommitError('No changes to commit. All selected files may have already been committed.');
+                        // Refresh file list to show current status
+                        setTimeout(() => {
+                            GitModal.refreshFileList();
+                        }, 2000);
+                    } else {
+                        GitUI.showCommitError(errorMsg);
+                    }
                 }
             }).catch(function(error) {
                 console.error('Failed to send commit request to IDE:', error);
@@ -1091,6 +1101,10 @@ const QuickCommitPipeline = {
                 this.context.files = parsedFiles;
                 this.context.filesCount = parsedFiles.length;
                 
+                if (parsedFiles.length === 0) {
+                    throw new Error('No changes found to commit');
+                }
+                
                 // Update UI
                 const filesText = document.getElementById('files-count-text');
                 if (filesText) {
@@ -1100,11 +1114,14 @@ const QuickCommitPipeline = {
                 
                 console.log(`Found ${parsedFiles.length} changed files`);
             } else {
-                throw new Error('No changes found');
+                throw new Error('No changes found to commit');
             }
         } catch (error) {
             console.error('Error collecting changes:', error);
-            throw new Error('Failed to analyze changes');
+            // Show error and close
+            this.showError(error.message || 'Failed to analyze changes');
+            setTimeout(() => this.close(), 2000);
+            throw error;
         }
     },
     
@@ -1295,15 +1312,28 @@ const QuickCommitPipeline = {
             }));
             
             // Call IDE to commit
-            await window.intellijBridge.callIDE('commitWithMessage', {
+            const commitResponse = await window.intellijBridge.callIDE('commitWithMessage', {
                 message: message,
                 selectedFiles: selectedFiles,
                 shouldPush: false
             });
             
+            // Check if commit was successful
+            if (!commitResponse || !commitResponse.success) {
+                throw new Error(commitResponse?.error || 'Commit failed');
+            }
+            
             if (shouldPush) {
                 this.showProgress('Pushing to remote...');
-                await window.intellijBridge.callIDE('gitPush');
+                const pushResponse = await window.intellijBridge.callIDE('gitPush');
+                
+                if (!pushResponse || !pushResponse.success) {
+                    // Commit succeeded but push failed
+                    this.showError('Committed locally but push failed: ' + (pushResponse?.error || 'Unknown error'));
+                    setTimeout(() => this.close(), 3000);
+                    return;
+                }
+                
                 this.showSuccess('✨ Committed and pushed successfully!');
             } else {
                 this.showSuccess('✅ Committed successfully!');
@@ -1314,7 +1344,20 @@ const QuickCommitPipeline = {
             
         } catch (error) {
             console.error('Commit error:', error);
-            this.showError('Failed to commit: ' + error.message);
+            
+            // Parse error message for common issues
+            const errorMsg = error.message || 'Failed to commit';
+            
+            if (errorMsg.includes('No changes to commit') || errorMsg.includes('nothing to commit')) {
+                this.showError('No changes to commit. Files may have already been committed.');
+            } else if (errorMsg.includes('no remote repository')) {
+                this.showError('No remote repository configured. Commit succeeded locally.');
+            } else {
+                this.showError('Failed to commit: ' + errorMsg);
+            }
+            
+            // Close after showing error for a bit
+            setTimeout(() => this.close(), 3000);
         }
     },
     

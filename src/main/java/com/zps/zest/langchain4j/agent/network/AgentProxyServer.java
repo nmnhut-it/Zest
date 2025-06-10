@@ -38,13 +38,13 @@ import java.util.UUID;
 public class AgentProxyServer {
     private static final Logger LOG = Logger.getInstance(AgentProxyServer.class);
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    
+
     private HttpServer server;
     private final int port;
     private final Project project;
     private final AgentProxyConfiguration config;
     private final List<RequestListener> requestListeners = new ArrayList<>();
-    
+
     /**
      * Interface for monitoring requests.
      */
@@ -54,51 +54,19 @@ public class AgentProxyServer {
         void onRequestFailed(String requestId, String error);
         void onToolExecuted(String requestId, String toolName, boolean success, String result);
     }
-    
-    public void addRequestListener(RequestListener listener) {
-        requestListeners.add(listener);
-    }
-    
-    public void removeRequestListener(RequestListener listener) {
-        requestListeners.remove(listener);
-    }
-    
-    private void notifyRequestStarted(String requestId, String endpoint, String method) {
-        for (RequestListener listener : requestListeners) {
-            listener.onRequestStarted(requestId, endpoint, method);
-        }
-    }
-    
-    private void notifyRequestCompleted(String requestId, int statusCode, String response) {
-        for (RequestListener listener : requestListeners) {
-            listener.onRequestCompleted(requestId, statusCode, response);
-        }
-    }
-    
-    private void notifyRequestFailed(String requestId, String error) {
-        for (RequestListener listener : requestListeners) {
-            listener.onRequestFailed(requestId, error);
-        }
-    }
-    
-    private void notifyToolExecuted(String requestId, String toolName, boolean success, String result) {
-        for (RequestListener listener : requestListeners) {
-            listener.onToolExecuted(requestId, toolName, success, result);
-        }
-    }
-    
+
     public AgentProxyServer(Project project, int port, AgentProxyConfiguration config) {
         this.project = project;
         this.port = port;
         this.config = config != null ? config : AgentProxyConfiguration.getDefault();
     }
-    
+
     /**
      * Starts the HTTP server.
      */
     public void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress(port), 0);
-        
+
         // Configure endpoints
         server.createContext("/health", new HealthCheckHandler());
         server.createContext("/explore", new ExploreHandler());
@@ -107,14 +75,19 @@ public class AgentProxyServer {
         server.createContext("/status", new StatusHandler());
         server.createContext("/tools", new ToolsHandler());
         server.createContext("/execute-tool", new ExecuteToolHandler());
-        
+
+        // OpenAPI endpoints
+        server.createContext("/zest/openapi.json", new OpenApiHandler());
+        server.createContext("/zest/", new ZestToolHandler());
+
         // Use a larger thread pool for handling long-running requests
-        server.setExecutor(Executors.newFixedThreadPool(20));  // Increased from 10
-        
+        server.setExecutor(Executors.newFixedThreadPool(20));
+
         server.start();
         LOG.info("Agent Proxy Server started on port " + port);
+        LOG.info("OpenAPI spec available at: http://localhost:" + port + "/zest/openapi.json");
     }
-    
+
     /**
      * Stops the HTTP server.
      */
@@ -124,7 +97,48 @@ public class AgentProxyServer {
             LOG.info("Agent Proxy Server stopped");
         }
     }
-    
+
+    public void addRequestListener(RequestListener listener) {
+        requestListeners.add(listener);
+    }
+
+    public void removeRequestListener(RequestListener listener) {
+        requestListeners.remove(listener);
+    }
+
+    private void notifyRequestStarted(String requestId, String endpoint, String method) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestStarted(requestId, endpoint, method);
+        }
+    }
+
+    private void notifyRequestCompleted(String requestId, int statusCode, String response) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestCompleted(requestId, statusCode, response);
+        }
+    }
+
+    private void notifyRequestFailed(String requestId, String error) {
+        for (RequestListener listener : requestListeners) {
+            listener.onRequestFailed(requestId, error);
+        }
+    }
+
+    private void notifyToolExecuted(String requestId, String toolName, boolean success, String result) {
+        for (RequestListener listener : requestListeners) {
+            listener.onToolExecuted(requestId, toolName, success, result);
+        }
+    }
+
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+
     /**
      * Health check endpoint handler.
      */
@@ -136,11 +150,11 @@ public class AgentProxyServer {
             response.addProperty("service", "agent-proxy");
             response.addProperty("port", port);
             response.addProperty("project", project.getName());
-            
+
             sendJsonResponse(exchange, 200, response);
         }
     }
-    
+
     /**
      * Main exploration endpoint handler.
      */
@@ -148,37 +162,37 @@ public class AgentProxyServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String requestId = UUID.randomUUID().toString().substring(0, 8);
-            
+
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
-            
+
             notifyRequestStarted(requestId, "/explore", "POST");
-            
+
             try {
                 String requestBody = readRequestBody(exchange);
                 JsonObject request = JsonParser.parseString(requestBody).getAsJsonObject();
-                
+
                 String query = request.get("query").getAsString();
-                boolean generateReport = request.has("generateReport") && 
-                                       request.get("generateReport").getAsBoolean();
-                
+                boolean generateReport = request.has("generateReport") &&
+                        request.get("generateReport").getAsBoolean();
+
                 // Get optional configuration overrides
                 AgentProxyConfiguration requestConfig = config;
                 if (request.has("config")) {
                     requestConfig = mergeConfig(config, request.getAsJsonObject("config"));
                 }
-                
+
                 // Execute exploration
                 CompletableFuture<JsonObject> future = exploreAsync(query, generateReport, requestConfig, requestId);
-                
+
                 // Wait for completion with timeout
                 JsonObject result = future.get(requestConfig.getTimeoutSeconds(), TimeUnit.SECONDS);
                 sendJsonResponse(exchange, 200, result);
-                
+
                 notifyRequestCompleted(requestId, 200, result.toString());
-                
+
             } catch (Exception e) {
                 LOG.error("Error handling explore request", e);
                 String error = "Internal error: " + e.getMessage();
@@ -187,7 +201,7 @@ public class AgentProxyServer {
             }
         }
     }
-    
+
     /**
      * Query augmentation endpoint handler.
      */
@@ -195,29 +209,29 @@ public class AgentProxyServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String requestId = UUID.randomUUID().toString().substring(0, 8);
-            
+
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
-            
+
             notifyRequestStarted(requestId, "/augment", "POST");
-            
+
             try {
                 String requestBody = readRequestBody(exchange);
                 JsonObject request = JsonParser.parseString(requestBody).getAsJsonObject();
-                
+
                 String query = request.get("query").getAsString();
-                
+
                 // Execute augmentation
                 CompletableFuture<JsonObject> future = augmentQueryAsync(query, requestId);
-                
+
                 // Wait for completion with timeout
                 JsonObject result = future.get(config.getTimeoutSeconds(), TimeUnit.SECONDS);
                 sendJsonResponse(exchange, 200, result);
-                
+
                 notifyRequestCompleted(requestId, 200, result.toString());
-                
+
             } catch (Exception e) {
                 LOG.error("Error handling augment request", e);
                 String error = "Internal error: " + e.getMessage();
@@ -226,7 +240,7 @@ public class AgentProxyServer {
             }
         }
     }
-    
+
     /**
      * Configuration endpoint handler.
      */
@@ -242,13 +256,13 @@ public class AgentProxyServer {
                 try {
                     String requestBody = readRequestBody(exchange);
                     JsonObject updates = JsonParser.parseString(requestBody).getAsJsonObject();
-                    
+
                     config.updateFromJson(updates);
-                    
+
                     JsonObject response = new JsonObject();
                     response.addProperty("status", "updated");
                     response.add("config", config.toJson());
-                    
+
                     sendJsonResponse(exchange, 200, response);
                 } catch (Exception e) {
                     sendError(exchange, 400, "Invalid configuration: " + e.getMessage());
@@ -258,7 +272,7 @@ public class AgentProxyServer {
             }
         }
     }
-    
+
     /**
      * Status endpoint handler.
      */
@@ -269,7 +283,7 @@ public class AgentProxyServer {
             response.addProperty("status", "running");
             response.addProperty("project", project.getName());
             response.addProperty("projectPath", project.getBasePath());
-            
+
             // Add index status
             try {
                 ApplicationManager.getApplication().runReadAction(() -> {
@@ -279,14 +293,14 @@ public class AgentProxyServer {
             } catch (Exception e) {
                 response.addProperty("indexed", false);
             }
-            
+
             // Add configuration info
             response.add("config", config.toJson());
-            
+
             sendJsonResponse(exchange, 200, response);
         }
     }
-    
+
     /**
      * Tools endpoint handler - lists available tools.
      */
@@ -294,10 +308,10 @@ public class AgentProxyServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             CodeExplorationToolRegistry toolRegistry = project.getService(CodeExplorationToolRegistry.class);
-            
+
             JsonObject response = new JsonObject();
             JsonArray toolsArray = new JsonArray();
-            
+
             for (CodeExplorationTool tool : toolRegistry.getAllTools()) {
                 JsonObject toolInfo = new JsonObject();
                 toolInfo.addProperty("name", tool.getName());
@@ -305,14 +319,14 @@ public class AgentProxyServer {
                 toolInfo.add("parameters", tool.getParameterSchema());
                 toolsArray.add(toolInfo);
             }
-            
+
             response.add("tools", toolsArray);
             response.addProperty("count", toolsArray.size());
-            
+
             sendJsonResponse(exchange, 200, response);
         }
     }
-    
+
     /**
      * Execute tool endpoint handler - executes a specific tool.
      */
@@ -320,45 +334,45 @@ public class AgentProxyServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String requestId = UUID.randomUUID().toString().substring(0, 8);
-            
+
             if (!"POST".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
-            
+
             notifyRequestStarted(requestId, "/execute-tool", "POST");
-            
+
             try {
                 String requestBody = readRequestBody(exchange);
                 JsonObject request = JsonParser.parseString(requestBody).getAsJsonObject();
-                
+
                 String toolName = request.get("tool").getAsString();
-                JsonObject parameters = request.has("parameters") ? 
-                    request.getAsJsonObject("parameters") : new JsonObject();
-                
+                JsonObject parameters = request.has("parameters") ?
+                        request.getAsJsonObject("parameters") : new JsonObject();
+
                 // Get tool registry
                 CodeExplorationToolRegistry toolRegistry = project.getService(CodeExplorationToolRegistry.class);
                 CodeExplorationTool tool = toolRegistry.getTool(toolName);
-                
+
                 if (tool == null) {
                     String error = "Tool not found: " + toolName;
                     sendError(exchange, 404, error);
                     notifyRequestFailed(requestId, error);
                     return;
                 }
-                
+
                 // Execute tool
                 CodeExplorationTool.ToolResult result = tool.execute(parameters);
-                
+
                 // Notify tool execution
-                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
-                    result.isSuccess() ? result.getContent() : result.getError());
-                
+                notifyToolExecuted(requestId, toolName, result.isSuccess(),
+                        result.isSuccess() ? result.getContent() : result.getError());
+
                 // Prepare response
                 JsonObject response = new JsonObject();
                 response.addProperty("tool", toolName);
                 response.addProperty("success", result.isSuccess());
-                
+
                 if (result.isSuccess()) {
                     response.addProperty("content", result.getContent());
                     if (result.getMetadata() != null) {
@@ -367,10 +381,10 @@ public class AgentProxyServer {
                 } else {
                     response.addProperty("error", result.getError());
                 }
-                
+
                 sendJsonResponse(exchange, 200, response);
                 notifyRequestCompleted(requestId, 200, response.toString());
-                
+
             } catch (Exception e) {
                 LOG.error("Error executing tool", e);
                 String error = "Internal error: " + e.getMessage();
@@ -379,69 +393,199 @@ public class AgentProxyServer {
             }
         }
     }
-    
+
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
+            handleCors(exchange);
+
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(),
+                        result.isSuccess() ? result.getContent() : result.getError());
+
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+
     /**
      * Performs code exploration asynchronously.
      */
-    private CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport, 
+    private CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport,
                                                        AgentProxyConfiguration requestConfig,
                                                        String requestId) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Create a configured agent with progress callback
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(requestConfig);
-                
+
                 // Create progress callback to notify listeners
                 ImprovedToolCallingAutonomousAgent.ProgressCallback callback = new ImprovedToolCallingAutonomousAgent.ProgressCallback() {
                     @Override
                     public void onToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
-                        notifyToolExecuted(requestId, execution.getToolName(), 
-                                         execution.isSuccess(), execution.getResult());
+                        notifyToolExecuted(requestId, execution.getToolName(),
+                                execution.isSuccess(), execution.getResult());
                     }
-                    
+
                     @Override
                     public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
                         // Could notify round completion if needed
                     }
-                    
+
                     @Override
                     public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
                         // Could notify exploration completion if needed
                     }
                 };
-                
+
                 JsonObject result = new JsonObject();
                 result.addProperty("query", query);
-                
+
                 if (generateReport) {
                     // Generate full report with progress tracking
-                    CompletableFuture<CodeExplorationReport> reportFuture = 
-                        agent.exploreAndGenerateReportAsync(query, callback);
-                    
+                    CompletableFuture<CodeExplorationReport> reportFuture =
+                            agent.exploreAndGenerateReportAsync(query, callback);
+
                     CodeExplorationReport report = reportFuture.get(requestConfig.getTimeoutSeconds(), TimeUnit.SECONDS);
-                    
+
                     result.addProperty("success", true);
                     result.add("report", reportToJson(report));
                 } else {
                     // Just explore without report
-                    ImprovedToolCallingAutonomousAgent.ExplorationResult exploration = 
-                        agent.exploreWithTools(query);
-                    
+                    ImprovedToolCallingAutonomousAgent.ExplorationResult exploration =
+                            agent.exploreWithTools(query);
+
                     result.addProperty("success", exploration.isSuccess());
                     result.addProperty("summary", exploration.getSummary());
                     result.addProperty("rounds", exploration.getRounds().size());
-                    
+
                     // Add tool execution summary
                     JsonObject toolSummary = new JsonObject();
                     int totalTools = exploration.getRounds().stream()
-                        .mapToInt(r -> r.getToolExecutions().size())
-                        .sum();
+                            .mapToInt(r -> r.getToolExecutions().size())
+                            .sum();
                     toolSummary.addProperty("totalExecutions", totalTools);
                     result.add("toolSummary", toolSummary);
                 }
-                
+
                 return result;
-                
+
             } catch (Exception e) {
                 LOG.error("Error in exploration", e);
                 JsonObject error = new JsonObject();
@@ -451,7 +595,7 @@ public class AgentProxyServer {
             }
         });
     }
-    
+
     /**
      * Augments a query with code context and rewrites it.
      */
@@ -459,43 +603,43 @@ public class AgentProxyServer {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(config);
-                
+
                 // Create progress callback
                 ImprovedToolCallingAutonomousAgent.ProgressCallback callback = new ImprovedToolCallingAutonomousAgent.ProgressCallback() {
                     @Override
                     public void onToolExecution(ImprovedToolCallingAutonomousAgent.ToolExecution execution) {
-                        notifyToolExecuted(requestId, execution.getToolName(), 
-                                         execution.isSuccess(), execution.getResult());
+                        notifyToolExecuted(requestId, execution.getToolName(),
+                                execution.isSuccess(), execution.getResult());
                     }
-                    
+
                     @Override
                     public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
                         // Optional: could notify round completion
                     }
-                    
+
                     @Override
                     public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
                         // Optional: could notify exploration completion
                     }
                 };
-                
+
                 // First, explore the code with progress tracking
-                CompletableFuture<CodeExplorationReport> reportFuture = 
-                    agent.exploreAndGenerateReportAsync(query, callback);
-                    
+                CompletableFuture<CodeExplorationReport> reportFuture =
+                        agent.exploreAndGenerateReportAsync(query, callback);
+
                 CodeExplorationReport report = reportFuture.get(config.getTimeoutSeconds(), TimeUnit.SECONDS);
-                
+
                 // Then use LLM to rewrite the query with context
                 String augmentedQuery = rewriteQueryWithContext(query, report);
-                
+
                 JsonObject result = new JsonObject();
                 result.addProperty("success", true);
                 result.addProperty("originalQuery", query);
                 result.addProperty("augmentedQuery", augmentedQuery);
                 result.add("explorationSummary", reportToJson(report));
-                
+
                 return result;
-                
+
             } catch (Exception e) {
                 LOG.error("Error in query augmentation", e);
                 JsonObject error = new JsonObject();
@@ -505,7 +649,7 @@ public class AgentProxyServer {
             }
         });
     }
-    
+
     /**
      * Creates a configured agent with custom limits.
      */
@@ -515,13 +659,13 @@ public class AgentProxyServer {
         // For now, we'll use the standard agent
         return project.getService(ImprovedToolCallingAutonomousAgent.class);
     }
-    
+
     /**
      * Rewrites the query with code context using LLM.
      */
     private String rewriteQueryWithContext(String originalQuery, CodeExplorationReport report) {
         LLMService llmService = project.getService(LLMService.class);
-        
+
         String prompt = String.format("""
             You are helping to augment a user's query with relevant code context from their project.
             
@@ -542,16 +686,16 @@ public class AgentProxyServer {
             5. Maintain the original intent while being more specific
             
             Rewritten Query:
-            """, 
-            originalQuery,
-            report.getSummary(),
-            String.join("\n", report.getDiscoveredElements())
+            """,
+                originalQuery,
+                report.getSummary(),
+                String.join("\n", report.getDiscoveredElements())
         );
-        
+
         String rewritten = llmService.query(prompt);
         return rewritten != null ? rewritten : originalQuery;
     }
-    
+
     /**
      * Converts CodeExplorationReport to JSON.
      */
@@ -560,23 +704,23 @@ public class AgentProxyServer {
         json.addProperty("summary", report.getSummary());
         json.addProperty("timestamp", report.getTimestamp().toString());
         json.addProperty("originalQuery", report.getOriginalQuery());
-        
+
         // Add discovered elements
         json.add("discoveredElements", GSON.toJsonTree(report.getDiscoveredElements()));
-        
+
         // Add code pieces summary
         JsonObject codePieces = new JsonObject();
         codePieces.addProperty("count", report.getCodePieces().size());
         json.add("codePieces", codePieces);
-        
+
         // Add structured context if available
         if (report.getStructuredContext() != null) {
             json.addProperty("structuredContext", report.getStructuredContext());
         }
-        
+
         return json;
     }
-    
+
     /**
      * Checks if the project is properly indexed.
      */
@@ -584,7 +728,7 @@ public class AgentProxyServer {
         // This is a simplified check - you might want to add more sophisticated checks
         return project.isInitialized() && !project.isDisposed();
     }
-    
+
     /**
      * Merges configuration from request with base config.
      */
@@ -593,7 +737,7 @@ public class AgentProxyServer {
         merged.updateFromJson(updates);
         return merged;
     }
-    
+
     /**
      * Helper method to read request body.
      */
@@ -602,21 +746,21 @@ public class AgentProxyServer {
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
-    
+
     /**
      * Helper method to send JSON response.
      */
-    private void sendJsonResponse(HttpExchange exchange, int statusCode, JsonObject response) 
+    private void sendJsonResponse(HttpExchange exchange, int statusCode, JsonObject response)
             throws IOException {
         String responseBody = GSON.toJson(response);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(statusCode, responseBody.getBytes().length);
-        
+
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(responseBody.getBytes());
         }
     }
-    
+
     /**
      * Helper method to send error response.
      */
@@ -625,7 +769,7 @@ public class AgentProxyServer {
         error.addProperty("error", message);
         sendJsonResponse(exchange, statusCode, error);
     }
-    
+
     /**
      * Factory method to create and start a proxy server.
      */
@@ -634,11 +778,11 @@ public class AgentProxyServer {
         server.start();
         return server;
     }
-    
+
     /**
      * Finds an available port and starts the server.
      */
-    public static AgentProxyServer startServerAutoPort(Project project, int startPort, int endPort) 
+    public static AgentProxyServer startServerAutoPort(Project project, int startPort, int endPort)
             throws IOException {
         for (int port = startPort; port <= endPort; port++) {
             try {

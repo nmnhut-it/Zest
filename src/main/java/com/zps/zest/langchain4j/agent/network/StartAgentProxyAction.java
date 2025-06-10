@@ -72,9 +72,10 @@ public class StartAgentProxyAction extends AnAction {
                         String message = String.format(
                             "Agent Proxy Server started successfully!\n\n" +
                             "Port: %d\n" +
+                            "OpenAPI spec: http://localhost:%d/zest/openapi.json\n" +
                             "Monitor window is now open to track requests.\n\n" +
-                            "You can now connect your MCP server to this proxy.",
-                            port
+                            "You can now connect your MCP server or Open WebUI to this proxy.",
+                            port, port
                         );
                         
                         Messages.showInfoMessage(project, message, "Agent Proxy Server Started");

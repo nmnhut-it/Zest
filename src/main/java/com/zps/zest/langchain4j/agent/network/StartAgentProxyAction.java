@@ -17,7 +17,7 @@ import java.io.IOException;
 public class StartAgentProxyAction extends AnAction {
     
     private static AgentProxyServer currentServer;
-    private static AgentProxyMonitorWindow monitorWindow;
+    private static AgentProxyMonitorWindowOptimized monitorWindow;
     
     public StartAgentProxyAction() {
         super("Start Agent Proxy Server", 
@@ -66,7 +66,7 @@ public class StartAgentProxyAction extends AnAction {
                     
                     SwingUtilities.invokeLater(() -> {
                         // Show monitor window
-                        monitorWindow = new AgentProxyMonitorWindow(project, currentServer, port);
+                        monitorWindow = new AgentProxyMonitorWindowOptimized(project, currentServer, port);
                         monitorWindow.setVisible(true);
                         
                         String message = String.format(

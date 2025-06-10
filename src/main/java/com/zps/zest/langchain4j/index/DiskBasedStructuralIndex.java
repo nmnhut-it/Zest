@@ -87,6 +87,11 @@ public class DiskBasedStructuralIndex extends StructuralIndex {
         this.elementsPath = indexPath.resolve(ELEMENTS_DIR);
         Files.createDirectories(elementsPath);
         
+        // Ensure .gitignore files exist to prevent indexing files from being tracked
+        Path projectRoot = Paths.get(projectPath);
+        GitIgnoreManager.ensureGitIgnoreHierarchy(indexPath, projectRoot);
+        GitIgnoreManager.ensureGitIgnore(elementsPath);
+        
         // Load existing index
         loadFromDisk();
     }

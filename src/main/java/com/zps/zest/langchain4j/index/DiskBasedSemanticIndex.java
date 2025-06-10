@@ -75,6 +75,10 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
         this.indexPath = Paths.get(projectPath, INDEX_DIR);
         Files.createDirectories(indexPath);
         
+        // Ensure .gitignore files exist to prevent indexing files from being tracked
+        Path projectRoot = Paths.get(projectPath);
+        GitIgnoreManager.ensureGitIgnoreHierarchy(indexPath, projectRoot);
+        
         // Initialize memory-mapped file
         initializeEmbeddingsFile();
         

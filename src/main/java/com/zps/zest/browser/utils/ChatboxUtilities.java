@@ -113,6 +113,7 @@ public class ChatboxUtilities {
         CHAT_REFACTOR_ADVISORY,       // Chat: Refactor Advisory for Testability
         CHAT_WRITE_TESTS,             // Chat: Write Tests for This Class
         CHAT_GIT_COMMIT_MESSAGE,      // Chat: Generate Git Commit Message
+        CHAT_QUICK_COMMIT,      // Chat: Generate Git Commit Message
 
         // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools

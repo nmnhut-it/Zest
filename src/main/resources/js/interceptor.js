@@ -317,7 +317,8 @@
 
           // When context injection is enabled (works in ALL modes), add exploration context if available
           if (window.__enable_context_injection__ && 
-              window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+              window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE' &&
+              window.__zest_usage__ !== 'CHAT_QUICK_COMMIT') {
             
             // Wait for pending exploration context if it's being prepared (especially for first message)
             let waitTime = 0;
@@ -509,7 +510,8 @@
       // Skip exploration for git commit messages
       if (window.__enable_context_injection__ &&
           window.startExploration &&
-          window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+          window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE' &&
+          window.__zest_usage__ !== 'CHAT_QUICK_COMMIT') {
         console.log('Context injection enabled in mode "' + window.__zest_mode__ + '": Checking if exploration is needed');
 
         // Parse the body to check if this is a new user message
@@ -724,7 +726,7 @@
           if (explorationContext) {
             window.__pending_exploration_context__ = explorationContext;
             console.log('✓ Exploration context available:', explorationContext.substring(0, 100) + '...');
-          } else if (window.__enable_context_injection__ && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE') {
+          } else if (window.__enable_context_injection__ && window.__zest_usage__ !== 'CHAT_GIT_COMMIT_MESSAGE' && window.__zest_usage__ !== 'CHAT_QUICK_COMMIT') {
             console.warn('⚠️ No exploration context available for conversation with context injection enabled');
           }
           

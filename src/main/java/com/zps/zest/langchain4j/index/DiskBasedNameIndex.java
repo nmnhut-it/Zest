@@ -63,6 +63,15 @@ public class DiskBasedNameIndex extends NameIndex {
         this.indexPath = Paths.get(projectPath, INDEX_DIR);
         Files.createDirectories(indexPath);
         
+        // Ensure .gitignore files exist to prevent indexing files from being tracked
+        Path projectRoot = Paths.get(projectPath);
+        GitIgnoreManager.ensureGitIgnoreHierarchy(indexPath, projectRoot);
+        
+        // Create elements subdirectory
+        Path elementsDir = indexPath.resolve("elements");
+        Files.createDirectories(elementsDir);
+        GitIgnoreManager.ensureGitIgnore(elementsDir);
+        
         // Load existing index
         loadFromDisk();
     }

@@ -55,17 +55,712 @@ public class AgentProxyServer {
         void onToolExecuted(String requestId, String toolName, boolean success, String result);
     }
     
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    
     public void addRequestListener(RequestListener listener) {
         requestListeners.add(listener);
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     public void removeRequestListener(RequestListener listener) {
         requestListeners.remove(listener);
     }
     
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    
     private void notifyRequestStarted(String requestId, String endpoint, String method) {
         for (RequestListener listener : requestListeners) {
             listener.onRequestStarted(requestId, endpoint, method);
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -73,11 +768,567 @@ public class AgentProxyServer {
         for (RequestListener listener : requestListeners) {
             listener.onRequestCompleted(requestId, statusCode, response);
         }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     private void notifyRequestFailed(String requestId, String error) {
         for (RequestListener listener : requestListeners) {
             listener.onRequestFailed(requestId, error);
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -85,12 +1336,429 @@ public class AgentProxyServer {
         for (RequestListener listener : requestListeners) {
             listener.onToolExecuted(requestId, toolName, success, result);
         }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     public AgentProxyServer(Project project, int port, AgentProxyConfiguration config) {
         this.project = project;
         this.port = port;
         this.config = config != null ? config : AgentProxyConfiguration.getDefault();
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -108,11 +1776,155 @@ public class AgentProxyServer {
         server.createContext("/tools", new ToolsHandler());
         server.createContext("/execute-tool", new ExecuteToolHandler());
         
+        // OpenAPI endpoints
+        server.createContext("/zest/openapi.json", new OpenApiHandler());
+        server.createContext("/zest/", new ZestToolHandler());
+        
         // Use a larger thread pool for handling long-running requests
         server.setExecutor(Executors.newFixedThreadPool(20));  // Increased from 10
         
         server.start();
         LOG.info("Agent Proxy Server started on port " + port);
+        LOG.info("OpenAPI spec available at: http://localhost:" + port + "/zest/openapi.json");
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -122,6 +1934,284 @@ public class AgentProxyServer {
         if (server != null) {
             server.stop(0);
             LOG.info("Agent Proxy Server stopped");
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -139,6 +2229,284 @@ public class AgentProxyServer {
             
             sendJsonResponse(exchange, 200, response);
         }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -153,6 +2521,145 @@ public class AgentProxyServer {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
             
             notifyRequestStarted(requestId, "/explore", "POST");
             
@@ -169,6 +2676,145 @@ public class AgentProxyServer {
                 if (request.has("config")) {
                     requestConfig = mergeConfig(config, request.getAsJsonObject("config"));
                 }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                 
                 // Execute exploration
                 CompletableFuture<JsonObject> future = exploreAsync(query, generateReport, requestConfig, requestId);
@@ -179,8 +2825,564 @@ public class AgentProxyServer {
                 
                 notifyRequestCompleted(requestId, 200, result.toString());
                 
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 LOG.error("Error handling explore request", e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
                 String error = "Internal error: " + e.getMessage();
                 sendError(exchange, 500, error);
                 notifyRequestFailed(requestId, error);
@@ -200,6 +3402,145 @@ public class AgentProxyServer {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
             
             notifyRequestStarted(requestId, "/augment", "POST");
             
@@ -218,8 +3559,564 @@ public class AgentProxyServer {
                 
                 notifyRequestCompleted(requestId, 200, result.toString());
                 
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 LOG.error("Error handling augment request", e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
                 String error = "Internal error: " + e.getMessage();
                 sendError(exchange, 500, error);
                 notifyRequestFailed(requestId, error);
@@ -237,7 +4134,146 @@ public class AgentProxyServer {
                 // Return current configuration
                 JsonObject response = config.toJson();
                 sendJsonResponse(exchange, 200, response);
-            } else if ("POST".equals(exchange.getRequestMethod())) {
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } else if ("POST".equals(exchange.getRequestMethod())) {
                 // Update configuration
                 try {
                     String requestBody = readRequestBody(exchange);
@@ -250,11 +4286,845 @@ public class AgentProxyServer {
                     response.add("config", config.toJson());
                     
                     sendJsonResponse(exchange, 200, response);
-                } catch (Exception e) {
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                     sendError(exchange, 400, "Invalid configuration: " + e.getMessage());
                 }
-            } else {
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
                 sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } else {
+                sendError(exchange, 405, "Method not allowed");
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
             }
         }
     }
@@ -275,15 +5145,710 @@ public class AgentProxyServer {
                 ApplicationManager.getApplication().runReadAction(() -> {
                     // Check if project is indexed
                     response.addProperty("indexed", isProjectIndexed());
-                });
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    });
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 response.addProperty("indexed", false);
             }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
             
             // Add configuration info
             response.add("config", config.toJson());
             
             sendJsonResponse(exchange, 200, response);
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -305,11 +5870,428 @@ public class AgentProxyServer {
                 toolInfo.add("parameters", tool.getParameterSchema());
                 toolsArray.add(toolInfo);
             }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
             
             response.add("tools", toolsArray);
             response.addProperty("count", toolsArray.size());
             
             sendJsonResponse(exchange, 200, response);
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -325,6 +6307,145 @@ public class AgentProxyServer {
                 sendError(exchange, 405, "Method not allowed");
                 return;
             }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
             
             notifyRequestStarted(requestId, "/execute-tool", "POST");
             
@@ -346,6 +6467,145 @@ public class AgentProxyServer {
                     notifyRequestFailed(requestId, error);
                     return;
                 }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                 
                 // Execute tool
                 CodeExplorationTool.ToolResult result = tool.execute(parameters);
@@ -364,15 +6624,988 @@ public class AgentProxyServer {
                     if (result.getMetadata() != null) {
                         response.add("metadata", result.getMetadata());
                     }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
                 } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } else {
                     response.addProperty("error", result.getError());
                 }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                 
                 sendJsonResponse(exchange, 200, response);
                 notifyRequestCompleted(requestId, 200, response.toString());
                 
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 LOG.error("Error executing tool", e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
                 String error = "Internal error: " + e.getMessage();
                 sendError(exchange, 500, error);
                 notifyRequestFailed(requestId, error);
@@ -398,17 +7631,573 @@ public class AgentProxyServer {
                         notifyToolExecuted(requestId, execution.getToolName(), 
                                          execution.isSuccess(), execution.getResult());
                     }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                     
                     @Override
                     public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
                         // Could notify round completion if needed
                     }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                     
                     @Override
                     public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
                         // Could notify exploration completion if needed
                     }
-                };
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    };
                 
                 JsonObject result = new JsonObject();
                 result.addProperty("query", query);
@@ -422,7 +8211,146 @@ public class AgentProxyServer {
                     
                     result.addProperty("success", true);
                     result.add("report", reportToJson(report));
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
                 } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } else {
                     // Just explore without report
                     ImprovedToolCallingAutonomousAgent.ExplorationResult exploration = 
                         agent.exploreWithTools(query);
@@ -439,17 +8367,712 @@ public class AgentProxyServer {
                     toolSummary.addProperty("totalExecutions", totalTools);
                     result.add("toolSummary", toolSummary);
                 }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                 
                 return result;
                 
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 LOG.error("Error in exploration", e);
                 JsonObject error = new JsonObject();
                 error.addProperty("success", false);
                 error.addProperty("error", e.getMessage());
                 return error;
             }
-        });
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    });
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -467,17 +9090,573 @@ public class AgentProxyServer {
                         notifyToolExecuted(requestId, execution.getToolName(), 
                                          execution.isSuccess(), execution.getResult());
                     }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                     
                     @Override
                     public void onRoundComplete(ImprovedToolCallingAutonomousAgent.ExplorationRound round) {
                         // Optional: could notify round completion
                     }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
                     
                     @Override
                     public void onExplorationComplete(ImprovedToolCallingAutonomousAgent.ExplorationResult result) {
                         // Optional: could notify exploration completion
                     }
-                };
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+                }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    };
                 
                 // First, explore the code with progress tracking
                 CompletableFuture<CodeExplorationReport> reportFuture = 
@@ -496,14 +9675,570 @@ public class AgentProxyServer {
                 
                 return result;
                 
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
             } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (Exception e) {
                 LOG.error("Error in query augmentation", e);
                 JsonObject error = new JsonObject();
                 error.addProperty("success", false);
                 error.addProperty("error", e.getMessage());
                 return error;
             }
-        });
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    });
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -514,6 +10249,145 @@ public class AgentProxyServer {
         // Note: This would require modifying ImprovedToolCallingAutonomousAgent to accept config
         // For now, we'll use the standard agent
         return project.getService(ImprovedToolCallingAutonomousAgent.class);
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -553,6 +10427,145 @@ public class AgentProxyServer {
     }
     
     /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    
+    /**
      * Converts CodeExplorationReport to JSON.
      */
     private JsonObject reportToJson(CodeExplorationReport report) {
@@ -573,8 +10586,286 @@ public class AgentProxyServer {
         if (report.getStructuredContext() != null) {
             json.addProperty("structuredContext", report.getStructuredContext());
         }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
         
         return json;
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -583,6 +10874,145 @@ public class AgentProxyServer {
     private boolean isProjectIndexed() {
         // This is a simplified check - you might want to add more sophisticated checks
         return project.isInitialized() && !project.isDisposed();
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -595,11 +11025,428 @@ public class AgentProxyServer {
     }
     
     /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    
+    /**
      * Helper method to read request body.
      */
     private String readRequestBody(HttpExchange exchange) throws IOException {
         try (InputStream is = exchange.getRequestBody()) {
             return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
         }
     }
     
@@ -615,6 +11462,284 @@ public class AgentProxyServer {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(responseBody.getBytes());
         }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -627,12 +11752,290 @@ public class AgentProxyServer {
     }
     
     /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+    
+    /**
      * Factory method to create and start a proxy server.
      */
     public static AgentProxyServer startServer(Project project, int port) throws IOException {
         AgentProxyServer server = new AgentProxyServer(project, port, AgentProxyConfiguration.getDefault());
         server.start();
         return server;
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
     
     /**
@@ -643,13 +12046,708 @@ public class AgentProxyServer {
         for (int port = startPort; port <= endPort; port++) {
             try {
                 return startServer(project, port);
-            } catch (IOException e) {
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    } catch (IOException e) {
                 // Port in use, try next
                 if (port == endPort) {
                     throw new IOException("No available ports in range " + startPort + "-" + endPort);
                 }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
             }
         }
+    }
+            }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
+        }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
+    }
         throw new IOException("Failed to start server");
+    }
+    
+    /**
+     * Handle CORS headers for cross-origin requests.
+     */
+    private void handleCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+    
+    /**
+     * OpenAPI specification endpoint handler.
+     */
+    private class OpenApiHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handleCors(exchange);
+            
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            OpenApiGenerator generator = new OpenApiGenerator(project, port);
+            JsonObject spec = generator.generateOpenApiSpec();
+            sendJsonResponse(exchange, 200, spec);
+        }
+    }
+    
+    /**
+     * Zest tool execution handler for OpenAPI compatibility.
+     */
+    private class ZestToolHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            
+            // Handle CORS preflight
+            if ("OPTIONS".equals(method)) {
+                handleCors(exchange);
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            
+            handleCors(exchange);
+            
+            if (!"POST".equals(method)) {
+                sendError(exchange, 405, "Method not allowed");
+                return;
+            }
+            
+            String path = exchange.getRequestURI().getPath();
+            if (!path.startsWith("/zest/")) {
+                sendError(exchange, 404, "Not found");
+                return;
+            }
+            
+            String toolName = path.substring(6); // Remove "/zest/"
+            if (toolName.isEmpty() || toolName.equals("openapi.json")) {
+                sendError(exchange, 404, "Tool name required");
+                return;
+            }
+            
+            String requestId = UUID.randomUUID().toString().substring(0, 8);
+            notifyRequestStarted(requestId, "/zest/" + toolName, "POST");
+            
+            CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
+            CodeExplorationTool tool = registry.getTool(toolName);
+            
+            if (tool == null) {
+                String error = "Tool not found: " + toolName;
+                sendError(exchange, 404, error);
+                notifyRequestFailed(requestId, error);
+                return;
+            }
+            
+            try {
+                // Parse request body
+                String requestBody = readRequestBody(exchange);
+                JsonObject parameters = new JsonObject();
+                
+                if (!requestBody.isEmpty()) {
+                    try {
+                        parameters = JsonParser.parseString(requestBody).getAsJsonObject();
+                    } catch (Exception e) {
+                        sendError(exchange, 400, "Invalid JSON: " + e.getMessage());
+                        notifyRequestFailed(requestId, "Invalid JSON");
+                        return;
+                    }
+                }
+                
+                // Execute tool
+                LOG.info("Executing tool via OpenAPI: " + toolName + " with parameters: " + parameters);
+                CodeExplorationTool.ToolResult result = tool.execute(parameters);
+                
+                // Notify tool execution
+                notifyToolExecuted(requestId, toolName, result.isSuccess(), 
+                    result.isSuccess() ? result.getContent() : result.getError());
+                
+                // Build response in OpenAPI format
+                if (result.isSuccess()) {
+                    // Try to parse content as JSON for cleaner response
+                    JsonObject response = new JsonObject();
+                    try {
+                        // If content is already JSON, parse it
+                        if (result.getContent().trim().startsWith("{") || result.getContent().trim().startsWith("[")) {
+                            response = JsonParser.parseString(result.getContent()).getAsJsonObject();
+                        } else {
+                            // Otherwise wrap in a simple response
+                            response.addProperty("result", result.getContent());
+                        }
+                        
+                        // Add metadata if present
+                        if (result.getMetadata() != null) {
+                            response.add("metadata", result.getMetadata());
+                        }
+                    } catch (Exception e) {
+                        // Fallback to simple string response
+                        response.addProperty("result", result.getContent());
+                    }
+                    
+                    sendJsonResponse(exchange, 200, response);
+                    notifyRequestCompleted(requestId, 200, response.toString());
+                } else {
+                    // Error response in OpenAPI format
+                    JsonObject errorResponse = new JsonObject();
+                    errorResponse.addProperty("message", result.getError());
+                    sendJsonResponse(exchange, 500, errorResponse);
+                    notifyRequestFailed(requestId, result.getError());
+                }
+                
+            } catch (Exception e) {
+                LOG.error("Error executing tool: " + toolName, e);
+                String error = "Internal error: " + e.getMessage();
+                sendError(exchange, 500, error);
+                notifyRequestFailed(requestId, error);
+            }
+        }
     }
 }

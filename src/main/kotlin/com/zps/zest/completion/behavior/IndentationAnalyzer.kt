@@ -117,17 +117,17 @@ object IndentationAnalyzer {
         val codeStyleSettings = CodeStyleSettingsManager.getInstance(context.project).currentSettings
         val language = context.language
         
-        val commonSettings = if (language != null) {
-            codeStyleSettings.getCommonSettings(language)
+        val indentOptions = if (language != null) {
+            codeStyleSettings.getCommonSettings(language)?.indentOptions
         } else {
             codeStyleSettings.OTHER_INDENT_OPTIONS
         }
         
         return IndentationSettings(
-            useTabCharacter = commonSettings?.indentOptions?.USE_TAB_CHARACTER ?: false,
-            indentSize = commonSettings?.indentOptions?.INDENT_SIZE ?: 4,
-            tabSize = commonSettings?.indentOptions?.TAB_SIZE ?: 4,
-            continuationIndentSize = commonSettings?.indentOptions?.CONTINUATION_INDENT_SIZE ?: 8
+            useTabCharacter = indentOptions?.USE_TAB_CHARACTER ?: false,
+            indentSize = indentOptions?.INDENT_SIZE ?: 4,
+            tabSize = indentOptions?.TAB_SIZE ?: 4,
+            continuationIndentSize = indentOptions?.CONTINUATION_INDENT_SIZE ?: 8
         )
     }
 

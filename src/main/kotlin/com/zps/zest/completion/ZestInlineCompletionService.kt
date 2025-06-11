@@ -35,7 +35,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val editorManager = FileEditorManager.getInstance(project)
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val completionProvider = ZestCompletionProvider()
+    private val completionProvider = ZestCompletionProvider(project)
     private val completionProcessor = ZestCompletionProcessor()
     private val renderer = ZestInlineCompletionRenderer()
     

@@ -14,14 +14,3 @@ data class ZestInlineCompletionItem(
         val end: Int
     )
 }
-
-/**
- * Metadata about the completion generation
- */
-data class CompletionMetadata(
-    val model: String,
-    val tokens: Int,
-    val latency: Long,
-    val requestId: String = "",
-    val timestamp: Long = System.currentTimeMillis()
-)

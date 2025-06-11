@@ -36,6 +36,11 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Inline Completion System -->
+        <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
+        <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
+        
         <!-- Register the web browser tool window factory -->
         <toolWindow id="ZPS Chat"
                     anchor="right"
@@ -109,6 +114,58 @@
 
     </extensions>
     <actions>
+        <!-- Inline Completion Actions -->
+        <group id="Zest.InlineCompletion" text="Zest Inline Completion">
+            <action id="Zest.InlineCompletion.Trigger"
+                    class="com.zps.zest.completion.actions.ZestTrigger"
+                    text="Trigger Inline Completion">
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="alt SLASH" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.TabAccept"
+                    class="com.zps.zest.completion.actions.ZestTabAccept"
+                    text="Accept Completion (Tab)">
+                <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.Accept"
+                    class="com.zps.zest.completion.actions.ZestAccept"
+                    text="Accept Completion">
+                <keyboard-shortcut first-keystroke="ctrl ENTER" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.AcceptNextLine"
+                    class="com.zps.zest.completion.actions.ZestAcceptNextLine"
+                    text="Accept Next Line">
+                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.AcceptNextWord"
+                    class="com.zps.zest.completion.actions.ZestAcceptNextWord"
+                    text="Accept Next Word">
+                <keyboard-shortcut first-keystroke="ctrl RIGHT" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.CycleNext"
+                    class="com.zps.zest.completion.actions.ZestCycleNext"
+                    text="Cycle Next Completion">
+                <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.CyclePrevious"
+                    class="com.zps.zest.completion.actions.ZestCyclePrevious"
+                    text="Cycle Previous Completion">
+                <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.Dismiss"
+                    class="com.zps.zest.completion.actions.ZestDismiss"
+                    text="Dismiss Completion">
+                <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
+            </action>
+        </group>
+
         <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>

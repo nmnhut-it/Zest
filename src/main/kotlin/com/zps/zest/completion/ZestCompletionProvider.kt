@@ -1,20 +1,30 @@
 package com.zps.zest.completion
 
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.CompletionMetadata
 import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.browser.utils.ChatboxUtilities
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.*
 
 /**
  * Handles completion requests using the existing LLMService
  */
-class ZestCompletionProvider {
+class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
-    private val llmService = LLMService.getInstance()
+    private val llmService by lazy { 
+        try {
+            // Create LLMService instance with project parameter
+            LLMService(project)
+        } catch (e: Exception) {
+            logger.warn("Failed to create LLMService instance", e)
+            throw IllegalStateException("LLMService not available", e)
+        }
+    }
     
     suspend fun requestCompletion(context: CompletionContext): ZestInlineCompletionList? {
         return try {
@@ -25,7 +35,8 @@ class ZestCompletionProvider {
             
             // Use timeout to prevent hanging
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                llmService.generateCompletion(prompt)
+                // Use the LLMService query method with appropriate usage
+                llmService.query(prompt, ChatboxUtilities.EnumUsage.LLM_SERVICE)
             }
             
             if (response == null) {

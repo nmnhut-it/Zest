@@ -1,0 +1,32 @@
+<!-- Zest Inline Completion Plugin Extensions -->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Startup activity to initialize completion services -->
+        <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        
+        <!-- Editor factory listener for event handling -->
+        <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
+        
+        <!-- Project services -->
+        <projectService serviceInterface="com.zps.zest.completion.ZestInlineCompletionService"
+                        serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
+        
+        <!-- Notification groups for completion feedback -->
+        <notificationGroup id="com.zps.zest.completion.info"
+                           displayType="BALLOON"
+                           displayName="Zest Completion Info"/>
+        
+        <notificationGroup id="com.zps.zest.completion.warning"
+                           displayType="STICKY_BALLOON"
+                           displayName="Zest Completion Warning"/>
+    </extensions>
+    
+    <!-- Actions will be added in Phase 2 -->
+    <actions>
+        <!-- Placeholder for completion actions -->
+        <group id="Zest.InlineCompletion" text="Zest Inline Completion" 
+               description="AI-powered inline code completion">
+            <!-- Actions will be defined in Phase 2 -->
+        </group>
+    </actions>
+</idea-plugin>

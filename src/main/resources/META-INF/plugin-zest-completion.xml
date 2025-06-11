@@ -7,6 +7,9 @@
         <!-- Editor factory listener for event handling -->
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         
+        <!-- Action promoter for priority handling -->
+        <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
+        
         <!-- Project services -->
         <projectService serviceInterface="com.zps.zest.completion.ZestInlineCompletionService"
                         serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
@@ -21,12 +24,85 @@
                            displayName="Zest Completion Warning"/>
     </extensions>
     
-    <!-- Actions will be added in Phase 2 -->
+    <!-- Inline Completion Actions -->
     <actions>
-        <!-- Placeholder for completion actions -->
         <group id="Zest.InlineCompletion" text="Zest Inline Completion" 
                description="AI-powered inline code completion">
-            <!-- Actions will be defined in Phase 2 -->
+            
+            <!-- Manual trigger action -->
+            <action id="Zest.InlineCompletion.Trigger"
+                    class="com.zps.zest.completion.actions.ZestTrigger"
+                    text="Trigger Zest Completion"
+                    description="Manually trigger inline completion at cursor position">
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="alt SLASH" keymap="$default"/>
+            </action>
+            
+            <!-- Tab accept action (smart TAB behavior) -->
+            <action id="Zest.InlineCompletion.TabAccept"
+                    class="com.zps.zest.completion.actions.ZestTabAccept"
+                    text="Accept Completion (Tab)"
+                    description="Accept completion using TAB key when appropriate">
+                <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
+            </action>
+            
+            <!-- Explicit accept action -->
+            <action id="Zest.InlineCompletion.Accept"
+                    class="com.zps.zest.completion.actions.ZestAccept"
+                    text="Accept Completion"
+                    description="Accept the full completion">
+                <keyboard-shortcut first-keystroke="ctrl ENTER" keymap="$default"/>
+            </action>
+            
+            <!-- Partial acceptance actions -->
+            <action id="Zest.InlineCompletion.AcceptNextWord"
+                    class="com.zps.zest.completion.actions.ZestAcceptNextWord"
+                    text="Accept Next Word"
+                    description="Accept only the next word of the completion">
+                <keyboard-shortcut first-keystroke="ctrl RIGHT" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.AcceptNextLine"
+                    class="com.zps.zest.completion.actions.ZestAcceptNextLine"
+                    text="Accept Next Line"
+                    description="Accept only the next line of the completion">
+                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
+            </action>
+            
+            <!-- Cycling actions -->
+            <action id="Zest.InlineCompletion.CycleNext"
+                    class="com.zps.zest.completion.actions.ZestCycleNext"
+                    text="Next Completion"
+                    description="Show next completion suggestion">
+                <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
+            </action>
+            
+            <action id="Zest.InlineCompletion.CyclePrevious"
+                    class="com.zps.zest.completion.actions.ZestCyclePrevious"
+                    text="Previous Completion"
+                    description="Show previous completion suggestion">
+                <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
+            </action>
+            
+            <!-- Dismiss action -->
+            <action id="Zest.InlineCompletion.Dismiss"
+                    class="com.zps.zest.completion.actions.ZestDismiss"
+                    text="Dismiss Completion"
+                    description="Hide the current completion">
+                <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
+            </action>
+        </group>
+        
+        <!-- Context menu group for completion actions -->
+        <group id="Zest.InlineCompletionContextMenu">
+            <reference id="Zest.InlineCompletion.Accept"/>
+            <reference id="Zest.InlineCompletion.AcceptNextWord"/>
+            <reference id="Zest.InlineCompletion.AcceptNextLine"/>
+            <separator/>
+            <reference id="Zest.InlineCompletion.CycleNext"/>
+            <reference id="Zest.InlineCompletion.CyclePrevious"/>
+            <separator/>
+            <reference id="Zest.InlineCompletion.Dismiss"/>
         </group>
     </actions>
 </idea-plugin>

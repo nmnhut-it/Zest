@@ -214,6 +214,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     /**
+     * Alias for isCompletionStartingWithIndentation() to match action expectations
+     */
+    fun isInlineCompletionStartWithIndentation(): Boolean {
+        return isCompletionStartingWithIndentation()
+    }
+    
+    /**
      * Enable or disable auto-trigger
      */
     fun setAutoTriggerEnabled(enabled: Boolean) {

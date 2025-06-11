@@ -9,10 +9,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.CodeSearchUtility;
 import com.zps.zest.langchain4j.HybridIndexManager;
-import com.zps.zest.langchain4j.index.NameIndex;
-import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
 import com.zps.zest.langchain4j.util.LLMService;
 import dev.langchain4j.agent.tool.Tool;
@@ -198,7 +197,7 @@ public final class QueryAugmentationAgent {
             );
 
             // Call LLM using the new service
-            String response = llmService.query(prompt);
+            String response = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
             
             if (response != null && !response.isEmpty()) {
                 return "The agent needs clarification:\n" + response;
@@ -242,7 +241,7 @@ public final class QueryAugmentationAgent {
             );
 
             // Call LLM using the new service
-            String response = llmService.query(prompt);
+            String response = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
             
             if (response != null && !response.isEmpty()) {
                 return response;

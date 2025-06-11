@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.langchain4j.tools.ToolCallParser;
@@ -16,7 +17,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 /**
  * Enhanced autonomous code exploration agent that uses tool calls with proper feedback loop.
@@ -67,7 +67,7 @@ public final class ImprovedToolCallingAutonomousAgent {
 
                 // Build prompt with full conversation history
                 String prompt = buildConversationPrompt(conversation, context);
-                String llmResponse = llmService.query(prompt);
+                String llmResponse = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                 if (llmResponse == null) {
                     explorationRound.setLlmResponse("Failed to get response from LLM");
@@ -94,7 +94,7 @@ public final class ImprovedToolCallingAutonomousAgent {
 
                     // Otherwise, prompt for tool calls explicitly
                     String toolPrompt = buildExplicitToolPrompt(context);
-                    llmResponse = llmService.query(toolPrompt);
+                    llmResponse = llmService.query(toolPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                     if (llmResponse != null) {
                         toolCalls = toolCallParser.parseToolCalls(llmResponse);
@@ -153,7 +153,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                 // Generate final summary with full context
                 LOG.info("Exploration results over 1000 lines, generating summary via LLM");
                 String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
-                String summary = llmService.query(summaryPrompt);
+                String summary = llmService.query(summaryPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                 if (summary != null) {
                     result.setSummary(summary);
@@ -467,7 +467,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                 ExplorationRound explorationRound = new ExplorationRound("Round " + round);
 
                 String prompt = buildConversationPrompt(conversation, context);
-                String llmResponse = llmService.query(prompt);
+                String llmResponse = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                 if (llmResponse == null) {
                     explorationRound.setLlmResponse("Failed to get response from LLM");
@@ -482,7 +482,7 @@ public final class ImprovedToolCallingAutonomousAgent {
 
                 if (toolCalls.isEmpty() && !isExplorationComplete(llmResponse)) {
                     String toolPrompt = buildExplicitToolPrompt(context);
-                    llmResponse = llmService.query(toolPrompt);
+                    llmResponse = llmService.query(toolPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                     if (llmResponse != null) {
                         toolCalls = toolCallParser.parseToolCalls(llmResponse);
@@ -549,7 +549,7 @@ public final class ImprovedToolCallingAutonomousAgent {
                     LOG.info("Exploration results over 1000 lines, generating summary via LLM");
                     indicator.setText("Generating summary...");
                     String summaryPrompt = buildFinalSummaryPrompt(conversation, context);
-                    String summary = llmService.query(summaryPrompt);
+                    String summary = llmService.query(summaryPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
 
                     if (summary != null) {
                         result.setSummary(summary);

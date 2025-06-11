@@ -8,16 +8,15 @@ import com.google.gson.JsonParser;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.agent.CodeExplorationReport;
 import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.langchain4j.util.LLMService;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -696,7 +695,7 @@ public class AgentProxyServer {
                 String.join("\n", report.getDiscoveredElements())
         );
 
-        String rewritten = llmService.query(prompt);
+        String rewritten = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
         return rewritten != null ? rewritten : originalQuery;
     }
 

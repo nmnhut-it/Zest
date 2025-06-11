@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,7 +20,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Simple utility service for making LLM API calls.
@@ -50,11 +50,12 @@ public final class LLMService {
      * Simple synchronous call to LLM with a prompt.
      * 
      * @param prompt The prompt to send to the LLM
+     * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
     @Nullable
-    public String query(@NotNull String prompt) {
-        return query(prompt+"\n/no_think", "qwen3:32b");
+    public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
+        return query(prompt+"\n/no_think", "qwen3:32b", enumUsage);
     }
     
     /**
@@ -62,12 +63,13 @@ public final class LLMService {
      * 
      * @param prompt The prompt to send to the LLM
      * @param model The model to use (overrides config)
+     * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
     @Nullable
-    public String query(@NotNull String prompt, @NotNull String model) {
+    public String query(@NotNull String prompt, @NotNull String model, ChatboxUtilities.EnumUsage enumUsage) {
         try {
-            return queryWithRetry(prompt, model, MAX_RETRY_ATTEMPTS);
+            return queryWithRetry(prompt, model, MAX_RETRY_ATTEMPTS, enumUsage);
         } catch (Exception e) {
             LOG.error("Failed to query LLM", e);
             return null;
@@ -95,7 +97,7 @@ public final class LLMService {
     @NotNull
     public CompletableFuture<String> queryAsync(@NotNull String prompt, @NotNull String model) {
         return CompletableFuture.supplyAsync(() -> {
-            String result = query(prompt, model);
+            String result = query(prompt, model, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
             if (result == null) {
                 throw new CompletionException(new RuntimeException("LLM query failed"));
             }
@@ -107,12 +109,13 @@ public final class LLMService {
      * Query with custom parameters.
      * 
      * @param params The query parameters
+     * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
     @Nullable
-    public String queryWithParams(@NotNull LLMQueryParams params) {
+    public String queryWithParams(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         try {
-            return queryWithRetry(params.getPrompt(), params.getModel(), params.getMaxRetries());
+            return queryWithRetry(params.getPrompt(), params.getModel(), params.getMaxRetries(), enumUsage);
         } catch (Exception e) {
             LOG.error("Failed to query LLM with params", e);
             return null;
@@ -122,7 +125,7 @@ public final class LLMService {
     /**
      * Internal method to query with retry logic.
      */
-    private String queryWithRetry(String prompt, String model, int maxRetries) throws IOException {
+    private String queryWithRetry(String prompt, String model, int maxRetries, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         String apiUrl = config.getApiUrl();
         String authToken = config.getAuthToken();
         
@@ -134,7 +137,7 @@ public final class LLMService {
         
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                return executeQuery(apiUrl, model, authToken, prompt);
+                return executeQuery(apiUrl, model, authToken, prompt, enumUsage);
             } catch (IOException e) {
                 lastException = e;
                 LOG.warn("LLM query attempt " + attempt + " failed: " + e.getMessage());
@@ -156,7 +159,7 @@ public final class LLMService {
     /**
      * Executes the actual HTTP request to the LLM API.
      */
-    private String executeQuery(String apiUrl, String model, String authToken, String prompt) throws IOException {
+    private String executeQuery(String apiUrl, String model, String authToken, String prompt, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         
@@ -175,7 +178,7 @@ public final class LLMService {
             connection.setDoOutput(true);
             
             // Prepare request body
-            String requestBody = createRequestBody(apiUrl, model, prompt);
+            String requestBody = createRequestBody(apiUrl, model, prompt, enumUsage);
             
             // Send request
             try (OutputStream os = connection.getOutputStream()) {
@@ -201,10 +204,10 @@ public final class LLMService {
     /**
      * Creates the request body based on the API type.
      */
-    private String createRequestBody(String apiUrl, String model, String prompt) {
+    private String createRequestBody(String apiUrl, String model, String prompt, ChatboxUtilities.EnumUsage enumUsage) {
         // Determine API type based on URL
         if (isOpenWebUIApi(apiUrl)) {
-            return createOpenWebUIRequestBody(model, prompt);
+            return createOpenWebUIRequestBody(model, prompt, enumUsage);
         } else {
             return createOllamaRequestBody(model, prompt);
         }
@@ -213,11 +216,12 @@ public final class LLMService {
     /**
      * Creates request body for OpenWebUI/Zingplay API.
      */
-    private String createOpenWebUIRequestBody(String model, String prompt) {
+    private String createOpenWebUIRequestBody(String model, String prompt, ChatboxUtilities.EnumUsage enumUsage) {
         JsonObject root = new JsonObject();
         root.addProperty("model", model);
         root.addProperty("stream", false);
-        root.addProperty("custom_tool", "Zest|LLM_SERVICE");
+        String usage = enumUsage.name();
+        root.addProperty("custom_tool", "Zest|" + usage);
         
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");

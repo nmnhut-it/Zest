@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.langchain4j.tools.ToolCallParser;
@@ -99,7 +100,7 @@ public final class ToolCallingAutonomousAgent {
             // Planning phase
             indicator.setText("Planning exploration strategy...");
             String planningPrompt = buildPlanningPrompt(userQuery, context);
-            String planningResponse = llmService.query(planningPrompt);
+            String planningResponse = llmService.query(planningPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
             
             if (planningResponse == null) {
                 result.addError("Failed to get initial planning response from LLM");
@@ -122,7 +123,7 @@ public final class ToolCallingAutonomousAgent {
                 
                 // Get next batch of tool calls
                 String explorationPrompt = buildExplorationPrompt(context);
-                String llmResponse = llmService.query(explorationPrompt);
+                String llmResponse = llmService.query(explorationPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
                 
                 if (llmResponse == null) {
                     explorationRound.setLlmResponse("Failed to get response from LLM");
@@ -179,7 +180,7 @@ public final class ToolCallingAutonomousAgent {
             if (!indicator.isCanceled()) {
                 indicator.setText("Generating summary...");
                 String summaryPrompt = buildSummaryPrompt(context);
-                String summary = llmService.query(summaryPrompt);
+                String summary = llmService.query(summaryPrompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
                 
                 if (summary != null) {
                     result.setSummary(summary);

@@ -14,6 +14,9 @@
         <projectService serviceInterface="com.zps.zest.completion.ZestInlineCompletionService"
                         serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
         
+        <projectService serviceInterface="com.zps.zest.completion.behavior.ZestTabBehaviorManager"
+                        serviceImplementation="com.zps.zest.completion.behavior.ZestTabBehaviorManager"/>
+        
         <!-- Notification groups for completion feedback -->
         <notificationGroup id="com.zps.zest.completion.info"
                            displayType="BALLOON"

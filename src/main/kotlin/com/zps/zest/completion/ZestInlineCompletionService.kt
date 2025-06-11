@@ -221,6 +221,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     /**
+     * Get the current completion item being displayed.
+     * Used by actions to analyze completion content for context-aware behavior.
+     */
+    fun getCurrentCompletion(): ZestInlineCompletionItem? {
+        val completions = currentCompletions ?: return null
+        return completions.getItem(currentCompletionIndex)
+    }
+    
+    /**
      * Enable or disable auto-trigger
      */
     fun setAutoTriggerEnabled(enabled: Boolean) {

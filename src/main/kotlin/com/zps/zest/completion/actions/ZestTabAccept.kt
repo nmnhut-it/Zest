@@ -1,14 +1,21 @@
 package com.zps.zest.completion.actions
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.zps.zest.completion.ZestInlineCompletionService
+import com.zps.zest.completion.behavior.ZestTabBehaviorManager
 
 /**
  * Special action for accepting completions with the TAB key.
- * This action is smart about when to accept completions vs. allowing normal TAB behavior.
- * It will NOT accept completions that start with indentation to avoid interfering with
- * normal indentation workflow.
+ * This action uses advanced context analysis to determine when to accept completions
+ * vs. allowing normal TAB behavior for indentation.
+ * 
+ * The decision is made by ZestTabBehaviorManager which analyzes:
+ * - Current editing context (line position, indentation level)
+ * - Completion content (code vs indentation)
+ * - Language-specific indentation rules
+ * - User's code style preferences
  */
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
@@ -17,9 +24,21 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
     }
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
-        // Only enable if completion is visible AND it doesn't start with indentation
-        return service.isInlineCompletionVisibleAt(editor, caret.offset) && 
-               !service.isInlineCompletionStartWithIndentation()
+        // Check if completion is visible
+        if (!service.isInlineCompletionVisibleAt(editor, caret.offset)) {
+            return false
+        }
+        
+        // Use advanced tab behavior analysis
+        val project = editor.project ?: return false
+        val tabBehaviorManager = project.service<ZestTabBehaviorManager>()
+        val currentCompletion = service.getCurrentCompletion() ?: return false
+        
+        return tabBehaviorManager.shouldAcceptCompletionOnTab(
+            editor = editor,
+            offset = caret.offset,
+            completion = currentCompletion
+        )
     }
 }) {
     

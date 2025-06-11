@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.application.ApplicationManager;
+import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.rag.models.KnowledgeCollection;
@@ -211,10 +212,20 @@ public class JSBridgeKnowledgeClient implements KnowledgeApiClient {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
                 WebBrowserService browserService = WebBrowserService.getInstance(project);
-                JCEFBrowserManager browserManager = browserService != null ? browserService.getBrowserPanel().getBrowserManager() : null;
+                if (browserService == null) {
+                    future.completeExceptionally(new IOException("Browser service not available"));
+                    return;
+                }
                 
+                WebBrowserPanel browserPanel = browserService.getBrowserPanel();
+                if (browserPanel == null) {
+                    future.completeExceptionally(new IOException("Browser panel not initialized"));
+                    return;
+                }
+                
+                JCEFBrowserManager browserManager = browserPanel.getBrowserManager();
                 if (browserManager == null) {
-                    future.completeExceptionally(new IOException("Browser not available"));
+                    future.completeExceptionally(new IOException("Browser manager not available"));
                     return;
                 }
                 

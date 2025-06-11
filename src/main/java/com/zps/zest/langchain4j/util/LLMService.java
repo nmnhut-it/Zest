@@ -55,7 +55,7 @@ public final class LLMService {
      */
     @Nullable
     public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
-        return query(prompt+"\n/no_think", "qwen3:32b", enumUsage);
+        return query(prompt+"\n/no_think", "local-model-mini", enumUsage);
     }
     
     /**

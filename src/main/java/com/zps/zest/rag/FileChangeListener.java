@@ -6,6 +6,7 @@ import com.intellij.openapi.vfs.*;
 import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
@@ -130,6 +131,22 @@ public class FileChangeListener implements VirtualFileListener {
             for (VirtualFile file : filesToUpdate) {
                 try {
                     ragAgent.updateFileInIndex(knowledgeId, file);
+                } catch (IOException e) {
+                    // Check if this is a browser not available error
+                    if (e.getMessage() != null && 
+                        (e.getMessage().contains("Browser panel not initialized") || 
+                         e.getMessage().contains("Browser service not available") ||
+                         e.getMessage().contains("Browser manager not available"))) {
+                        LOG.info("Browser not ready for file indexing, will retry later: " + file.getPath());
+                        // Re-add to pending updates for next iteration
+                        synchronized (pendingUpdates) {
+                            pendingUpdates.add(file);
+                        }
+                        // Schedule another update in case browser becomes available
+                        scheduleUpdate();
+                    } else {
+                        LOG.error("Failed to update file in index: " + file.getPath(), e);
+                    }
                 } catch (Exception e) {
                     LOG.error("Failed to update file in index: " + file.getPath(), e);
                 }

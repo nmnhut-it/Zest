@@ -160,7 +160,7 @@ class ZestContextProvider {
             val promptBuilder = StringBuilder()
             
             // Add main instruction
-            promptBuilder.append("""
+            promptBuilder.append(""" /no_think
                 You are a helpful programming assistant for Java. I'll provide you with code and a request. 
                 Please respond with concise, helpful information based on the request.
                 

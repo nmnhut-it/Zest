@@ -33,7 +33,7 @@ public final class ImprovedToolCallingAutonomousAgent {
 
     // Configuration
     private static final int MAX_TOOL_CALLS = 20;
-    private static final int MAX_ROUNDS = 3;
+    private static final int MAX_ROUNDS = 2;
     private static final int MAX_RESULT_LENGTH = 2000; // Increased from 500
 
     public ImprovedToolCallingAutonomousAgent(@NotNull Project project) {

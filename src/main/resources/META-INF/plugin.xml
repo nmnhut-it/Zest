@@ -2,7 +2,7 @@
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.854</version>  <!-- Replace with your actual version -->
+    <version>1.9.857</version>  <!-- Replace with your actual version -->
     
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
@@ -60,7 +60,20 @@
                     canCloseContents="true"
                     doNotActivateOnStart="false"
                     secondary="false"/>
-
+        <projectConfigurable
+                instance="com.zps.zest.settings.ZestSettingsConfigurable"
+                displayName="Zest Plugin"
+                id="zest.settings"
+                parentId="tools"
+                nonDefaultProject="true"/>
+        
+        <!-- Register the Hybrid Index settings -->
+        <projectConfigurable 
+                instance="com.zps.zest.langchain4j.HybridIndexConfigurable"
+                displayName="Hybrid Code Search Index"
+                id="zest.hybrid.index"
+                parentId="tools"
+                nonDefaultProject="true"/>
         <!-- Register the code exploration tool window -->
 <!--        <toolWindow id="Code Explorer"-->
 <!--                    anchor="bottom"-->
@@ -108,7 +121,7 @@
                 text="Inline AI Edit"
                 icon="AllIcons.Actions.IntentionBulb"
                 description="Open inline AI editor for context-aware editing">
-            <keyboard-shortcut keymap="$default" first-keystroke="shift SPACE" replace-all="true" />
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true" />
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
         
@@ -239,6 +252,17 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
         
+        <!-- Quick Commit & Push -->
+        <action id="Zest.QuickCommitAction"
+                class="com.zps.zest.QuickCommitAction"
+                text="Quick Commit &amp; Push"
+                icon="icons/zpsChat16.svg"
+                description="Quick commit and push with auto-generated message">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+            <add-to-group group-id="VcsGroups" anchor="last"/>
+        </action>
+        
         <!-- Simple Git Diff Viewer -->
 <!--        <action id="Zest.ShowGitDiffAction"-->
 <!--                class="com.zps.zest.diff.ShowGitDiffAction"-->
@@ -326,13 +350,13 @@
 <!--        </action>-->
         
         <!-- Start Agent Proxy Server -->
-<!--        <action id="Zest.StartAgentProxyServer"-->
-<!--                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"-->
-<!--                text="Start Agent Proxy Server"-->
-<!--                icon="AllIcons.Nodes.Services"-->
-<!--                description="Start network proxy server for external access to code exploration agent">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>-->
-<!--        </action>-->
+        <action id="Zest.StartAgentProxyServer"
+                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
+                text="Start Agent Proxy Server"
+                icon="AllIcons.Nodes.Services"
+                description="Start network proxy server for external access to code exploration agent">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>
+        </action>
         
         <!-- Code Explorer & Assistant -->
 <!--        <action id="Zest.OpenCodeExploration"-->
@@ -360,5 +384,6 @@
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
     </actions>
 </idea-plugin>

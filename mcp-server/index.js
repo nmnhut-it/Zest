@@ -30,7 +30,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
 }
 
 /**
- * Zest MCP Server - Connects to IntelliJ's Agent Proxy for code exploration
+ * Zest MCP Server - Connects to IntelliJ's Agent Proxy for comprehensive code and documentation exploration
  */
 class ZestMcpServer {
   constructor() {
@@ -41,8 +41,8 @@ class ZestMcpServer {
     // Create MCP server
     this.server = new McpServer({
       name: "Zest Code Explorer",
-      version: "1.0.0",
-      description: "IntelliJ code exploration through MCP"
+      version: "1.1.0",
+      description: "IntelliJ code and documentation exploration through MCP - semantic search, code analysis, and more"
     });
     
     this.setupTools();
@@ -83,17 +83,17 @@ class ZestMcpServer {
    * Setup MCP tools.
    */
   setupTools() {
-    // Tool: Explore code with a query
+    // High-level exploration tool - uses multiple tools to comprehensively explore code
     this.server.tool(
       "explore_code",
       {
-        query: z.string().describe("Natural language query about the code"),
-        generateReport: z.boolean().optional().describe("Generate detailed report (default: false)"),
+        query: z.string().describe("Natural language query about the code to explore comprehensively"),
+        generateReport: z.boolean().optional().describe("Generate detailed exploration report with discovered elements and relationships (default: false)"),
         config: z.object({
-          maxToolCalls: z.number().optional(),
-          includeTests: z.boolean().optional(),
-          deepExploration: z.boolean().optional()
-        }).optional().describe("Configuration overrides")
+          maxToolCalls: z.number().optional().describe("Maximum number of exploration tools to use"),
+          includeTests: z.boolean().optional().describe("Include test files in exploration"),
+          deepExploration: z.boolean().optional().describe("Enable deep recursive exploration of related code")
+        }).optional().describe("Advanced exploration configuration")
       },
       async (params) => {
         if (!this.connected) {
@@ -153,12 +153,12 @@ class ZestMcpServer {
       }
     );
     
-    // Tool: Execute individual exploration tool
+    // Direct tool execution - run any specific exploration tool
     this.server.tool(
       "execute_tool",
       {
-        tool: z.string().describe("Name of the tool to execute"),
-        parameters: z.object({}).passthrough().describe("Tool-specific parameters")
+        tool: z.string().describe("Name of the specific code exploration tool to execute (e.g., search_code, find_by_name, etc.)"),
+        parameters: z.object({}).passthrough().describe("Tool-specific parameters as defined by each tool's schema")
       },
       async (params) => {
         if (!this.connected) {
@@ -208,7 +208,7 @@ class ZestMcpServer {
       }
     );
     
-    // Tool: List available tools
+    // Tool discovery - list all available exploration tools
     this.server.tool(
       "list_tools",
       {},
@@ -251,68 +251,128 @@ class ZestMcpServer {
       }
     );
     
-    // Individual tool shortcuts for common operations
+    // Search and discovery tools - find code and documentation
     this.server.tool(
       "search_code",
       {
-        query: z.string().describe("Natural language search query"),
-        maxResults: z.number().optional().describe("Maximum results (default: 10)")
+        query: z.string().describe("Natural language search query to find semantically related code using AI embeddings"),
+        maxResults: z.number().optional().describe("Maximum number of search results to return (default: 10, range: 1-50)")
       },
       async (params) => this.executeToolShortcut("search_code", params)
     );
     
+    // Structural analysis tools - understand code relationships and dependencies
     this.server.tool(
       "find_by_name",
       {
-        name: z.string().describe("Class, method, or package name (case-sensitive)"),
-        type: z.enum(["class", "method", "package", "any"]).optional()
+        name: z.string().describe("Exact name to search for (CASE-SENSITIVE) - e.g., 'UserService' not 'userservice'"),
+        type: z.enum(["class", "method", "package", "any"]).optional().describe("Type of code element to find (default: any)")
       },
       async (params) => this.executeToolShortcut("find_by_name", params)
     );
     
+    // Structural analysis tools - understand code relationships and dependencies
     this.server.tool(
       "read_file",
       {
-        filePath: z.string().describe("Path to the file to read")
+        filePath: z.string().describe("Path to the source file to read (relative to project root) - returns complete file contents")
       },
       async (params) => this.executeToolShortcut("read_file", params)
     );
     
+    // Structural analysis tools - understand code relationships and dependencies
     this.server.tool(
       "find_relationships",
       {
-        elementId: z.string().describe("Fully qualified class name"),
+        elementId: z.string().describe("Fully qualified class name (e.g., 'com.example.service.UserService') to analyze relationships for"),
         relationType: z.enum([
           "EXTENDS", "IMPLEMENTS", "USES", "USED_BY", 
           "CALLS", "CALLED_BY", "OVERRIDES", "OVERRIDDEN_BY"
-        ]).optional()
+        ]).optional().describe("Specific relationship type to find, or omit to find all relationships")
       },
       async (params) => this.executeToolShortcut("find_relationships", params)
     );
     
+    // Structural analysis tools - understand code relationships and dependencies
     this.server.tool(
       "find_usages",
       {
-        elementId: z.string().describe("Class or method to find usages of")
+        elementId: z.string().describe("Fully qualified name of class or method (e.g., 'com.example.User' or 'com.example.User#getName') to find all references/usages of")
       },
       async (params) => this.executeToolShortcut("find_usages", params)
     );
     
+    // Structural analysis tools - understand code relationships and dependencies
     this.server.tool(
       "get_class_info",
       {
-        className: z.string().describe("Fully qualified class name")
+        className: z.string().describe("Fully qualified class name to get detailed information about (fields, methods, annotations, hierarchy)")
       },
       async (params) => this.executeToolShortcut("get_class_info", params)
     );
     
+    // Tool: Search documentation
+    this.server.tool(
+      "search_docs",
+      {
+        query: z.string().describe("Natural language query to search through markdown documentation files"),
+        maxResults: z.number().optional().describe("Maximum number of documentation results (default: 5, max: 20)"),
+        includeCodeBlocks: z.boolean().optional().describe("Include code blocks from documentation in search results (default: false)")
+      },
+      async (params) => this.executeToolShortcut("search_docs", params)
+    );
+    
+    // Code analysis tools - detailed examination of classes and methods
+    this.server.tool(
+      "find_methods",
+      {
+        className: z.string().describe("Fully qualified class name to find all methods in"),
+        includeInherited: z.boolean().optional().describe("Include inherited methods from parent classes (default: false)")
+      },
+      async (params) => this.executeToolShortcut("find_methods", params)
+    );
+    
+    // Structural analysis tools - understand code relationships and dependencies
+    this.server.tool(
+      "find_callers",
+      {
+        methodId: z.string().describe("Fully qualified method name (ClassName#methodName) to find all callers of")
+      },
+      async (params) => this.executeToolShortcut("find_callers", params)
+    );
+    
+    // Structural analysis tools - understand code relationships and dependencies
+    this.server.tool(
+      "find_implementations",
+      {
+        interfaceName: z.string().describe("Fully qualified interface or abstract class name to find all implementations of")
+      },
+      async (params) => this.executeToolShortcut("find_implementations", params)
+    );
+    
+    // Structural analysis tools - understand code relationships and dependencies
+    this.server.tool(
+      "list_files_in_directory",
+      {
+        directoryPath: z.string().describe("Directory path relative to project root to list files in")
+      },
+      async (params) => this.executeToolShortcut("list_files_in_directory", params)
+    );
+    
+    // Structural analysis tools - understand code relationships and dependencies
+    this.server.tool(
+      "get_current_context",
+      {},
+      async () => this.executeToolShortcut("get_current_context", {})
+    );
+    
     // Keep existing tools...
     
-    // Tool: Augment query with code context
+    // Context augmentation tool - enhance queries with project-specific information
     this.server.tool(
       "augment_query",
       {
-        query: z.string().describe("User query to augment with code context")
+        query: z.string().describe("User query to enrich with relevant code context from the current project")
       },
       async (params) => {
         if (!this.connected) {
@@ -362,7 +422,7 @@ class ZestMcpServer {
       }
     );
     
-    // Tool: Get proxy configuration
+    // Configuration management tools - view and modify exploration settings
     this.server.tool(
       "get_config",
       {},
@@ -401,11 +461,11 @@ class ZestMcpServer {
     this.server.tool(
       "update_config",
       {
-        maxToolCalls: z.number().optional(),
-        maxRounds: z.number().optional(),
-        includeTests: z.boolean().optional(),
-        deepExploration: z.boolean().optional(),
-        timeoutSeconds: z.number().optional()
+        maxToolCalls: z.number().optional().describe("Maximum number of tools to execute in one exploration (default: 10)"),
+        maxRounds: z.number().optional().describe("Maximum exploration rounds for deep analysis (default: 3)"),
+        includeTests: z.boolean().optional().describe("Include test files in exploration results (default: false)"),
+        deepExploration: z.boolean().optional().describe("Enable recursive exploration of related code (default: false)"),
+        timeoutSeconds: z.number().optional().describe("Overall timeout for exploration in seconds (default: 120)")
       },
       async (params) => {
         if (!this.connected) {
@@ -443,7 +503,7 @@ class ZestMcpServer {
       }
     );
     
-    // Tool: Check connection status
+    // Connection and status tools - monitor proxy connection and project state
     this.server.tool(
       "status",
       {},

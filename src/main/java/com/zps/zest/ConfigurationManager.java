@@ -37,7 +37,7 @@ public class ConfigurationManager {
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
     // Default system prompts
-    private static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
+    public static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
             "\n" +
             "CORE APPROACH:\n" +
             "\n" +
@@ -57,7 +57,7 @@ public class ConfigurationManager {
             "   - Explain reasoning to help users understand solutions\n" +
             "\n" +
             "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n/no_think\n";
-    private static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
+    public static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
             "\n" +
             "    CORE CODING METHODOLOGY:\n" +
             "\n" +
@@ -102,6 +102,33 @@ public class ConfigurationManager {
             "- Check for available tools before suggesting manual operations\n" +
             "\n" +
             "    Ask questions to clarify requirements, explain reasoning, and think step-by-step while maintaining system awareness. Provide clear code examples with explanations./no_think";
+    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = "Generate a well-structured git commit message based on the changes below.\n\n" +
+            "## Changed files:\n" +
+            "{FILES_LIST}\n\n" +
+            "## File changes:\n" +
+            "{DIFFS}\n\n" +
+            "## Instructions:\n" +
+            "Please follow this structure for the commit message:\n\n" +
+            "1. First line: Short summary (50-72 chars) following conventional commit format\n" +
+            "   - format: <type>(<scope>): <subject>\n" +
+            "   - example: feat(auth): implement OAuth2 login\n\n" +
+            "2. Body: Detailed explanation of what changed and why\n" +
+            "   - Separated from summary by a blank line\n" +
+            "   - Explain what and why, not how\n" +
+            "   - Wrap at 72 characters\n\n" +
+            "3. Footer (optional):\n" +
+            "   - Breaking changes (BREAKING CHANGE: description)\n\n" +
+            "Example output:\n" +
+            "feat(user-profile): implement password reset functionality\n\n" +
+            "Add secure password reset flow with email verification and rate limiting.\n" +
+            "This change improves security by requiring email confirmation before\n" +
+            "allowing password changes.\n\n" +
+            "- Added PasswordResetController with email verification\n" +
+            "- Implemented rate limiting to prevent brute force attacks\n" +
+            "- Added unit and integration tests\n\n" +
+            "BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset\n\n" +
+            "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
+    
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
 
@@ -131,11 +158,16 @@ public class ConfigurationManager {
     // System prompts
     private String systemPrompt;
     private String codeSystemPrompt;
+    private String commitPromptTemplate;
     // Knowledge base ID for code indexing
     private String knowledgeId = null;
     // Button states
     private boolean contextInjectionEnabled = true;
     private boolean projectIndexEnabled = false;
+    
+    // Documentation search configuration
+    private String docsPath = "docs";
+    private boolean docsSearchEnabled = false;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -217,9 +249,12 @@ public class ConfigurationManager {
         mcpEnabled = false;
         systemPrompt = DEFAULT_SYSTEM_PROMPT;
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
         knowledgeId = null;
         contextInjectionEnabled = true;
         projectIndexEnabled = false;
+        docsPath = "docs";
+        docsSearchEnabled = false;
 
         boolean configExists = false;
 
@@ -241,8 +276,35 @@ public class ConfigurationManager {
                 codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
                 authToken = props.getProperty("authToken", "");
                 mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-                systemPrompt = props.getProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
-                codeSystemPrompt = props.getProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+                systemPrompt = unescapeFromProperties(props.getProperty("systemPrompt"));
+                if (systemPrompt == null || systemPrompt.trim().isEmpty()) {
+                    systemPrompt = DEFAULT_SYSTEM_PROMPT;
+                }
+                
+                codeSystemPrompt = unescapeFromProperties(props.getProperty("codeSystemPrompt"));
+                if (codeSystemPrompt == null || codeSystemPrompt.trim().isEmpty()) {
+                    codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+                }
+                String loadedTemplate = unescapeFromProperties(props.getProperty("commitPromptTemplate"));
+                // Validate and use default if invalid or missing
+                if (loadedTemplate == null || loadedTemplate.trim().isEmpty()) {
+                    commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
+                    LOG.info("Commit prompt template was empty, using default");
+                    // Save the default template back to config for next time
+                    saveConfig();
+                } else {
+                    // Validate template has required placeholders
+                    com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
+                        com.zps.zest.validation.CommitTemplateValidator.validate(loadedTemplate);
+                    if (validation.isValid) {
+                        commitPromptTemplate = loadedTemplate;
+                    } else {
+                        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
+                        LOG.warn("Invalid commit prompt template: " + validation.errorMessage + ". Using default.");
+                        // Save the default template back to config
+                        saveConfig();
+                    }
+                }
                 knowledgeId = props.getProperty("knowledgeId", null);
                 
                 // Load button states
@@ -270,6 +332,17 @@ public class ConfigurationManager {
                 String mcpEnabledStr = props.getProperty("mcpEnabled");
                 if (mcpEnabledStr != null) {
                     mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
+                }
+                
+                // Load documentation search configuration
+                String docsPathStr = props.getProperty("docsPath");
+                if (docsPathStr != null && !docsPathStr.trim().isEmpty()) {
+                    docsPath = docsPathStr.trim();
+                }
+                
+                String docsSearchEnabledStr = props.getProperty("docsSearchEnabled");
+                if (docsSearchEnabledStr != null) {
+                    docsSearchEnabled = Boolean.parseBoolean(docsSearchEnabledStr);
                 }
 
                 try {
@@ -312,13 +385,17 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", String.valueOf(ragEnabled));
             props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
             props.setProperty("mcpServerUri", mcpServerUri);
-            props.setProperty("systemPrompt", systemPrompt);
-            props.setProperty("codeSystemPrompt", codeSystemPrompt);
+            props.setProperty("systemPrompt", escapeForProperties(systemPrompt));
+            props.setProperty("codeSystemPrompt", escapeForProperties(codeSystemPrompt));
+            // Save multi-line template with proper escaping
+            props.setProperty("commitPromptTemplate", escapeForProperties(commitPromptTemplate));
             if (knowledgeId != null) {
                 props.setProperty("knowledgeId", knowledgeId);
             }
             props.setProperty("contextInjectionEnabled", String.valueOf(contextInjectionEnabled));
             props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
+            props.setProperty("docsPath", docsPath);
+            props.setProperty("docsSearchEnabled", String.valueOf(docsSearchEnabled));
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -497,11 +574,14 @@ public class ConfigurationManager {
             props.setProperty("ragEnabled", "false");
             props.setProperty("mcpEnabled", "false");
             props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-            props.setProperty("systemPrompt", DEFAULT_SYSTEM_PROMPT);
-            props.setProperty("codeSystemPrompt", DEFAULT_CODE_SYSTEM_PROMPT);
+            props.setProperty("systemPrompt", escapeForProperties(DEFAULT_SYSTEM_PROMPT));
+            props.setProperty("codeSystemPrompt", escapeForProperties(DEFAULT_CODE_SYSTEM_PROMPT));
+            props.setProperty("commitPromptTemplate", escapeForProperties(DEFAULT_COMMIT_PROMPT_TEMPLATE));
             props.setProperty("knowledgeId", ""); // Empty by default
             props.setProperty("contextInjectionEnabled", "true");
             props.setProperty("projectIndexEnabled", "false");
+            props.setProperty("docsPath", "docs");
+            props.setProperty("docsSearchEnabled", "false");
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -667,5 +747,66 @@ public class ConfigurationManager {
             contextInjectionEnabled = false;
         }
         saveConfig();
+    }
+    
+    public String getCommitPromptTemplate() {
+        return commitPromptTemplate;
+    }
+    
+    public void setCommitPromptTemplate(String commitPromptTemplate) {
+        // Validate before setting
+        com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
+            com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
+        
+        if (!validation.isValid) {
+            LOG.error("Invalid commit prompt template: " + validation.errorMessage);
+            throw new IllegalArgumentException("Invalid template: " + validation.errorMessage);
+        }
+        
+        this.commitPromptTemplate = commitPromptTemplate;
+        saveConfig();
+    }
+    
+    public String getDocsPath() {
+        return docsPath;
+    }
+    
+    public void setDocsPath(String docsPath) {
+        this.docsPath = docsPath;
+        saveConfig();
+    }
+    
+    public boolean isDocsSearchEnabled() {
+        return docsSearchEnabled;
+    }
+    
+    public void setDocsSearchEnabled(boolean docsSearchEnabled) {
+        this.docsSearchEnabled = docsSearchEnabled;
+        saveConfig();
+    }
+    
+    /**
+     * Escapes a string for safe storage in Properties file.
+     * Handles newlines and other special characters.
+     */
+    private String escapeForProperties(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\")
+                   .replace("\n", "\\n")
+                   .replace("\r", "\\r")
+                   .replace("\t", "\\t")
+                   .replace("\f", "\\f");
+    }
+    
+    /**
+     * Unescapes a string loaded from Properties file.
+     */
+    private String unescapeFromProperties(String input) {
+        if (input == null) return "";
+        return input.replace("\\n", "\n")
+                   .replace("\\r", "\r")
+                   .replace("\\t", "\t")
+                   .replace("\\f", "\f")
+                   .replace("\\\\", "\\");
     }
 }

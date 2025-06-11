@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j.tools;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.tools.impl.*;
 import org.jetbrains.annotations.NotNull;
 
@@ -46,6 +47,20 @@ public final class CodeExplorationToolRegistry {
         // Navigation tools
         register(new GetCurrentContextTool(project));
         register(new FindUsagesTool(project));
+        
+        // File manipulation tools
+        register(new CreateFileTool(project));
+        register(new ReplaceInFileTool(project));
+        
+        // Project structure tools
+        register(new GetProjectStructureTool(project));
+        
+        // Documentation search tool (if enabled)
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+        if (config.isDocsSearchEnabled()) {
+            register(new SearchDocsTool(project));
+            LOG.info("Registered documentation search tool");
+        }
         
         LOG.info("Registered " + tools.size() + " code exploration tools");
     }
@@ -122,7 +137,8 @@ public final class CodeExplorationToolRegistry {
     private String categorizeToolType(String toolName) {
         // Discovery tools - broad search
         if (toolName.contains("search") || toolName.contains("find_by_name") || 
-            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context")) {
+            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context") ||
+            toolName.equals("get_project_structure")) {
             return "DISCOVERY";
         }
         // Analysis tools - relationships and structure
@@ -130,7 +146,7 @@ public final class CodeExplorationToolRegistry {
                  toolName.contains("find_relationships") || toolName.contains("find_usages")) {
             return "ANALYSIS";
         }
-        // Detail tools - specific content
+        // Detail tools - specific content and file operations
         else {
             return "DETAIL";
         }

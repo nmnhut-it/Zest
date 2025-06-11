@@ -1,9 +1,13 @@
 package com.zps.zest.browser;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionPopupMenu;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -191,32 +195,21 @@ public class WebBrowserPanel {
 
         buttonPanel.add(modeButton);
 
-        // Add ZPS Actions dropdown using ActionGroup
-        DefaultActionGroup zpsActionGroup = new DefaultActionGroup("ZPS Actions", true);
+        // Add Quick Commit button
+        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
+        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
+        quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
+        buttonPanel.add(quickCommitBtn);
+        
+        // Add Full Git Commit button
+        JButton fullCommitBtn = new JButton("📝 Git Commit");
+        fullCommitBtn.setToolTipText("Full Git Commit with File Selection");
+        fullCommitBtn.addActionListener(e -> triggerFullGitCommit());
+        buttonPanel.add(fullCommitBtn);
 
-        // Add all ZPS actions to the group
-        ActionManager gitcommit = ActionManager.getInstance();
-            zpsActionGroup.add(gitcommit.getAction("Zest.GitCommitMessageGeneratorAction"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendPipelineToChatBox"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.RefactorForTestabilityAction"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.SendCodeReviewToChatBox"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("Zest.GenerateCodeCommentsAction"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("com.zps.zest.GenerateTestByLlm"));
-//        zpsActionGroup.add(ActionManager.getInstance().getAction("com.zps.zest.ImplementTodosAction"));
-
-        // Create a button to show the popup
-        JButton zpsActionsButton = new JButton("ZPS Actions");
-        zpsActionsButton.setToolTipText("ZPS Actions");
-        zpsActionsButton.addActionListener(e -> {
-            ActionPopupMenu popupMenu = gitcommit.createActionPopupMenu(
-                    ActionPlaces.EDITOR_POPUP, zpsActionGroup);
-            popupMenu.getComponent().show(zpsActionsButton, 0, zpsActionsButton.getHeight());
-        });
-
-        buttonPanel.add(zpsActionsButton);
-
-        // Create URL field
+        // URL field - hidden but still functional
         JBTextField urlField = new JBTextField();
+        urlField.setVisible(false); // Hide the URL field
         urlField.addActionListener(e -> loadUrl(urlField.getText()));
         urlField.addKeyListener(new KeyAdapter() {
             @Override
@@ -231,6 +224,30 @@ public class WebBrowserPanel {
         panel.add(urlField, BorderLayout.CENTER);
 
         return panel;
+    }
+    
+    /**
+     * Triggers the quick commit and push flow
+     */
+    private void triggerQuickCommitAndPush() {
+        // Use the new web-based quick commit pipeline
+        browserManager.executeJavaScript("if (window.QuickCommitPipeline) { window.QuickCommitPipeline.execute(); }");
+    }
+    
+    /**
+     * Triggers the full git commit flow with file selection
+     */
+    private void triggerFullGitCommit() {
+        // Call the existing git commit action for full flow
+        ActionManager am = ActionManager.getInstance();
+        AnAction gitAction = am.getAction("Zest.GitCommitMessageGeneratorAction");
+        if (gitAction != null) {
+            DataContext dataContext = DataManager.getInstance().getDataContext(mainPanel);
+            AnActionEvent event = AnActionEvent.createFromDataContext(
+                ActionPlaces.UNKNOWN, null, dataContext
+            );
+            gitAction.actionPerformed(event);
+        }
     }
     /**
      * Sets the active browser mode.

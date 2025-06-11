@@ -85,6 +85,9 @@ public class GitService {
                         // Notify UI about commit in progress
                         notifyUI(project, "GitUI.showCommitInProgress()");
                         
+                        // Check if there are any actual changes to commit
+                        boolean hasChanges = false;
+                        
                         // Stage each selected file
                         for (GitCommitContext.SelectedFile file : selectedFiles) {
                             String cleanPath = cleanFilePath(file.getPath(), project.getName());
@@ -101,7 +104,11 @@ public class GitService {
                             }
                             
                             try {
-                                executeGitCommand(projectPath, command);
+                                String result = executeGitCommand(projectPath, command);
+                                // If command succeeded and produced output, we have changes
+                                if (result != null && !result.isEmpty()) {
+                                    hasChanges = true;
+                                }
                             } catch (Exception e) {
                                 LOG.warn("Error staging file " + cleanPath + ": " + e.getMessage());
                                 // Try alternative approach for deleted files that are giving trouble
@@ -111,12 +118,31 @@ public class GitService {
                                         // Force path-spec to ensure git treats this as a path
                                         executeGitCommand(projectPath, "git rm -f -- \"" + cleanPath + "\"");
                                         LOG.info("Alternative approach succeeded");
+                                        hasChanges = true;
                                     } catch (Exception e2) {
                                         LOG.warn("Alternative approach also failed: " + e2.getMessage());
                                         // Continue with other files
                                     }
                                 }
                             }
+                        }
+                        
+                        // Check if we have anything staged
+                        try {
+                            String stagedStatus = executeGitCommand(projectPath, "git diff --cached --name-only");
+                            if (stagedStatus == null || stagedStatus.trim().isEmpty()) {
+                                hasChanges = false;
+                                LOG.warn("No files were successfully staged");
+                            } else {
+                                hasChanges = true;
+                                LOG.info("Files staged successfully: " + stagedStatus.split("\n").length + " files");
+                            }
+                        } catch (Exception e) {
+                            LOG.warn("Could not check staged files: " + e.getMessage());
+                        }
+                        
+                        if (!hasChanges) {
+                            throw new Exception("No changes to commit. Files may have already been committed.");
                         }
 
                         // Build git commit command with multiple -m flags for multiline message
@@ -135,13 +161,22 @@ public class GitService {
                         showStatusMessage(project, "Commit completed successfully!");
                         notifyUI(project, "GitUI.showCommitSuccess()");
                         
-                        // Refresh the git file list in the browser after a short delay
-                        refreshGitFileListDelayed();
+                        // Don't auto-refresh here - let the JavaScript handle it
                     } catch (Exception e) {
                         LOG.error("Error during commit operation", e);
                         
                         // Show error message and notify UI
                         String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                        
+                        // Check for specific common error patterns
+                        if (errorMsg.contains("nothing to commit") || errorMsg.contains("no changes added") || errorMsg.contains("Your branch is up to date")) {
+                            errorMsg = "No changes to commit. All files may have already been committed.";
+                        } else if (errorMsg.contains("no remote repository") || errorMsg.contains("does not appear to be a git repository")) {
+                            errorMsg = "No remote repository configured. Please set up a remote first.";
+                        } else if (errorMsg.contains("failed to push") || errorMsg.contains("rejected")) {
+                            errorMsg = "Push rejected. You may need to pull latest changes first.";
+                        }
+                        
                         showStatusMessage(project, "Commit failed: " + errorMsg);
                         notifyUI(project, "GitUI.showCommitError('" + escapeJsString(errorMsg) + "')");
                     }
@@ -217,6 +252,42 @@ public String handleGitPush() {
                 // Show status message and notify UI
                 showStatusMessage(project, "Pushing changes to remote...");
                 notifyUI(project, "GitUI.showPushInProgress()");
+                
+                // First check if we have a remote configured
+                try {
+                    String remotes = executeGitCommand(projectPath, "git remote -v");
+                    if (remotes == null || remotes.trim().isEmpty()) {
+                        throw new Exception("No remote repository configured. Please add a remote first (e.g., git remote add origin <url>)");
+                    }
+                } catch (Exception e) {
+                    throw new Exception("Failed to check remote configuration: " + e.getMessage());
+                }
+                
+                // Check if we have commits to push
+                try {
+                    String unpushedCommits = executeGitCommand(projectPath, "git log @{u}.. --oneline");
+                    if (unpushedCommits == null || unpushedCommits.trim().isEmpty()) {
+                        throw new Exception("No commits to push. Your branch is up to date with the remote.");
+                    }
+                } catch (Exception e) {
+                    // If @{u} fails, it might mean no upstream branch is set
+                    if (e.getMessage().contains("@{u}") || e.getMessage().contains("upstream")) {
+                        // Try to set upstream branch
+                        try {
+                            String currentBranch = executeGitCommand(projectPath, "git branch --show-current").trim();
+                            LOG.info("Setting upstream branch for: " + currentBranch);
+                            executeGitCommand(projectPath, "git push -u origin " + currentBranch);
+                            LOG.info("Push with upstream set executed successfully");
+                            showStatusMessage(project, "Push completed successfully!");
+                            notifyUI(project, "GitUI.showPushSuccess()");
+                            notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
+                            return;
+                        } catch (Exception e2) {
+                            throw new Exception("Failed to push: " + e2.getMessage());
+                        }
+                    }
+                    // Otherwise, assume we have commits to push
+                }
 
                 String result = executeGitCommand(projectPath, "git push");
                 LOG.info("Push executed successfully: " + result);
@@ -225,21 +296,25 @@ public String handleGitPush() {
                 showStatusMessage(project, "Push completed successfully!");
                 notifyUI(project, "GitUI.showPushSuccess()");
 
-                // Close the Git modal explicitly
+                // Close the Git modal after successful push
                 notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
-
-                // Refresh the git file list in the browser after a short delay
-                refreshGitFileListDelayed();
             } catch (Exception e) {
                 LOG.error("Error during push operation", e);
 
                 // Show error message and notify UI
                 String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                
+                // Provide more helpful error messages
+                if (errorMsg.contains("rejected") || errorMsg.contains("non-fast-forward")) {
+                    errorMsg = "Push rejected. You need to pull remote changes first (git pull).";
+                } else if (errorMsg.contains("Permission denied") || errorMsg.contains("authentication")) {
+                    errorMsg = "Authentication failed. Please check your credentials or SSH keys.";
+                } else if (errorMsg.contains("Could not read from remote")) {
+                    errorMsg = "Cannot connect to remote repository. Check your network and repository URL.";
+                }
+                
                 showStatusMessage(project, "Push failed: " + errorMsg);
                 notifyUI(project, "GitUI.showPushError('" + escapeJsString(errorMsg) + "')");
-
-                // Close the Git modal even on error
-                notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
             }
         }
     }.queue();
@@ -798,6 +873,89 @@ public String handleGitPush() {
                 LOG.error("Error refreshing git file list in browser", e);
             }
         });
+    }
+    
+    /**
+     * Gets the current git status for quick commit
+     */
+    public String getGitStatus() {
+        LOG.info("Getting git status for quick commit");
+        
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Get all changed files including untracked
+            String changedFiles = "";
+            String stagedFiles = "";
+            String untrackedFiles = "";
+            
+            try {
+                // Get unstaged changes
+                changedFiles = executeGitCommand(projectPath, "git diff --name-status");
+            } catch (Exception e) {
+                LOG.warn("Error getting unstaged changes: " + e.getMessage());
+            }
+            
+            try {
+                // Get staged changes
+                stagedFiles = executeGitCommand(projectPath, "git diff --cached --name-status");
+            } catch (Exception e) {
+                LOG.warn("Error getting staged changes: " + e.getMessage());
+            }
+            
+            try {
+                // Get untracked files
+                untrackedFiles = executeGitCommand(projectPath, "git ls-files --others --exclude-standard");
+            } catch (Exception e) {
+                LOG.warn("Error getting untracked files: " + e.getMessage());
+            }
+            
+            // Combine all changes
+            StringBuilder allChanges = new StringBuilder();
+            
+            // Add staged files first
+            if (!stagedFiles.trim().isEmpty()) {
+                allChanges.append(stagedFiles);
+                if (!allChanges.toString().endsWith("\n")) {
+                    allChanges.append("\n");
+                }
+            }
+            
+            // Add unstaged files
+            if (!changedFiles.trim().isEmpty()) {
+                String[] changedLines = changedFiles.split("\n");
+                for (String line : changedLines) {
+                    if (!line.trim().isEmpty() && !stagedFiles.contains(line.substring(2))) {
+                        allChanges.append(line).append("\n");
+                    }
+                }
+            }
+            
+            // Add untracked files with 'A' status
+            if (!untrackedFiles.trim().isEmpty()) {
+                String[] untracked = untrackedFiles.split("\n");
+                for (String file : untracked) {
+                    if (!file.trim().isEmpty()) {
+                        allChanges.append("A\t").append(file).append("\n");
+                    }
+                }
+            }
+            
+            String result = allChanges.toString();
+            LOG.info("Git status collected: " + (result.isEmpty() ? "No changes" : result.split("\n").length + " files"));
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("changedFiles", result);
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error getting git status", e);
+            return createErrorResponse("Failed to get git status: " + e.getMessage());
+        }
     }
     
     /**

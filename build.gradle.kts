@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.854-SNAPSHOT"
+version = "1.9.857-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -52,6 +52,9 @@ dependencies {
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")
     implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
+    
+    // Javalin for REST API server
+    implementation("io.javalin:javalin:5.6.3")
 
     implementation("dev.langchain4j:langchain4j:0.35.0")
     implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")

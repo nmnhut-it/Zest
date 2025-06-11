@@ -13,6 +13,9 @@ import com.zps.zest.langchain4j.index.NameIndex;
 import com.zps.zest.langchain4j.index.SemanticIndex;
 import com.zps.zest.langchain4j.index.StructuralIndex;
 import com.zps.zest.langchain4j.index.BatchIndexingCoordinator;
+import com.zps.zest.langchain4j.index.DiskBasedNameIndex;
+import com.zps.zest.langchain4j.index.DiskBasedSemanticIndex;
+import com.zps.zest.langchain4j.index.DiskBasedStructuralIndex;
 import com.zps.zest.rag.CodeSignature;
 import com.zps.zest.rag.SignatureExtractor;
 import com.zps.zest.rag.ProjectInfoExtractor;
@@ -47,10 +50,14 @@ public final class HybridIndexManager {
     // Track indexed files
     private final Map<String, Long> indexedFiles = new ConcurrentHashMap<>();
     private volatile boolean isIndexing = false;
+    private volatile CompletableFuture<Boolean> currentIndexingFuture = null;
     
     // Statistics
     private final AtomicInteger totalFilesIndexed = new AtomicInteger(0);
     private final AtomicInteger totalSignaturesIndexed = new AtomicInteger(0);
+    
+    // Periodic persistence timer
+    private Timer persistenceTimer;
     
     public HybridIndexManager(Project project) {
         this.project = project;
@@ -60,14 +67,32 @@ public final class HybridIndexManager {
         this.batchCoordinator = new BatchIndexingCoordinator(project);
         
         initializeIndices();
+        
+        // Start periodic persistence if using disk storage
+        if (project.getService(HybridIndexSettings.class).isUseDiskStorage() &&
+            project.getService(HybridIndexSettings.class).isAutoPersist()) {
+            startPeriodicPersistence();
+        }
+        
         LOG.info("Initialized HybridIndexManager for project: " + project.getName());
     }
     
     private void initializeIndices() {
         try {
-            nameIndex = new NameIndex();
-            semanticIndex = new SemanticIndex();
-            structuralIndex = new StructuralIndex();
+            // Use disk-based implementations if configured
+            boolean useDiskStorage = project.getService(HybridIndexSettings.class).isUseDiskStorage();
+            
+            if (useDiskStorage) {
+                LOG.info("Initializing disk-based indices for better memory efficiency");
+                nameIndex = new DiskBasedNameIndex(project);
+                semanticIndex = new DiskBasedSemanticIndex(project);
+                structuralIndex = new DiskBasedStructuralIndex(project);
+            } else {
+                LOG.info("Initializing in-memory indices");
+                nameIndex = new NameIndex();
+                semanticIndex = new SemanticIndex();
+                structuralIndex = new StructuralIndex();
+            }
         } catch (IOException e) {
             LOG.error("Failed to initialize indices", e);
             throw new RuntimeException("Failed to initialize search indices", e);
@@ -78,38 +103,14 @@ public final class HybridIndexManager {
      * Indexes the entire project.
      */
     public void indexProject(boolean forceReindex) {
-        if (isIndexing) {
+        if (isIndexing && currentIndexingFuture != null && !currentIndexingFuture.isDone()) {
             LOG.info("Indexing already in progress");
             return;
         }
         
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                try {
-                    isIndexing = true;
-                    performBatchIndexing(indicator, forceReindex);
-                } catch (Exception e) {
-                    LOG.error("Error during indexing", e);
-                } finally {
-                    isIndexing = false;
-                }
-            }
-        });
-    }
-    
-    /**
-     * Indexes the entire project and returns a CompletableFuture.
-     * @return CompletableFuture that completes when indexing is done
-     */
-    public CompletableFuture<Boolean> indexProjectAsync(boolean forceReindex) {
+        // Create a future for tracking
         CompletableFuture<Boolean> future = new CompletableFuture<>();
-        
-        if (isIndexing) {
-            LOG.info("Indexing already in progress");
-            future.complete(false);
-            return future;
-        }
+        currentIndexingFuture = future;
         
         ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
             @Override
@@ -120,9 +121,43 @@ public final class HybridIndexManager {
                     future.complete(true);
                 } catch (Exception e) {
                     LOG.error("Error during indexing", e);
-                    future.complete(false);
+                    future.completeExceptionally(e);
                 } finally {
                     isIndexing = false;
+                    currentIndexingFuture = null;
+                }
+            }
+        });
+    }
+    
+    /**
+     * Indexes the entire project and returns a CompletableFuture.
+     * @return CompletableFuture that completes when indexing is done
+     */
+    public CompletableFuture<Boolean> indexProjectAsync(boolean forceReindex) {
+        // If already indexing, return the existing future
+        if (isIndexing && currentIndexingFuture != null && !currentIndexingFuture.isDone()) {
+            LOG.info("Indexing already in progress - returning existing future");
+            return currentIndexingFuture;
+        }
+        
+        // Create new future for this indexing operation
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        currentIndexingFuture = future;
+        
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Hybrid Code Indexing", true) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                try {
+                    isIndexing = true;
+                    performBatchIndexing(indicator, forceReindex);
+                    future.complete(true);
+                } catch (Exception e) {
+                    LOG.error("Error during indexing", e);
+                    future.completeExceptionally(e);
+                } finally {
+                    isIndexing = false;
+                    currentIndexingFuture = null;
                 }
             }
         });
@@ -497,23 +532,73 @@ public final class HybridIndexManager {
     }
     
     /**
+     * Gets the current indexing future if indexing is in progress.
+     * @return the current indexing CompletableFuture, or null if not indexing
+     */
+    public CompletableFuture<Boolean> getCurrentIndexingFuture() {
+        return currentIndexingFuture;
+    }
+    
+    /**
+     * Gets detailed indexing status.
+     * @return a map with indexing status details
+     */
+    public Map<String, Object> getIndexingStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("isIndexing", isIndexing);
+        status.put("hasIndex", hasIndex());
+        status.put("totalFilesIndexed", totalFilesIndexed.get());
+        status.put("totalSignaturesIndexed", totalSignaturesIndexed.get());
+        
+        if (isIndexing && currentIndexingFuture != null) {
+            status.put("inProgress", true);
+            status.put("isDone", currentIndexingFuture.isDone());
+            status.put("isCompletedExceptionally", currentIndexingFuture.isCompletedExceptionally());
+        } else {
+            status.put("inProgress", false);
+        }
+        
+        return status;
+    }
+    
+    /**
      * Clears all indices.
      */
     public void clearIndices() {
         if (nameIndex != null) {
             try {
-                nameIndex.close();
+                if (nameIndex instanceof DiskBasedNameIndex) {
+                    ((DiskBasedNameIndex) nameIndex).close();
+                } else {
+                    nameIndex.close();
+                }
             } catch (IOException e) {
                 LOG.error("Failed to close name index", e);
             }
         }
         
         if (semanticIndex != null) {
-            semanticIndex.clear();
+            if (semanticIndex instanceof DiskBasedSemanticIndex) {
+                try {
+                    ((DiskBasedSemanticIndex) semanticIndex).close();
+                } catch (IOException e) {
+                    LOG.error("Failed to close semantic index", e);
+                }
+            } else {
+                semanticIndex.clear();
+            }
         }
         
         if (structuralIndex != null) {
-            structuralIndex.clear();
+            if (structuralIndex instanceof DiskBasedStructuralIndex) {
+                try {
+                    ((DiskBasedStructuralIndex) structuralIndex).close();
+                } catch (IOException e) {
+                    LOG.error("Failed to close structural index", e);
+                }
+            } else {
+                structuralIndex.clear();
+            }
         }
         
         indexedFiles.clear();
@@ -530,6 +615,62 @@ public final class HybridIndexManager {
     public NameIndex getNameIndex() { return nameIndex; }
     public SemanticIndex getSemanticIndex() { return semanticIndex; }
     public StructuralIndex getStructuralIndex() { return structuralIndex; }
+    
+    /**
+     * Starts periodic persistence of disk-based indices.
+     */
+    private void startPeriodicPersistence() {
+        HybridIndexSettings settings = project.getService(HybridIndexSettings.class);
+        int intervalMinutes = settings.getAutoPersistIntervalMinutes();
+        
+        persistenceTimer = new Timer("HybridIndex-Persistence", true);
+        persistenceTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                persistIndices();
+            }
+        }, intervalMinutes * 60 * 1000L, intervalMinutes * 60 * 1000L);
+        
+        LOG.info("Started periodic persistence every " + intervalMinutes + " minutes");
+    }
+    
+    /**
+     * Persists all disk-based indices.
+     */
+    private void persistIndices() {
+        try {
+            if (nameIndex instanceof DiskBasedNameIndex) {
+                ((DiskBasedNameIndex) nameIndex).commit();
+            }
+            
+            if (semanticIndex instanceof DiskBasedSemanticIndex) {
+                ((DiskBasedSemanticIndex) semanticIndex).saveToDisk();
+            }
+            
+            if (structuralIndex instanceof DiskBasedStructuralIndex) {
+                ((DiskBasedStructuralIndex) structuralIndex).saveToDisk();
+            }
+            
+            LOG.debug("Persisted indices to disk");
+        } catch (Exception e) {
+            LOG.error("Failed to persist indices", e);
+        }
+    }
+    
+    /**
+     * Disposes resources when the project is closed.
+     */
+    public void dispose() {
+        if (persistenceTimer != null) {
+            persistenceTimer.cancel();
+            persistenceTimer = null;
+        }
+        
+        // Persist and close indices
+        clearIndices();
+        
+        LOG.info("Disposed HybridIndexManager for project: " + project.getName());
+    }
     
     /**
      * Indexing strategy for hybrid indexing across all three indices.

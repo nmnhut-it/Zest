@@ -142,6 +142,9 @@ public class JavaScriptBridgeActions {
                     
                 case "openFileDiffInIDE":
                     return gitService.openFileDiffInIDE(data);
+                    
+                case "getGitStatus":
+                    return gitService.getGitStatus();
                 
                 // Content update handling
                 case "contentUpdated":
@@ -165,6 +168,9 @@ public class JavaScriptBridgeActions {
                     
                 case "setProjectIndexEnabled":
                     return setProjectIndexEnabled(data);
+                    
+                case "getCommitPromptTemplate":
+                    return getCommitPromptTemplate();
                 
                 default:
                     LOG.warn("Unknown action: " + action);
@@ -231,7 +237,7 @@ public class JavaScriptBridgeActions {
                 response.addProperty("error", "No knowledge base configured. Please index your project first.");
             }
         } catch (Exception e) {
-            LOG.error("Error getting knowledge ID", e);
+//            LOG.error("Error getting knowledge ID", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
@@ -296,7 +302,7 @@ public class JavaScriptBridgeActions {
                 response.addProperty("error", "No knowledge base configured. Please index your project first.");
             }
         } catch (Exception e) {
-            LOG.error("Error getting knowledge collection", e);
+//            LOG.error("Error getting knowledge collection", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
@@ -379,7 +385,7 @@ public class JavaScriptBridgeActions {
             response.addProperty("success", true);
             return gson.toJson(response);
         } catch (Exception e) {
-            LOG.error("Error handling knowledge API result", e);
+//            LOG.error("Error handling knowledge API result", e);
             JsonObject response = new JsonObject();
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
@@ -435,6 +441,24 @@ public class JavaScriptBridgeActions {
             response.addProperty("success", true);
         } catch (Exception e) {
             LOG.error("Error setting project index state", e);
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+        }
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Gets the commit prompt template from configuration.
+     */
+    private String getCommitPromptTemplate() {
+        JsonObject response = new JsonObject();
+        try {
+            ConfigurationManager config = ConfigurationManager.getInstance(project);
+            String template = config.getCommitPromptTemplate();
+            response.addProperty("success", true);
+            response.addProperty("template", template);
+        } catch (Exception e) {
+            LOG.error("Error getting commit prompt template", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }

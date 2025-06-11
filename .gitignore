@@ -47,3 +47,8 @@ zest-plugin.properties
 .idea/zest-inline-chat-command-history.xml
 /mcp-server/node_modules
 /rag-lancedb
+# Zest plugin indexing directories
+/.idea/zest/
+.idea/zest/semantic-index/
+.idea/zest/name-index/
+.idea/zest/structural-index/

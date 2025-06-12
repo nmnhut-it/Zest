@@ -107,6 +107,7 @@ public class ChatboxUtilities {
 
         // Implementation actions
         IMPLEMENT_TODOS,              // Implement Your TODOs
+        INLINE_COMPLETION,              // Inline completion
 
         // Chat-based actions
         CHAT_CODE_REVIEW,             // Chat: Review This Class

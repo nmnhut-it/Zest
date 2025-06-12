@@ -52,3 +52,4 @@ zest-plugin.properties
 .idea/zest/semantic-index/
 .idea/zest/name-index/
 .idea/zest/structural-index/
+/.intellijPlatform

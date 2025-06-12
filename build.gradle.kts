@@ -1,7 +1,7 @@
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.25"
-    id("org.jetbrains.intellij") version "1.17.4"
+    id("org.jetbrains.intellij.platform") version "2.1.0"
 }
 
 group = "com.zps"
@@ -9,25 +9,24 @@ version = "1.9.857-SNAPSHOT"
 
 repositories {
     mavenCentral()
-}
-
-
-// Configure Gradle IntelliJ Plugin
-// Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
-intellij {
-    version.set("2024.3.4.1")
-    type.set("IC") // Target IDE Platform
-    // Add this to help with resource loading
-    sandboxDir = "$projectDir/build/idea-sandbox"
-
-    // Ensure all dependencies are included
-    downloadSources.set(true)
-    // This might help with classloader issues
-    sameSinceUntilBuild.set(false)
-    plugins.set(listOf("java"/* Plugin Dependencies */))
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
 dependencies {
+    intellijPlatform {
+        intellijIdeaCommunity("2024.3.4.1")
+        
+        // Plugin Dependencies
+        bundledPlugin("com.intellij.java")
+        
+        // Required for testing
+        pluginVerifier()
+        zipSigner()
+        instrumentationTools()
+    }
+
     // JUnit 4 for IntelliJ platform tests
     testImplementation("junit:junit:4.13.2")
 
@@ -36,6 +35,7 @@ dependencies {
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    
     // ONNX Runtime - REQUIRED for ONNX models to work
     implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 
@@ -73,8 +73,36 @@ dependencies {
     // No Lucene dependencies needed - using in-memory index instead
 }
 
-tasks {
+intellijPlatform {
+    buildSearchableOptions = false
+    instrumentCode = false
+    
+    pluginConfiguration {
+        id = "com.zps.zest"
+        name = "Zest"
+        vendor {
+            name = "ZPS"
+        }
+    }
+    
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+    
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+    }
+    
+    pluginVerification {
+        ides {
+            recommended()
+        }
+    }
+}
 
+tasks {
     // Clean task to also remove the sandbox
     clean {
         delete("$projectDir/build/idea-sandbox")
@@ -88,10 +116,12 @@ tasks {
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }
+    
     // Add this to ensure resources are properly packaged
     processResources {
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
     }
+    
     // Configure the test task for JUnit 4 (IntelliJ platform tests)
     test {
         useJUnit()
@@ -101,17 +131,7 @@ tasks {
     }
 
     patchPluginXml {
-        sinceBuild.set("223.0")
-        untilBuild.set("251.*") // Makes it compatible with 2024.3.x
-    }
-
-    signPlugin {
-        certificateChain.set(System.getenv("CERTIFICATE_CHAIN"))
-        privateKey.set(System.getenv("PRIVATE_KEY"))
-        password.set(System.getenv("PRIVATE_KEY_PASSWORD"))
-    }
-
-    publishPlugin {
-        token.set(System.getenv("PUBLISH_TOKEN"))
+        sinceBuild.set("243.0")
+        untilBuild.set("251.*") // Makes it compatible with 2024.3.x and beyond
     }
 }

@@ -4,7 +4,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
@@ -14,7 +13,6 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.TextRange
 import com.intellij.util.messages.Topic
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionItem
@@ -63,8 +61,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             stateMutex.withLock {
                 logger.debug("Requesting completion at offset $offset, manually=$manually")
                 
-                // Cancel any existing completion request
+                // Cancel any existing completion requestc
                 currentCompletionJob?.cancel()
+
                 currentContext = null
                 currentCompletions = null
                 currentCompletionIndex = 0
@@ -79,16 +78,23 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     return@withLock
                 }
                 
-                // Build completion context
-                val context = CompletionContext.from(editor, offset, manually)
-                currentContext = context
-                
                 // Notify listeners that we're loading
                 project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(true)
                 
                 // Start completion request
                 currentCompletionJob = scope.launch {
                     try {
+                        // Build completion context safely using invokeLater
+                        val context = buildCompletionContext(editor, offset, manually)
+                        if (context == null) {
+                            logger.debug("Failed to build completion context")
+                            return@launch
+                        }
+                        
+                        stateMutex.withLock {
+                            currentContext = context
+                        }
+                        
                         val completions = requestCompletionInternal(context)
                         
                         stateMutex.withLock {
@@ -98,6 +104,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         }
                     } catch (e: CancellationException) {
                         logger.debug("Completion request cancelled")
+                        throw e // Rethrow CancellationException as required
                     } catch (e: Exception) {
                         logger.warn("Completion request failed", e)
                     } finally {
@@ -119,7 +126,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 val context = currentContext ?: return@withLock
                 val completions = currentCompletions ?: return@withLock
                 
-                if (!isValidPosition(editor, offset ?: editor.caretModel.offset, context)) {
+                // Use provided offset or context offset
+                val actualOffset = offset ?: context.offset
+                
+                if (actualOffset != context.offset) {
                     logger.debug("Invalid position for acceptance")
                     return@withLock
                 }
@@ -138,7 +148,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     clearCurrentCompletion()
                 } else {
                     // For partial acceptance, update the context
-                    updateContextAfterPartialAcceptance(editor, textToInsert.length)
+                    invokeLater {
+                        updateContextAfterPartialAcceptance(editor, textToInsert.length)
+                    }
                 }
             }
         }
@@ -165,7 +177,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 val context = currentContext ?: return@withLock
                 val completions = currentCompletions ?: return@withLock
                 
-                if (!isValidPosition(editor, offset ?: editor.caretModel.offset, context)) {
+                // Get offset safely
+                val actualOffset = offset ?: context.offset
+                
+                if (actualOffset != context.offset) {
                     logger.debug("Invalid position for cycling")
                     return@withLock
                 }
@@ -190,8 +205,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 // Show the new completion
                 val newItem = completions.getItem(newIndex)
                 if (newItem != null) {
-                    renderer.show(editor, context.offset, newItem)
-                    logger.debug("Cycled to completion $newIndex: '${newItem.insertText.take(30)}'")
+                    invokeLater {
+                        renderer.show(editor, context.offset, newItem)
+                        logger.debug("Cycled to completion $newIndex: '${newItem.insertText.take(30)}'")
+                    }
                 }
             }
         }
@@ -238,6 +255,21 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     // Private implementation methods
+    
+    private suspend fun buildCompletionContext(editor: Editor, offset: Int, manually: Boolean): CompletionContext? {
+        return try {
+            withContext(Dispatchers.Main) {
+                if (editor.isDisposed) {
+                    null
+                } else {
+                    CompletionContext.from(editor, offset, manually)
+                }
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to build completion context", e)
+            null
+        }
+    }
     
     private suspend fun requestCompletionInternal(context: CompletionContext): ZestInlineCompletionList? {
         val rawCompletions = completionProvider.requestCompletion(context)
@@ -318,6 +350,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     private fun updateContextAfterPartialAcceptance(editor: Editor, acceptedLength: Int) {
+        // This method is called from EDT via invokeLater, so it's safe to access editor state
         val context = currentContext ?: return
         val newOffset = context.offset + acceptedLength
         
@@ -341,6 +374,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         return editor.caretModel.offset == offset && offset == context.offset
     }
     
+    private fun isValidPositionSync(editor: Editor, offset: Int, context: CompletionContext): Boolean {
+        // This version can be called from EDT without launching coroutines
+        return offset == context.offset
+    }
+    
     private fun clearCurrentCompletion() {
         currentCompletionJob?.cancel()
         currentContext = null
@@ -358,8 +396,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     scope.launch {
                         delay(AUTO_TRIGGER_DELAY_MS)
                         invokeLater {
-                            val currentOffset = editor.caretModel.offset
-                            provideInlineCompletion(editor, currentOffset, manually = false)
+                            if (!editor.isDisposed) {
+                                val currentOffset = editor.caretModel.offset
+                                provideInlineCompletion(editor, currentOffset, manually = false)
+                            }
                         }
                     }
                 }
@@ -370,12 +410,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         messageBusConnection.subscribe(ZestCaretListener.TOPIC, object : ZestCaretListener {
             override fun caretPositionChanged(editor: Editor, event: CaretEvent) {
                 if (editorManager.selectedTextEditor == editor) {
-                    val offset = editor.caretModel.offset
-                    scope.launch {
-                        stateMutex.withLock {
-                            val context = currentContext
-                            if (context != null && !isValidPosition(editor, offset, context)) {
-                                logger.debug("Caret moved, dismissing completion")
+                    // Get offset on EDT thread where the event handler runs
+                    val currentOffset = editor.logicalPositionToOffset(event.newPosition)
+                    
+                    // Check if we should dismiss without launching a coroutine
+                    val context = currentContext
+                    if (context != null && !isValidPositionSync(editor, currentOffset, context)) {
+                        logger.debug("Caret moved, dismissing completion")
+                        scope.launch {
+                            stateMutex.withLock {
                                 clearCurrentCompletion()
                             }
                         }

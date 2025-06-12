@@ -36,7 +36,7 @@ class ZestCompletionProvider(private val project: Project) {
             // Use timeout to prevent hanging
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 // Use the LLMService query method with appropriate usage
-                llmService.query(prompt, ChatboxUtilities.EnumUsage.LLM_SERVICE)
+                llmService.query(prompt, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
             
             if (response == null) {

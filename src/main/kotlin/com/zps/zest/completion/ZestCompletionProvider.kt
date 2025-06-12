@@ -4,12 +4,15 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.components.service
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.CompletionMetadata
 import com.zps.zest.completion.context.ZestCompleteGitContext
 import com.zps.zest.completion.context.ZestLeanContextCollector
+import com.zps.zest.completion.context.ZestFastContextCollector
+import com.zps.zest.completion.context.ZestBackgroundContextManager
 import com.zps.zest.completion.prompt.ZestReasoningPromptBuilder
 import com.zps.zest.completion.parser.ZestReasoningResponseParser
 import com.zps.zest.langchain4j.util.LLMService
@@ -33,7 +36,12 @@ class ZestCompletionProvider(private val project: Project) {
         }
     }
     
-    private val contextCollector = ZestLeanContextCollector(project)
+    // Context collectors - fast and fallback
+    private val fastContextCollector = ZestFastContextCollector(project)
+    private val fallbackContextCollector = ZestLeanContextCollector(project)
+    private val backgroundManager by lazy { 
+        project.service<ZestBackgroundContextManager>()
+    }
     private val promptBuilder = ZestReasoningPromptBuilder()
     private val responseParser = ZestReasoningResponseParser()
     
@@ -49,17 +57,21 @@ class ZestCompletionProvider(private val project: Project) {
                 return requestBasicCompletion(context)
             }
             
-            // Collect enhanced context with all modified files
-            val leanContext = contextCollector.collectContext(editor, context.offset)
+            // Collect context using fast or fallback method
+            val leanContext = collectContextOptimized(editor, context.offset)
+            val contextTime = System.currentTimeMillis() - startTime
+            logger.debug("Context collection completed in ${contextTime}ms")
             
             // Build reasoning prompt
             val reasoningPrompt = promptBuilder.buildReasoningPrompt(leanContext)
             logger.debug("Reasoning prompt built, length: ${reasoningPrompt.length}")
             
             // Query LLM with timeout
+            val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 llmService.query(reasoningPrompt, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
+            val llmTime = System.currentTimeMillis() - llmStartTime
             
             if (response == null) {
                 logger.debug("Enhanced completion request timed out, falling back to basic")
@@ -67,19 +79,16 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             // Parse reasoning response
-            val reasoningCompletion = responseParser.parseReasoningResponse(
-                response, 
-                context, 
-                getCurrentEditor()?.document?.text
-            )
+            val reasoningCompletion = responseParser.parseReasoningResponse(response)
             if (reasoningCompletion == null) {
                 logger.debug("Failed to parse reasoning response, falling back to basic")
                 return requestBasicCompletion(context)
             }
             
-            val processingTime = System.currentTimeMillis() - startTime
+            val totalTime = System.currentTimeMillis() - startTime
             
-            // Log the reasoning for debugging
+            // Log performance metrics
+            logger.info("Enhanced completion: context=${contextTime}ms, llm=${llmTime}ms, total=${totalTime}ms")
             logger.debug("Completion reasoning: ${reasoningCompletion.reasoning}")
             
             // Create completion item with enhanced metadata
@@ -93,7 +102,7 @@ class ZestCompletionProvider(private val project: Project) {
                 metadata = CompletionMetadata(
                     model = "zest-llm-reasoning",
                     tokens = reasoningCompletion.completion.split("\\s+".toRegex()).size,
-                    latency = processingTime,
+                    latency = totalTime,
                     requestId = UUID.randomUUID().toString(),
                     reasoning = reasoningCompletion.reasoning,
                     modifiedFilesCount = leanContext.gitInfo?.allModifiedFiles?.size ?: 0
@@ -109,6 +118,24 @@ class ZestCompletionProvider(private val project: Project) {
         } catch (e: Exception) {
             logger.warn("Enhanced reasoning completion failed, falling back to basic", e)
             requestBasicCompletion(context)
+        }
+    }
+    
+    /**
+     * Optimized context collection using fast collector when available
+     */
+    private suspend fun collectContextOptimized(editor: Editor, offset: Int): ZestLeanContextCollector.LeanContext {
+        return try {
+            if (fastContextCollector.isFastCollectionAvailable()) {
+                logger.debug("Using fast context collection")
+                fastContextCollector.collectFastContext(editor, offset)
+            } else {
+                logger.debug("Fast collection unavailable, using fallback")
+                fallbackContextCollector.collectContext(editor, offset)
+            }
+        } catch (e: Exception) {
+            logger.warn("Fast context collection failed, using fallback", e)
+            fallbackContextCollector.collectContext(editor, offset)
         }
     }
     
@@ -198,12 +225,8 @@ class ZestCompletionProvider(private val project: Project) {
             return ZestInlineCompletionList.EMPTY
         }
         
-        // Clean up the response with overlap detection
-        val cleanedResponse = responseParser.parseSimpleResponse(
-            response,
-            context,
-            getCurrentEditor()?.document?.text
-        )
+        // Clean up the response using enhanced parser
+        val cleanedResponse = responseParser.parseSimpleResponse(response)
         
         if (cleanedResponse.isBlank()) {
             return ZestInlineCompletionList.EMPTY

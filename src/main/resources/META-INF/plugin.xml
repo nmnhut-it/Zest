@@ -123,6 +123,12 @@
                 <keyboard-shortcut first-keystroke="alt SLASH" keymap="$default"/>
             </action>
             
+            <action id="Zest.InlineCompletion.ImmediateTrigger"
+                    class="com.zps.zest.completion.actions.ZestImmediateTrigger"
+                    text="Immediate Inline Completion">
+                <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
+            </action>
+            
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
                     text="Accept Completion (Tab)">

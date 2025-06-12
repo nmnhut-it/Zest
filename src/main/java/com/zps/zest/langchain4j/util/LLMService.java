@@ -27,19 +27,23 @@ import java.util.concurrent.CompletionException;
  */
 @Service(Service.Level.PROJECT)
 public final class LLMService {
-    
+
     private static final Logger LOG = Logger.getInstance(LLMService.class);
     private static final Gson GSON = new Gson();
-    
+
     private final Project project;
     private final ConfigurationManager config;
-    
+
     // Configuration constants
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 120_000;
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 1000;
-    
+    private static final int DEFAULT_MAX_TOKENS = 4096;
+
+    // Debug flag
+    private boolean debugMode = true;
+
     public LLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
@@ -47,8 +51,23 @@ public final class LLMService {
     }
 
     /**
+     * Enable or disable debug mode
+     */
+    public void setDebugMode(boolean debugMode) {
+        this.debugMode = debugMode;
+        LOG.info("Debug mode set to: " + debugMode);
+    }
+
+    /**
+     * Get current debug mode status
+     */
+    public boolean isDebugMode() {
+        return debugMode;
+    }
+
+    /**
      * Simple synchronous call to LLM with a prompt.
-     * 
+     *
      * @param prompt The prompt to send to the LLM
      * @param enumUsage
      * @return The response from the LLM, or null if failed
@@ -57,10 +76,10 @@ public final class LLMService {
     public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
         return query(prompt+"\n/no_think", "local-model-mini", enumUsage);
     }
-    
+
     /**
      * Simple synchronous call to LLM with a prompt and specific model.
-     * 
+     *
      * @param prompt The prompt to send to the LLM
      * @param model The model to use (overrides config)
      * @param enumUsage
@@ -68,17 +87,15 @@ public final class LLMService {
      */
     @Nullable
     public String query(@NotNull String prompt, @NotNull String model, ChatboxUtilities.EnumUsage enumUsage) {
-        try {
-            return queryWithRetry(prompt, model, MAX_RETRY_ATTEMPTS, enumUsage);
-        } catch (Exception e) {
-            LOG.error("Failed to query LLM", e);
-            return null;
-        }
+        LLMQueryParams params = new LLMQueryParams(prompt)
+                .withModel(model)
+                .withMaxTokens(DEFAULT_MAX_TOKENS);
+        return queryWithParams(params, enumUsage);
     }
-    
+
     /**
      * Asynchronous call to LLM.
-     * 
+     *
      * @param prompt The prompt to send to the LLM
      * @return CompletableFuture with the response
      */
@@ -86,10 +103,10 @@ public final class LLMService {
     public CompletableFuture<String> queryAsync(@NotNull String prompt) {
         return queryAsync(prompt, config.getCodeModel());
     }
-    
+
     /**
      * Asynchronous call to LLM with specific model.
-     * 
+     *
      * @param prompt The prompt to send to the LLM
      * @param model The model to use
      * @return CompletableFuture with the response
@@ -104,10 +121,10 @@ public final class LLMService {
             return result;
         });
     }
-    
+
     /**
      * Query with custom parameters.
-     * 
+     *
      * @param params The query parameters
      * @param enumUsage
      * @return The response from the LLM, or null if failed
@@ -115,34 +132,34 @@ public final class LLMService {
     @Nullable
     public String queryWithParams(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         try {
-            return queryWithRetry(params.getPrompt(), params.getModel(), params.getMaxRetries(), enumUsage);
+            return queryWithRetry(params, enumUsage);
         } catch (Exception e) {
             LOG.error("Failed to query LLM with params", e);
             return null;
         }
     }
-    
+
     /**
      * Internal method to query with retry logic.
      */
-    private String queryWithRetry(String prompt, String model, int maxRetries, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
+    private String queryWithRetry(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         String apiUrl = config.getApiUrl();
         String authToken = config.getAuthToken();
-        
+
         if (apiUrl == null || apiUrl.isEmpty()) {
             throw new IllegalStateException("LLM API URL not configured");
         }
-        
+
         IOException lastException = null;
-        
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+
+        for (int attempt = 1; attempt <= params.getMaxRetries(); attempt++) {
             try {
-                return executeQuery(apiUrl, model, authToken, prompt, enumUsage);
+                return executeQuery(apiUrl, authToken, params, enumUsage);
             } catch (IOException e) {
                 lastException = e;
                 LOG.warn("LLM query attempt " + attempt + " failed: " + e.getMessage());
-                
-                if (attempt < maxRetries) {
+
+                if (attempt < params.getMaxRetries()) {
                     try {
                         Thread.sleep(RETRY_DELAY_MS * attempt); // Exponential backoff
                     } catch (InterruptedException ie) {
@@ -152,148 +169,180 @@ public final class LLMService {
                 }
             }
         }
-        
+
         throw new IOException("All retry attempts failed", lastException);
     }
-    
+
     /**
      * Executes the actual HTTP request to the LLM API.
      */
-    private String executeQuery(String apiUrl, String model, String authToken, String prompt, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
+    private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        
+
         try {
             // Setup connection
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
-            
+
             if (authToken != null && !authToken.isEmpty()) {
                 connection.setRequestProperty("Authorization", "Bearer " + authToken);
             }
-            
+
             connection.setConnectTimeout(CONNECTION_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setDoOutput(true);
-            
+
             // Prepare request body
-            String requestBody = createRequestBody(apiUrl, model, prompt, enumUsage);
-            
+            String requestBody = createRequestBody(apiUrl, params, enumUsage);
+
+            if (debugMode) {
+                System.out.println("DEBUG: LLM Request URL: " + apiUrl);
+                System.out.println("DEBUG: LLM Request Body: " + requestBody);
+            }
+
             // Send request
             try (OutputStream os = connection.getOutputStream()) {
                 byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
                 os.write(input, 0, input.length);
             }
-            
+
             // Check response code
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 String error = readErrorResponse(connection);
                 throw new IOException("API returned error code " + responseCode + ": " + error);
             }
-            
+
             // Read response
-            return readResponse(connection);
-            
+            String response = readResponse(connection);
+
+            if (debugMode) {
+                System.out.println("DEBUG: LLM Response: " + response);
+            }
+
+            return response;
+
         } finally {
             connection.disconnect();
         }
     }
-    
+
     /**
      * Creates the request body based on the API type.
      */
-    private String createRequestBody(String apiUrl, String model, String prompt, ChatboxUtilities.EnumUsage enumUsage) {
+    private String createRequestBody(String apiUrl, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         // Determine API type based on URL
         if (isOpenWebUIApi(apiUrl)) {
-            return createOpenWebUIRequestBody(model, prompt, enumUsage);
+            return createOpenWebUIRequestBody(params, enumUsage);
         } else {
-            return createOllamaRequestBody(model, prompt);
+            return createOllamaRequestBody(params);
         }
     }
-    
+
     /**
      * Creates request body for OpenWebUI/Zingplay API.
      */
-    private String createOpenWebUIRequestBody(String model, String prompt, ChatboxUtilities.EnumUsage enumUsage) {
+    private String createOpenWebUIRequestBody(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         JsonObject root = new JsonObject();
-        root.addProperty("model", model);
+        root.addProperty("model", params.getModel());
         root.addProperty("stream", false);
         String usage = enumUsage.name();
         root.addProperty("custom_tool", "Zest|" + usage);
-        
+
+        // Add params object with max_tokens and max_completion_tokens
+        JsonObject paramsObj = new JsonObject();
+        paramsObj.addProperty("max_tokens", params.getMaxTokens());
+        paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
+        root.add("params", paramsObj);
+
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");
-        message.addProperty("content", prompt);
-        
+        message.addProperty("content", params.getPrompt());
+
         com.google.gson.JsonArray messages = new com.google.gson.JsonArray();
         messages.add(message);
         root.add("messages", messages);
-        
+
+        // Add empty arrays/objects for compatibility
+        root.add("tool_servers", new com.google.gson.JsonArray());
+
+        JsonObject features = new JsonObject();
+        features.addProperty("image_generation", false);
+        features.addProperty("code_interpreter", false);
+        features.addProperty("web_search", false);
+        features.addProperty("memory", false);
+        root.add("features", features);
+
         return GSON.toJson(root);
     }
-    
+
     /**
      * Creates request body for Ollama API.
      */
-    private String createOllamaRequestBody(String model, String prompt) {
+    private String createOllamaRequestBody(LLMQueryParams params) {
         JsonObject root = new JsonObject();
-        root.addProperty("model", model);
-        root.addProperty("prompt", prompt);
+        root.addProperty("model", params.getModel());
+        root.addProperty("prompt", params.getPrompt());
         root.addProperty("stream", false);
-        
+
         JsonObject options = new JsonObject();
-        options.addProperty("num_predict", 32000);
+        options.addProperty("num_predict", params.getMaxTokens());
         root.add("options", options);
-        
+
         return GSON.toJson(root);
     }
-    
+
     /**
      * Reads the successful response from the connection.
      */
     private String readResponse(HttpURLConnection connection) throws IOException {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-            
+
             StringBuilder response = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
                 response.append(line);
             }
-            
+
             String jsonResponse = response.toString();
+
+            if (debugMode) {
+                System.out.println("DEBUG: Raw JSON Response: " + jsonResponse);
+            }
+
             return parseResponse(jsonResponse, connection.getURL().toString());
         }
     }
-    
+
     /**
      * Reads error response from the connection.
      */
     private String readErrorResponse(HttpURLConnection connection) {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
-            
+
             StringBuilder error = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
                 error.append(line);
             }
             return error.toString();
-            
+
         } catch (IOException e) {
             return "Unable to read error response: " + e.getMessage();
         }
     }
-    
+
     /**
      * Parses the response based on API type.
      */
     private String parseResponse(String jsonResponse, String apiUrl) throws IOException {
         try {
             JsonObject response = JsonParser.parseString(jsonResponse).getAsJsonObject();
-            
+
             if (isOpenWebUIApi(apiUrl)) {
                 // OpenWebUI format
                 if (response.has("choices") && response.getAsJsonArray("choices").size() > 0) {
@@ -311,23 +360,23 @@ public final class LLMService {
                     return response.get("response").getAsString();
                 }
             }
-            
+
             throw new IOException("Unexpected response format: " + jsonResponse);
-            
+
         } catch (Exception e) {
             throw new IOException("Failed to parse response: " + e.getMessage(), e);
         }
     }
-    
+
     /**
      * Checks if the API URL is for OpenWebUI/Zingplay.
      */
     private boolean isOpenWebUIApi(String apiUrl) {
-        return apiUrl.contains("openwebui") || 
-               apiUrl.contains("chat.zingplay") || 
-               apiUrl.contains("talk.zingplay");
+        return apiUrl.contains("openwebui") ||
+                apiUrl.contains("chat.zingplay") ||
+                apiUrl.contains("talk.zingplay");
     }
-    
+
     /**
      * Checks if the LLM service is properly configured.
      */
@@ -335,7 +384,7 @@ public final class LLMService {
         String apiUrl = config.getApiUrl();
         return apiUrl != null && !apiUrl.isEmpty();
     }
-    
+
     /**
      * Gets the current configuration status.
      */
@@ -347,7 +396,7 @@ public final class LLMService {
         status.setHasAuthToken(config.getAuthToken() != null && !config.getAuthToken().isEmpty());
         return status;
     }
-    
+
     /**
      * Parameters for LLM queries.
      */
@@ -356,33 +405,40 @@ public final class LLMService {
         private String model;
         private int maxRetries = MAX_RETRY_ATTEMPTS;
         private long timeoutMs = READ_TIMEOUT_MS;
-        
+        private int maxTokens = DEFAULT_MAX_TOKENS;
+
         public LLMQueryParams(@NotNull String prompt) {
             this.prompt = prompt;
         }
-        
+
         public LLMQueryParams withModel(@NotNull String model) {
             this.model = model;
             return this;
         }
-        
+
         public LLMQueryParams withMaxRetries(int maxRetries) {
             this.maxRetries = maxRetries;
             return this;
         }
-        
+
         public LLMQueryParams withTimeout(long timeoutMs) {
             this.timeoutMs = timeoutMs;
             return this;
         }
-        
+
+        public LLMQueryParams withMaxTokens(int maxTokens) {
+            this.maxTokens = maxTokens;
+            return this;
+        }
+
         // Getters
         public String getPrompt() { return prompt; }
         public String getModel() { return model; }
         public int getMaxRetries() { return maxRetries; }
         public long getTimeoutMs() { return timeoutMs; }
+        public int getMaxTokens() { return maxTokens; }
     }
-    
+
     /**
      * Configuration status for the LLM service.
      */
@@ -391,17 +447,17 @@ public final class LLMService {
         private String apiUrl;
         private String model;
         private boolean hasAuthToken;
-        
+
         // Getters and setters
         public boolean isConfigured() { return configured; }
         public void setConfigured(boolean configured) { this.configured = configured; }
-        
+
         public String getApiUrl() { return apiUrl; }
         public void setApiUrl(String apiUrl) { this.apiUrl = apiUrl; }
-        
+
         public String getModel() { return model; }
         public void setModel(String model) { this.model = model; }
-        
+
         public boolean hasAuthToken() { return hasAuthToken; }
         public void setHasAuthToken(boolean hasAuthToken) { this.hasAuthToken = hasAuthToken; }
     }

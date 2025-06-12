@@ -6,7 +6,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.zps.zest.browser.utils.GitCommandExecutor
 
 /**
- * Collects complete git context including all modified files
+ * Collects complete git context including all modified files with actual code diffs
  */
 class ZestCompleteGitContext(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompleteGitContext::class.java)
@@ -14,13 +14,21 @@ class ZestCompleteGitContext(private val project: Project) {
     data class CompleteGitInfo(
         val recentCommitMessage: String?,
         val allModifiedFiles: List<ModifiedFile>,
-        val currentFileStatus: String
+        val currentFileStatus: String,
+        val actualDiffs: List<FileDiff> // NEW: Actual code diffs
     )
     
     data class ModifiedFile(
         val path: String,
         val status: String, // M, A, D, R
         val summary: String? = null // Brief description of changes
+    )
+    
+    data class FileDiff(
+        val filePath: String,
+        val status: String,
+        val diffContent: String, // Actual diff content
+        val isRelevant: Boolean = true // Filter out noise
     )
     
     fun getAllModifiedFiles(): CompleteGitInfo {
@@ -46,17 +54,131 @@ class ZestCompleteGitContext(private val project: Project) {
                     ModifiedFile(path, status, summary)
                 }
             
+            // Get actual diffs for relevant files
+            val actualDiffs = getActualDiffs(modifiedFiles)
+            
             CompleteGitInfo(
                 recentCommitMessage = if (lastCommit.isNotBlank()) lastCommit else null,
                 allModifiedFiles = modifiedFiles,
-                currentFileStatus = "editing"
+                currentFileStatus = "editing",
+                actualDiffs = actualDiffs
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
             System.out.println("Git context collection was cancelled (normal behavior)")
             throw e
         } catch (e: Exception) {
             System.out.println("Failed to get git context: ${e.message}")
-            CompleteGitInfo(null, emptyList(), "unknown")
+            CompleteGitInfo(null, emptyList(), "unknown", emptyList())
+        }
+    }
+    
+    private fun getActualDiffs(modifiedFiles: List<ModifiedFile>): List<FileDiff> {
+        return modifiedFiles.mapNotNull { file ->
+            try {
+                when (file.status) {
+                    "M" -> {
+                        // Get actual diff for modified files
+                        val diffOutput = GitCommandExecutor.executeWithGenericException(
+                            project.basePath!!, 
+                            "git diff \"${file.path}\""
+                        )
+                        
+                        if (diffOutput.isNotBlank() && isRelevantFile(file.path)) {
+                            FileDiff(
+                                filePath = file.path,
+                                status = file.status,
+                                diffContent = cleanDiffOutput(diffOutput),
+                                isRelevant = isRelevantFile(file.path)
+                            )
+                        } else null
+                    }
+                    "A" -> {
+                        // For new files, show the content (limited)
+                        val fileContent = getNewFileContent(file.path)
+                        if (fileContent != null && isRelevantFile(file.path)) {
+                            FileDiff(
+                                filePath = file.path,
+                                status = file.status,
+                                diffContent = "NEW FILE:\n$fileContent",
+                                isRelevant = true
+                            )
+                        } else null
+                    }
+                    else -> null // Skip deleted, renamed files for now
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to get diff for ${file.path}", e)
+                null
+            }
+        }
+    }
+    
+    private fun cleanDiffOutput(diffOutput: String): String {
+        val lines = diffOutput.lines()
+        val cleanedLines = mutableListOf<String>()
+        
+        for (line in lines) {
+            when {
+                line.startsWith("diff --git") -> continue // Skip git headers
+                line.startsWith("index ") -> continue // Skip index lines
+                line.startsWith("--- ") || line.startsWith("+++ ") -> {
+                    // Keep file markers but clean them up
+                    cleanedLines.add(line)
+                }
+                line.startsWith("@@") -> {
+                    // Keep hunk headers
+                    cleanedLines.add(line)
+                }
+                line.startsWith("+") || line.startsWith("-") || line.startsWith(" ") -> {
+                    // Keep actual diff content
+                    cleanedLines.add(line)
+                }
+            }
+        }
+        
+        // Limit diff size to avoid overwhelming the prompt
+        val limitedLines = cleanedLines.take(50).toMutableList() // Convert to mutable list
+        if (cleanedLines.size > 50) {
+            limitedLines.add("... (diff truncated)")
+        }
+        
+        return limitedLines.joinToString("\n")
+    }
+    
+    private fun isRelevantFile(path: String): Boolean {
+        val relevantExtensions = setOf(
+            "java", "kt", "js", "ts", "py", "html", "css", "xml", 
+            "json", "yaml", "yml", "sql", "groovy", "scala"
+        )
+        val extension = path.substringAfterLast('.', "").lowercase()
+        
+        // Skip certain noise files
+        val skipPatterns = listOf(
+            ".git", "node_modules", ".idea", "target/", "build/",
+            ".class", ".jar", ".log", "package-lock.json"
+        )
+        
+        return relevantExtensions.contains(extension) && 
+               skipPatterns.none { path.contains(it) }
+    }
+    
+    private fun getNewFileContent(path: String): String? {
+        return try {
+            val fullPath = "${project.basePath}/$path"
+            val file = java.io.File(fullPath)
+            if (file.exists() && file.length() < 10000) { // Limit to 10KB
+                val content = file.readText()
+                // Limit lines for prompt
+                val lines = content.lines()
+                if (lines.size > 30) {
+                    lines.take(30).joinToString("\n") + "\n... (file truncated)"
+                } else {
+                    content
+                }
+            } else null
+        } catch (e: Exception) {
+            logger.warn("Failed to read new file content for $path", e)
+            null
         }
     }
     

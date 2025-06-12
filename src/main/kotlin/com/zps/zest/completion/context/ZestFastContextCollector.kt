@@ -3,8 +3,13 @@ package com.zps.zest.completion.context
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.service
+import com.intellij.openapi.vfs.VirtualFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Fast context collector that combines pre-cached background context
@@ -12,6 +17,17 @@ import com.intellij.openapi.components.service
  */
 class ZestFastContextCollector(private val project: Project) {
     private val logger = Logger.getInstance(ZestFastContextCollector::class.java)
+    
+    /**
+     * Thread-safe editor data captured from EDT
+     */
+    private data class EditorData(
+        val document: Document,
+        val text: String,
+        val caretOffset: Int,
+        val docLength: Int,
+        val virtualFile: VirtualFile?
+    )
     
     // Background context manager for cached data
     private val backgroundManager by lazy { 
@@ -28,19 +44,34 @@ class ZestFastContextCollector(private val project: Project) {
         val startTime = System.currentTimeMillis()
         
         return try {
+            // Safely access editor state with ReadAction first
+            val editorData = withContext(Dispatchers.Main) {
+                ReadAction.compute<EditorData, Exception> {
+                    EditorData(
+                        document = editor.document,
+                        text = editor.document.text,
+                        caretOffset = editor.caretModel.offset,
+                        docLength = editor.document.textLength,
+                        virtualFile = FileDocumentManager.getInstance().getFile(editor.document)
+                    )
+                }
+            }
+            
             // FAST: Get pre-cached contexts (should be <10ms)
             val cachedGitContext = backgroundManager.getCachedGitContext()
-            val virtualFile = FileDocumentManager.getInstance().getFile(editor.document)
-            val cachedFileContext = backgroundManager.getCachedFileContext(virtualFile)
+            val cachedFileContext = backgroundManager.getCachedFileContext(editorData.virtualFile)
             
             // REAL-TIME: Collect only cursor-specific context (5-15ms)
-            val cursorContext = extractCursorContext(editor, offset)
+            val cursorContext = extractCursorContext(editorData, offset)
             
             // FAST: Extract keywords from cursor context (minimal processing)
             val keywords = extractFastKeywords(cursorContext)
             
             // FAST: Find similar patterns using cached data (if available)
             val similarExample = findFastSimilarExample(cursorContext, keywords)
+            
+            // REAL-TIME: Get current file context (since it needs cursor position)
+            val currentFileContext = extractCurrentFileContextFast(editorData, offset)
             
             val collectTime = System.currentTimeMillis() - startTime
             System.out.println("Fast context collection completed in ${collectTime}ms")
@@ -50,7 +81,8 @@ class ZestFastContextCollector(private val project: Project) {
                 basicContext = cursorContext,
                 gitInfo = cachedGitContext,
                 similarExample = similarExample,
-                relevantKeywords = keywords
+                relevantKeywords = keywords,
+                currentFileContext = currentFileContext
             )
             
         } catch (e: Exception) {
@@ -69,25 +101,23 @@ class ZestFastContextCollector(private val project: Project) {
     /**
      * Extract only cursor-specific context (fast, real-time only)
      */
-    private fun extractCursorContext(editor: Editor, offset: Int): ZestLeanContextCollector.BasicContext {
-        val document = editor.document
-        val text = document.text
-        val virtualFile = FileDocumentManager.getInstance().getFile(document)
+    private fun extractCursorContext(editorData: EditorData, offset: Int): ZestLeanContextCollector.BasicContext {
+        val text = editorData.text
         
         // Get prefix and suffix (minimal processing)
         val prefixCode = text.substring(0, offset.coerceAtMost(text.length))
         val suffixCode = text.substring(offset.coerceAtLeast(0))
         
         // Get current line and indentation
-        val lineNumber = document.getLineNumber(offset)
-        val lineStart = document.getLineStartOffset(lineNumber)
-        val lineEnd = document.getLineEndOffset(lineNumber)
+        val lineNumber = editorData.document.getLineNumber(offset)
+        val lineStart = editorData.document.getLineStartOffset(lineNumber)
+        val lineEnd = editorData.document.getLineEndOffset(lineNumber)
         val currentLine = text.substring(lineStart, lineEnd)
         val indentation = currentLine.takeWhile { it.isWhitespace() }
         
         // Basic file info (fast)
-        val language = virtualFile?.fileType?.name ?: "Unknown"
-        val fileName = virtualFile?.name ?: "Unknown"
+        val language = editorData.virtualFile?.fileType?.name ?: "Unknown"
+        val fileName = editorData.virtualFile?.name ?: "Unknown"
         
         return ZestLeanContextCollector.BasicContext(
             fileName = fileName,
@@ -178,8 +208,96 @@ class ZestFastContextCollector(private val project: Project) {
         }
     }
     
+    /**
+     * Extract current file context optimized for fast collection
+     */
+    private fun extractCurrentFileContextFast(editorData: EditorData, offset: Int): ZestLeanContextCollector.CurrentFileContext? {
+        return try {
+            val text = editorData.text
+            
+            // Fast extraction - only if file is not too large
+            if (text.length > 20000) { // Skip for very large files
+                return null
+            }
+            
+            // Get cursor position info
+            val lineNumber = editorData.document.getLineNumber(offset)
+            val lineStart = editorData.document.getLineStartOffset(lineNumber)
+            val columnNumber = offset - lineStart
+            
+            // Quick class structure analysis (minimal processing)
+            val className = extractClassNameFast(text)
+            val imports = extractImportsFast(text)
+            val currentMethod = findCurrentMethodNameFast(text, offset)
+            val methods = extractMethodSignaturesFast(text, offset)
+            
+            ZestLeanContextCollector.CurrentFileContext(
+                fullContent = text.take(15000), // Limit content for performance
+                classStructure = ZestLeanContextCollector.ClassStructure(
+                    className = className ?: "Unknown",
+                    fields = emptyList(), // Skip field extraction for performance
+                    methods = methods,
+                    annotations = emptyList() // Skip annotations for performance
+                ),
+                imports = imports,
+                cursorPosition = ZestLeanContextCollector.CursorPosition(
+                    lineNumber = lineNumber,
+                    columnNumber = columnNumber,
+                    insideMethod = currentMethod,
+                    contextMarker = "[CURSOR]"
+                )
+            )
+        } catch (e: Exception) {
+            logger.warn("Failed to extract current file context (fast)", e)
+            null
+        }
+    }
+    
+    private fun extractClassNameFast(text: String): String? {
+        val classPattern = Regex("class\\s+(\\w+)")
+        return classPattern.find(text)?.groupValues?.get(1)
+    }
+    
+    private fun extractImportsFast(text: String): List<String> {
+        return text.lines()
+            .filter { it.trim().startsWith("import ") }
+            .take(15) // Limit for performance
+    }
+    
+    private fun findCurrentMethodNameFast(text: String, offset: Int): String? {
+        val beforeCursor = text.substring(0, offset)
+        val methodPattern = Regex("\\s+(\\w+)\\s*\\([^)]*\\)\\s*\\{")
+        return methodPattern.findAll(beforeCursor).lastOrNull()?.groupValues?.get(1)
+    }
+    
+    private fun extractMethodSignaturesFast(text: String, offset: Int): List<ZestLeanContextCollector.MethodSignature> {
+        val lines = text.lines()
+        val methodSignatures = mutableListOf<ZestLeanContextCollector.MethodSignature>()
+        val currentLineNumber = lines.take(offset).joinToString("\n").count { it == '\n' }
+        
+        lines.forEachIndexed { index, line ->
+            val trimmed = line.trim()
+            val methodPattern = Regex("(public|private|protected)\\s+[\\w<>\\[\\],\\s]+\\s+(\\w+)\\s*\\([^)]*\\)")
+            val match = methodPattern.find(trimmed)
+            
+            if (match != null) {
+                val methodName = match.groupValues[2]
+                val isCurrentMethod = kotlin.math.abs(index - currentLineNumber) < 15
+                
+                methodSignatures.add(ZestLeanContextCollector.MethodSignature(
+                    name = methodName,
+                    signature = trimmed.replace(Regex("\\{.*"), "").trim(),
+                    lineNumber = index + 1,
+                    isCurrentMethod = isCurrentMethod
+                ))
+            }
+        }
+        
+        return methodSignatures.take(10) // Limit for performance
+    }
+    
     companion object {
-        private const val MAX_PREFIX_LENGTH = 1500 // Reduced from 2000 for performance
-        private const val MAX_SUFFIX_LENGTH = 400  // Reduced from 500 for performance
+        private const val MAX_PREFIX_LENGTH = 800  // Reduced for better performance and focus
+        private const val MAX_SUFFIX_LENGTH = 400  // Reduced for better performance and focus
     }
 }

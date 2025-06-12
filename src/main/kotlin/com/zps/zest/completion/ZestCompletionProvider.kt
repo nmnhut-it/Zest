@@ -57,11 +57,23 @@ class ZestCompletionProvider(private val project: Project) {
                 return requestBasicCompletion(context)
             }
             
-            // Debug: Log context information (no editor access)
-            logger.debug("=== COMPLETION PROVIDER ===")
+            // Debug: Log context information with improved extraction details
+            logger.debug("=== ENHANCED COMPLETION PROVIDER ===")
             logger.debug("CompletionContext offset: ${context.offset}")
-            logger.debug("Context prefix (last 1000): '${context.prefixCode.takeLast(1000)}'")
-            logger.debug("Context suffix (first 1000): '${context.suffixCode.take(1000)}'")
+            logger.debug("Context prefix length: ${context.prefixCode.length}")
+            logger.debug("Context suffix length: ${context.suffixCode.length}")
+            logger.debug("Context starts with: '${context.prefixCode.take(100).replace("\n", "\\n")}'")
+            logger.debug("Context ends with: '${context.prefixCode.takeLast(100).replace("\n", "\\n")}'")
+            logger.debug("Suffix starts with: '${context.suffixCode.take(100).replace("\n", "\\n")}'")
+            
+            // Check for method context in prefix
+            val hasMethodSignature = context.prefixCode.contains(Regex("""(public|private|protected)[\s\w<>\[\],]*\s+\w+\s*\([^)]*\)\s*\{"""))
+            logger.debug("Method signature detected in context: $hasMethodSignature")
+            if (hasMethodSignature) {
+                val methodPattern = Regex("""(public|private|protected|static)[\s\w<>\[\],]*\s+(\w+)\s*\([^)]*\)\s*(\{|throws[^{]*\{)""")
+                val methodName = methodPattern.findAll(context.prefixCode).lastOrNull()?.groupValues?.get(2)
+                logger.debug("Detected method name: $methodName")
+            }
             
             // Collect context using fast or fallback method
             val leanContext = collectContextOptimized(editor, context.offset)

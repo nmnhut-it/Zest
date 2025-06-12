@@ -17,6 +17,7 @@ abstract class ZestInlineCompletionAction(
 ) : EditorAction(
     object : EditorActionHandler() {
         override fun doExecute(editor: Editor, caret: Caret?, dataContext: DataContext?) {
+            //
             val completionService = editor.project?.serviceOrNull<ZestInlineCompletionService>() ?: return
             completionHandler.doExecute(editor, caret, completionService)
         }

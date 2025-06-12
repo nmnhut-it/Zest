@@ -57,9 +57,44 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      * Request inline completion at the specified position
      */
     fun provideInlineCompletion(editor: Editor, offset: Int, manually: Boolean = false) {
+        // Capture editor state on EDT first to avoid threading violations
+        val editorState = try {
+            val text = editor.document.text
+            val caretOffset = editor.caretModel.offset
+            val docLength = editor.document.textLength
+            EditorState(text, caretOffset, docLength)
+        } catch (e: Exception) {
+            logger.warn("Failed to capture editor state", e)
+            return
+        }
+        
         scope.launch {
             stateMutex.withLock {
+                logger.debug("=== INLINE COMPLETION REQUEST ===")
                 logger.debug("Requesting completion at offset $offset, manually=$manually")
+                logger.debug("Editor caret offset: ${editorState.caretOffset}")
+                logger.debug("Editor document length: ${editorState.documentLength}")
+                
+                // Show context around both offsets to understand the difference
+                val contextWindow = 30
+                
+                // Show context around requested offset
+                val reqStart = maxOf(0, offset - contextWindow)
+                val reqEnd = minOf(editorState.text.length, offset + contextWindow)
+                if (reqStart < reqEnd) {
+                    val beforeReq = editorState.text.substring(reqStart, offset)
+                    val afterReq = editorState.text.substring(offset, reqEnd)
+                    logger.debug("Requested offset context: '$beforeReq' [REQ_CURSOR] '$afterReq'")
+                }
+                
+                // Show context around caret offset
+                val caretStart = maxOf(0, editorState.caretOffset - contextWindow)
+                val caretEnd = minOf(editorState.text.length, editorState.caretOffset + contextWindow)
+                if (caretStart < caretEnd) {
+                    val beforeCaret = editorState.text.substring(caretStart, editorState.caretOffset)
+                    val afterCaret = editorState.text.substring(editorState.caretOffset, caretEnd)
+                    logger.debug("Caret offset context: '$beforeCaret' [CARET] '$afterCaret'")
+                }
                 
                 // Cancel any existing completion requestc
                 currentCompletionJob?.cancel()
@@ -260,9 +295,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         return try {
             withContext(Dispatchers.Main) {
                 if (editor.isDisposed) {
+                    logger.debug("Editor is disposed, cannot build context")
                     null
                 } else {
-                    CompletionContext.from(editor, offset, manually)
+                    logger.debug("=== BUILDING COMPLETION CONTEXT ===")
+                    logger.debug("Using offset: $offset for context building")
+                    
+                    val context = CompletionContext.from(editor, offset, manually)
+                    
+                    logger.debug("Built context - fileName: ${context.fileName}, offset: ${context.offset}")
+                    logger.debug("Context prefix (last 1000): '${context.prefixCode.takeLast(1000)}'")
+                    logger.debug("Context suffix (first 1000): '${context.suffixCode.take(1000)}'")
+                    
+                    context
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -395,12 +440,17 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
             override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
                 if (editorManager.selectedTextEditor == editor && autoTriggerEnabled) {
+                    logger.debug("=== DOCUMENT CHANGE AUTO-TRIGGER ===")
+                    logger.debug("Document change at offset: ${event.offset}")
+                    logger.debug("Event new length: ${event.newLength}, old length: ${event.oldLength}")
+                    
                     // Debounce automatic triggers
                     scope.launch {
                         delay(AUTO_TRIGGER_DELAY_MS)
                         invokeLater {
                             if (!editor.isDisposed) {
                                 val currentOffset = editor.caretModel.offset
+                                logger.debug("Auto-triggering with caret offset: $currentOffset")
                                 provideInlineCompletion(editor, currentOffset, manually = false)
                             }
                         }
@@ -473,4 +523,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     companion object {
         private const val AUTO_TRIGGER_DELAY_MS = 500L // Debounce delay for auto-trigger
     }
+    
+    /**
+     * Captures editor state to avoid threading violations
+     */
+    private data class EditorState(
+        val text: String,
+        val caretOffset: Int,
+        val documentLength: Int
+    )
 }

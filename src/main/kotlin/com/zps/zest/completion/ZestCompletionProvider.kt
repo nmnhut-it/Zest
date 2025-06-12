@@ -57,6 +57,12 @@ class ZestCompletionProvider(private val project: Project) {
                 return requestBasicCompletion(context)
             }
             
+            // Debug: Log context information (no editor access)
+            logger.debug("=== COMPLETION PROVIDER ===")
+            logger.debug("CompletionContext offset: ${context.offset}")
+            logger.debug("Context prefix (last 1000): '${context.prefixCode.takeLast(1000)}'")
+            logger.debug("Context suffix (first 1000): '${context.suffixCode.take(1000)}'")
+            
             // Collect context using fast or fallback method
             val leanContext = collectContextOptimized(editor, context.offset)
             val contextTime = System.currentTimeMillis() - startTime

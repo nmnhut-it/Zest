@@ -14,20 +14,20 @@ class ZestActionPromoter : ActionPromoter {
     private val logger = Logger.getInstance(ZestActionPromoter::class.java)
 
     override fun promote(actions: List<AnAction>, context: DataContext): List<AnAction> {
-        logger.debug("Promoting actions: ${actions.map { it.javaClass.simpleName }}")
+        System.out.println("Promoting actions: ${actions.map { it.javaClass.simpleName }}")
         
         return actions.sortedByDescending { action ->
             when {
                 action is HasPriority -> {
-                    logger.debug("Action ${action.javaClass.simpleName} has priority ${action.priority}")
+                    System.out.println("Action ${action.javaClass.simpleName} has priority ${action.priority}")
                     action.priority
                 }
                 action is ZestInlineCompletionAction -> {
-                    logger.debug("Action ${action.javaClass.simpleName} is Zest completion action with priority ${action.priority}")
+                    System.out.println("Action ${action.javaClass.simpleName} is Zest completion action with priority ${action.priority}")
                     action.priority
                 }
                 else -> {
-                    logger.debug("Action ${action.javaClass.simpleName} has default priority 0")
+                    System.out.println("Action ${action.javaClass.simpleName} has default priority 0")
                     0
                 }
             }

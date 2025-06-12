@@ -41,9 +41,19 @@ class ZestLeanContextCollector(private val project: Project) {
     
     suspend fun collectContext(editor: Editor, offset: Int): LeanContext {
         return try {
+            // Debug: Track offset usage in context collection
+            System.out.println("=== LEAN CONTEXT COLLECTION ===")
+            System.out.println("Received offset: $offset")
+            System.out.println("Editor caret offset: ${editor.caretModel.offset}")
+            
             // Collect context using safe, non-PSI methods
             val document = editor.document
             val virtualFile = FileDocumentManager.getInstance().getFile(document)
+            
+            System.out.println("Document length: ${document.textLength}")
+            if (offset > document.textLength) {
+                logger.warn("Offset $offset exceeds document length ${document.textLength}")
+            }
             
             // Get basic context without PSI access
             val basicContext = extractBasicContextSafe(editor, offset, virtualFile)
@@ -52,7 +62,7 @@ class ZestLeanContextCollector(private val project: Project) {
             val gitInfo = try {
                 gitContext.getAllModifiedFiles()
             } catch (e: kotlinx.coroutines.CancellationException) {
-                logger.debug("Git context collection was cancelled")
+                System.out.println("Git context collection was cancelled")
                 throw e
             } catch (e: Exception) {
                 logger.warn("Failed to get git context", e)
@@ -73,7 +83,7 @@ class ZestLeanContextCollector(private val project: Project) {
             )
             
         } catch (e: kotlinx.coroutines.CancellationException) {
-            logger.debug("Context collection was cancelled (normal behavior)")
+            System.out.println("Context collection was cancelled (normal behavior)")
             throw e // Rethrow CancellationException as required
         } catch (e: Exception) {
             logger.warn("Failed to collect lean context", e)

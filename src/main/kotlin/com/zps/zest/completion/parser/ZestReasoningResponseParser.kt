@@ -43,7 +43,7 @@ class ZestReasoningResponseParser {
             when {
                 rawCompletion.isNullOrBlank() -> {
                     // Fallback: treat entire response as completion if no structure found
-                    logger.debug("No structured response found, treating entire response as completion")
+                    System.out.println("No structured response found, treating entire response as completion")
                     val cleanedCompletion = cleanCompletionText(response)
                     val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
                     
@@ -72,10 +72,10 @@ class ZestReasoningResponseParser {
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            logger.debug("Response parsing was cancelled (normal behavior)")
+            System.out.println("Response parsing was cancelled (normal behavior)")
             throw e
         } catch (e: Exception) {
-            logger.debug("Failed to parse reasoning response: ${e.message}")
+            System.out.println("Failed to parse reasoning response: ${e.message}")
             // Fallback to treating entire response as completion
             val cleanedCompletion = cleanCompletionText(response)
             val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
@@ -306,7 +306,7 @@ class ZestReasoningResponseParser {
             reasoning.trim()
         } else {
             val truncated = words.take(MAX_REASONING_WORDS).joinToString(" ")
-            logger.debug("Reasoning too long (${words.size} words), truncated to: $truncated")
+            System.out.println("Reasoning too long (${words.size} words), truncated to: $truncated")
             truncated
         }
     }
@@ -326,7 +326,7 @@ class ZestReasoningResponseParser {
             // Truncate at token boundary, try to keep it meaningful
             val truncatedTokens = tokens.take(MAX_COMPLETION_TOKENS)
             val truncated = truncatedTokens.joinToString(" ")
-            logger.debug("Completion too long (${tokens.size} tokens), truncated to ${truncatedTokens.size} tokens")
+            System.out.println("Completion too long (${tokens.size} tokens), truncated to ${truncatedTokens.size} tokens")
             
             // Try to end at a meaningful boundary (semicolon, closing brace, etc.)
             val meaningfulEnd = findMeaningfulEndpoint(truncated)

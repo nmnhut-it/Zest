@@ -22,7 +22,7 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 1. **Distinguish Cancellation from Errors**:
    ```kotlin
    } catch (e: kotlinx.coroutines.CancellationException) {
-       logger.debug("Request was cancelled (normal behavior)")
+       System.out.println("Request was cancelled (normal behavior)")
        throw e // Must rethrow CancellationException
    } catch (e: Exception) {
        logger.warn("Actual error occurred", e)
@@ -46,7 +46,7 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Enhanced Completion Request**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Enhanced completion request was cancelled (normal behavior)")
+    System.out.println("Enhanced completion request was cancelled (normal behavior)")
     throw e // Rethrow CancellationException as required
 } catch (e: Exception) {
     logger.warn("Enhanced reasoning completion failed, falling back to basic", e)
@@ -57,7 +57,7 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Basic Completion Request**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Basic completion request was cancelled (normal behavior)")
+    System.out.println("Basic completion request was cancelled (normal behavior)")
     throw e // Rethrow CancellationException as required
 } catch (e: Exception) {
     logger.warn("Basic completion request failed", e)
@@ -70,7 +70,7 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Build Completion Context**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Build completion context was cancelled (normal behavior)")
+    System.out.println("Build completion context was cancelled (normal behavior)")
     throw e // Rethrow CancellationException as required
 } catch (e: Exception) {
     logger.warn("Failed to build completion context", e)
@@ -83,7 +83,7 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Context Collection**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Context collection was cancelled (normal behavior)")
+    System.out.println("Context collection was cancelled (normal behavior)")
     throw e // Rethrow CancellationException as required
 } catch (e: Exception) {
     logger.warn("Failed to collect lean context", e)
@@ -96,10 +96,10 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Git Context Collection**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Git context collection was cancelled (normal behavior)")
+    System.out.println("Git context collection was cancelled (normal behavior)")
     throw e
 } catch (e: Exception) {
-    logger.debug("Failed to get git context: ${e.message}")
+    System.out.println("Failed to get git context: ${e.message}")
     CompleteGitInfo(null, emptyList(), "unknown")
 }
 ```
@@ -109,10 +109,10 @@ kotlinx.coroutines.JobCancellationException: StandaloneCoroutine was cancelled
 **Response Parsing**:
 ```kotlin
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Response parsing was cancelled (normal behavior)")
+    System.out.println("Response parsing was cancelled (normal behavior)")
     throw e
 } catch (e: Exception) {
-    logger.debug("Failed to parse reasoning response: ${e.message}")
+    System.out.println("Failed to parse reasoning response: ${e.message}")
     // Graceful fallback...
 }
 ```

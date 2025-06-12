@@ -25,7 +25,9 @@ ${modifiedFilesSection}${similarExampleSection}${keywordsSection}# Primary task:
 # Context clues: ${context.relevantKeywords.take(3).joinToString(", ")}
 
 BEFORE:
+```${getMarkdownLanguage(basic.language)}
 ${basic.prefixCode}
+```
 
 COMPLETE:
 # Task: ${inferTaskFromContext(basic, context.relevantKeywords)}
@@ -35,7 +37,9 @@ COMPLETE:
 [COMPLETE HERE]
 
 AFTER:
+```${getMarkdownLanguage(basic.language)}
 ${basic.suffixCode}
+```
 
 INSTRUCTIONS:
 1. Provide brief reasoning (MAXIMUM 8 words) about completion intent
@@ -153,7 +157,9 @@ Context: ${language} development in ${fileName}
 # Limit: Maximum 64 tokens
 
 BEFORE:
+```${getMarkdownLanguage(language)}
 ${prefixCode}
+```
 
 COMPLETE:
 # Task: Complete current statement or expression
@@ -162,7 +168,9 @@ COMPLETE:
 [COMPLETE HERE]
 
 AFTER:
+```${getMarkdownLanguage(language)}
 ${suffixCode}
+```
 
 INSTRUCTIONS:
 Generate raw code completion (MAXIMUM 64 tokens):
@@ -174,5 +182,33 @@ Generate raw code completion (MAXIMUM 64 tokens):
 
 Format: [raw code, 64 tokens max]
         """.trimIndent()
+    }
+    
+    /**
+     * Map language names to proper markdown language identifiers
+     */
+    private fun getMarkdownLanguage(language: String): String {
+        return when (language.lowercase()) {
+            "java" -> "java"
+            "kotlin" -> "kotlin"
+            "javascript" -> "javascript"
+            "typescript" -> "typescript"
+            "python" -> "python"
+            "html" -> "html"
+            "css" -> "css"
+            "xml" -> "xml"
+            "json" -> "json"
+            "yaml", "yml" -> "yaml"
+            "sql" -> "sql"
+            "groovy" -> "groovy"
+            "scala" -> "scala"
+            "go" -> "go"
+            "rust" -> "rust"
+            "c++" -> "cpp"
+            "c" -> "c"
+            "shell", "bash" -> "bash"
+            "powershell" -> "powershell"
+            else -> language.lowercase()
+        }
     }
 }

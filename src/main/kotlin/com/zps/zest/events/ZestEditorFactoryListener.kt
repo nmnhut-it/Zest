@@ -17,7 +17,7 @@ class ZestEditorFactoryListener : com.intellij.openapi.editor.event.EditorFactor
     private val listeners = mutableMapOf<Editor, Disposable>()
     
     override fun editorCreated(event: EditorFactoryEvent) {
-        logger.debug("ZestEditorFactoryListener: editorCreated $event")
+        System.out.println("ZestEditorFactoryListener: editorCreated $event")
         val editor = event.editor
         val project = editor.project ?: return
         
@@ -29,7 +29,7 @@ class ZestEditorFactoryListener : com.intellij.openapi.editor.event.EditorFactor
     }
     
     override fun editorReleased(event: EditorFactoryEvent) {
-        logger.debug("ZestEditorFactoryListener: editorReleased $event")
+        System.out.println("ZestEditorFactoryListener: editorReleased $event")
         val editor = event.editor
         val project = editor.project ?: return
         
@@ -44,14 +44,14 @@ class ZestEditorFactoryListener : com.intellij.openapi.editor.event.EditorFactor
     private fun setupEditorListeners(editor: Editor, project: Project) {
         val caretListener = object : com.intellij.openapi.editor.event.CaretListener {
             override fun caretPositionChanged(event: CaretEvent) {
-                logger.debug("CaretListener: caretPositionChanged $editor $event")
+                System.out.println("CaretListener: caretPositionChanged $editor $event")
                 project.safeSyncPublisher(ZestCaretListener.TOPIC)?.caretPositionChanged(editor, event)
             }
         }
         
         val documentListener = object : com.intellij.openapi.editor.event.DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
-                logger.debug("DocumentListener: documentChanged $editor $event")
+                System.out.println("DocumentListener: documentChanged $editor $event")
                 project.safeSyncPublisher(ZestDocumentListener.TOPIC)?.documentChanged(editor.document, editor, event)
             }
         }

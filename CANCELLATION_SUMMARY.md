@@ -35,7 +35,7 @@ You correctly pointed out that completion cancellation is normal behavior and sh
 try {
     // Normal operation
 } catch (e: kotlinx.coroutines.CancellationException) {
-    logger.debug("Operation was cancelled (normal behavior)")
+    System.out.println("Operation was cancelled (normal behavior)")
     throw e // MUST rethrow for proper coroutine behavior
 } catch (e: Exception) {
     logger.warn("Actual error occurred", e)

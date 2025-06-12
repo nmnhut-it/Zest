@@ -136,6 +136,8 @@ public class FileChangeListener implements VirtualFileListener {
                     if (e.getMessage() != null && 
                         (e.getMessage().contains("Browser panel not initialized") || 
                          e.getMessage().contains("Browser service not available") ||
+                         e.getMessage().contains("Failed to get knowledge") ||
+                         e.getMessage().contains("Failed to check") ||
                          e.getMessage().contains("Browser manager not available"))) {
                         LOG.info("Browser not ready for file indexing, will retry later: " + file.getPath());
                         // Re-add to pending updates for next iteration

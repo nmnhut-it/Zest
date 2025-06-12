@@ -342,7 +342,7 @@ class DiffHighLightingPass(project: Project, document: Document, val editor: Edi
                 )
                 
                 // Log highlighting statistics for debugging
-                logger.debug("Applied ${highlights.size} diff highlights")
+                System.out.println("Applied ${highlights.size} diff highlights")
             } else {
                 if (DEBUG_HIGHLIGHTING) {
                     System.out.println("No highlights to apply - cleared all existing highlights")

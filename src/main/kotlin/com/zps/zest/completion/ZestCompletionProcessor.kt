@@ -67,7 +67,7 @@ class ZestCompletionProcessor {
         
         // Validate completion makes sense
         if (!isValidCompletion(cleaned, context)) {
-            logger.debug("Invalid completion rejected: $cleaned")
+            System.out.println("Invalid completion rejected: $cleaned")
             return ""
         }
         
@@ -82,14 +82,14 @@ class ZestCompletionProcessor {
         
         // Reject completions that are too long (likely hallucinations)
         if (completion.length > MAX_COMPLETION_LENGTH) {
-            logger.debug("Completion too long: ${completion.length} characters")
+            System.out.println("Completion too long: ${completion.length} characters")
             return false
         }
         
         // Reject completions that just repeat the prefix
         val trimmedPrefix = context.prefixCode.takeLast(50).trim()
         if (trimmedPrefix.isNotEmpty() && completion.startsWith(trimmedPrefix)) {
-            logger.debug("Completion repeats prefix")
+            System.out.println("Completion repeats prefix")
             return false
         }
         
@@ -101,7 +101,7 @@ class ZestCompletionProcessor {
         
         val lowerCompletion = completion.toLowerCase()
         if (artifacts.any { lowerCompletion.contains(it) }) {
-            logger.debug("Completion contains artifacts")
+            System.out.println("Completion contains artifacts")
             return false
         }
         
@@ -125,7 +125,7 @@ class ZestCompletionProcessor {
         val commonPrefix = findCommonPrefix(completion, suffixToCheck)
         if (commonPrefix.isNotEmpty()) {
             endOffset = context.offset + commonPrefix.length
-            logger.debug("Extending replace range to avoid duplication: '$commonPrefix'")
+            System.out.println("Extending replace range to avoid duplication: '$commonPrefix'")
         }
         
         return ZestInlineCompletionItem.Range(startOffset, endOffset)

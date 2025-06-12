@@ -36,7 +36,7 @@ class ZestTabBehaviorManager(private val project: Project) {
     ): Boolean {
         val decision = CompletionContextAnalyzer.shouldAcceptOnTab(editor, offset, completion, project)
         
-        logger.debug("Tab behavior decision: $decision")
+        System.out.println("Tab behavior decision: $decision")
         
         // Use high-confidence decisions directly
         if (decision.confidence >= 0.8) {
@@ -48,12 +48,12 @@ class ZestTabBehaviorManager(private val project: Project) {
             val additionalChecks = performAdditionalTabChecks(editor, offset, completion)
             val adjustedDecision = decision.shouldAcceptCompletion && additionalChecks
             
-            logger.debug("Medium confidence decision adjusted: $adjustedDecision (additional checks: $additionalChecks)")
+            System.out.println("Medium confidence decision adjusted: $adjustedDecision (additional checks: $additionalChecks)")
             return adjustedDecision
         }
         
         // For low confidence, default to safe behavior (no acceptance)
-        logger.debug("Low confidence, defaulting to safe behavior (no acceptance)")
+        System.out.println("Low confidence, defaulting to safe behavior (no acceptance)")
         return false
     }
 

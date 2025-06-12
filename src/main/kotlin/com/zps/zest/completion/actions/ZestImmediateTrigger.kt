@@ -29,7 +29,7 @@ class ZestImmediateTrigger : AnAction(), HasPriority {
         
         val offset = editor.caretModel.primaryCaret.offset
         
-        logger.debug("Immediately triggering inline completion at offset $offset")
+        System.out.println("Immediately triggering inline completion at offset $offset")
         
         // Trigger completion manually with immediate flag
         completionService.provideInlineCompletion(editor, offset, manually = true)

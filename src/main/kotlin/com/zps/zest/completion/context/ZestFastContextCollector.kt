@@ -43,7 +43,7 @@ class ZestFastContextCollector(private val project: Project) {
             val similarExample = findFastSimilarExample(cursorContext, keywords)
             
             val collectTime = System.currentTimeMillis() - startTime
-            logger.debug("Fast context collection completed in ${collectTime}ms")
+            System.out.println("Fast context collection completed in ${collectTime}ms")
             
             // Assemble the complete context
             ZestLeanContextCollector.LeanContext(
@@ -60,7 +60,7 @@ class ZestFastContextCollector(private val project: Project) {
             // Fallback to original slow collection
             val result = fallbackCollector.collectContext(editor, offset)
             val totalTime = System.currentTimeMillis() - startTime
-            logger.debug("Fallback context collection completed in ${totalTime}ms")
+            System.out.println("Fallback context collection completed in ${totalTime}ms")
             
             result
         }

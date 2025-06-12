@@ -536,7 +536,12 @@ public final class OpenWebUIRagAgent {
 
     private void uploadDocument(String knowledgeId, String fileName, String content) throws IOException {
         String fileId = apiClient.uploadFile(fileName, content);
-        apiClient.addFileToKnowledge(knowledgeId, fileId);
+        try {
+            apiClient.addFileToKnowledge(knowledgeId, fileId);
+        }
+        catch (IOException e){
+            // mute;
+        }
     }
 
     private List<String> queryKnowledgeBase(String knowledgeId, String query) throws IOException {

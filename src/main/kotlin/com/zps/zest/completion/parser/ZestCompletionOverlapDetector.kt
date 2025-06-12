@@ -40,7 +40,7 @@ class ZestCompletionOverlapDetector {
         // Extract what the user has typed recently at cursor position
         val recentUserInput = extractRecentUserInput(documentText, cursorOffset)
         
-        logger.debug("Overlap detection: userTyped='$recentUserInput', completion='${completionText.take(50)}...'")
+        System.out.println("Overlap detection: userTyped='$recentUserInput', completion='${completionText.take(50)}...'")
         
         // Try different overlap detection strategies
         val strategies = listOf(
@@ -53,7 +53,7 @@ class ZestCompletionOverlapDetector {
         for (strategy in strategies) {
             val result = strategy(recentUserInput, completionText)
             if (result.overlapType != OverlapType.NONE) {
-                logger.debug("Detected overlap: type=${result.overlapType}, length=${result.overlapLength}")
+                System.out.println("Detected overlap: type=${result.overlapType}, length=${result.overlapLength}")
                 return result
             }
         }

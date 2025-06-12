@@ -75,15 +75,15 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
             
             when {
                 cached == null -> {
-                    logger.debug("No cached git context, collecting immediately")
+                    System.out.println("No cached git context, collecting immediately")
                     collectAndCacheGitContext()
                 }
                 cached.isExpired() -> {
-                    logger.debug("Git context expired, refreshing")
+                    System.out.println("Git context expired, refreshing")
                     collectAndCacheGitContext()
                 }
                 else -> {
-                    logger.debug("Using cached git context")
+                    System.out.println("Using cached git context")
                     cached.data
                 }
             }
@@ -102,15 +102,15 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
             
             when {
                 cached == null -> {
-                    logger.debug("No cached file context for $filePath, collecting")
+                    System.out.println("No cached file context for $filePath, collecting")
                     collectAndCacheFileContext(file)
                 }
                 cached.isExpired() -> {
-                    logger.debug("File context expired for $filePath, refreshing")
+                    System.out.println("File context expired for $filePath, refreshing")
                     collectAndCacheFileContext(file)
                 }
                 else -> {
-                    logger.debug("Using cached file context for $filePath")
+                    System.out.println("Using cached file context for $filePath")
                     cached.data
                 }
             }
@@ -121,7 +121,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
      * Force immediate git context refresh
      */
     suspend fun forceGitRefresh() {
-        logger.debug("Forcing git context refresh")
+        System.out.println("Forcing git context refresh")
         cacheMutex.withLock {
             collectAndCacheGitContext()
         }
@@ -143,7 +143,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
      * Invalidate file context for specific file
      */
     fun invalidateFileContext(filePath: String) {
-        logger.debug("Invalidating file context for $filePath")
+        System.out.println("Invalidating file context for $filePath")
         cachedFileContexts.remove(filePath)
     }
     
@@ -151,7 +151,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
      * Invalidate all cached contexts
      */
     fun invalidateAllCaches() {
-        logger.debug("Invalidating all cached contexts")
+        System.out.println("Invalidating all cached contexts")
         scope.launch {
             cacheMutex.withLock {
                 cachedGitContext = null
@@ -208,7 +208,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
             val collectTime = System.currentTimeMillis() - startTime
             
             cachedGitContext = TimestampedContext(gitInfo, gitContextTtlMs)
-            logger.debug("Collected and cached git context in ${collectTime}ms")
+            System.out.println("Collected and cached git context in ${collectTime}ms")
             
             gitInfo
         } catch (e: Exception) {
@@ -229,7 +229,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
             val collectTime = System.currentTimeMillis() - startTime
             
             cachedFileContexts[file.path] = TimestampedContext(fileContext, fileContextTtlMs)
-            logger.debug("Collected and cached file context for ${file.name} in ${collectTime}ms")
+            System.out.println("Collected and cached file context for ${file.name} in ${collectTime}ms")
             
             fileContext
         } catch (e: Exception) {
@@ -245,7 +245,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
         
         if (expiredKeys.isNotEmpty()) {
             expiredKeys.forEach { cachedFileContexts.remove(it) }
-            logger.debug("Cleaned up ${expiredKeys.size} expired file contexts")
+            System.out.println("Cleaned up ${expiredKeys.size} expired file contexts")
         }
     }
     
@@ -257,7 +257,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
                 .take(cachedFileContexts.size - maxCachedFiles)
             
             sortedEntries.forEach { cachedFileContexts.remove(it.key) }
-            logger.debug("Evicted ${sortedEntries.size} old file contexts to enforce cache limit")
+            System.out.println("Evicted ${sortedEntries.size} old file contexts to enforce cache limit")
         }
     }
     

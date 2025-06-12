@@ -82,14 +82,14 @@ class ZestCacheInvalidator(private val project: Project) {
      * Handle file content changes
      */
     private fun handleFileContentChange(file: VirtualFile) {
-        logger.debug("File content changed: ${file.path}")
+        System.out.println("File content changed: ${file.path}")
         
         // Invalidate file-specific cache
         backgroundManager.invalidateFileContext(file.path)
         
         // Check if this affects git context
         if (shouldTriggerGitRefresh(file)) {
-            logger.debug("Triggering git context refresh due to ${file.name}")
+            System.out.println("Triggering git context refresh due to ${file.name}")
             backgroundManager.scheduleGitRefresh()
         }
     }
@@ -98,7 +98,7 @@ class ZestCacheInvalidator(private val project: Project) {
      * Handle file creation
      */
     private fun handleFileCreate(file: VirtualFile) {
-        logger.debug("File created: ${file.path}")
+        System.out.println("File created: ${file.path}")
         
         // New files often affect git context
         if (shouldTriggerGitRefresh(file)) {
@@ -110,7 +110,7 @@ class ZestCacheInvalidator(private val project: Project) {
      * Handle file deletion
      */
     private fun handleFileDelete(file: VirtualFile) {
-        logger.debug("File deleted: ${file.path}")
+        System.out.println("File deleted: ${file.path}")
         
         // Remove from file cache
         backgroundManager.invalidateFileContext(file.path)
@@ -180,7 +180,7 @@ class ZestCacheInvalidator(private val project: Project) {
      * Manual cache invalidation for specific scenarios
      */
     fun invalidateGitContext() {
-        logger.debug("Manual git context invalidation requested")
+        System.out.println("Manual git context invalidation requested")
         backgroundManager.scheduleGitRefresh()
     }
     
@@ -188,7 +188,7 @@ class ZestCacheInvalidator(private val project: Project) {
      * Manual cache invalidation for all contexts
      */
     fun invalidateAllCaches() {
-        logger.debug("Manual invalidation of all caches requested")
+        System.out.println("Manual invalidation of all caches requested")
         backgroundManager.invalidateAllCaches()
     }
     
@@ -196,7 +196,7 @@ class ZestCacheInvalidator(private val project: Project) {
      * Invalidate context for specific file path
      */
     fun invalidateFileContext(filePath: String) {
-        logger.debug("Manual file context invalidation for: $filePath")
+        System.out.println("Manual file context invalidation for: $filePath")
         backgroundManager.invalidateFileContext(filePath)
     }
     

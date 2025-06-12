@@ -52,10 +52,10 @@ class ZestCompleteGitContext(private val project: Project) {
                 currentFileStatus = "editing"
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
-            logger.debug("Git context collection was cancelled (normal behavior)")
+            System.out.println("Git context collection was cancelled (normal behavior)")
             throw e
         } catch (e: Exception) {
-            logger.debug("Failed to get git context: ${e.message}")
+            System.out.println("Failed to get git context: ${e.message}")
             CompleteGitInfo(null, emptyList(), "unknown")
         }
     }

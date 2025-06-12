@@ -56,16 +56,16 @@ class ZestInlineCompletionRenderer {
             
             // Verify editor state
             if (editor.caretModel.offset != offset) {
-                logger.debug("Editor caret moved, canceling completion display")
+                System.out.println("Editor caret moved, canceling completion display")
                 return@invokeLater
             }
             
             if (completion.insertText.isEmpty()) {
-                logger.debug("Empty completion text, nothing to display")
+                System.out.println("Empty completion text, nothing to display")
                 return@invokeLater
             }
             
-            logger.debug("Showing completion at offset $offset: '${completion.insertText.take(50)}'")
+            System.out.println("Showing completion at offset $offset: '${completion.insertText.take(50)}'")
             
             val id = "zest-completion-${System.currentTimeMillis()}"
             val inlays = mutableListOf<Inlay<*>>()
@@ -78,7 +78,7 @@ class ZestInlineCompletionRenderer {
                 current = context
                 callback(context)
                 
-                logger.debug("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups")
+                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups")
                 
             } catch (e: Exception) {
                 logger.warn("Failed to render completion", e)
@@ -98,7 +98,7 @@ class ZestInlineCompletionRenderer {
                 try {
                     context.inlays.forEach { Disposer.dispose(it) }
                     context.markups.forEach { context.editor.markupModel.removeHighlighter(it) }
-                    logger.debug("Hidden completion: ${context.id}")
+                    System.out.println("Hidden completion: ${context.id}")
                 } catch (e: Exception) {
                     logger.warn("Error hiding completion", e)
                 }

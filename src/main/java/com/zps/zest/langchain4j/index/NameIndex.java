@@ -30,7 +30,7 @@ public class NameIndex {
     private static final Pattern SNAKE_CASE_PATTERN = Pattern.compile("_");
     private static final Pattern DOT_PATTERN = Pattern.compile("\\.");
     
-    public NameIndex() throws IOException {
+    public NameIndex() {
         // No initialization needed for in-memory index
     }
     

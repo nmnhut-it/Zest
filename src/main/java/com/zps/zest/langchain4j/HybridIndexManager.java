@@ -84,18 +84,53 @@ public final class HybridIndexManager {
             
             if (useDiskStorage) {
                 LOG.info("Initializing disk-based indices for better memory efficiency");
-                nameIndex = new DiskBasedNameIndex(project);
-                semanticIndex = new DiskBasedSemanticIndex(project);
-                structuralIndex = new DiskBasedStructuralIndex(project);
+                try {
+                    nameIndex = new DiskBasedNameIndex(project);
+                } catch (Exception e) {
+                    LOG.error("Failed to initialize disk-based name index, falling back to in-memory: " + e.getMessage());
+                    nameIndex = new NameIndex();
+                }
+                
+                try {
+                    semanticIndex = new DiskBasedSemanticIndex(project);
+                } catch (Exception e) {
+                    LOG.error("Failed to initialize disk-based semantic index, falling back to in-memory: " + e.getMessage());
+                    semanticIndex = new SemanticIndex();
+                }
+                
+                try {
+                    structuralIndex = new DiskBasedStructuralIndex(project);
+                } catch (Exception e) {
+                    LOG.error("Failed to initialize disk-based structural index, falling back to in-memory: " + e.getMessage());
+                    structuralIndex = new StructuralIndex();
+                }
             } else {
                 LOG.info("Initializing in-memory indices");
                 nameIndex = new NameIndex();
                 semanticIndex = new SemanticIndex();
                 structuralIndex = new StructuralIndex();
             }
-        } catch (IOException e) {
-            LOG.error("Failed to initialize indices", e);
-            throw new RuntimeException("Failed to initialize search indices", e);
+            
+            // Ensure all indices are initialized
+            if (nameIndex == null) {
+                LOG.warn("Name index is null, creating fallback in-memory index");
+                nameIndex = new NameIndex();
+            }
+            if (semanticIndex == null) {
+                LOG.warn("Semantic index is null, creating fallback in-memory index");
+                semanticIndex = new SemanticIndex();
+            }
+            if (structuralIndex == null) {
+                LOG.warn("Structural index is null, creating fallback in-memory index");
+                structuralIndex = new StructuralIndex();
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Critical error during index initialization, using fallback in-memory indices: " + e.getMessage(), e);
+            // Fallback to in-memory indices to ensure plugin doesn't fail to start
+            nameIndex = new NameIndex();
+            semanticIndex = new SemanticIndex();
+            structuralIndex = new StructuralIndex();
         }
     }
     
@@ -562,9 +597,10 @@ public final class HybridIndexManager {
     }
     
     /**
-     * Clears all indices.
+     * Clears all indices with error handling.
      */
     public void clearIndices() {
+        // Close name index
         if (nameIndex != null) {
             try {
                 if (nameIndex instanceof DiskBasedNameIndex) {
@@ -572,43 +608,53 @@ public final class HybridIndexManager {
                 } else {
                     nameIndex.close();
                 }
-            } catch (IOException e) {
-                LOG.error("Failed to close name index", e);
+            } catch (Exception e) {
+                LOG.error("Failed to close name index: " + e.getMessage());
             }
         }
         
+        // Close semantic index
         if (semanticIndex != null) {
-            if (semanticIndex instanceof DiskBasedSemanticIndex) {
-                try {
+            try {
+                if (semanticIndex instanceof DiskBasedSemanticIndex) {
                     ((DiskBasedSemanticIndex) semanticIndex).close();
-                } catch (IOException e) {
-                    LOG.error("Failed to close semantic index", e);
+                } else {
+                    semanticIndex.clear();
                 }
-            } else {
-                semanticIndex.clear();
+            } catch (Exception e) {
+                LOG.error("Failed to close semantic index: " + e.getMessage());
             }
         }
         
+        // Close structural index
         if (structuralIndex != null) {
-            if (structuralIndex instanceof DiskBasedStructuralIndex) {
-                try {
+            try {
+                if (structuralIndex instanceof DiskBasedStructuralIndex) {
                     ((DiskBasedStructuralIndex) structuralIndex).close();
-                } catch (IOException e) {
-                    LOG.error("Failed to close structural index", e);
+                } else {
+                    structuralIndex.clear();
                 }
-            } else {
-                structuralIndex.clear();
+            } catch (Exception e) {
+                LOG.error("Failed to close structural index: " + e.getMessage());
             }
         }
         
+        // Clear tracking data
         indexedFiles.clear();
         totalFilesIndexed.set(0);
         totalSignaturesIndexed.set(0);
         
-        // Re-initialize
-        initializeIndices();
-        
-        LOG.info("Cleared all indices");
+        // Re-initialize with error handling
+        try {
+            initializeIndices();
+            LOG.info("Cleared and re-initialized all indices");
+        } catch (Exception e) {
+            LOG.error("Failed to re-initialize indices after clearing: " + e.getMessage(), e);
+            // Ensure we have fallback indices
+            if (nameIndex == null) nameIndex = new NameIndex();
+            if (semanticIndex == null) semanticIndex = new SemanticIndex();
+            if (structuralIndex == null) structuralIndex = new StructuralIndex();
+        }
     }
     
     // Getters for the indices
@@ -635,25 +681,37 @@ public final class HybridIndexManager {
     }
     
     /**
-     * Persists all disk-based indices.
+     * Persists all disk-based indices with error handling.
      */
     private void persistIndices() {
         try {
             if (nameIndex instanceof DiskBasedNameIndex) {
-                ((DiskBasedNameIndex) nameIndex).commit();
+                try {
+                    ((DiskBasedNameIndex) nameIndex).commit();
+                } catch (Exception e) {
+                    LOG.error("Failed to commit name index: " + e.getMessage());
+                }
             }
             
             if (semanticIndex instanceof DiskBasedSemanticIndex) {
-                ((DiskBasedSemanticIndex) semanticIndex).saveToDisk();
+                try {
+                    ((DiskBasedSemanticIndex) semanticIndex).saveToDisk();
+                } catch (Exception e) {
+                    LOG.error("Failed to save semantic index: " + e.getMessage());
+                }
             }
             
             if (structuralIndex instanceof DiskBasedStructuralIndex) {
-                ((DiskBasedStructuralIndex) structuralIndex).saveToDisk();
+                try {
+                    ((DiskBasedStructuralIndex) structuralIndex).saveToDisk();
+                } catch (Exception e) {
+                    LOG.error("Failed to save structural index: " + e.getMessage());
+                }
             }
             
             LOG.debug("Persisted indices to disk");
         } catch (Exception e) {
-            LOG.error("Failed to persist indices", e);
+            LOG.error("General error during index persistence: " + e.getMessage(), e);
         }
     }
     
@@ -662,12 +720,20 @@ public final class HybridIndexManager {
      */
     public void dispose() {
         if (persistenceTimer != null) {
-            persistenceTimer.cancel();
-            persistenceTimer = null;
+            try {
+                persistenceTimer.cancel();
+                persistenceTimer = null;
+            } catch (Exception e) {
+                LOG.error("Failed to cancel persistence timer: " + e.getMessage());
+            }
         }
         
-        // Persist and close indices
-        clearIndices();
+        // Persist and close indices with error handling
+        try {
+            clearIndices();
+        } catch (Exception e) {
+            LOG.error("Failed to clear indices during disposal: " + e.getMessage());
+        }
         
         LOG.info("Disposed HybridIndexManager for project: " + project.getName());
     }

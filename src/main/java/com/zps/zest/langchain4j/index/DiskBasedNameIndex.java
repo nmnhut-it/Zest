@@ -232,7 +232,7 @@ public class DiskBasedNameIndex extends NameIndex {
     }
     
     /**
-     * Loads a specific element from disk.
+     * Loads a specific element from disk with error handling.
      */
     private IndexedElement loadElementFromDisk(String id) throws IOException {
         // Use individual file per element for better performance
@@ -244,16 +244,23 @@ public class DiskBasedNameIndex extends NameIndex {
         
         try (Reader reader = Files.newBufferedReader(elementPath)) {
             IndexedElement element = GSON.fromJson(reader, IndexedElement.class);
-            if (element != null) {
+            if (element != null && isValidElement(element)) {
                 // Add to cache
                 elementCache.put(id, element);
+                return element;
+            } else {
+                LOG.warn("Invalid element data in file: " + elementPath);
+                return null;
             }
-            return element;
+        } catch (Exception e) {
+            LOG.warn("Failed to load element from " + elementPath + ": " + e.getMessage());
+            // Try fallback to main file
+            return loadElementFromMainFile(id);
         }
     }
     
     /**
-     * Loads element from the main elements file (fallback).
+     * Loads element from the main elements file (fallback) with error handling.
      */
     private IndexedElement loadElementFromMainFile(String id) throws IOException {
         Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
@@ -265,13 +272,35 @@ public class DiskBasedNameIndex extends NameIndex {
             Type mapType = new TypeToken<Map<String, IndexedElement>>(){}.getType();
             Map<String, IndexedElement> allElements = GSON.fromJson(reader, mapType);
             
-            IndexedElement element = allElements.get(id);
-            if (element != null) {
-                // Add to cache
-                elementCache.put(id, element);
+            if (allElements != null && isValidElementsMap(allElements)) {
+                IndexedElement element = allElements.get(id);
+                if (element != null && isValidElement(element)) {
+                    // Add to cache
+                    elementCache.put(id, element);
+                    return element;
+                } else {
+                    LOG.warn("Element not found or invalid in main file: " + id);
+                    return null;
+                }
+            } else {
+                LOG.warn("Invalid elements data in main file");
+                return null;
             }
-            return element;
+        } catch (Exception e) {
+            LOG.warn("Failed to load from main elements file: " + e.getMessage());
+            return null;
         }
+    }
+    
+    /**
+     * Validates a single IndexedElement.
+     */
+    private boolean isValidElement(IndexedElement element) {
+        return element != null && 
+               element.id != null && 
+               element.signature != null && 
+               element.type != null &&
+               element.filePath != null;
     }
     
     /**
@@ -283,46 +312,74 @@ public class DiskBasedNameIndex extends NameIndex {
     }
     
     /**
-     * Loads the index from disk.
+     * Loads the index from disk with robust error handling.
      */
     private void loadFromDisk() throws IOException {
-        // Load token index
+        // Load token index with error handling
         Path tokensPath = indexPath.resolve(TOKENS_FILE);
         if (Files.exists(tokensPath)) {
             try (Reader reader = Files.newBufferedReader(tokensPath)) {
                 Type mapType = new TypeToken<Map<String, Set<String>>>(){}.getType();
                 Map<String, Set<String>> loaded = GSON.fromJson(reader, mapType);
-                if (loaded != null) {
+                if (loaded != null && isValidTokenIndex(loaded)) {
                     tokenIndex.clear();
                     tokenIndex.putAll(loaded);
+                    LOG.info("Successfully loaded token index with " + loaded.size() + " tokens");
+                } else {
+                    LOG.warn("Invalid or null token index data, starting with empty index");
                 }
+            } catch (Exception e) {
+                LOG.warn("Failed to load token index from " + tokensPath + ", starting with empty index: " + e.getMessage());
+                // Continue with empty token index rather than failing
+                tokenIndex.clear();
             }
         }
         
-        // Load known element IDs
+        // Load known element IDs with error handling
         Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
         if (Files.exists(elementsPath)) {
             try (Reader reader = Files.newBufferedReader(elementsPath)) {
                 Type mapType = new TypeToken<Map<String, IndexedElement>>(){}.getType();
                 Map<String, IndexedElement> allElements = GSON.fromJson(reader, mapType);
-                if (allElements != null) {
+                if (allElements != null && isValidElementsMap(allElements)) {
                     knownElementIds.addAll(allElements.keySet());
+                    LOG.info("Successfully loaded " + allElements.size() + " elements from main file");
+                } else {
+                    LOG.warn("Invalid or null elements data in main file");
                 }
+            } catch (Exception e) {
+                LOG.warn("Failed to load elements from " + elementsPath + ": " + e.getMessage());
+                // Continue without failing - will try individual files
             }
         }
         
-        // Also check for individual element files
+        // Also check for individual element files with error handling
         Path elementsDir = indexPath.resolve("elements");
         if (Files.exists(elementsDir) && Files.isDirectory(elementsDir)) {
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(elementsDir, "*.json")) {
+                int individualCount = 0;
                 for (Path path : stream) {
-                    String filename = path.getFileName().toString();
-                    if (filename.endsWith(".json")) {
-                        String id = filename.substring(0, filename.length() - 5)
-                            .replace("_", ".");
-                        knownElementIds.add(id);
+                    try {
+                        String filename = path.getFileName().toString();
+                        if (filename.endsWith(".json")) {
+                            String id = filename.substring(0, filename.length() - 5)
+                                .replace("_", ".");
+                            if (id != null && !id.trim().isEmpty()) {
+                                knownElementIds.add(id);
+                                individualCount++;
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to process individual element file " + path + ": " + e.getMessage());
+                        // Continue with other files
                     }
                 }
+                if (individualCount > 0) {
+                    LOG.info("Found " + individualCount + " individual element files");
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to scan individual element files: " + e.getMessage());
+                // Continue without failing
             }
         }
         
@@ -331,39 +388,101 @@ public class DiskBasedNameIndex extends NameIndex {
     }
     
     /**
-     * Saves the index to disk.
+     * Validates token index data structure.
      */
-    private void saveToDisk() throws IOException {
-        // Save elements
-        Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
-        
-        // Load existing elements and merge with cache
-        Map<String, IndexedElement> allElements = new HashMap<>();
-        if (Files.exists(elementsPath)) {
-            try (Reader reader = Files.newBufferedReader(elementsPath)) {
-                Type mapType = new TypeToken<Map<String, IndexedElement>>(){}.getType();
-                Map<String, IndexedElement> existing = GSON.fromJson(reader, mapType);
-                if (existing != null) {
-                    allElements.putAll(existing);
+    private boolean isValidTokenIndex(Map<String, Set<String>> tokenIndex) {
+        if (tokenIndex == null) return false;
+        try {
+            // Check if we can iterate safely
+            for (Map.Entry<String, Set<String>> entry : tokenIndex.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    return false;
+                }
+                // Validate that sets contain strings
+                for (String id : entry.getValue()) {
+                    if (id == null) return false;
                 }
             }
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Token index validation failed: " + e.getMessage());
+            return false;
         }
-        
-        // Update with cached elements
-        allElements.putAll(elementCache);
-        
-        // Write back
-        try (Writer writer = Files.newBufferedWriter(elementsPath)) {
-            GSON.toJson(allElements, writer);
+    }
+    
+    /**
+     * Validates elements map data structure.
+     */
+    private boolean isValidElementsMap(Map<String, IndexedElement> elements) {
+        if (elements == null) return false;
+        try {
+            // Check if we can iterate safely and elements are valid
+            for (Map.Entry<String, IndexedElement> entry : elements.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    return false;
+                }
+                IndexedElement element = entry.getValue();
+                if (element.id == null || element.signature == null) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Elements map validation failed: " + e.getMessage());
+            return false;
         }
-        
-        // Save token index
-        Path tokensPath = indexPath.resolve(TOKENS_FILE);
-        try (Writer writer = Files.newBufferedWriter(tokensPath)) {
-            GSON.toJson(tokenIndex, writer);
+    }
+    
+    /**
+     * Saves the index to disk with error handling.
+     */
+    private void saveToDisk() throws IOException {
+        try {
+            // Save elements
+            Path elementsPath = indexPath.resolve(ELEMENTS_FILE);
+            
+            // Load existing elements and merge with cache
+            Map<String, IndexedElement> allElements = new HashMap<>();
+            if (Files.exists(elementsPath)) {
+                try (Reader reader = Files.newBufferedReader(elementsPath)) {
+                    Type mapType = new TypeToken<Map<String, IndexedElement>>(){}.getType();
+                    Map<String, IndexedElement> existing = GSON.fromJson(reader, mapType);
+                    if (existing != null && isValidElementsMap(existing)) {
+                        allElements.putAll(existing);
+                    } else {
+                        LOG.warn("Existing elements file is invalid, starting fresh");
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to load existing elements for merge: " + e.getMessage());
+                    // Continue with just cached elements
+                }
+            }
+            
+            // Update with cached elements
+            allElements.putAll(elementCache);
+            
+            // Write back with atomic operation
+            Path tempPath = elementsPath.resolveSibling(ELEMENTS_FILE + ".tmp");
+            try (Writer writer = Files.newBufferedWriter(tempPath)) {
+                GSON.toJson(allElements, writer);
+            }
+            // Atomic move
+            Files.move(tempPath, elementsPath, StandardCopyOption.REPLACE_EXISTING);
+            
+            // Save token index with atomic operation
+            Path tokensPath = indexPath.resolve(TOKENS_FILE);
+            Path tokensTempPath = tokensPath.resolveSibling(TOKENS_FILE + ".tmp");
+            try (Writer writer = Files.newBufferedWriter(tokensTempPath)) {
+                GSON.toJson(tokenIndex, writer);
+            }
+            // Atomic move
+            Files.move(tokensTempPath, tokensPath, StandardCopyOption.REPLACE_EXISTING);
+            
+            LOG.info("Saved name index to disk with " + allElements.size() + " elements");
+        } catch (Exception e) {
+            LOG.error("Failed to save name index to disk: " + e.getMessage(), e);
+            throw new IOException("Failed to save name index", e);
         }
-        
-        LOG.info("Saved name index to disk with " + allElements.size() + " elements");
     }
     
     /**

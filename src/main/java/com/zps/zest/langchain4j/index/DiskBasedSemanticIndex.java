@@ -286,36 +286,54 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     }
     
     /**
-     * Loads the index from disk.
+     * Loads the index from disk with robust error handling.
      */
     private void loadFromDisk() throws IOException {
-        // Load metadata
+        // Load metadata with error handling
         Path metadataPath = indexPath.resolve(METADATA_FILE);
         if (Files.exists(metadataPath)) {
             try (Reader reader = Files.newBufferedReader(metadataPath)) {
                 Type mapType = new TypeToken<Map<String, EmbeddingMetadata>>(){}.getType();
                 Map<String, EmbeddingMetadata> loaded = GSON.fromJson(reader, mapType);
-                if (loaded != null) {
+                if (loaded != null && isValidMetadataMap(loaded)) {
                     metadataMap.putAll(loaded);
                     
                     // Rebuild position map
                     for (Map.Entry<String, EmbeddingMetadata> entry : loaded.entrySet()) {
-                        embeddingPositions.put(entry.getKey(), entry.getValue().position);
-                        nextPosition = Math.max(nextPosition, entry.getValue().position + 1);
+                        if (entry.getValue() != null) {
+                            embeddingPositions.put(entry.getKey(), entry.getValue().position);
+                            nextPosition = Math.max(nextPosition, entry.getValue().position + 1);
+                        }
                     }
+                    LOG.info("Successfully loaded metadata for " + loaded.size() + " embeddings");
+                } else {
+                    LOG.warn("Invalid or null metadata, starting with empty metadata");
                 }
+            } catch (Exception e) {
+                LOG.warn("Failed to load metadata from " + metadataPath + ": " + e.getMessage());
+                // Continue with empty metadata
+                metadataMap.clear();
+                embeddingPositions.clear();
+                nextPosition = 0;
             }
         }
         
-        // Load segments
+        // Load segments with error handling
         Path segmentsPath = indexPath.resolve(SEGMENTS_FILE);
         if (Files.exists(segmentsPath)) {
             try (Reader reader = Files.newBufferedReader(segmentsPath)) {
                 Type mapType = new TypeToken<Map<String, String>>(){}.getType();
                 Map<String, String> loaded = GSON.fromJson(reader, mapType);
-                if (loaded != null) {
+                if (loaded != null && isValidSegmentsMap(loaded)) {
                     segmentsMap.putAll(loaded);
+                    LOG.info("Successfully loaded " + loaded.size() + " text segments");
+                } else {
+                    LOG.warn("Invalid or null segments, starting with empty segments");
                 }
+            } catch (Exception e) {
+                LOG.warn("Failed to load segments from " + segmentsPath + ": " + e.getMessage());
+                // Continue with empty segments
+                segmentsMap.clear();
             }
         }
         
@@ -323,27 +341,76 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     }
     
     /**
-     * Saves metadata and segments to disk.
+     * Validates metadata map structure.
+     */
+    private boolean isValidMetadataMap(Map<String, EmbeddingMetadata> metadata) {
+        if (metadata == null) return false;
+        try {
+            for (Map.Entry<String, EmbeddingMetadata> entry : metadata.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    return false;
+                }
+                EmbeddingMetadata meta = entry.getValue();
+                if (meta.id == null || meta.position < 0) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Metadata validation failed: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Validates segments map structure.
+     */
+    private boolean isValidSegmentsMap(Map<String, String> segments) {
+        if (segments == null) return false;
+        try {
+            for (Map.Entry<String, String> entry : segments.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Segments validation failed: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Saves metadata and segments to disk with error handling.
      */
     public void saveToDisk() throws IOException {
         lock.readLock().lock();
         try {
-            // Save metadata
+            // Save metadata with atomic operation
             Path metadataPath = indexPath.resolve(METADATA_FILE);
-            try (Writer writer = Files.newBufferedWriter(metadataPath)) {
+            Path metadataTempPath = metadataPath.resolveSibling(METADATA_FILE + ".tmp");
+            try (Writer writer = Files.newBufferedWriter(metadataTempPath)) {
                 GSON.toJson(metadataMap, writer);
             }
+            Files.move(metadataTempPath, metadataPath, StandardCopyOption.REPLACE_EXISTING);
             
-            // Save segments
+            // Save segments with atomic operation
             Path segmentsPath = indexPath.resolve(SEGMENTS_FILE);
-            try (Writer writer = Files.newBufferedWriter(segmentsPath)) {
+            Path segmentsTempPath = segmentsPath.resolveSibling(SEGMENTS_FILE + ".tmp");
+            try (Writer writer = Files.newBufferedWriter(segmentsTempPath)) {
                 GSON.toJson(segmentsMap, writer);
             }
+            Files.move(segmentsTempPath, segmentsPath, StandardCopyOption.REPLACE_EXISTING);
             
             // Force buffer to disk
-            embeddingsBuffer.force();
+            if (embeddingsBuffer != null) {
+                embeddingsBuffer.force();
+            }
             
             LOG.info("Saved semantic index to disk");
+        } catch (Exception e) {
+            LOG.error("Failed to save semantic index to disk: " + e.getMessage(), e);
+            throw new IOException("Failed to save semantic index", e);
         } finally {
             lock.readLock().unlock();
         }

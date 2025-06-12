@@ -31,7 +31,7 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         // Initialize DevTools registry settings
         DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
-        
+
         DumbService.getInstance(project).smartInvokeLater(() -> {
             LOG.info("Creating web browser tool window for project: " + project.getName());
 

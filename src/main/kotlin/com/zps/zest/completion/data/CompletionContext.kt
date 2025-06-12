@@ -3,6 +3,7 @@ package com.zps.zest.completion.data
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.fileEditor.FileDocumentManager
 
 /**
  * Context information for completion requests
@@ -19,7 +20,7 @@ data class CompletionContext(
     companion object {
         fun from(editor: Editor, offset: Int, manually: Boolean = false): CompletionContext {
             val document = editor.document
-            val virtualFile = editor.virtualFile
+            val virtualFile = FileDocumentManager.getInstance().getFile(document)
             val fileName = virtualFile?.name ?: "unknown"
             val language = virtualFile?.fileType?.name ?: "text"
             

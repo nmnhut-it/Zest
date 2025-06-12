@@ -39,7 +39,7 @@ public final class LLMService {
     private static final int READ_TIMEOUT_MS = 120_000;
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 1000;
-    private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int DEFAULT_MAX_TOKENS = 8148;
 
     // Debug flag
     private boolean debugMode = true;
@@ -255,6 +255,7 @@ public final class LLMService {
         JsonObject paramsObj = new JsonObject();
         paramsObj.addProperty("max_tokens", params.getMaxTokens());
         paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
+        paramsObj.addProperty("num_predict", params.getMaxTokens());
         root.add("params", paramsObj);
 
         JsonObject message = new JsonObject();

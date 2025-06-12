@@ -5,11 +5,16 @@ import com.zps.zest.completion.data.CompletionContext
 
 /**
  * Enhanced response parser that extracts both reasoning and completion from LLM responses
- * and handles partial matching/overlap detection
+ * and handles partial matching/overlap detection with length validation
  */
 class ZestReasoningResponseParser {
     private val logger = Logger.getInstance(ZestReasoningResponseParser::class.java)
     private val overlapDetector = ZestCompletionOverlapDetector()
+    
+    companion object {
+        private const val MAX_REASONING_WORDS = 8  // Reduced from 10 for Strategy #3
+        private const val MAX_COMPLETION_TOKENS = 64
+    }
     
     data class ReasoningCompletion(
         val reasoning: String,
@@ -26,10 +31,10 @@ class ZestReasoningResponseParser {
         if (response.isBlank()) return null
         
         return try {
-            // Look for the structured format first
-            val reasoningMatch = Regex("""REASONING:\s*(.+?)(?=COMPLETION:|$)""", RegexOption.DOT_MATCHES_ALL)
+            // Look for the structured format first - handle both old and new formats
+            val reasoningMatch = Regex("""REASONING:\s*(.+?)(?=\s*→?\s*COMPLETION:|$)""", RegexOption.DOT_MATCHES_ALL)
                 .find(response)
-            val completionMatch = Regex("""COMPLETION:\s*(.+)""", RegexOption.DOT_MATCHES_ALL)
+            val completionMatch = Regex("""(?:→\s*)?COMPLETION:\s*(.+)""", RegexOption.DOT_MATCHES_ALL)
                 .find(response)
             
             val reasoning = reasoningMatch?.groupValues?.get(1)?.trim()
@@ -52,11 +57,15 @@ class ZestReasoningResponseParser {
                 else -> {
                     val cleanedCompletion = cleanCompletionText(rawCompletion)
                     val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
-                    val confidence = calculateConfidenceFromReasoning(reasoning, adjustedCompletion.adjustedCompletion)
+                    
+                    // Validate reasoning and completion lengths
+                    val validatedReasoning = validateReasoningLength(reasoning)
+                    val validatedCompletion = validateCompletionLength(adjustedCompletion.adjustedCompletion)
+                    val confidence = calculateConfidenceFromReasoning(validatedReasoning, validatedCompletion)
                     
                     ReasoningCompletion(
-                        reasoning = reasoning ?: "No reasoning provided",
-                        completion = adjustedCompletion.adjustedCompletion,
+                        reasoning = validatedReasoning,
+                        completion = validatedCompletion,
                         confidence = confidence,
                         overlapInfo = adjustedCompletion
                     )
@@ -286,6 +295,61 @@ class ZestReasoningResponseParser {
         return nonWhitespaceMatch?.value ?: ""
     }
     
+    /**
+     * Validate reasoning length (maximum 8 words for Strategy #3)
+     */
+    private fun validateReasoningLength(reasoning: String?): String {
+        if (reasoning.isNullOrBlank()) return "No reasoning provided"
+        
+        val words = reasoning.trim().split(Regex("\\s+"))
+        return if (words.size <= MAX_REASONING_WORDS) {
+            reasoning.trim()
+        } else {
+            val truncated = words.take(MAX_REASONING_WORDS).joinToString(" ")
+            logger.debug("Reasoning too long (${words.size} words), truncated to: $truncated")
+            truncated
+        }
+    }
+    
+    /**
+     * Validate completion length (approximately 64 tokens)
+     */
+    private fun validateCompletionLength(completion: String): String {
+        if (completion.isBlank()) return completion
+        
+        // Rough token estimation: split by whitespace and punctuation
+        val tokens = completion.split(Regex("[\\s\\p{Punct}]+")).filter { it.isNotEmpty() }
+        
+        return if (tokens.size <= MAX_COMPLETION_TOKENS) {
+            completion
+        } else {
+            // Truncate at token boundary, try to keep it meaningful
+            val truncatedTokens = tokens.take(MAX_COMPLETION_TOKENS)
+            val truncated = truncatedTokens.joinToString(" ")
+            logger.debug("Completion too long (${tokens.size} tokens), truncated to ${truncatedTokens.size} tokens")
+            
+            // Try to end at a meaningful boundary (semicolon, closing brace, etc.)
+            val meaningfulEnd = findMeaningfulEndpoint(truncated)
+            meaningfulEnd ?: truncated
+        }
+    }
+    
+    /**
+     * Find a meaningful endpoint for truncated completion
+     */
+    private fun findMeaningfulEndpoint(text: String): String? {
+        val meaningfulEndings = listOf(";", "}", ")", "]", ",")
+        
+        for (ending in meaningfulEndings) {
+            val lastIndex = text.lastIndexOf(ending)
+            if (lastIndex > text.length / 2) { // Only if we're not cutting too much
+                return text.substring(0, lastIndex + 1)
+            }
+        }
+        
+        return null // No meaningful endpoint found
+    }
+
     /**
      * Detect if a response appears to be in reasoning format
      */

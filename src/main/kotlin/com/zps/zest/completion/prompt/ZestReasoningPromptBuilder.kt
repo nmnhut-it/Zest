@@ -17,34 +17,61 @@ class ZestReasoningPromptBuilder {
         val keywordsSection = buildKeywordsSection(context.relevantKeywords)
         
         return """
-        You are completing ${basic.language} code. Based on the context below, first provide a brief reasoning about what the user is likely trying to type, then provide the completion.
-        
-        ${modifiedFilesSection}${similarExampleSection}${keywordsSection}CURRENT FILE: ${basic.fileName}
-        
-        Code before cursor:
-        ${basic.prefixCode}
-        
-        Code after cursor:
-        ${basic.suffixCode}
-        
-        INSTRUCTIONS:
-        1. First, provide a brief reasoning (1-2 sentences) about what you think the user is trying to write based on:
-           - The recent changes in other files and git context
-           - The current code context and visible patterns
-           - Similar patterns in the nearby code
-           - The current line structure, indentation, and partial text
-           - The class/method structure and naming conventions
-        
-        2. Then provide ONLY the raw code completion with NO formatting:
-           - NO markdown code blocks (no ``` or language tags)
-           - NO XML tags or HTML formatting
-           - NO explanatory text or comments
-           - ONLY the exact code that should be inserted at cursor position
-        
-        Format your response as:
-        REASONING: [your brief reasoning here]
-        COMPLETION: [raw code only - no backticks, no language tags, no formatting]
+Context: ${basic.language} development in ${basic.fileName}
+
+${modifiedFilesSection}${similarExampleSection}${keywordsSection}# Primary task: Complete code following established patterns
+# Pattern reference: ${context.similarExample?.content?.take(50) ?: "No pattern detected"}
+# Code style: Match existing naming and structure conventions
+# Context clues: ${context.relevantKeywords.take(3).joinToString(", ")}
+
+BEFORE:
+${basic.prefixCode}
+
+COMPLETE:
+# Task: ${inferTaskFromContext(basic, context.relevantKeywords)}
+# Expected: Code completion following detected pattern
+# Style: Match indentation and naming conventions
+# Limit: Maximum 64 tokens
+[COMPLETE HERE]
+
+AFTER:
+${basic.suffixCode}
+
+INSTRUCTIONS:
+1. Provide brief reasoning (MAXIMUM 8 words) about completion intent
+2. Generate raw code completion (MAXIMUM 64 tokens):
+   - NO markdown code blocks (no ``` or language tags)
+   - NO XML tags or HTML formatting
+   - NO explanatory text or comments
+   - ONLY exact code for cursor position
+   - Match existing code style and patterns
+
+Format: REASONING: [8 words max] → COMPLETION: [raw code, 64 tokens max]
         """.trimIndent()
+    }
+    
+    /**
+     * Infer the likely task from context and keywords
+     */
+    private fun inferTaskFromContext(
+        basic: ZestLeanContextCollector.BasicContext, 
+        keywords: Set<String>
+    ): String {
+        val currentLine = basic.currentLine.trim()
+        val prefix = basic.prefixCode.lines().takeLast(3).joinToString(" ").trim()
+        
+        return when {
+            keywords.contains("assignment_pattern") -> "Complete variable assignment"
+            currentLine.contains("=") -> "Complete assignment statement"
+            currentLine.endsWith("(") -> "Complete method call parameters"
+            currentLine.endsWith("{") -> "Complete code block"
+            currentLine.endsWith(";") -> "Start new statement"
+            keywords.any { it.contains("COUNT") } -> "Complete counter variable"
+            keywords.any { it.contains("Leaderboard") } -> "Complete Leaderboard instantiation"
+            prefix.contains("static") -> "Complete static member"
+            currentLine.isBlank() -> "Add new code line"
+            else -> "Complete current statement"
+        }
     }
     
     private fun buildModifiedFilesSection(gitInfo: ZestCompleteGitContext.CompleteGitInfo?): String {
@@ -119,21 +146,33 @@ class ZestReasoningPromptBuilder {
         suffixCode: String
     ): String {
         return """
-        Complete the following ${language} code. Provide ONLY the raw code completion with NO formatting:
-        - NO markdown code blocks (no ``` or language tags)
-        - NO XML tags or HTML formatting
-        - NO explanatory text or comments
-        - ONLY the exact code that should be inserted at cursor position
-        
-        File: ${fileName}
-        
-        Code before cursor:
-        ${prefixCode}
-        
-        Code after cursor:
-        ${suffixCode}
-        
-        Complete at cursor position:
+Context: ${language} development in ${fileName}
+
+# Primary task: Complete code at cursor position
+# Code style: Match existing patterns and conventions
+# Limit: Maximum 64 tokens
+
+BEFORE:
+${prefixCode}
+
+COMPLETE:
+# Task: Complete current statement or expression
+# Expected: Code continuation following context
+# Style: Match indentation and syntax
+[COMPLETE HERE]
+
+AFTER:
+${suffixCode}
+
+INSTRUCTIONS:
+Generate raw code completion (MAXIMUM 64 tokens):
+- NO markdown code blocks (no ``` or language tags)  
+- NO XML tags or HTML formatting
+- NO explanatory text or comments
+- ONLY exact code for cursor position
+- Keep completion SHORT and focused
+
+Format: [raw code, 64 tokens max]
         """.trimIndent()
     }
 }

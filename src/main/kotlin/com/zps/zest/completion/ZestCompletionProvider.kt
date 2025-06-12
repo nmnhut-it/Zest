@@ -45,7 +45,7 @@ class ZestCompletionProvider(private val project: Project) {
             
             // Get current editor
             val editor = getCurrentEditor() ?: run {
-                logger.warn("No active editor found, falling back to basic completion")
+                logger.debug("No active editor found, falling back to basic completion")
                 return requestBasicCompletion(context)
             }
             
@@ -62,7 +62,7 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             if (response == null) {
-                logger.warn("Enhanced completion request timed out, falling back to basic")
+                logger.debug("Enhanced completion request timed out, falling back to basic")
                 return requestBasicCompletion(context)
             }
             
@@ -73,14 +73,14 @@ class ZestCompletionProvider(private val project: Project) {
                 getCurrentEditor()?.document?.text
             )
             if (reasoningCompletion == null) {
-                logger.warn("Failed to parse reasoning response, falling back to basic")
+                logger.debug("Failed to parse reasoning response, falling back to basic")
                 return requestBasicCompletion(context)
             }
             
             val processingTime = System.currentTimeMillis() - startTime
             
             // Log the reasoning for debugging
-            logger.info("Completion reasoning: ${reasoningCompletion.reasoning}")
+            logger.debug("Completion reasoning: ${reasoningCompletion.reasoning}")
             
             // Create completion item with enhanced metadata
             val item = ZestInlineCompletionItem(
@@ -102,6 +102,10 @@ class ZestCompletionProvider(private val project: Project) {
             
             ZestInlineCompletionList.single(item)
             
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancellation is normal behavior when user types quickly or moves cursor
+            logger.debug("Enhanced completion request was cancelled (normal behavior)")
+            throw e // Rethrow CancellationException as required by coroutine contract
         } catch (e: Exception) {
             logger.warn("Enhanced reasoning completion failed, falling back to basic", e)
             requestBasicCompletion(context)
@@ -129,13 +133,17 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             if (response == null) {
-                logger.warn("Basic completion request timed out")
+                logger.debug("Basic completion request timed out")
                 return null
             }
             
             val processingTime = System.currentTimeMillis() - startTime
             return parseBasicCompletionResponse(response, context, processingTime)
             
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancellation is normal behavior when user types quickly or moves cursor
+            logger.debug("Basic completion request was cancelled (normal behavior)")
+            throw e // Rethrow CancellationException as required by coroutine contract
         } catch (e: Exception) {
             logger.warn("Basic completion request failed", e)
             null

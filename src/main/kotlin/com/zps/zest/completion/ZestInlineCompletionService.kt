@@ -265,6 +265,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     CompletionContext.from(editor, offset, manually)
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            logger.debug("Build completion context was cancelled (normal behavior)")
+            throw e // Rethrow CancellationException as required
         } catch (e: Exception) {
             logger.warn("Failed to build completion context", e)
             null

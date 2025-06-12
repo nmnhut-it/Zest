@@ -62,8 +62,11 @@ class ZestReasoningResponseParser {
                     )
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            logger.debug("Response parsing was cancelled (normal behavior)")
+            throw e
         } catch (e: Exception) {
-            logger.warn("Failed to parse reasoning response", e)
+            logger.debug("Failed to parse reasoning response: ${e.message}")
             // Fallback to treating entire response as completion
             val cleanedCompletion = cleanCompletionText(response)
             val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)

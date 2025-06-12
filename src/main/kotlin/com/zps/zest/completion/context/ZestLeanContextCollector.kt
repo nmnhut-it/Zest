@@ -51,6 +51,9 @@ class ZestLeanContextCollector(private val project: Project) {
             // Get git information (safe to do on background thread)
             val gitInfo = try {
                 gitContext.getAllModifiedFiles()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                logger.debug("Git context collection was cancelled")
+                throw e
             } catch (e: Exception) {
                 logger.warn("Failed to get git context", e)
                 null
@@ -69,6 +72,9 @@ class ZestLeanContextCollector(private val project: Project) {
                 relevantKeywords = keywords
             )
             
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            logger.debug("Context collection was cancelled (normal behavior)")
+            throw e // Rethrow CancellationException as required
         } catch (e: Exception) {
             logger.warn("Failed to collect lean context", e)
             createEmptyContext()

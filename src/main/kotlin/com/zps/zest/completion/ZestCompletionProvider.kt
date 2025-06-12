@@ -67,7 +67,11 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             // Parse reasoning response
-            val reasoningCompletion = responseParser.parseReasoningResponse(response)
+            val reasoningCompletion = responseParser.parseReasoningResponse(
+                response, 
+                context, 
+                getCurrentEditor()?.document?.text
+            )
             if (reasoningCompletion == null) {
                 logger.warn("Failed to parse reasoning response, falling back to basic")
                 return requestBasicCompletion(context)
@@ -130,7 +134,7 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             val processingTime = System.currentTimeMillis() - startTime
-            parseBasicCompletionResponse(response, context, processingTime)
+            return parseBasicCompletionResponse(response, context, processingTime)
             
         } catch (e: Exception) {
             logger.warn("Basic completion request failed", e)
@@ -176,7 +180,7 @@ class ZestCompletionProvider(private val project: Project) {
         """.trimIndent()
     }
     
-    private fun parseBasicCompletionResponse(
+    private suspend fun parseBasicCompletionResponse(
         response: String,
         context: CompletionContext,
         processingTime: Long
@@ -186,8 +190,12 @@ class ZestCompletionProvider(private val project: Project) {
             return ZestInlineCompletionList.EMPTY
         }
         
-        // Clean up the response
-        val cleanedResponse = cleanCompletionText(response)
+        // Clean up the response with overlap detection
+        val cleanedResponse = responseParser.parseSimpleResponse(
+            response,
+            context,
+            getCurrentEditor()?.document?.text
+        )
         
         if (cleanedResponse.isBlank()) {
             return ZestInlineCompletionList.EMPTY
@@ -210,11 +218,6 @@ class ZestCompletionProvider(private val project: Project) {
         )
         
         return ZestInlineCompletionList.single(item)
-    }
-    
-    private fun cleanCompletionText(response: String): String {
-        // Use the enhanced cleaning from the reasoning parser
-        return responseParser.parseSimpleResponse(response)
     }
     
     private fun calculateConfidence(completion: String, context: CompletionContext): Float {

@@ -1,20 +1,28 @@
 package com.zps.zest.completion.parser
 
 import com.intellij.openapi.diagnostic.Logger
+import com.zps.zest.completion.data.CompletionContext
 
 /**
  * Enhanced response parser that extracts both reasoning and completion from LLM responses
+ * and handles partial matching/overlap detection
  */
 class ZestReasoningResponseParser {
     private val logger = Logger.getInstance(ZestReasoningResponseParser::class.java)
+    private val overlapDetector = ZestCompletionOverlapDetector()
     
     data class ReasoningCompletion(
         val reasoning: String,
         val completion: String,
-        val confidence: Float
+        val confidence: Float,
+        val overlapInfo: ZestCompletionOverlapDetector.OverlapResult? = null
     )
     
-    fun parseReasoningResponse(response: String): ReasoningCompletion? {
+    fun parseReasoningResponse(
+        response: String, 
+        context: CompletionContext? = null,
+        documentText: String? = null
+    ): ReasoningCompletion? {
         if (response.isBlank()) return null
         
         return try {
@@ -25,34 +33,46 @@ class ZestReasoningResponseParser {
                 .find(response)
             
             val reasoning = reasoningMatch?.groupValues?.get(1)?.trim()
-            val completion = completionMatch?.groupValues?.get(1)?.trim()
+            val rawCompletion = completionMatch?.groupValues?.get(1)?.trim()
             
             when {
-                completion.isNullOrBlank() -> {
+                rawCompletion.isNullOrBlank() -> {
                     // Fallback: treat entire response as completion if no structure found
                     logger.debug("No structured response found, treating entire response as completion")
+                    val cleanedCompletion = cleanCompletionText(response)
+                    val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
+                    
                     ReasoningCompletion(
                         reasoning = "No reasoning provided",
-                        completion = cleanCompletionText(response),
-                        confidence = 0.5f
+                        completion = adjustedCompletion.adjustedCompletion,
+                        confidence = 0.5f,
+                        overlapInfo = adjustedCompletion
                     )
                 }
                 else -> {
-                    val confidence = calculateConfidenceFromReasoning(reasoning, completion)
+                    val cleanedCompletion = cleanCompletionText(rawCompletion)
+                    val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
+                    val confidence = calculateConfidenceFromReasoning(reasoning, adjustedCompletion.adjustedCompletion)
+                    
                     ReasoningCompletion(
                         reasoning = reasoning ?: "No reasoning provided",
-                        completion = cleanCompletionText(completion),
-                        confidence = confidence
+                        completion = adjustedCompletion.adjustedCompletion,
+                        confidence = confidence,
+                        overlapInfo = adjustedCompletion
                     )
                 }
             }
         } catch (e: Exception) {
             logger.warn("Failed to parse reasoning response", e)
             // Fallback to treating entire response as completion
+            val cleanedCompletion = cleanCompletionText(response)
+            val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
+            
             ReasoningCompletion(
                 reasoning = "Parse error: ${e.message}",
-                completion = cleanCompletionText(response),
-                confidence = 0.3f
+                completion = adjustedCompletion.adjustedCompletion,
+                confidence = 0.3f,
+                overlapInfo = adjustedCompletion
             )
         }
     }
@@ -194,8 +214,73 @@ class ZestReasoningResponseParser {
     /**
      * Parse a simple completion response (non-reasoning format)
      */
-    fun parseSimpleResponse(response: String): String {
-        return cleanCompletionText(response)
+    fun parseSimpleResponse(
+        response: String,
+        context: CompletionContext? = null,
+        documentText: String? = null
+    ): String {
+        val cleanedCompletion = cleanCompletionText(response)
+        val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
+        return adjustedCompletion.adjustedCompletion
+    }
+    
+    /**
+     * Adjust completion text to handle partial matching and overlap with user input
+     */
+    private fun adjustCompletionForOverlap(
+        completionText: String,
+        context: CompletionContext?,
+        documentText: String?
+    ): ZestCompletionOverlapDetector.OverlapResult {
+        
+        if (context == null || documentText == null) {
+            return ZestCompletionOverlapDetector.OverlapResult(
+                completionText, 
+                0, 
+                ZestCompletionOverlapDetector.OverlapType.NONE
+            )
+        }
+        
+        // Extract what user has typed recently
+        val userTypedText = extractUserTypedText(documentText, context.offset)
+        
+        // Detect and handle overlaps
+        val overlapResult = overlapDetector.adjustCompletionForOverlap(
+            userTypedText,
+            completionText,
+            context.offset,
+            documentText
+        )
+        
+        // Handle additional edge cases
+        val finalCompletion = overlapDetector.handleEdgeCases(userTypedText, overlapResult.adjustedCompletion)
+        
+        return overlapResult.copy(adjustedCompletion = finalCompletion)
+    }
+    
+    /**
+     * Extract what the user has recently typed at the cursor position
+     */
+    private fun extractUserTypedText(documentText: String, offset: Int): String {
+        if (offset <= 0) return ""
+        
+        // Look backwards from cursor to find the start of current token/identifier
+        val startOffset = maxOf(0, offset - 50) // Look back up to 50 characters
+        val textBeforeCursor = documentText.substring(startOffset, offset)
+        
+        // Find the current incomplete identifier/token
+        val tokenPattern = Regex("""(\w+)$""")
+        val tokenMatch = tokenPattern.find(textBeforeCursor)
+        
+        if (tokenMatch != null) {
+            return tokenMatch.value
+        }
+        
+        // Fallback: get the last non-whitespace characters
+        val nonWhitespacePattern = Regex("""(\S+)$""")
+        val nonWhitespaceMatch = nonWhitespacePattern.find(textBeforeCursor)
+        
+        return nonWhitespaceMatch?.value ?: ""
     }
     
     /**

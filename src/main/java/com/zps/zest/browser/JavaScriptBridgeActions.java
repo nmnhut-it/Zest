@@ -14,10 +14,11 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Handles routing of JavaScript bridge actions to appropriate service classes.
  * This class centralizes action dispatch and reduces the complexity of the main JavaScriptBridge.
+ * Enhanced version with panel loading state checks.
  */
 public class JavaScriptBridgeActions {
     private static final Logger LOG = Logger.getInstance(JavaScriptBridgeActions.class);
-    
+
     private final Project project;
     private final Gson gson = new Gson();
     private final EditorService editorService;
@@ -27,7 +28,7 @@ public class JavaScriptBridgeActions {
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
     private final ExplorationService explorationService;
-    
+
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
         this.editorService = new EditorService(project);
@@ -38,7 +39,86 @@ public class JavaScriptBridgeActions {
         this.gitService = new GitService(project);
         this.explorationService = new ExplorationService(project);
     }
-    
+
+    /**
+     * Checks if the browser panel is ready for JavaScript execution.
+     * @return true if panel is loaded and ready, false otherwise
+     */
+    private boolean isPanelReady() {
+        try {
+            WebBrowserService browserService = WebBrowserService.getInstance(project);
+            if (browserService == null) {
+                LOG.debug("Browser service not available");
+                return false;
+            }
+
+            WebBrowserPanel browserPanel = browserService.getBrowserPanel();
+            if (browserPanel == null) {
+                LOG.debug("Browser panel not initialized");
+                return false;
+            }
+
+            JCEFBrowserManager browserManager = browserPanel.getBrowserManager();
+            if (browserManager == null) {
+                LOG.debug("Browser manager not available");
+                return false;
+            }
+
+            String currentUrl = browserPanel.getCurrentUrl();
+            if (currentUrl == null || currentUrl.isEmpty() || "about:blank".equals(currentUrl)) {
+                LOG.debug("Browser panel has no valid URL loaded");
+                return false;
+            }
+
+            // Check if the page is actually loaded
+            boolean pageLoaded = WebBrowserToolWindow.isPageLoaded(project, currentUrl);
+            if (!pageLoaded) {
+                LOG.debug("Browser page not fully loaded yet: " + currentUrl);
+                return false;
+            }
+
+            LOG.debug("Browser panel is ready for JavaScript execution");
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Error checking panel readiness", e);
+            return false;
+        }
+    }
+
+    /**
+     * Creates a standard "panel not ready" error response.
+     */
+    private JsonObject createPanelNotReadyResponse() {
+        JsonObject response = new JsonObject();
+        response.addProperty("success", false);
+        response.addProperty("error", "Browser panel is not ready. Please wait for the page to load completely.");
+        response.addProperty("errorType", "PANEL_NOT_READY");
+        return response;
+    }
+
+    /**
+     * Checks if an action requires the panel to be fully loaded.
+     * @param action The action name
+     * @return true if the action requires a loaded panel
+     */
+    private boolean requiresPanelLoaded(String action) {
+        // Actions that require JavaScript execution in the browser
+        return switch (action) {
+            case "insertText",
+                 "extractCodeFromResponse",
+                 "showCodeDiffAndReplace",
+                 "replaceInFile",
+                 "batchReplaceInFile",
+                 "notifyChatResponse",
+                 "indexProject",
+                 "knowledgeApiResult",
+                 "startExploration",
+                 "getExplorationStatus",
+                 "getExplorationContext" -> true;
+            default -> false;
+        };
+    }
+
     /**
      * Handles an action from the assembled message.
      * @param assembledMessage The complete message after chunk reassembly
@@ -48,142 +128,159 @@ public class JavaScriptBridgeActions {
         try {
             JsonObject request = JsonParser.parseString(assembledMessage).getAsJsonObject();
             String action = request.get("action").getAsString();
-            JsonObject data =   request.has("data") ? request.get("data").getAsJsonObject() : new JsonObject();
-            
+            JsonObject data = request.has("data") ? request.get("data").getAsJsonObject() : new JsonObject();
+
             LOG.info("Handling action: " + action);
-            
+
             // Check if we're in agent mode for actions that require it
             WebBrowserPanel.BrowserMode currentMode = WebBrowserService.getInstance(project).getBrowserPanel().getCurrentMode();
             boolean isNotAgentMode = !"Agent Mode".equals(currentMode.getName());
-            
+
+            // Check if panel is ready for actions that require it
+            boolean panelNotReady = requiresPanelLoaded(action) && !isPanelReady();
+
             JsonObject response = new JsonObject();
-            
+
             switch (action) {
-                // Editor-related actions
+                // Editor-related actions (don't require panel loading)
                 case "getSelectedText":
                     return editorService.getSelectedText();
-                
+
                 case "insertText":
                     if (isNotAgentMode) break;
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return editorService.insertText(data);
-                
+
                 case "getCurrentFileName":
                     return editorService.getCurrentFileName();
-                
+
                 // Code-related actions
                 case "codeCompleted":
                     break;
 //                    if (isNotAgentMode) break;
 //                    return codeService.handleCodeComplete(data);
-                
+
                 case "extractCodeFromResponse":
                     if (isNotAgentMode) break;
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return codeService.handleExtractedCode(data);
-                
+
                 case "showCodeDiffAndReplace":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     LOG.info("Processing showCodeDiffAndReplace action with data: " + data.toString());
                     return codeService.handleShowCodeDiffAndReplace(data);
-                
-                // Dialog actions
+
+                // Dialog actions (don't require panel loading)
                 case "showDialog":
                     return dialogService.showDialog(data);
-                
+
                 // File operations
                 case "replaceInFile":
                     if (isNotAgentMode) break;
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return fileService.replaceInFile(data);
-                
+
                 case "batchReplaceInFile":
                     if (isNotAgentMode) break;
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return fileService.batchReplaceInFile(data);
-                
-                // Project info (synchronous)
+
+                // Project info (synchronous - don't require panel loading)
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
-                    
+
                 case "getProjectKnowledgeId":
                     return getProjectKnowledgeId();
-                    
+
                 case "getProjectKnowledgeCollection":
                     return getProjectKnowledgeCollection();
-                    
+
                 case "projectIndexStatus":
                     return getProjectIndexStatus();
-                    
+
                 case "indexProject":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return indexProject(data);
-                    
+
                 case "knowledgeApiResult":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return handleKnowledgeApiResult(data);
-                    
+
                 case "auth":
                     String authToken = data.getAsJsonPrimitive("token").getAsString();
                     ConfigurationManager.getInstance(project).setAuthToken(authToken);
                     LOG.info("Auth token saved successfully");
                     response.addProperty("success", true);
                     return gson.toJson(response);
+
                 // Chat response handling
                 case "notifyChatResponse":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return chatResponseService.notifyChatResponse(data);
-                
-                // Git commit operations
+
+                // Git commit operations (don't require panel loading)
                 case "filesSelectedForCommit":
                 case "filesSelectedForCommitAndPush":
                     boolean shouldPush = data.getAsJsonPrimitive("shouldPush").getAsBoolean();
                     return gitService.handleFilesSelected(data, shouldPush);
-                
+
                 case "commitWithMessage":
                     return gitService.handleCommitWithMessage(data);
+
                 case "gitPush":
                     return gitService.handleGitPush();
-                
+
                 case "getFileDiff":
                     return gitService.getFileDiff(data);
-                    
+
                 case "openFileDiffInIDE":
                     return gitService.openFileDiffInIDE(data);
-                    
+
                 case "getGitStatus":
                     return gitService.getGitStatus();
-                
-                // Content update handling
+
+                // Content update handling (marks page as loaded)
                 case "contentUpdated":
                     return handleContentUpdated(data);
-                
+
                 // Exploration actions
                 case "startExploration":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return explorationService.startExploration(data);
-                    
+
                 case "getExplorationStatus":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return explorationService.getExplorationStatus(data);
-                    
+
                 case "getExplorationContext":
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return explorationService.getExplorationContext(data);
-                
+
+                // Configuration actions (don't require panel loading)
                 case "getButtonStates":
                     return getButtonStates();
-                    
+
                 case "setContextInjectionEnabled":
                     return setContextInjectionEnabled(data);
-                    
+
                 case "setProjectIndexEnabled":
                     return setProjectIndexEnabled(data);
-                    
+
                 case "getCommitPromptTemplate":
                     return getCommitPromptTemplate();
-                
+
                 default:
                     LOG.warn("Unknown action: " + action);
                     response.addProperty("success", false);
                     response.addProperty("error", "Unknown action: " + action);
                     return gson.toJson(response);
             }
-            
+
             // If we reach here, the action was skipped due to mode restrictions
             response.addProperty("success", false);
             response.addProperty("error", "Action not available in current mode");
             return gson.toJson(response);
-            
+
         } catch (Exception e) {
             LOG.error("Error handling action", e);
             JsonObject errorResponse = new JsonObject();
@@ -199,7 +296,7 @@ public class JavaScriptBridgeActions {
      */
     private String handleContentUpdated(JsonObject data) {
         String pageUrl = data.has("url") ? data.get("url").getAsString() : "";
-        
+
         LOG.info("Content updated notification received for: " + pageUrl);
 
         // Mark the page as loaded in WebBrowserToolWindow
@@ -216,7 +313,7 @@ public class JavaScriptBridgeActions {
                 future.complete(true);
             }
         });
-        
+
         JsonObject response = new JsonObject();
         response.addProperty("success", true);
         return gson.toJson(response);
@@ -251,10 +348,10 @@ public class JavaScriptBridgeActions {
         JsonObject response = new JsonObject();
         try {
             boolean forceRefresh = data.has("forceRefresh") && data.get("forceRefresh").getAsBoolean();
-            
+
             // Get the RAG agent and start indexing
             OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
-            
+
             // Start indexing asynchronously
             ragAgent.indexProject(forceRefresh).thenAccept(success -> {
                 if (success) {
@@ -263,10 +360,10 @@ public class JavaScriptBridgeActions {
                     LOG.error("Project indexing failed");
                 }
             });
-            
+
             response.addProperty("success", true);
             response.addProperty("message", "Indexing started");
-            
+
         } catch (Exception e) {
             LOG.error("Error starting project indexing", e);
             response.addProperty("success", false);
@@ -274,7 +371,7 @@ public class JavaScriptBridgeActions {
         }
         return gson.toJson(response);
     }
-    
+
     /**
      * Gets the project knowledge collection from OpenWebUI.
      */
@@ -285,10 +382,10 @@ public class JavaScriptBridgeActions {
             if (knowledgeId != null && !knowledgeId.isEmpty()) {
                 // Get the RAG agent instance
                 OpenWebUIRagAgent openWebUIRagAgent = OpenWebUIRagAgent.getInstance(project);
-                
+
                 // Fetch the complete knowledge collection
                 KnowledgeCollection collection = openWebUIRagAgent.getKnowledgeCollection(knowledgeId);
-                
+
                 if (collection != null) {
                     response.addProperty("success", true);
                     // Convert the collection to JSON
@@ -308,7 +405,7 @@ public class JavaScriptBridgeActions {
         }
         return gson.toJson(response);
     }
-    
+
     /**
      * Gets the project index status.
      */
@@ -317,25 +414,25 @@ public class JavaScriptBridgeActions {
         try {
             ConfigurationManager config = ConfigurationManager.getInstance(project);
             String knowledgeId = config.getKnowledgeId();
-            
+
             boolean isIndexed = knowledgeId != null && !knowledgeId.isEmpty();
-            
+
             response.addProperty("success", true);
             response.addProperty("isIndexed", isIndexed);
             response.addProperty("knowledgeId", knowledgeId != null ? knowledgeId : "");
-            
+
             // Check if indexing is in progress
             OpenWebUIRagAgent ragAgent = OpenWebUIRagAgent.getInstance(project);
             response.addProperty("isIndexing", ragAgent.isIndexing());
-            
+
             LOG.info("Project index status: isIndexed=" + isIndexed + ", knowledgeId=" + knowledgeId + ", isIndexing=" + ragAgent.isIndexing());
-            
+
         } catch (Exception e) {
             LOG.error("Error getting project index status", e);
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());
         }
-        
+
         String result = gson.toJson(response);
         LOG.info("Returning project index status response: " + result);
         return result;
@@ -347,7 +444,7 @@ public class JavaScriptBridgeActions {
     public ChatResponseService getChatResponseService() {
         return chatResponseService;
     }
-    
+
     /**
      * Disposes of all service resources.
      */
@@ -360,27 +457,27 @@ public class JavaScriptBridgeActions {
         if (gitService != null) gitService.dispose();
         if (explorationService != null) explorationService.dispose();
     }
-    
+
     /**
      * Handles knowledge API results from JavaScript callbacks
      */
     private String handleKnowledgeApiResult(JsonObject data) {
         try {
             String callbackId = data.get("callbackId").getAsString();
-            
+
             // Build the result object
             JsonObject result = new JsonObject();
-            
+
             // Copy all fields from data except callbackId
             for (var entry : data.entrySet()) {
                 if (!entry.getKey().equals("callbackId")) {
                     result.add(entry.getKey(), entry.getValue());
                 }
             }
-            
+
             // Pass to the JSBridgeKnowledgeClient
             com.zps.zest.rag.JSBridgeKnowledgeClient.handleCallback(callbackId, result);
-            
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             return gson.toJson(response);
@@ -392,7 +489,7 @@ public class JavaScriptBridgeActions {
             return gson.toJson(response);
         }
     }
-    
+
     /**
      * Gets the current button states from configuration.
      */
@@ -410,7 +507,7 @@ public class JavaScriptBridgeActions {
         }
         return gson.toJson(response);
     }
-    
+
     /**
      * Sets the context injection enabled state.
      */
@@ -428,7 +525,7 @@ public class JavaScriptBridgeActions {
         }
         return gson.toJson(response);
     }
-    
+
     /**
      * Sets the project index enabled state.
      */
@@ -446,7 +543,7 @@ public class JavaScriptBridgeActions {
         }
         return gson.toJson(response);
     }
-    
+
     /**
      * Gets the commit prompt template from configuration.
      */

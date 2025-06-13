@@ -5,7 +5,6 @@ import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -20,11 +19,9 @@ import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.events.ZestCaretListener
 import com.zps.zest.events.ZestDocumentListener
 import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
- * Main service for handling inline completions
+ * Simplified service for handling inline completions
  */
 @Service(Service.Level.PROJECT)
 class ZestInlineCompletionService(private val project: Project) : Disposable {
@@ -34,22 +31,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val completionProvider = ZestCompletionProvider(project)
-    private val completionProcessor = ZestCompletionProcessor()
     private val renderer = ZestInlineCompletionRenderer()
     
     // Configuration
     private var autoTriggerEnabled = true
-    private var isManualRequest = false
     
     // State management
-    private val stateMutex = Mutex()
     private var currentCompletionJob: Job? = null
     private var currentContext: CompletionContext? = null
-    private var currentCompletions: ZestInlineCompletionList? = null
-    private var currentCompletionIndex = 0
+    private var currentCompletion: ZestInlineCompletionItem? = null
     
     init {
-        logger.info("Initializing ZestInlineCompletionService")
+        logger.info("Initializing simplified ZestInlineCompletionService")
         setupEventListeners()
     }
     
@@ -57,94 +50,45 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      * Request inline completion at the specified position
      */
     fun provideInlineCompletion(editor: Editor, offset: Int, manually: Boolean = false) {
-        // Capture editor state on EDT first to avoid threading violations
-        val editorState = try {
-            val text = editor.document.text
-            val caretOffset = editor.caretModel.offset
-            val docLength = editor.document.textLength
-            EditorState(text, caretOffset, docLength)
-        } catch (e: Exception) {
-            logger.warn("Failed to capture editor state", e)
-            return
-        }
-        
         scope.launch {
-            stateMutex.withLock {
-                logger.debug("=== INLINE COMPLETION REQUEST ===")
-                logger.debug("Requesting completion at offset $offset, manually=$manually")
-                logger.debug("Editor caret offset: ${editorState.caretOffset}")
-                logger.debug("Editor document length: ${editorState.documentLength}")
-                
-                // Show context around both offsets to understand the difference
-                val contextWindow = 30
-                
-                // Show context around requested offset
-                val reqStart = maxOf(0, offset - contextWindow)
-                val reqEnd = minOf(editorState.text.length, offset + contextWindow)
-                if (reqStart < reqEnd) {
-                    val beforeReq = editorState.text.substring(reqStart, offset)
-                    val afterReq = editorState.text.substring(offset, reqEnd)
-                    logger.debug("Requested offset context: '$beforeReq' [REQ_CURSOR] '$afterReq'")
-                }
-                
-                // Show context around caret offset
-                val caretStart = maxOf(0, editorState.caretOffset - contextWindow)
-                val caretEnd = minOf(editorState.text.length, editorState.caretOffset + contextWindow)
-                if (caretStart < caretEnd) {
-                    val beforeCaret = editorState.text.substring(caretStart, editorState.caretOffset)
-                    val afterCaret = editorState.text.substring(editorState.caretOffset, caretEnd)
-                    logger.debug("Caret offset context: '$beforeCaret' [CARET] '$afterCaret'")
-                }
-                
-                // Cancel any existing completion requestc
-                currentCompletionJob?.cancel()
-
-                currentContext = null
-                currentCompletions = null
-                currentCompletionIndex = 0
-                isManualRequest = manually
-                
-                // Hide current rendering
-                renderer.hide()
-                
-                // Check if auto-trigger is disabled and this is not manual
-                if (!autoTriggerEnabled && !manually) {
-                    logger.debug("Auto-trigger disabled, ignoring automatic request")
-                    return@withLock
-                }
-                
-                // Notify listeners that we're loading
-                project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(true)
-                
-                // Start completion request
-                currentCompletionJob = scope.launch {
-                    try {
-                        // Build completion context safely using invokeLater
-                        val context = buildCompletionContext(editor, offset, manually)
-                        if (context == null) {
-                            logger.debug("Failed to build completion context")
-                            return@launch
-                        }
-                        
-                        stateMutex.withLock {
-                            currentContext = context
-                        }
-                        
-                        val completions = requestCompletionInternal(context)
-                        
-                        stateMutex.withLock {
-                            if (currentContext == context) { // Ensure request is still valid
-                                handleCompletionResponse(editor, context, completions)
-                            }
-                        }
-                    } catch (e: CancellationException) {
-                        logger.debug("Completion request cancelled")
-                        throw e // Rethrow CancellationException as required
-                    } catch (e: Exception) {
-                        logger.warn("Completion request failed", e)
-                    } finally {
-                        project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
+            logger.debug("Requesting completion at offset $offset, manually=$manually")
+            
+            // Cancel any existing completion request
+            currentCompletionJob?.cancel()
+            clearCurrentCompletion()
+            
+            // Check if auto-trigger is disabled and this is not manual
+            if (!autoTriggerEnabled && !manually) {
+                logger.debug("Auto-trigger disabled, ignoring automatic request")
+                return@launch
+            }
+            
+            // Notify listeners that we're loading
+            project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(true)
+            
+            // Start completion request
+            currentCompletionJob = scope.launch {
+                try {
+                    val context = buildCompletionContext(editor, offset, manually)
+                    if (context == null) {
+                        logger.debug("Failed to build completion context")
+                        return@launch
                     }
+                    
+                    currentContext = context
+                    
+                    val completions = completionProvider.requestCompletion(context)
+                    
+                    if (currentContext == context) { // Ensure request is still valid
+                        handleCompletionResponse(editor, context, completions)
+                    }
+                } catch (e: CancellationException) {
+                    logger.debug("Completion request cancelled")
+                    throw e
+                } catch (e: Exception) {
+                    logger.warn("Completion request failed", e)
+                } finally {
+                    project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
                 }
             }
         }
@@ -154,131 +98,49 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      * Accept the current completion
      */
     fun accept(editor: Editor, offset: Int?, type: AcceptType) {
-        scope.launch {
-            stateMutex.withLock {
-                logger.debug("Accepting completion: type=$type, offset=$offset")
-                
-                val context = currentContext ?: return@withLock
-                val completions = currentCompletions ?: return@withLock
-                
-                // Use provided offset or context offset
-                val actualOffset = offset ?: context.offset
-                
-                if (actualOffset != context.offset) {
-                    logger.debug("Invalid position for acceptance")
-                    return@withLock
-                }
-                
-                val completionItem = completions.getItem(currentCompletionIndex) ?: return@withLock
-                val textToInsert = calculateAcceptedText(completionItem.insertText, type)
-                
-                if (textToInsert.isNotEmpty()) {
-                    invokeLater {
-                        acceptCompletionText(editor, context, completionItem, textToInsert, type)
-                    }
-                }
-                
-                // Clear state unless it's partial acceptance
-                if (type == AcceptType.FULL_COMPLETION) {
-                    clearCurrentCompletion()
-                } else {
-                    // For partial acceptance, update the context
-                    invokeLater {
-                        updateContextAfterPartialAcceptance(editor, textToInsert.length)
-                    }
-                }
+        val context = currentContext ?: return
+        val completion = currentCompletion ?: return
+        
+        val actualOffset = offset ?: context.offset
+        
+        if (actualOffset != context.offset) {
+            logger.debug("Invalid position for acceptance")
+            return
+        }
+        
+        val textToInsert = calculateAcceptedText(completion.insertText, type)
+        
+        if (textToInsert.isNotEmpty()) {
+            invokeLater {
+                acceptCompletionText(editor, context, completion, textToInsert)
             }
         }
+        
+        clearCurrentCompletion()
     }
     
     /**
      * Dismiss the current completion
      */
     fun dismiss() {
-        scope.launch {
-            stateMutex.withLock {
-                logger.debug("Dismissing completion")
-                clearCurrentCompletion()
-            }
-        }
-    }
-    
-    /**
-     * Cycle through available completions
-     */
-    fun cycle(editor: Editor, offset: Int?, direction: CycleDirection) {
-        scope.launch {
-            stateMutex.withLock {
-                val context = currentContext ?: return@withLock
-                val completions = currentCompletions ?: return@withLock
-                
-                // Get offset safely
-                val actualOffset = offset ?: context.offset
-                
-                if (actualOffset != context.offset) {
-                    logger.debug("Invalid position for cycling")
-                    return@withLock
-                }
-                
-                if (completions.items.size <= 1) {
-                    logger.debug("Cannot cycle: only ${completions.items.size} completion(s)")
-                    return@withLock
-                }
-                
-                // Calculate new index
-                val newIndex = when (direction) {
-                    CycleDirection.NEXT -> (currentCompletionIndex + 1) % completions.items.size
-                    CycleDirection.PREVIOUS -> if (currentCompletionIndex == 0) {
-                        completions.items.size - 1
-                    } else {
-                        currentCompletionIndex - 1
-                    }
-                }
-                
-                currentCompletionIndex = newIndex
-                
-                // Show the new completion
-                val newItem = completions.getItem(newIndex)
-                if (newItem != null) {
-                    invokeLater {
-                        renderer.show(editor, context.offset, newItem)
-                        logger.debug("Cycled to completion $newIndex: '${newItem.insertText.take(30)}'")
-                    }
-                }
-            }
-        }
+        logger.debug("Dismissing completion")
+        clearCurrentCompletion()
     }
     
     /**
      * Check if inline completion is visible at the given position
      */
     fun isInlineCompletionVisibleAt(editor: Editor, offset: Int): Boolean {
-        return renderer.current?.editor == editor && renderer.current?.offset == offset
+        return renderer.current?.editor == editor && 
+               renderer.current?.offset == offset &&
+               currentCompletion != null
     }
     
     /**
-     * Check if the current completion starts with indentation
-     */
-    fun isCompletionStartingWithIndentation(): Boolean {
-        val renderingContext = renderer.current ?: return false
-        val completion = renderingContext.completionItem.insertText
-        return completion.matches(Regex("^\\s+.*"))
-    }
-    
-    /**
-     * Alias for isCompletionStartingWithIndentation() to match action expectations
-     */
-    fun isInlineCompletionStartWithIndentation(): Boolean {
-        return isCompletionStartingWithIndentation()
-    }
-    
-    /**
-     * Get the current completion item being displayed.
-     * Used by actions to analyze completion content for context-aware behavior.
+     * Get the current completion item being displayed
      */
     fun getCurrentCompletion(): ZestInlineCompletionItem? {
-        val completions = currentCompletions ?: return null
-        return completions.getItem(currentCompletionIndex)
+        return currentCompletion
     }
     
     /**
@@ -293,37 +155,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     private suspend fun buildCompletionContext(editor: Editor, offset: Int, manually: Boolean): CompletionContext? {
         return try {
-            withContext(Dispatchers.Main) {
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
                 if (editor.isDisposed) {
-                    logger.debug("Editor is disposed, cannot build context")
                     null
                 } else {
-                    logger.debug("=== BUILDING COMPLETION CONTEXT ===")
-                    logger.debug("Using offset: $offset for context building")
-                    
-                    val context = CompletionContext.from(editor, offset, manually)
-                    
-                    logger.debug("Built context - fileName: ${context.fileName}, offset: ${context.offset}")
-                    logger.debug("Context prefix (last 1000): '${context.prefixCode.takeLast(1000)}'")
-                    logger.debug("Context suffix (first 1000): '${context.suffixCode.take(1000)}'")
-                    
-                    context
+                    CompletionContext.from(editor, offset, manually)
                 }
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            logger.debug("Build completion context was cancelled (normal behavior)")
-            throw e // Rethrow CancellationException as required
         } catch (e: Exception) {
             logger.warn("Failed to build completion context", e)
-            null
-        }
-    }
-    
-    private suspend fun requestCompletionInternal(context: CompletionContext): ZestInlineCompletionList? {
-        val rawCompletions = completionProvider.requestCompletion(context)
-        return if (rawCompletions != null) {
-            completionProcessor.processCompletions(rawCompletions, context)
-        } else {
             null
         }
     }
@@ -338,26 +178,23 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             return
         }
         
-        currentCompletions = completions
-        currentCompletionIndex = 0
+        val completion = completions.firstItem()!!
+        currentCompletion = completion
         
-        val firstCompletion = completions.firstItem()!!
         invokeLater {
-            renderer.show(editor, context.offset, firstCompletion) { renderingContext ->
-                // Notify listeners about the completion display
+            renderer.show(editor, context.offset, completion) { renderingContext ->
                 project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
             }
         }
         
-        logger.debug("Displayed completion: '${firstCompletion.insertText.take(50)}'")
+        logger.debug("Displayed completion: '${completion.insertText.take(50)}'")
     }
     
     private fun acceptCompletionText(
         editor: Editor,
         context: CompletionContext,
         completionItem: ZestInlineCompletionItem,
-        textToInsert: String,
-        acceptType: AcceptType
+        textToInsert: String
     ) {
         WriteCommandAction.runWriteCommandAction(project) {
             val document = editor.document
@@ -374,8 +211,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
         }
         
-        // Notify listeners
-        project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(acceptType)
+        project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
     }
     
     private fun calculateAcceptedText(completionText: String, type: AcceptType): String {
@@ -387,70 +223,29 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             }
             AcceptType.NEXT_LINE -> {
                 val firstLine = completionText.lines().firstOrNull() ?: ""
-                if (firstLine.isEmpty() && completionText.lines().size > 1) {
-                    // If first line is empty, take the first two lines
-                    completionText.lines().take(2).joinToString("\n")
-                } else {
-                    firstLine
-                }
+                firstLine
             }
         }
-    }
-    
-    private fun updateContextAfterPartialAcceptance(editor: Editor, acceptedLength: Int) {
-        // This method is called from EDT via invokeLater, so it's safe to access editor state
-        val context = currentContext ?: return
-        val newOffset = context.offset + acceptedLength
-        
-        // Update current context
-        currentContext = CompletionContext.from(editor, newOffset, isManualRequest)
-        
-        // Keep showing remaining completion if any
-        val remainingText = currentCompletions?.getItem(currentCompletionIndex)?.insertText?.drop(acceptedLength)
-        if (!remainingText.isNullOrEmpty()) {
-            val updatedItem = ZestInlineCompletionItem(
-                insertText = remainingText,
-                replaceRange = ZestInlineCompletionItem.Range(newOffset, newOffset)
-            )
-            renderer.show(editor, newOffset, updatedItem)
-        } else {
-            clearCurrentCompletion()
-        }
-    }
-    
-    private fun isValidPosition(editor: Editor, offset: Int, context: CompletionContext): Boolean {
-        return editor.caretModel.offset == offset && offset == context.offset
-    }
-    
-    private fun isValidPositionSync(editor: Editor, offset: Int, context: CompletionContext): Boolean {
-        // This version can be called from EDT without launching coroutines
-        return offset == context.offset
     }
     
     private fun clearCurrentCompletion() {
         currentCompletionJob?.cancel()
         currentContext = null
-        currentCompletions = null
-        currentCompletionIndex = 0
+        currentCompletion = null
         renderer.hide()
     }
     
     private fun setupEventListeners() {
         // Document change listener
         messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
-            override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
+            override fun documentChanged(document: com.intellij.openapi.editor.Document, editor: Editor, event: DocumentEvent) {
                 if (editorManager.selectedTextEditor == editor && autoTriggerEnabled) {
-                    logger.debug("=== DOCUMENT CHANGE AUTO-TRIGGER ===")
-                    logger.debug("Document change at offset: ${event.offset}")
-                    logger.debug("Event new length: ${event.newLength}, old length: ${event.oldLength}")
-                    
                     // Debounce automatic triggers
                     scope.launch {
                         delay(AUTO_TRIGGER_DELAY_MS)
                         invokeLater {
                             if (!editor.isDisposed) {
                                 val currentOffset = editor.caretModel.offset
-                                logger.debug("Auto-triggering with caret offset: $currentOffset")
                                 provideInlineCompletion(editor, currentOffset, manually = false)
                             }
                         }
@@ -463,18 +258,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         messageBusConnection.subscribe(ZestCaretListener.TOPIC, object : ZestCaretListener {
             override fun caretPositionChanged(editor: Editor, event: CaretEvent) {
                 if (editorManager.selectedTextEditor == editor) {
-                    // Get offset on EDT thread where the event handler runs
                     val currentOffset = editor.logicalPositionToOffset(event.newPosition)
-                    
-                    // Check if we should dismiss without launching a coroutine
                     val context = currentContext
-                    if (context != null && !isValidPositionSync(editor, currentOffset, context)) {
+                    
+                    if (context != null && currentOffset != context.offset) {
                         logger.debug("Caret moved, dismissing completion")
-                        scope.launch {
-                            stateMutex.withLock {
-                                clearCurrentCompletion()
-                            }
-                        }
+                        clearCurrentCompletion()
                     }
                 }
             }
@@ -483,17 +272,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         // Editor selection change listener
         messageBusConnection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
             override fun selectionChanged(event: FileEditorManagerEvent) {
-                scope.launch {
-                    stateMutex.withLock {
-                        clearCurrentCompletion()
-                    }
-                }
+                clearCurrentCompletion()
             }
         })
     }
     
     override fun dispose() {
-        logger.info("Disposing ZestInlineCompletionService")
+        logger.info("Disposing simplified ZestInlineCompletionService")
         scope.cancel()
         renderer.hide()
         messageBusConnection.dispose()
@@ -503,10 +288,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     enum class AcceptType {
         FULL_COMPLETION, NEXT_WORD, NEXT_LINE
-    }
-    
-    enum class CycleDirection {
-        NEXT, PREVIOUS
     }
     
     interface Listener {
@@ -521,15 +302,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 500L // Debounce delay for auto-trigger
+        private const val AUTO_TRIGGER_DELAY_MS = 300L // Shorter delay for simpler system
     }
-    
-    /**
-     * Captures editor state to avoid threading violations
-     */
-    private data class EditorState(
-        val text: String,
-        val caretOffset: Int,
-        val documentLength: Int
-    )
 }

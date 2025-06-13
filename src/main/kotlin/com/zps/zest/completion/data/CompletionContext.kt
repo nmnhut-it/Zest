@@ -6,7 +6,7 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.fileEditor.FileDocumentManager
 
 /**
- * Context information for completion requests
+ * Simple context information for completion requests
  */
 data class CompletionContext(
     val fileName: String,
@@ -24,8 +24,14 @@ data class CompletionContext(
             val fileName = virtualFile?.name ?: "unknown"
             val language = virtualFile?.fileType?.name ?: "text"
             
-            // Smart context extraction based on method boundaries
-            val (prefixCode, suffixCode) = extractSmartContext(document, offset, language)
+            val text = document.text
+            
+            // Simple prefix/suffix extraction
+            val prefixStart = maxOf(0, offset - MAX_PREFIX_LENGTH)
+            val suffixEnd = minOf(text.length, offset + MAX_SUFFIX_LENGTH)
+            
+            val prefixCode = text.substring(prefixStart, offset)
+            val suffixCode = text.substring(offset, suffixEnd)
             
             return CompletionContext(
                 fileName = fileName,
@@ -37,117 +43,8 @@ data class CompletionContext(
             )
         }
         
-        private fun extractSmartContext(document: Document, offset: Int, language: String): Pair<String, String> {
-            val text = document.text
-            
-            // For code languages, try to find method boundaries
-            if (isCodeLanguage(language)) {
-                val methodBoundaries = findCurrentMethodBoundaries(text, offset)
-                
-                if (methodBoundaries != null) {
-                    // We're inside a method - show focused method context
-                    val (methodStart, methodEnd) = methodBoundaries
-                    
-                    // Include method signature and content up to cursor
-                    val methodPrefix = text.substring(methodStart, offset)
-                    
-                    // Include limited content after cursor within method
-                    val remainingInMethod = minOf(methodEnd, offset + MAX_SUFFIX_IN_METHOD)
-                    val methodSuffix = text.substring(offset, remainingInMethod)
-                    
-                    return Pair(methodPrefix, methodSuffix)
-                }
-            }
-            
-            // Fallback to improved boundary detection
-            val prefixStart = findGoodPrefixStart(text, offset)
-            val suffixEnd = findGoodSuffixEnd(text, offset)
-            
-            return Pair(
-                text.substring(prefixStart, offset),
-                text.substring(offset, suffixEnd)
-            )
-        }
-        
-        private fun findCurrentMethodBoundaries(text: String, offset: Int): Pair<Int, Int>? {
-            // Look backwards for method signature (including annotations)
-            val beforeCursor = text.substring(0, offset)
-            val methodPattern = Regex(
-                """(@\w+[^)]*\)[\s\n]*)*\s*(public|private|protected|static|final)[\s\w<>\[\],]*\s+\w+\s*\([^)]*\)\s*(\{|throws[^{]*\{)""",
-                RegexOption.MULTILINE
-            )
-            
-            val methodMatches = methodPattern.findAll(beforeCursor).toList()
-            val lastMethodMatch = methodMatches.lastOrNull() ?: return null
-            
-            val methodStart = lastMethodMatch.range.start
-            
-            // Find method end by counting braces
-            val methodEnd = findMatchingBrace(text, lastMethodMatch.range.endInclusive)
-            
-            return if (methodEnd != null && methodEnd > offset) {
-                Pair(methodStart, methodEnd)
-            } else null
-        }
-        
-        private fun findMatchingBrace(text: String, startPos: Int): Int? {
-            var braceLevel = 0
-            var foundOpenBrace = false
-            
-            for (i in startPos until text.length) {
-                when (text[i]) {
-                    '{' -> {
-                        braceLevel++
-                        foundOpenBrace = true
-                    }
-                    '}' -> {
-                        braceLevel--
-                        if (foundOpenBrace && braceLevel == 0) {
-                            return i + 1
-                        }
-                    }
-                }
-            }
-            return null
-        }
-        
-        private fun findGoodPrefixStart(text: String, offset: Int): Int {
-            val maxStart = maxOf(0, offset - MAX_PREFIX_LENGTH)
-            
-            // Try to start at a complete line
-            for (i in maxStart until offset) {
-                if (text[i] == '\n') {
-                    return i + 1
-                }
-            }
-            
-            return maxStart
-        }
-        
-        private fun findGoodSuffixEnd(text: String, offset: Int): Int {
-            val maxEnd = minOf(text.length, offset + MAX_SUFFIX_LENGTH)
-            
-            // Try to end at a complete line
-            for (i in (offset + 1) until maxEnd) {
-                if (text[i] == '\n' && i < maxEnd - 50) { // Leave some buffer
-                    return i
-                }
-            }
-            
-            return maxEnd
-        }
-        
-        private fun isCodeLanguage(language: String): Boolean {
-            val codeLanguages = setOf(
-                "java", "kotlin", "javascript", "typescript", "python", 
-                "csharp", "cpp", "c", "go", "rust", "scala", "groovy"
-            )
-            return codeLanguages.contains(language.lowercase())
-        }
-        
-        private const val MAX_PREFIX_LENGTH = 800   // Characters before cursor
-        private const val MAX_SUFFIX_LENGTH = 400   // Characters after cursor  
-        private const val MAX_SUFFIX_IN_METHOD = 200 // Smaller suffix when inside method
+        private const val MAX_PREFIX_LENGTH = 2000
+        private const val MAX_SUFFIX_LENGTH = 500
     }
     
     /**

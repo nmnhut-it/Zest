@@ -1,21 +1,12 @@
 package com.zps.zest.completion.actions
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.zps.zest.completion.ZestInlineCompletionService
-import com.zps.zest.completion.behavior.ZestTabBehaviorManager
 
 /**
- * Special action for accepting completions with the TAB key.
- * This action uses advanced context analysis to determine when to accept completions
- * vs. allowing normal TAB behavior for indentation.
- * 
- * The decision is made by ZestTabBehaviorManager which analyzes:
- * - Current editing context (line position, indentation level)
- * - Completion content (code vs indentation)
- * - Language-specific indentation rules
- * - User's code style preferences
+ * Simplified action for accepting completions with the TAB key.
+ * This action accepts completions when they are visible and contain meaningful code content.
  */
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
@@ -29,21 +20,31 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
             return false
         }
         
-        // Use advanced tab behavior analysis
-        val project = editor.project ?: return false
-        val tabBehaviorManager = project.service<ZestTabBehaviorManager>()
+        // Simple check: accept if completion contains meaningful content
         val currentCompletion = service.getCurrentCompletion() ?: return false
+        val completionText = currentCompletion.insertText.trim()
         
-        return tabBehaviorManager.shouldAcceptCompletionOnTab(
-            editor = editor,
-            offset = caret.offset,
-            completion = currentCompletion
-        )
+        // Don't accept if it's just whitespace
+        if (completionText.isBlank()) {
+            return false
+        }
+        
+        // Don't accept if the cursor is at the start of a line and completion is just indentation
+        val document = editor.document
+        val lineNumber = document.getLineNumber(caret.offset)
+        val lineStart = document.getLineStartOffset(lineNumber)
+        val isAtLineStart = caret.offset == lineStart
+        
+        if (isAtLineStart && completionText.all { it.isWhitespace() }) {
+            return false
+        }
+        
+        return true
     }
 }) {
     
     /**
-     * High priority for tab accept, but lower than explicit accept action.
+     * High priority for tab accept.
      */
     override val priority: Int = 11
 }

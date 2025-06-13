@@ -4,89 +4,29 @@ import com.intellij.openapi.diagnostic.Logger
 import com.zps.zest.completion.data.CompletionContext
 
 /**
- * Enhanced response parser that extracts both reasoning and completion from LLM responses
- * and handles partial matching/overlap detection with length validation
+ * Simple response parser for inline code completion
  */
-class ZestReasoningResponseParser {
-    private val logger = Logger.getInstance(ZestReasoningResponseParser::class.java)
+class ZestSimpleResponseParser {
+    private val logger = Logger.getInstance(ZestSimpleResponseParser::class.java)
     private val overlapDetector = ZestCompletionOverlapDetector()
     
     companion object {
-        private const val MAX_REASONING_WORDS = 8  // Reduced from 10 for Strategy #3
         private const val MAX_COMPLETION_TOKENS = 64
     }
     
-    data class ReasoningCompletion(
-        val reasoning: String,
-        val completion: String,
-        val confidence: Float,
-        val overlapInfo: ZestCompletionOverlapDetector.OverlapResult? = null
-    )
-    
-    fun parseReasoningResponse(
+    /**
+     * Parse and clean completion response
+     */
+    fun parseResponse(
         response: String, 
         context: CompletionContext? = null,
         documentText: String? = null
-    ): ReasoningCompletion? {
-        if (response.isBlank()) return null
+    ): String {
+        if (response.isBlank()) return ""
         
-        return try {
-            // Look for the structured format first - handle both old and new formats
-            val reasoningMatch = Regex("""REASONING:\s*(.+?)(?=\s*→?\s*COMPLETION:|$)""", RegexOption.DOT_MATCHES_ALL)
-                .find(response)
-            val completionMatch = Regex("""(?:→\s*)?COMPLETION:\s*(.+)""", RegexOption.DOT_MATCHES_ALL)
-                .find(response)
-            
-            val reasoning = reasoningMatch?.groupValues?.get(1)?.trim()
-            val rawCompletion = completionMatch?.groupValues?.get(1)?.trim()
-            
-            when {
-                rawCompletion.isNullOrBlank() -> {
-                    // Fallback: treat entire response as completion if no structure found
-                    System.out.println("No structured response found, treating entire response as completion")
-                    val cleanedCompletion = cleanCompletionText(response)
-                    val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
-                    
-                    ReasoningCompletion(
-                        reasoning = "No reasoning provided",
-                        completion = adjustedCompletion.adjustedCompletion,
-                        confidence = 0.5f,
-                        overlapInfo = adjustedCompletion
-                    )
-                }
-                else -> {
-                    val cleanedCompletion = cleanCompletionText(rawCompletion)
-                    val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
-                    
-                    // Validate reasoning and completion lengths
-                    val validatedReasoning = validateReasoningLength(reasoning)
-                    val validatedCompletion = validateCompletionLength(adjustedCompletion.adjustedCompletion)
-                    val confidence = calculateConfidenceFromReasoning(validatedReasoning, validatedCompletion)
-                    
-                    ReasoningCompletion(
-                        reasoning = validatedReasoning,
-                        completion = validatedCompletion,
-                        confidence = confidence,
-                        overlapInfo = adjustedCompletion
-                    )
-                }
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            System.out.println("Response parsing was cancelled (normal behavior)")
-            throw e
-        } catch (e: Exception) {
-            System.out.println("Failed to parse reasoning response: ${e.message}")
-            // Fallback to treating entire response as completion
-            val cleanedCompletion = cleanCompletionText(response)
-            val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
-            
-            ReasoningCompletion(
-                reasoning = "Parse error: ${e.message}",
-                completion = adjustedCompletion.adjustedCompletion,
-                confidence = 0.3f,
-                overlapInfo = adjustedCompletion
-            )
-        }
+        val cleanedCompletion = cleanCompletionText(response)
+        val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
+        return validateCompletionLength(adjustedCompletion.adjustedCompletion)
     }
     
     private fun cleanCompletionText(text: String): String {
@@ -102,7 +42,7 @@ class ZestReasoningResponseParser {
     private fun cleanMarkdownCodeBlocks(text: String): String {
         var cleaned = text
         
-        // Remove opening code blocks with language tags (e.g., ```java, ```kotlin, ```javascript)
+        // Remove opening code blocks with language tags
         cleaned = cleaned.replace(Regex("^```\\w*\\s*", RegexOption.MULTILINE), "")
         
         // Remove closing code blocks
@@ -135,7 +75,8 @@ class ZestReasoningResponseParser {
             "<kotlin>", "</kotlin>", 
             "<javascript>", "</javascript>",
             "<completion>", "</completion>",
-            "<answer>", "</answer>"
+            "<answer>", "</answer>",
+            "<fim_middle>", "</fim_middle>"
         )
         
         xmlPatterns.forEach { tag ->
@@ -164,76 +105,10 @@ class ZestReasoningResponseParser {
         cleaned = cleaned.replace("**", "") // Bold
         cleaned = cleaned.replace("__", "") // Bold alternative
         
-        // Be careful with * and _ as they're valid code characters
-        // Only remove them if they appear to be markdown formatting (paired)
-        cleaned = cleaned.replace(Regex("\\*([^*]+)\\*"), "$1") // Italic: *text*
-        cleaned = cleaned.replace(Regex("_([^_\\s]+)_"), "$1") // Italic: _text_ (but not _variable_name)
-        
-        // Remove any remaining markdown-style formatting
-        cleaned = cleaned.replace(Regex("\\[.*?\\]\\(.*?\\)"), "") // Links
-        cleaned = cleaned.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "") // Images
-        
         // Clean up multiple spaces created by formatting removal
         cleaned = cleaned.replace(Regex("\\s+"), " ")
         
         return cleaned
-    }
-    
-    private fun calculateConfidenceFromReasoning(reasoning: String?, completion: String): Float {
-        var confidence = 0.7f // Base confidence
-        
-        reasoning?.let { reason ->
-            // Higher confidence if reasoning mentions specific context
-            if (reason.contains("based on", ignoreCase = true) || 
-                reason.contains("likely", ignoreCase = true) ||
-                reason.contains("similar to", ignoreCase = true) ||
-                reason.contains("appears to", ignoreCase = true)) {
-                confidence += 0.1f
-            }
-            
-            // Higher confidence if reasoning is detailed
-            if (reason.length > 50) {
-                confidence += 0.1f
-            }
-            
-            // Higher confidence if reasoning mentions specific code elements
-            if (reason.contains("method", ignoreCase = true) ||
-                reason.contains("function", ignoreCase = true) ||
-                reason.contains("class", ignoreCase = true) ||
-                reason.contains("variable", ignoreCase = true)) {
-                confidence += 0.05f
-            }
-        }
-        
-        // Higher confidence for longer, structured completions
-        if (completion.length > 20 && completion.contains('\n')) {
-            confidence += 0.1f
-        }
-        
-        // Lower confidence for very short completions
-        if (completion.length < 3) {
-            confidence -= 0.2f
-        }
-        
-        // Higher confidence if completion contains proper indentation
-        if (completion.lines().size > 1 && completion.lines().any { it.startsWith("    ") || it.startsWith("\t") }) {
-            confidence += 0.05f
-        }
-        
-        return confidence.coerceIn(0.0f, 1.0f)
-    }
-    
-    /**
-     * Parse a simple completion response (non-reasoning format)
-     */
-    fun parseSimpleResponse(
-        response: String,
-        context: CompletionContext? = null,
-        documentText: String? = null
-    ): String {
-        val cleanedCompletion = cleanCompletionText(response)
-        val adjustedCompletion = adjustCompletionForOverlap(cleanedCompletion, context, documentText)
-        return adjustedCompletion.adjustedCompletion
     }
     
     /**
@@ -296,22 +171,6 @@ class ZestReasoningResponseParser {
     }
     
     /**
-     * Validate reasoning length (maximum 8 words for Strategy #3)
-     */
-    private fun validateReasoningLength(reasoning: String?): String {
-        if (reasoning.isNullOrBlank()) return "No reasoning provided"
-        
-        val words = reasoning.trim().split(Regex("\\s+"))
-        return if (words.size <= MAX_REASONING_WORDS) {
-            reasoning.trim()
-        } else {
-            val truncated = words.take(MAX_REASONING_WORDS).joinToString(" ")
-            System.out.println("Reasoning too long (${words.size} words), truncated to: $truncated")
-            truncated
-        }
-    }
-    
-    /**
      * Validate completion length (approximately 64 tokens)
      */
     private fun validateCompletionLength(completion: String): String {
@@ -348,13 +207,5 @@ class ZestReasoningResponseParser {
         }
         
         return null // No meaningful endpoint found
-    }
-
-    /**
-     * Detect if a response appears to be in reasoning format
-     */
-    fun isReasoningFormat(response: String): Boolean {
-        return response.contains("REASONING:", ignoreCase = true) && 
-               response.contains("COMPLETION:", ignoreCase = true)
     }
 }

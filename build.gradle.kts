@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.861-SNAPSHOT"
+version = "1.9.862-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -61,7 +61,6 @@ dependencies {
 
     // ONNX embedding models
     implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
-    implementation("dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0")
 
     // Document processing
     implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")

@@ -4,8 +4,6 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.bgesmallenv15q.BgeSmallEnV15QuantizedEmbeddingModel;
-
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.Disposable;
@@ -60,11 +58,7 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
             currentThread.setContextClassLoader(pluginClassLoader);
 
             switch (modelType) {
-                case BGE_SMALL_EN_V15:
-                    this.embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
-                    this.modelName = "BGE-small-en-v1.5-quantized";
-                    this.dimension = 384;
-                    break;
+
                 case ALL_MINILM_L6_V2:
                 default:
                     this.embeddingModel = new AllMiniLmL6V2EmbeddingModel();

@@ -16,7 +16,6 @@ import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.utils.GitCommandExecutor;
-import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -624,43 +623,6 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         ApplicationManager.getApplication().invokeLater(() -> {
             Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Commit Message Generation Failed");
         });
-    }
-}
-
-/**
- * Pipeline for generating git commit messages.
- */
-class GitCommitPipeline {
-    private final List<PipelineStage> stages = new ArrayList<>();
-
-    /**
-     * Adds a stage to the pipeline.
-     *
-     * @param stage The stage to add
-     * @return This pipeline instance for method chaining
-     */
-    public GitCommitPipeline addStage(PipelineStage stage) {
-        stages.add(stage);
-        return this;
-    }
-
-    /**
-     * Gets the number of stages in the pipeline.
-     *
-     * @return The number of stages
-     */
-    public int getStageCount() {
-        return stages.size();
-    }
-
-    /**
-     * Gets a stage by index.
-     *
-     * @param index The index of the stage
-     * @return The stage at the given index
-     */
-    public PipelineStage getStage(int index) {
-        return stages.get(index);
     }
 }
 

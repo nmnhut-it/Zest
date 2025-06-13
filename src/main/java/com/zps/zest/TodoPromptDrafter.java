@@ -1,5 +1,10 @@
 package com.zps.zest;
 
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiManager;
+import com.intellij.psi.util.ClassUtil;
+import com.intellij.util.lang.ClasspathCache;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

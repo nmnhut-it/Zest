@@ -31,7 +31,17 @@ Location: $methodContext${if (methodName != null) " ($methodName)" else ""}
 ${if (hasMethodSignature) "✓ Clean method context detected" else "⚠ Fragmented context - be careful"}
 ${if (localContext.needsResultProcessing) "Note: Previous line assigned to 'result' variable - likely needs validation/processing" else ""}
 
-${currentFileSection}${gitChangesSection}${modifiedFilesSection}${similarExampleSection}${keywordsSection}# Primary task: ${if (methodContext == "INSIDE_METHOD") "Continue current method logic" else "Complete code following established patterns"}
+${currentFileSection}
+
+${gitChangesSection}
+
+${modifiedFilesSection}
+
+${similarExampleSection}
+
+${keywordsSection}
+
+# Primary task: ${if (methodContext == "INSIDE_METHOD") "Continue current method logic" else "Complete code following established patterns"}
 # Pattern reference: ${context.similarExample?.content?.take(50) ?: "No pattern detected"}
 # Code style: Match existing naming and structure conventions
 # Context clues: ${context.relevantKeywords.take(3).joinToString(", ")}

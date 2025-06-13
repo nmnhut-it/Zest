@@ -1,54 +1,39 @@
-<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
-<idea-plugin>
+<idea-plugin><id>com.zps.Zest</id>Guidelines:
+    https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+    <name>Zest</name>
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.861</version>  <!-- Replace with your actual version -->
-    
-    <!-- Public plugin name should be written in Title Case.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
-    <name>Zest</name>
-    
-    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <version>1.9.862</version>  <!-- Replace with your actual version -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
     <description><![CDATA[
-<h2>Zest: Smarter Java Development with AI</h2>
-<p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI. Enjoy one-click code reviews, auto-generated commit messages, and smart comments. Boost productivity, ship quality code, and let Zest handle the repetitive stuff so you can focus on building great software. Try Zest and make testing effortless.</p>
-]]></description>
-    <!-- Product and plugin compatibility requirements.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+   <h2>Zest: Smarter Java Development with AI</h2>
+   <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI. Enjoy one-click code reviews, auto-generated commit messages, and smart comments. Boost productivity, ship quality code, and let Zest handle the repetitive stuff so you can focus on building great software. Try Zest and make testing effortless.</p>]]></description>
+    Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
-    
-    <!-- IDE compatibility -->
     <idea-version since-build="223.0" until-build="251.*"/>
-
     <projectListeners>
-        <listener class="com.zps.zest.RagManagerProjectListener"
-                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
-        <!-- Register the selection gutter icon manager -->
+
         <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
-        <!-- Initialize JCef settings -->
+
         <listener class="com.zps.zest.inlinechat.JCefInitializer"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
-
-    <!-- Extension points defined by the plugin.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+<!--    <&#45;&#45; Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html &ndash;&gt;-->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Inline Completion System -->
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
-        
-        <!-- Register the web browser tool window factory -->
+
+
         <toolWindow id="ZPS Chat"
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
                     icon="icons/zpsChat.svg"
                     canCloseContents="false"/>
 
-        <!-- Register the test writing tool window factory -->
+
         <toolWindow id="Test Writing Assistant"
                     anchor="bottom"
                     factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
@@ -57,7 +42,7 @@
                     doNotActivateOnStart="false"
                     secondary="false"/>
 
-        <!-- Register the refactoring tool window factory -->
+
         <toolWindow id="Refactoring for Testability"
                     anchor="bottom"
                     factoryClass="com.zps.zest.refactoring.RefactoringToolWindowFactory"
@@ -71,50 +56,29 @@
                 id="zest.settings"
                 parentId="tools"
                 nonDefaultProject="true"/>
-        
-        <!-- Register the Hybrid Index settings -->
-        <projectConfigurable 
+
+
+        <projectConfigurable
                 instance="com.zps.zest.langchain4j.HybridIndexConfigurable"
                 displayName="Hybrid Code Search Index"
                 id="zest.hybrid.index"
                 parentId="tools"
                 nonDefaultProject="true"/>
-        <!-- Register the code exploration tool window -->
-<!--        <toolWindow id="Code Explorer"-->
-<!--                    anchor="bottom"-->
-<!--                    factoryClass="com.zps.zest.langchain4j.OpenCodeExplorationAction$CodeExplorationToolWindowFactory"-->
-<!--                    icon="AllIcons.Actions.Search"-->
-<!--                    canCloseContents="true"-->
-<!--                    doNotActivateOnStart="false"-->
-<!--                    secondary="false"/>-->
 
-        <!-- Register notification group -->
+
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
-        <!-- Register the intention action -->
+
         <intentionAction>
             <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
             <category>Zest</category>
             <descriptionDirectoryName>InlineChatIntentionAction</descriptionDirectoryName>
         </intentionAction>
 
-        <!-- Register project-level services -->
-<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatService"/>-->
-<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.CommandHistory"/>-->
-<!--        <projectService serviceImplementation="com.zps.zest.inlinechat.InlineChatPreviewService"/>-->
-<!--        -->
-        <!-- Register LangChain4j services -->
-<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>-->
-<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ToolCallingAutonomousAgent"/>-->
-<!--        <projectService serviceImplementation="com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent"/>-->
 
-        
-        <!-- Register the diff highlighter -->
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
-
     </extensions>
     <actions>
-        <!-- Inline Completion Actions -->
         <group id="Zest.InlineCompletion" text="Zest Inline Completion">
             <action id="Zest.InlineCompletion.Trigger"
                     class="com.zps.zest.completion.actions.ZestTrigger"
@@ -122,49 +86,49 @@
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
                 <keyboard-shortcut first-keystroke="alt SLASH" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.ImmediateTrigger"
                     class="com.zps.zest.completion.actions.ZestImmediateTrigger"
                     text="Immediate Inline Completion">
                 <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
                     text="Accept Completion (Tab)">
                 <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.Accept"
                     class="com.zps.zest.completion.actions.ZestAccept"
                     text="Accept Completion">
                 <keyboard-shortcut first-keystroke="ctrl ENTER" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.AcceptNextLine"
                     class="com.zps.zest.completion.actions.ZestAcceptNextLine"
                     text="Accept Next Line">
                 <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.AcceptNextWord"
                     class="com.zps.zest.completion.actions.ZestAcceptNextWord"
                     text="Accept Next Word">
                 <keyboard-shortcut first-keystroke="ctrl RIGHT" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.CycleNext"
                     class="com.zps.zest.completion.actions.ZestCycleNext"
                     text="Cycle Next Completion">
                 <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.CyclePrevious"
                     class="com.zps.zest.completion.actions.ZestCyclePrevious"
                     text="Cycle Previous Completion">
                 <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
             </action>
-            
+
             <action id="Zest.InlineCompletion.Dismiss"
                     class="com.zps.zest.completion.actions.ZestDismiss"
                     text="Dismiss Completion">
@@ -172,33 +136,32 @@
             </action>
         </group>
 
-        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true" icon="icons/zest.svg">
+        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true"
+               icon="icons/zest.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
 
-        <!-- INLINE CHAT ACTIONS -->
 
-        <!-- Inline Chat Actions -->
-        <action id="Zest.InlineChatAction" 
+        <action id="Zest.InlineChatAction"
                 class="com.zps.zest.inlinechat.InlineChatAction"
                 text="Inline AI Edit"
                 icon="AllIcons.Actions.IntentionBulb"
                 description="Open inline AI editor for context-aware editing">
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true" />
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true"/>
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
-        
-        <!-- These actions will be triggered by UI buttons, not menu items -->
+
+
         <action id="Zest.InlineChatAcceptAction"
                 class="com.zps.zest.inlinechat.InlineChatAcceptAction"
-                text="Accept Inline Edit" 
+                text="Accept Inline Edit"
                 description="Accept the changes proposed by the inline AI editor"
                 keymap="$default"
         />
-                
+
         <action id="Zest.InlineChatDiscardAction"
                 class="com.zps.zest.inlinechat.InlineChatDiscardAction"
-                text="Discard Inline Edit" 
+                text="Discard Inline Edit"
                 description="Discard the changes proposed by the inline AI editor"/>
 
         <action id="Zest.InlineChatCancelAction"
@@ -206,31 +169,31 @@
                 text="Cancel Inline Edit"
                 description="Cancel the inline AI editing operation">
         </action>
-        
-        <!-- Test Diff View Action for development/debugging -->
+
+
         <action id="Zest.TestDiffViewAction"
                 class="com.zps.zest.inlinechat.TestDiffViewAction"
                 text="Test Diff View"
                 description="Test the floating diff view window">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
         </action>
-        
-        <!-- Simple JCef Test Action -->
+
+
         <action id="Zest.TestSimpleJCefAction"
                 class="com.zps.zest.inlinechat.TestSimpleJCefAction"
                 text="Test Simple JCef"
                 description="Test if JCef is working properly">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>
         </action>
-        
-        <!-- JCef Diagnostics Action -->
+
+
         <action id="Zest.JCefDiagnosticAction"
                 class="com.zps.zest.inlinechat.JCefDiagnosticAction"
                 text="JCef Diagnostics"
                 description="Check JCef configuration and troubleshoot issues">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>
         </action>
-        <!-- Agent-based Test Writing --> 
+
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
                 text="Step-by-Step Test Writing (Agent)"
@@ -238,8 +201,8 @@
                 description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
         </action>
-        
-        <!-- Quick Test Generator -->
+
+
         <action id="com.zps.zest.GenerateTestByLlm"
                 class="com.zps.zest.GenerateTestByLlm"
                 text="Quick Test Generator (Agent)"
@@ -247,8 +210,8 @@
                 description="Automatically generate tests for the current class">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
         </action>
-        
-        <!-- Test Advisor -->
+
+
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
                 text="Test Advisor (Chat)"
@@ -257,29 +220,25 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
         </action>
 
-        <!-- REFACTORING ACTIONS -->
-        
-        <!-- Step-by-Step Refactoring -->
+
         <action id="Zest.AgentBasedRefactoringAction"
                 class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
                 text="Step-by-Step Refactoring (Agent)"
-                 icon="com.zps.zest.ZestIcons.TEST_WRITING"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
         </action>
-        
-        <!-- Refactoring Advisor -->
+
+
         <action id="Zest.RefactorForTestabilityAction"
                 class="com.zps.zest.RefactorForTestabilityAction"
                 text="Refactoring Advisor (Chat)"
-                 icon="com.zps.zest.ZestIcons.TEST_WRITING"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Get advice on how to refactor the selected code for testability">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
         </action>
 
-        <!-- CODE ENHANCEMENT ACTIONS -->
-        
-        <!-- Code Review -->
+
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="Code Review (Chat)"
@@ -287,16 +246,16 @@
                 description="Get a code review for the current class">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.RefactorForTestabilityAction"/>
         </action>
-        
-        <!-- Add Comments -->
+
+
         <action id="Zest.GenerateCodeCommentsAction"
                 class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"
                 text="Add Comments (Agent)"
                 description="Generate comments for the selected code">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>
         </action>
-        
-        <!-- Implement TODOs -->
+
+
         <action id="com.zps.zest.ImplementTodosAction"
                 class="com.zps.zest.ImplementTodosAction"
                 text="Implement TODOs"
@@ -304,9 +263,7 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>
         </action>
 
-        <!-- VERSION CONTROL ACTIONS -->
-        
-        <!-- Generate Commit Message -->
+
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
                 text="Generate Commit Message (Chat)"
@@ -314,139 +271,34 @@
                 description="Generate a commit message based on git changes">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
         </action>
-        
-        <!-- Quick Commit & Push -->
+
+
         <action id="Zest.QuickCommitAction"
                 class="com.zps.zest.QuickCommitAction"
                 text="Quick Commit &amp; Push"
                 icon="icons/zpsChat16.svg"
                 description="Quick commit and push with auto-generated message">
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+            <add-to-group group-id="ZestGroup" anchor="after"
+                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
             <add-to-group group-id="VcsGroups" anchor="last"/>
         </action>
-        
-        <!-- Simple Git Diff Viewer -->
-<!--        <action id="Zest.ShowGitDiffAction"-->
-<!--                class="com.zps.zest.diff.ShowGitDiffAction"-->
-<!--                text="Show Git Diff Viewer"-->
-<!--                description="Show a simple Git diff viewer for changed files">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
-<!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
-<!--        </action>-->
 
-        <!-- KNOWLEDGE BASE ACTIONS -->
-        
-        <!-- Index Project for RAG -->
-<!--        <action id="Zest.IndexProjectAction"-->
-<!--                class="com.zps.zest.rag.IndexProjectAction"-->
-<!--                text="Index Project for RAG"-->
-<!--                description="Index all project code signatures for intelligent search">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
-<!--        </action>-->
-        
-        <!-- Test LangChain4j Embeddings -->
-<!--        <action id="Zest.TestLangChain4jAction"-->
-<!--                class="com.zps.zest.langchain4j.TestLangChain4jAction"-->
-<!--                text="Test LangChain4j Embeddings"-->
-<!--                description="Test the LangChain4j embedding service with various features">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectAction"/>-->
-<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
-<!--        </action>-->
-        
-        <!-- Quick Search with LangChain4j -->
-<!--        <action id="Zest.QuickTestLangChain4j"-->
-<!--                class="com.zps.zest.langchain4j.QuickTestLangChain4j"-->
-<!--                text="Quick Search with LangChain4j"-->
-<!--                description="Search project code using local embeddings">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestLangChain4jAction"/>-->
-<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift L"/>-->
-<!--        </action>-->
-        
-        <!-- Index Project for Function-Level Search -->
-<!--        <action id="Zest.IndexProjectFunctionLevel"-->
-<!--                class="com.zps.zest.langchain4j.IndexProjectFunctionLevelAction"-->
-<!--                text="Index Project for Function-Level Search"-->
-<!--                description="Index all functions and classes for semantic code search">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.QuickTestLangChain4j"/>-->
-<!--        </action>-->
-        
-        <!-- Test Two-Phase Code Search -->
-<!--        <action id="Zest.TestCodeSearch"-->
-<!--                class="com.zps.zest.langchain4j.TestCodeSearchAction"-->
-<!--                text="Test Two-Phase Code Search"-->
-<!--                description="Search for code using semantic search with related code discovery">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.IndexProjectFunctionLevel"/>-->
-<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>-->
-<!--        </action>-->
-        
-        <!-- Test Query Augmentation -->
-<!--        <action id="Zest.TestQueryAugmentation"-->
-<!--                class="com.zps.zest.langchain4j.TestQueryAugmentationAction"-->
-<!--                text="Test Query Augmentation"-->
-<!--                description="Test the intelligent query augmentation feature">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>-->
-<!--        </action>-->
-        
-        <!-- Test Autonomous Agent -->
-<!--        <action id="Zest.TestAutonomousAgent"-->
-<!--                class="com.zps.zest.langchain4j.TestAutonomousAgentAction"-->
-<!--                text="Test Autonomous Agent"-->
-<!--                description="Test the autonomous code exploration agent">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQueryAugmentation"/>-->
-<!--        </action>-->
-        
-        <!-- Test Tool-Calling Agent -->
-<!--        <action id="Zest.TestToolCallingAgent"-->
-<!--                class="com.zps.zest.langchain4j.TestToolCallingAgentAction"-->
-<!--                text="Test Tool-Calling Agent"-->
-<!--                description="Test the tool-calling autonomous code exploration agent">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestAutonomousAgent"/>-->
-<!--        </action>-->
-        
-        <!-- Test Improved Tool-Calling Agent -->
-<!--        <action id="Zest.TestImprovedToolCallingAgent"-->
-<!--                class="com.zps.zest.langchain4j.TestImprovedToolCallingAgentAction"-->
-<!--                text="Test Improved Tool-Calling Agent"-->
-<!--                description="Test the improved tool-calling autonomous code exploration agent with proper feedback loop">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestCodeSearch"/>-->
-<!--        </action>-->
-        
-        <!-- Start Agent Proxy Server -->
+
         <action id="Zest.StartAgentProxyServer"
                 class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
                 text="Start Agent Proxy Server"
                 icon="AllIcons.Nodes.Services"
                 description="Start network proxy server for external access to code exploration agent">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
-        
-        <!-- Code Explorer & Assistant -->
-<!--        <action id="Zest.OpenCodeExploration"-->
-<!--                class="com.zps.zest.langchain4j.OpenCodeExplorationAction"-->
-<!--                text="Code Explorer and Assistant"-->
-<!--                description="Open the AI-powered code exploration and coding assistant">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestImprovedToolCallingAgent"/>-->
-<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift E"/>-->
-<!--        </action>-->
-        
-        <!-- Test Streaming LLM -->
-<!--        <action id="Zest.TestStreamingLLM"-->
-<!--                class="com.zps.zest.langchain4j.TestStreamingLLMAction"-->
-<!--                text="Test Streaming LLM"-->
-<!--                description="Test the streaming LLM service">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestToolCallingAgent"/>-->
-<!--        </action>-->
 
-        <!-- DEVELOPER TOOLS -->
-        
-        <!-- Toggle Dev Tools -->
+
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                 text="Toggle ZPS Chat Developer Tools"
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-
     </actions>
 </idea-plugin>

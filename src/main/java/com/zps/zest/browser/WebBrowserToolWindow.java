@@ -51,7 +51,7 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
                 WebBrowserService.getInstance(project).registerPanel(browserPanel);
                 
                 // Integrate with AI assistant
-                BrowserIntegrator.integrate(project);
+//                BrowserIntegrator.integrate(project);
                 
                 // Log debug port information
                 int debugPort = DevToolsRegistryManager.getInstance().getDebugPort();

@@ -8,7 +8,6 @@ import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.browser.WebBrowserService;
-import org.apache.commons.lang.StringEscapeUtils;
 
 import java.io.File;
 import java.io.IOException;

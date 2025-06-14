@@ -41,14 +41,20 @@ class ZestCompletionOverlapDetector {
         // Extract what the user has typed recently at cursor position
         val recentUserInput = extractRecentUserInput(documentText, cursorOffset)
         
-        System.out.println("Overlap detection: userTyped='$recentUserInput', completion='${completionText.take(50)}...'")
+        System.out.println("=== OVERLAP DETECTOR DEBUG ===")
+        System.out.println("User input: '$recentUserInput'")
+        System.out.println("Completion: '${completionText.take(50)}...'")
         
-        // Special case: if user typed exactly what completion suggests, return empty
+        // Special case: if user typed exactly what completion suggests, return remaining
         if (recentUserInput.isNotEmpty() && completionText.startsWith(recentUserInput)) {
             val remainingCompletion = completionText.substring(recentUserInput.length)
+            System.out.println("Exact prefix match found. Remaining: '$remainingCompletion'")
             if (remainingCompletion.isBlank()) {
                 System.out.println("User typed the entire completion, returning empty")
                 return OverlapResult("", recentUserInput.length, OverlapType.EXACT_PREFIX)
+            } else {
+                System.out.println("Returning remaining completion after exact prefix")
+                return OverlapResult(remainingCompletion, recentUserInput.length, OverlapType.EXACT_PREFIX)
             }
         }
         
@@ -63,32 +69,47 @@ class ZestCompletionOverlapDetector {
         for (strategy in strategies) {
             val result = strategy(recentUserInput, completionText)
             if (result.overlapType != OverlapType.NONE) {
-                System.out.println("Detected overlap: type=${result.overlapType}, length=${result.overlapLength}")
+                System.out.println("Strategy ${strategy.javaClass.simpleName} detected overlap: type=${result.overlapType}, length=${result.overlapLength}")
+                System.out.println("Adjusted result: '${result.adjustedCompletion}'")
                 return result
             }
         }
         
         // No overlap detected, return original completion
+        System.out.println("No overlap detected, returning original completion")
         return OverlapResult(completionText, 0, OverlapType.NONE)
     }
     
     /**
      * Extract recent user input from the document at cursor position
+     * Enhanced to handle single character inputs better
      */
     private fun extractRecentUserInput(documentText: String, cursorOffset: Int): String {
         if (cursorOffset <= 0) return ""
         
-        val startOffset = maxOf(0, cursorOffset - MAX_OVERLAP_DETECTION_LENGTH)
-        val textBeforeCursor = documentText.substring(startOffset, cursorOffset)
+        // Get current line up to cursor
+        val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
+        val currentLine = documentText.substring(lineStart, cursorOffset)
         
-        // Get the current incomplete token/identifier
-        val tokenMatch = Regex("""(\w+)$""").find(textBeforeCursor)
-        if (tokenMatch != null) {
-            return tokenMatch.value
+        // Get the current incomplete token/identifier (including single characters)
+        val wordMatch = Regex("""(\w+)$""").find(currentLine)
+        if (wordMatch != null) {
+            return wordMatch.value
         }
         
-        // Fallback: get last few characters
-        return textBeforeCursor.takeLast(10).trim()
+        // Check for single character that might be meaningful
+        val singleCharMatch = Regex("""(\w)$""").find(currentLine)
+        if (singleCharMatch != null) {
+            return singleCharMatch.value
+        }
+        
+        // Fallback: get last few non-whitespace characters
+        val nonWhitespaceMatch = Regex("""(\S+)$""").find(currentLine)
+        if (nonWhitespaceMatch != null) {
+            return nonWhitespaceMatch.value
+        }
+        
+        return ""
     }
     
     /**

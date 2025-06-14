@@ -353,12 +353,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 adjustedCompletion != completion.insertText -> {
                                     // Only update if change is significant to reduce blinking
                                     val changeRatio = adjustedCompletion.length.toDouble() / completion.insertText.length
-                                    if (changeRatio > 0.3) { // Only update if at least 30% of original remains
+                                    if (changeRatio > 0.2) { // Reduced threshold from 0.3 to 0.2 for better overlap handling
                                         logger.debug("Updating completion: '${completion.insertText}' -> '$adjustedCompletion'")
                                         updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
                                     } else {
-                                        // Too much change, just clear to avoid blinking
-                                        clearCurrentCompletion()
+                                        // Only clear if the remaining text is truly meaningless
+                                        if (adjustedCompletion.trim().length < 2) {
+                                            clearCurrentCompletion()
+                                        } else {
+                                            // Keep the completion even if it's small - user might want it
+                                            logger.debug("Keeping small completion: '$adjustedCompletion'")
+                                            updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
+                                        }
                                     }
                                 }
                                 // Otherwise keep current completion as-is
@@ -426,32 +432,35 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             }
         }
         
-        // Check if the new text is significantly different to avoid unnecessary updates
+        // Only update if the new text is significantly different to avoid unnecessary updates
         val currentText = currentCompletion?.insertText ?: ""
         if (newText == currentText) {
             return // No change needed
         }
         
-        // Only update if the change is substantial (avoid micro-updates that cause blinking)
-        if (newText.length < currentText.length / 2 && newText.isNotBlank()) {
-            // Text has shrunk significantly but isn't empty - might be user typing over it
-            // Just clear the completion instead of updating to avoid blinking
-            clearCurrentCompletion()
+        // Don't clear small but meaningful completions
+        if (newText.trim().length >= 2) {
+            // Always update if we have at least 2 characters of meaningful content
+            val updatedCompletion = currentCompletion?.copy(
+                insertText = newText,
+                replaceRange = ZestInlineCompletionItem.Range(offset, offset)
+            ) ?: return
+            
+            currentCompletion = updatedCompletion
+            currentContext = currentContext?.copy(offset = offset)
+            
+            // Re-render with new text
+            renderer.hide()
+            renderer.show(editor, offset, updatedCompletion) { renderingContext ->
+                project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+            }
             return
         }
         
-        val updatedCompletion = currentCompletion?.copy(
-            insertText = newText,
-            replaceRange = ZestInlineCompletionItem.Range(offset, offset)
-        ) ?: return
-        
-        currentCompletion = updatedCompletion
-        currentContext = currentContext?.copy(offset = offset)
-        
-        // Re-render with new text - this still causes blinking but less frequently
-        renderer.hide()
-        renderer.show(editor, offset, updatedCompletion) { renderingContext ->
-            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+        // Only clear if remaining text is truly too small
+        if (newText.trim().length < 2) {
+            clearCurrentCompletion()
+            return
         }
     }
     

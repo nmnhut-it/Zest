@@ -33,6 +33,7 @@ class ZestSimpleResponseParser {
     
     /**
      * Extract only the first meaningful line of code from the response
+     * Enhanced to preserve code fragments that result from overlap detection
      */
     private fun extractFirstLineOnly(text: String): String {
         val lines = text.lines()
@@ -40,8 +41,20 @@ class ZestSimpleResponseParser {
         // Find the first non-empty line with actual code content
         for (line in lines) {
             val trimmedLine = line.trim()
-            if (trimmedLine.isNotEmpty() && !isMetaContent(trimmedLine)) {
-                return line // Return with original indentation
+            if (trimmedLine.isNotEmpty()) {
+                // For overlap-adjusted completions, be more permissive
+                if (!isMetaContent(trimmedLine)) {
+                    return line // Return with original indentation
+                }
+            }
+        }
+        
+        // If no line passed the meta-content filter, but we have non-empty lines,
+        // return the first non-empty line anyway (might be a valid code fragment)
+        for (line in lines) {
+            val trimmedLine = line.trim()
+            if (trimmedLine.isNotEmpty()) {
+                return line
             }
         }
         
@@ -52,7 +65,22 @@ class ZestSimpleResponseParser {
      * Check if a line contains meta-content rather than actual code
      */
     private fun isMetaContent(line: String): Boolean {
-        val lower = line.lowercase()
+        val lower = line.lowercase().trim()
+        
+        // Don't filter out short code fragments that might be meaningful
+        if (line.trim().length <= 20) {
+            // For short lines, only filter obvious meta content
+            return lower.startsWith("here") || 
+                   lower.startsWith("the ") || 
+                   lower.startsWith("this ") ||
+                   lower.startsWith("i ") ||
+                   lower.startsWith("you ") ||
+                   lower == "explanation" ||
+                   lower == "suggestion" ||
+                   lower == "completion"
+        }
+        
+        // For longer lines, use more comprehensive filtering
         return lower.startsWith("here") || 
                lower.startsWith("the") || 
                lower.startsWith("this") ||
@@ -98,12 +126,16 @@ class ZestSimpleResponseParser {
         // NOW extract first line from the overlap-adjusted result
         val firstLineCompletion = extractFirstLineOnly(adjustedCompletion)
         
-        // Debug logging
+        // Debug logging with more detail
         if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
-            System.out.println("Overlap detected: ${overlapResult.overlapType}")
-            System.out.println("Original: '${cleanedResponse.take(50)}...'")
-            System.out.println("Adjusted: '$adjustedCompletion'")
-            System.out.println("First line: '$firstLineCompletion'")
+            System.out.println("=== OVERLAP DETECTION DEBUG ===")
+            System.out.println("User input: '$recentUserInput'")
+            System.out.println("Original completion: '$cleanedResponse'")
+            System.out.println("Overlap type: ${overlapResult.overlapType}")
+            System.out.println("Overlap length: ${overlapResult.overlapLength}")
+            System.out.println("Adjusted completion: '$adjustedCompletion'")
+            System.out.println("Final first line: '$firstLineCompletion'")
+            System.out.println("=== END DEBUG ===")
         }
         
         return firstLineCompletion
@@ -121,11 +153,16 @@ class ZestSimpleResponseParser {
         val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
         val currentLine = documentText.substring(lineStart, cursorOffset)
         
-        // Extract meaningful recent input
+        // Extract meaningful recent input with better handling for single characters
         return when {
             // Get incomplete identifier/word (most common case)
             currentLine.matches(Regex(".*\\w+$")) -> {
                 val match = Regex("(\\w+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get single character that might be start of identifier
+            currentLine.matches(Regex(".*\\w$")) -> {
+                val match = Regex("(\\w)$").find(currentLine)
                 match?.value ?: ""
             }
             // Get operator/symbol sequence (e.g., "=", "->", ".")

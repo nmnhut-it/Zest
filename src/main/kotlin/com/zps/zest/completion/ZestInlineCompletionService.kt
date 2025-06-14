@@ -37,7 +37,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
     
     // Configuration
-    private var autoTriggerEnabled = true
+    private var autoTriggerEnabled = false // Default to false, will be set from config
     
     // State management
     private var currentCompletionJob: Job? = null
@@ -46,6 +46,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     init {
         logger.info("Initializing simplified ZestInlineCompletionService")
+        
+        // Load configuration settings
+        val config = com.zps.zest.ConfigurationManager.getInstance(project)
+        autoTriggerEnabled = config.isAutoTriggerEnabled()
+        
         setupEventListeners()
     }
     

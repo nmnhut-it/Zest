@@ -160,8 +160,13 @@ public class ConfigurationManager {
     private String commitPromptTemplate;
     // Knowledge base ID for code indexing
     private String knowledgeId = null;
+    // Inline completion settings
+    private boolean inlineCompletionEnabled = false;
+    private boolean autoTriggerEnabled = false;
+    private boolean backgroundContextEnabled = false;
+    
     // Button states
-    private boolean contextInjectionEnabled = true;
+    private boolean contextInjectionEnabled = false;
     private boolean projectIndexEnabled = false;
     
     // Documentation search configuration
@@ -250,10 +255,13 @@ public class ConfigurationManager {
         codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
         commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
         knowledgeId = null;
-        contextInjectionEnabled = true;
+        contextInjectionEnabled = false;
         projectIndexEnabled = false;
         docsPath = "docs";
         docsSearchEnabled = false;
+        inlineCompletionEnabled = false;
+        autoTriggerEnabled = false;
+        backgroundContextEnabled = false;
 
         boolean configExists = false;
 
@@ -343,6 +351,21 @@ public class ConfigurationManager {
                 if (docsSearchEnabledStr != null) {
                     docsSearchEnabled = Boolean.parseBoolean(docsSearchEnabledStr);
                 }
+                
+                String inlineCompletionStr = props.getProperty("inlineCompletionEnabled");
+                if (inlineCompletionStr != null) {
+                    inlineCompletionEnabled = Boolean.parseBoolean(inlineCompletionStr);
+                }
+
+                String autoTriggerStr = props.getProperty("autoTriggerEnabled");
+                if (autoTriggerStr != null) {
+                    autoTriggerEnabled = Boolean.parseBoolean(autoTriggerStr);
+                }
+
+                String backgroundContextStr = props.getProperty("backgroundContextEnabled");
+                if (backgroundContextStr != null) {
+                    backgroundContextEnabled = Boolean.parseBoolean(backgroundContextStr);
+                }
 
                 try {
                     maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
@@ -395,6 +418,9 @@ public class ConfigurationManager {
             props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
             props.setProperty("docsPath", docsPath);
             props.setProperty("docsSearchEnabled", String.valueOf(docsSearchEnabled));
+            props.setProperty("inlineCompletionEnabled", String.valueOf(inlineCompletionEnabled));
+            props.setProperty("autoTriggerEnabled", String.valueOf(autoTriggerEnabled));
+            props.setProperty("backgroundContextEnabled", String.valueOf(backgroundContextEnabled));
 
             // Save the properties
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
@@ -577,10 +603,13 @@ public class ConfigurationManager {
             props.setProperty("codeSystemPrompt", escapeForProperties(DEFAULT_CODE_SYSTEM_PROMPT));
             props.setProperty("commitPromptTemplate", escapeForProperties(DEFAULT_COMMIT_PROMPT_TEMPLATE));
             props.setProperty("knowledgeId", ""); // Empty by default
-            props.setProperty("contextInjectionEnabled", "true");
+            props.setProperty("contextInjectionEnabled", "false");
             props.setProperty("projectIndexEnabled", "false");
             props.setProperty("docsPath", "docs");
             props.setProperty("docsSearchEnabled", "false");
+            props.setProperty("inlineCompletionEnabled", "false");
+            props.setProperty("autoTriggerEnabled", "false");
+            props.setProperty("backgroundContextEnabled", "false");
 
             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
                 props.store(fos, "Zest Plugin Configuration");
@@ -782,6 +811,30 @@ public class ConfigurationManager {
     public void setDocsSearchEnabled(boolean docsSearchEnabled) {
         this.docsSearchEnabled = docsSearchEnabled;
         saveConfig();
+    }
+    
+    public boolean isInlineCompletionEnabled() {
+        return inlineCompletionEnabled;
+    }
+
+    public void setInlineCompletionEnabled(boolean enabled) {
+        this.inlineCompletionEnabled = enabled;
+    }
+
+    public boolean isAutoTriggerEnabled() {
+        return autoTriggerEnabled;
+    }
+
+    public void setAutoTriggerEnabled(boolean enabled) {
+        this.autoTriggerEnabled = enabled;
+    }
+    
+    public boolean isBackgroundContextEnabled() {
+        return backgroundContextEnabled;
+    }
+
+    public void setBackgroundContextEnabled(boolean enabled) {
+        this.backgroundContextEnabled = enabled;
     }
     
     /**

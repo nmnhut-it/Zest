@@ -15,7 +15,14 @@ class ZestCompletionStartupActivity : ProjectActivity {
         logger.info("Initializing simplified Zest completion services for project: ${project.name}")
         
         try {
-            // Initialize the completion service (simplified - no background processing)
+            // Check if inline completion is enabled
+            val config = com.zps.zest.ConfigurationManager.getInstance(project)
+            if (!config.isInlineCompletionEnabled()) {
+                logger.info("Inline completion disabled by configuration, skipping initialization")
+                return
+            }
+            
+            // Initialize the completion service only if enabled
             project.serviceOrNull<ZestInlineCompletionService>()
             
             logger.info("Simplified Zest completion services initialized successfully")

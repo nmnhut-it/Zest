@@ -48,6 +48,13 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
      * Start background context collection
      */
     fun startBackgroundCollection() {
+        // Check if background context is enabled
+        val config = com.zps.zest.ConfigurationManager.getInstance(project)
+        if (!config.isBackgroundContextEnabled()) {
+            logger.info("Background context collection disabled by configuration")
+            return
+        }
+        
         if (isStarted.compareAndSet(false, true)) {
             logger.info("Starting background context collection")
             startGitContextRefresh()

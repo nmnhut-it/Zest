@@ -39,6 +39,11 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox mcpEnabledCheckbox;
     private JBTextField mcpServerUriField;
     
+    // Inline Completion Settings
+    private JBCheckBox inlineCompletionCheckbox;
+    private JBCheckBox autoTriggerCheckbox;
+    private JBCheckBox backgroundContextCheckbox;
+    
     // Context Settings
     private JBRadioButton contextInjectionRadio;
     private JBRadioButton projectIndexRadio;
@@ -158,6 +163,29 @@ public class ZestSettingsConfigurable implements Configurable {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         
         int row = 0;
+        
+        // Inline Completion Section
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        panel.add(new TitledSeparator("Inline Completion"), gbc);
+        
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        inlineCompletionCheckbox = new JBCheckBox("Enable Inline Completion", config.isInlineCompletionEnabled());
+        panel.add(inlineCompletionCheckbox, gbc);
+        
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        autoTriggerCheckbox = new JBCheckBox("Enable Auto-trigger for Inline Completion", config.isAutoTriggerEnabled());
+        autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        panel.add(autoTriggerCheckbox, gbc);
+        
+        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+        backgroundContextCheckbox = new JBCheckBox("Enable Background Context Collection", config.isBackgroundContextEnabled());
+        panel.add(backgroundContextCheckbox, gbc);
+        
+        // Enable/disable dependent checkboxes
+        inlineCompletionCheckbox.addItemListener(e -> {
+            boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
+            autoTriggerCheckbox.setEnabled(enabled);
+        });
         
         // RAG Section
         gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
@@ -403,6 +431,9 @@ public class ZestSettingsConfigurable implements Configurable {
                !testModelField.getText().equals(config.getTestModel()) ||
                !codeModelField.getText().equals(config.getCodeModel()) ||
                !maxIterationsSpinner.getValue().equals(config.getMaxIterations()) ||
+               inlineCompletionCheckbox.isSelected() != config.isInlineCompletionEnabled() ||
+               autoTriggerCheckbox.isSelected() != config.isAutoTriggerEnabled() ||
+               backgroundContextCheckbox.isSelected() != config.isBackgroundContextEnabled() ||
                ragEnabledCheckbox.isSelected() != config.isRagEnabled() ||
                mcpEnabledCheckbox.isSelected() != config.isMcpEnabled() ||
                !mcpServerUriField.getText().equals(config.getMcpServerUri()) ||
@@ -436,6 +467,9 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setTestModel(testModelField.getText().trim());
         config.setCodeModel(codeModelField.getText().trim());
         config.setMaxIterations((Integer) maxIterationsSpinner.getValue());
+        config.setInlineCompletionEnabled(inlineCompletionCheckbox.isSelected());
+        config.setAutoTriggerEnabled(autoTriggerCheckbox.isSelected());
+        config.setBackgroundContextEnabled(backgroundContextCheckbox.isSelected());
         config.setRagEnabled(ragEnabledCheckbox.isSelected());
         config.setMcpEnabled(mcpEnabledCheckbox.isSelected());
         config.setMcpServerUri(mcpServerUriField.getText().trim());
@@ -471,6 +505,10 @@ public class ZestSettingsConfigurable implements Configurable {
         testModelField.setText(config.getTestModel());
         codeModelField.setText(config.getCodeModel());
         maxIterationsSpinner.setValue(config.getMaxIterations());
+        inlineCompletionCheckbox.setSelected(config.isInlineCompletionEnabled());
+        autoTriggerCheckbox.setSelected(config.isAutoTriggerEnabled());
+        autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        backgroundContextCheckbox.setSelected(config.isBackgroundContextEnabled());
         ragEnabledCheckbox.setSelected(config.isRagEnabled());
         mcpEnabledCheckbox.setSelected(config.isMcpEnabled());
         mcpServerUriField.setText(config.getMcpServerUri());

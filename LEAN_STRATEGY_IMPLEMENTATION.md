@@ -137,19 +137,36 @@ service.setCompletionStrategy(ZestCompletionProvider.CompletionStrategy.LEAN)
 |--------|--------|------|
 | **Speed** | ~2-5 seconds | ~5-15 seconds |
 | **Context** | Prefix/Suffix only | Full file |
+| **Display** | First line only | Full multi-line |
 | **Quality** | Good for simple completions | Better for complex logic |
 | **Reasoning** | None | Detailed analysis |
 | **Tokens** | 16 max | 1000 max |
 | **Model** | Mini model | Full model |
 
-## Benefits of LEAN Strategy
+## Visual Display Differences
 
-1. **Better Context Understanding**: AI sees full file structure
-2. **Focused Completions**: Generates only what's needed at cursor
-3. **Reasoning Transparency**: Shows AI's thought process
-4. **Pattern Recognition**: Learns from existing code patterns
-5. **Language Awareness**: Follows language-specific conventions
-6. **No Diff Complexity**: Simple, direct completion extraction
+### SIMPLE Strategy Display
+```kotlin
+// Shows only (inline):
+return a + b;
+```
+*Single line inline display for clean UX*
+
+### LEAN Strategy Display  
+```kotlin
+// Shows full completion:
+if (a < 0 || b < 0) {           ← inline
+    throw new IllegalArgumentException();  ← block
+}                               ← block
+return a + b;                   ← block
+```
+*Multi-line display with first line inline + additional lines as blocks*
+
+### Rendering Details
+- **SIMPLE**: Uses only inline inlays (horizontal)
+- **LEAN**: Uses inline inlay for first line + block inlays for subsequent lines
+- **Both**: Support TAB acceptance of full completion text
+- **Overlap Detection**: Applied before display truncation/expansion
 
 ## Error Handling & Fallbacks
 

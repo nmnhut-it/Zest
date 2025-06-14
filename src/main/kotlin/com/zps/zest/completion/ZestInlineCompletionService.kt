@@ -202,7 +202,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         currentCompletion = completion
         
         ApplicationManager.getApplication().invokeLater {
-            renderer.show(editor, context.offset, completion) { renderingContext ->
+            renderer.show(editor, context.offset, completion, completionProvider.strategy) { renderingContext ->
                 project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
             }
         }
@@ -348,7 +348,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 val adjustedCompletion = responseParser.parseResponseWithOverlapDetection(
                     originalResponse,
                     documentText,
-                    currentOffset
+                    currentOffset,
+                    strategy = completionProvider.strategy
                 )
                 
                 withContext(Dispatchers.Main) {
@@ -465,7 +466,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             
             // Re-render with new text
             renderer.hide()
-            renderer.show(editor, offset, updatedCompletion) { renderingContext ->
+            renderer.show(editor, offset, updatedCompletion, completionProvider.strategy) { renderingContext ->
                 project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
             }
             return

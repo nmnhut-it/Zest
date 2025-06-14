@@ -1,9 +1,11 @@
 package com.zps.zest.completion.parser
 
+import com.zps.zest.completion.ZestCompletionProvider
+
 /**
  * Simple response parser that cleans up LLM responses for code completion
  * Enhanced with thread-safe overlap detection for Qwen 2.5 Coder FIM format
- * Now extracts only the first meaningful line for cleaner inline display
+ * Now strategy-aware: SIMPLE shows first line only, LEAN shows full completion
  */
 class ZestSimpleResponseParser {
     
@@ -95,13 +97,13 @@ class ZestSimpleResponseParser {
     
     /**
      * Parse response with thread-safe overlap detection and adjustment
-     * Only operates on provided strings, no editor access
-     * Now properly handles overlap detection BEFORE extracting first line
+     * Strategy-aware: SIMPLE shows first line only, LEAN shows full completion
      */
     fun parseResponseWithOverlapDetection(
         response: String,
         documentText: String,
-        cursorOffset: Int
+        cursorOffset: Int,
+        strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.SIMPLE
     ): String {
         if (response.isBlank()) return ""
         
@@ -123,22 +125,32 @@ class ZestSimpleResponseParser {
         // Handle edge cases (thread-safe)
         val adjustedCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
         
-        // NOW extract first line from the overlap-adjusted result
-        val firstLineCompletion = extractFirstLineOnly(adjustedCompletion)
+        // Strategy-aware display logic
+        val finalCompletion = when (strategy) {
+            ZestCompletionProvider.CompletionStrategy.SIMPLE -> {
+                // SIMPLE strategy: show only first line for clean inline display
+                extractFirstLineOnly(adjustedCompletion)
+            }
+            ZestCompletionProvider.CompletionStrategy.LEAN -> {
+                // LEAN strategy: show full completion (multi-line allowed)
+                adjustedCompletion
+            }
+        }
         
         // Debug logging with more detail
         if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
             System.out.println("=== OVERLAP DETECTION DEBUG ===")
+            System.out.println("Strategy: $strategy")
             System.out.println("User input: '$recentUserInput'")
             System.out.println("Original completion: '$cleanedResponse'")
             System.out.println("Overlap type: ${overlapResult.overlapType}")
             System.out.println("Overlap length: ${overlapResult.overlapLength}")
             System.out.println("Adjusted completion: '$adjustedCompletion'")
-            System.out.println("Final first line: '$firstLineCompletion'")
+            System.out.println("Final completion: '$finalCompletion'")
             System.out.println("=== END DEBUG ===")
         }
         
-        return firstLineCompletion
+        return finalCompletion
     }
     
     

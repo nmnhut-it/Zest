@@ -42,12 +42,13 @@ class ZestInlineCompletionRenderer {
     
     /**
      * Show inline completion at the specified position
-     * Enhanced protection against IntelliJ action interference
+     * Strategy-aware: shows multi-line for LEAN, single-line for SIMPLE
      */
     fun show(
         editor: Editor,
         offset: Int,
         completion: ZestInlineCompletionItem,
+        strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.SIMPLE,
         callback: (context: RenderingContext) -> Unit = {}
     ) {
         ApplicationManager.getApplication().invokeLater {
@@ -79,7 +80,7 @@ class ZestInlineCompletionRenderer {
             val markups = mutableListOf<RangeHighlighter>()
             
             try {
-                renderCompletion(editor, offset, completion, inlays, markups)
+                renderCompletion(editor, offset, completion, inlays, markups, strategy)
                 
                 val context = RenderingContext(id, editor, offset, completion, inlays, markups)
                 current = context
@@ -148,7 +149,8 @@ class ZestInlineCompletionRenderer {
         offset: Int,
         completion: ZestInlineCompletionItem,
         inlays: MutableList<Inlay<*>>,
-        markups: MutableList<RangeHighlighter>
+        markups: MutableList<RangeHighlighter>,
+        strategy: ZestCompletionProvider.CompletionStrategy
     ) {
         val insertText = completion.insertText
         val replaceRange = completion.replaceRange
@@ -169,19 +171,50 @@ class ZestInlineCompletionRenderer {
             markups.add(highlighter)
         }
         
-        // Only show the first line (since parser now returns first line only)
-        // Split just in case there are still multiple lines for robustness
-        val lines = insertText.lines()
-        val firstLine = lines.firstOrNull() ?: return
-        
-        if (firstLine.isNotEmpty()) {
-            val inlay = createInlineInlay(editor, offset, firstLine)
-            if (inlay != null) {
-                inlays.add(inlay)
+        // Strategy-aware rendering
+        when (strategy) {
+            ZestCompletionProvider.CompletionStrategy.SIMPLE -> {
+                // SIMPLE: Only show the first line for clean inline display
+                val lines = insertText.lines()
+                val firstLine = lines.firstOrNull() ?: return
+                
+                if (firstLine.isNotEmpty()) {
+                    val inlay = createInlineInlay(editor, offset, firstLine)
+                    if (inlay != null) {
+                        inlays.add(inlay)
+                        System.out.println("SIMPLE strategy: rendered single line: '$firstLine'")
+                    }
+                }
+            }
+            
+            ZestCompletionProvider.CompletionStrategy.LEAN -> {
+                // LEAN: Show full multi-line completion
+                val lines = insertText.lines()
+                
+                if (lines.isNotEmpty()) {
+                    // First line goes inline at cursor
+                    val firstLine = lines[0]
+                    if (firstLine.isNotEmpty()) {
+                        val inlay = createInlineInlay(editor, offset, firstLine)
+                        if (inlay != null) {
+                            inlays.add(inlay)
+                        }
+                    }
+                    
+                    // Subsequent lines go as block elements below
+                    lines.drop(1).forEachIndexed { index, line ->
+                        if (line.isNotEmpty() || index == 0) { // Show empty lines only if they're the first additional line
+                            val blockInlay = createBlockInlay(editor, offset, line, index + 1)
+                            if (blockInlay != null) {
+                                inlays.add(blockInlay)
+                            }
+                        }
+                    }
+                    
+                    System.out.println("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays)")
+                }
             }
         }
-        
-        // Remove the multi-line block rendering logic - we only show first line now
     }
     
     private fun createInlineInlay(editor: Editor, offset: Int, text: String): Inlay<*>? {
@@ -219,6 +252,26 @@ class ZestInlineCompletionRenderer {
                 editor.colorsScheme.editorFontSize
             )
         }
+    }
+    
+    private fun createBlockInlay(editor: Editor, offset: Int, text: String, lineOffset: Int): Inlay<*>? {
+        val renderer = object : EditorCustomElementRenderer {
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
+                return maxOf(calculateTextWidth(inlay.editor, text), 1)
+            }
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                g.font = getCompletionFont(inlay.editor)
+                g.color = getCompletionColor()
+                g.drawString(text, targetRect.x, targetRect.y + inlay.editor.ascent)
+            }
+            
+            override fun getContextMenuGroupId(inlay: Inlay<*>): String {
+                return "Zest.InlineCompletionContextMenu"
+            }
+        }
+        
+        return editor.inlayModel.addBlockElement(offset, true, false, -lineOffset, renderer)
     }
     
     private fun getCompletionColor(): JBColor {

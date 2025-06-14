@@ -39,6 +39,16 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     // Configuration
     private var autoTriggerEnabled = false // Default to false, will be set from config
     
+    // Strategy management
+    fun setCompletionStrategy(strategy: ZestCompletionProvider.CompletionStrategy) {
+        completionProvider.setStrategy(strategy)
+        logger.info("Completion strategy updated to: $strategy")
+    }
+    
+    fun getCompletionStrategy(): ZestCompletionProvider.CompletionStrategy {
+        return completionProvider.strategy
+    }
+    
     // State management
     private var currentCompletionJob: Job? = null
     private var currentContext: CompletionContext? = null
@@ -47,9 +57,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     init {
         logger.info("Initializing simplified ZestInlineCompletionService")
         
-        // Load configuration settings
-        val config = com.zps.zest.ConfigurationManager.getInstance(project)
-        autoTriggerEnabled = config.isAutoTriggerEnabled()
+        // Load configuration settings - default to false for now
+        autoTriggerEnabled = false
         
         setupEventListeners()
     }

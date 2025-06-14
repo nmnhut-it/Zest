@@ -1,0 +1,177 @@
+package com.zps.zest.completion.prompt
+
+import com.zps.zest.completion.context.ZestLeanContextCollector
+
+/**
+ * Lean prompt builder that creates reasoning-based prompts for full file completion
+ */
+class ZestLeanPromptBuilder {
+    
+    fun buildReasoningPrompt(context: ZestLeanContextCollector.LeanContext): String {
+        val contextualInstructions = getContextualInstructions(context.contextType)
+        val languageHints = getLanguageSpecificHints(context.language)
+        
+        return """
+You are an expert ${context.language} developer. Analyze the following code file and complete it at the cursor position marked with [CURSOR].
+
+**File: ${context.fileName}**
+**Context: ${context.contextType.name}**
+
+```${context.language}
+${context.markedContent}
+```
+
+**Analysis Instructions:**
+${contextualInstructions}
+
+**Language-Specific Guidelines:**
+${languageHints}
+
+**Response Format:**
+<reasoning>
+1. **Context Analysis**: What is happening around the [CURSOR] position?
+2. **Code Pattern Recognition**: What patterns do I see in the existing code?
+3. **Completion Strategy**: What would be the most logical completion?
+4. **Additional Changes**: What related changes (imports, etc.) might be needed?
+</reasoning>
+
+<code>
+[Return the complete file with your changes. Replace [CURSOR] with the appropriate code.]
+</code>
+""".trimIndent()
+    }
+    
+    private fun getContextualInstructions(contextType: ZestLeanContextCollector.CursorContextType): String {
+        return when (contextType) {
+            ZestLeanContextCollector.CursorContextType.METHOD_BODY -> """
+- Analyze the method signature and understand its purpose
+- Look at existing method implementations for patterns
+- Consider what logic would complete this method appropriately
+- Think about error handling, edge cases, and return values
+- Ensure the completion fits the method's responsibility"""
+            
+            ZestLeanContextCollector.CursorContextType.CLASS_DECLARATION -> """
+- Analyze the class name and existing structure
+- Look at import statements for clues about intended functionality
+- Consider what fields, constructors, or methods are missing
+- Think about common design patterns for this type of class
+- Ensure proper encapsulation and class responsibilities"""
+            
+            ZestLeanContextCollector.CursorContextType.IMPORT_SECTION -> """
+- Analyze what classes are being used in the code below
+- Look for unresolved references that need imports
+- Consider standard library vs external dependencies
+- Group imports logically (standard library, third-party, internal)
+- Remove unused imports if any"""
+            
+            ZestLeanContextCollector.CursorContextType.VARIABLE_ASSIGNMENT -> """
+- Analyze the variable type and its intended use
+- Look at the surrounding context for clues about the value
+- Consider initialization patterns used elsewhere in the code
+- Think about null safety and proper initialization
+- Ensure the assignment makes sense in the current scope"""
+            
+            ZestLeanContextCollector.CursorContextType.AFTER_OPENING_BRACE -> """
+- Analyze what kind of block this is (method, class, conditional, etc.)
+- Look at similar blocks in the codebase for patterns
+- Consider what content is typically expected in this context
+- Think about proper indentation and code organization
+- Ensure the block content serves its intended purpose"""
+            
+            ZestLeanContextCollector.CursorContextType.UNKNOWN -> """
+- Analyze the surrounding code structure carefully
+- Look for contextual clues about what should come next
+- Consider common coding patterns and conventions
+- Think about what would be most helpful to the developer
+- Ensure the completion follows established code style"""
+        }
+    }
+    
+    private fun getLanguageSpecificHints(language: String): String {
+        return when (language.lowercase()) {
+            "java" -> """
+- Follow Java naming conventions (camelCase for methods/variables, PascalCase for classes)
+- Use appropriate access modifiers (private, protected, public)
+- Consider checked exceptions and proper exception handling
+- Use generics appropriately for type safety
+- Follow JavaDoc conventions for documentation"""
+            
+            "kotlin" -> """
+- Use Kotlin idioms (data classes, extension functions, null safety)
+- Prefer val over var when possible
+- Use proper null safety operators (?., ?:, !!)
+- Consider using Kotlin standard library functions
+- Follow Kotlin naming conventions"""
+            
+            "javascript", "typescript" -> """
+- Use modern ES6+ syntax (const/let, arrow functions, destructuring)
+- Consider async/await for asynchronous operations
+- Use proper error handling with try-catch
+- Follow JavaScript/TypeScript naming conventions
+- Use type annotations if this is TypeScript"""
+            
+            "python" -> """
+- Follow PEP 8 style guidelines
+- Use proper indentation (4 spaces)
+- Consider list comprehensions and generator expressions
+- Use appropriate Python idioms and built-in functions
+- Handle exceptions with try-except blocks"""
+            
+            else -> """
+- Follow the language's established conventions and idioms
+- Use consistent naming and formatting patterns
+- Consider best practices for the specific language
+- Ensure code is readable and maintainable"""
+        }
+    }
+    
+    /**
+     * Build a simpler prompt for quick completions when reasoning might be overkill
+     */
+    fun buildSimpleLeanPrompt(context: ZestLeanContextCollector.LeanContext): String {
+        return """
+Complete the ${context.language} code at [CURSOR]:
+
+```${context.language}
+${context.markedContent}
+```
+
+Return the complete file with the completion:
+<code>
+[Complete file with changes]
+</code>
+""".trimIndent()
+    }
+    
+    /**
+     * Build a focused prompt for specific completion types
+     */
+    fun buildFocusedPrompt(context: ZestLeanContextCollector.LeanContext): String {
+        val focusArea = when (context.contextType) {
+            ZestLeanContextCollector.CursorContextType.IMPORT_SECTION -> 
+                "Focus on adding the necessary import statements."
+            ZestLeanContextCollector.CursorContextType.METHOD_BODY -> 
+                "Focus on implementing the method body logically."
+            ZestLeanContextCollector.CursorContextType.CLASS_DECLARATION -> 
+                "Focus on adding appropriate class members (fields, methods, constructors)."
+            else -> 
+                "Focus on the most logical completion at the cursor position."
+        }
+        
+        return """
+Complete this ${context.language} file. ${focusArea}
+
+```${context.language}
+${context.markedContent}
+```
+
+<reasoning>
+Quick analysis of what needs to be completed and why.
+</reasoning>
+
+<code>
+[Complete file with changes]
+</code>
+""".trimIndent()
+    }
+}

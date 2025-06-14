@@ -201,6 +201,23 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.JCefDiagnosticAction"/>
         </action>
 
+        <!-- New Lean Strategy Actions -->
+        <action id="Zest.SwitchCompletionStrategy"
+                class="com.zps.zest.completion.actions.ZestSwitchStrategyAction"
+                text="Switch Completion Strategy"
+                description="Switch between SIMPLE and LEAN completion strategies for A/B testing">
+            <keyboard-shortcut first-keystroke="ctrl alt shift S" keymap="$default"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQwenCoderAction"/>
+        </action>
+
+        <action id="Zest.TestCompletionStrategies"
+                class="com.zps.zest.completion.actions.ZestTestStrategiesAction"
+                text="Test Completion Strategies"
+                description="Test and compare both SIMPLE and LEAN completion strategies">
+            <keyboard-shortcut first-keystroke="ctrl alt shift T" keymap="$default"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SwitchCompletionStrategy"/>
+        </action>
+
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
                 text="Step-by-Step Test Writing (Agent)"

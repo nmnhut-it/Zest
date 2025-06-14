@@ -28,14 +28,14 @@ ${contextualInstructions}
 ${languageHints}
 
 **Task:**
-Analyze the full file context and generate ONLY the text that should be inserted at [CURSOR]. Do not return the complete file - just the completion text.
+Analyze the full file context and generate ONLY the text that should be inserted at [CURSOR]. Do not return the complete file - just the completion text. This should be 30 words max. 
 
 **Response Format:**
 <reasoning>
-1. **Context Analysis**: What is happening around the [CURSOR] position?
-2. **Code Pattern Recognition**: What patterns do I see in the existing code?
-3. **Completion Strategy**: What would be the most logical completion?
-4. **Related Considerations**: Any imports, dependencies, or context I should consider?
+[Brief analysis in MAX 50 words - be concise and focused]
+1. **Context**: What's at [CURSOR]?
+2. **Pattern**: What code pattern fits?
+3. **Completion**: What should be inserted?
 </reasoning>
 
 <completion>
@@ -139,6 +139,10 @@ Complete the ${context.language} code at [CURSOR]. Analyze the full file context
 ${context.markedContent}
 ```
 
+<reasoning>
+[MAX 20 words - quick analysis of what to complete]
+</reasoning>
+
 <completion>
 [Text to insert at [CURSOR]]
 </completion>
@@ -170,7 +174,7 @@ ${context.markedContent}
 ```
 
 <reasoning>
-Quick analysis of what needs to be completed and why.
+[MAX 30 words - focused analysis for ${context.contextType.name.lowercase().replace("_", " ")}]
 </reasoning>
 
 <completion>

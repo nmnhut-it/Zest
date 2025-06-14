@@ -139,13 +139,42 @@ service.setCompletionStrategy(ZestCompletionProvider.CompletionStrategy.LEAN)
 | **Context** | Prefix/Suffix only | Full file |
 | **Display** | First line only | Full multi-line |
 | **Quality** | Good for simple completions | Better for complex logic |
-| **Reasoning** | None | Detailed analysis |
-| **Tokens** | 16 max | 1000 max |
+| **Reasoning** | None | Max 60 words, focused |
+| **Tokens** | 16 max | 200 max (total) |
 | **Model** | Mini model | Full model |
+| **Timeout** | 8 seconds | 15 seconds |
+
+## Strategy Limits & Controls
+
+### LEAN Strategy Limits
+
+**Reasoning Constraints**:
+- **Main prompt**: Maximum 50 words reasoning
+- **Simple prompt**: Maximum 20 words reasoning  
+- **Focused prompt**: Maximum 30 words reasoning
+- **Parser enforcement**: Truncates at 60 words with "..." if needed
+
+**Token Limits**:
+- **Total tokens**: 200 maximum (includes reasoning + completion)
+- **Purpose**: Ensures focused, concise responses
+- **Benefit**: Faster processing, more relevant content
+
+**Quality Controls**:
+- Removes verbose prefixes ("Let me analyze...", etc.)
+- Penalizes unfocused language ("I think", "maybe", etc.)
+- Rewards technical precision and brevity
+- Confidence scoring based on reasoning quality vs length
+
+### SIMPLE Strategy Limits
+
+**Token Constraints**:
+- **Max tokens**: 16 (completion only)
+- **Timeout**: 8 seconds
+- **Display**: First line truncation
+
+**Purpose**: Fast, focused single-line suggestions
 
 ## Visual Display Differences
-
-### SIMPLE Strategy Display
 ```kotlin
 // Shows only (inline):
 return a + b;

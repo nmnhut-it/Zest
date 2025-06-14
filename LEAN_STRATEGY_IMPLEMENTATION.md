@@ -31,9 +31,9 @@ I've successfully implemented a **LEAN completion strategy** alongside the exist
 - Uses structured format: `<reasoning>...</reasoning><code>...</code>`
 
 **ZestLeanResponseParser**
-- Extracts reasoning and code sections from AI response
-- Uses diff library (with fallback) to calculate actual changes
-- Returns only the relevant changes near cursor position
+- Extracts reasoning and completion text directly from AI response
+- No diff calculation needed - AI generates only the completion
+- Validates and cleans completion text for quality
 
 ### 2. Strategy Management
 
@@ -63,15 +63,15 @@ I've successfully implemented a **LEAN completion strategy** alongside the exist
 ### LEAN Strategy Flow
 
 1. **Context Collection**: Captures full file with cursor marker
-2. **Reasoning Prompt**: AI analyzes context and plans completion
-3. **Full File Generation**: AI returns complete file with changes
-4. **Diff Calculation**: Extract only the changes using diff library
-5. **Completion Display**: Show extracted changes as inline completion
+2. **Reasoning Prompt**: AI analyzes full file context and plans completion
+3. **Direct Completion**: AI returns only the completion text (not full file)
+4. **Text Cleaning**: Clean and validate the completion text
+5. **Completion Display**: Show the completion as inline text
 
 ### Example LEAN Prompt
 
 ```
-You are an expert Java developer. Analyze the following code file and complete it at the cursor position marked with [CURSOR].
+You are an expert Java developer. Analyze the following code file and generate the completion text that should be inserted at the [CURSOR] position.
 
 **File: Calculator.java**
 **Context: METHOD_BODY**
@@ -89,30 +89,29 @@ public class Calculator {
 - Look at existing method implementations for patterns
 - Consider what logic would complete this method appropriately
 
+**Task:**
+Analyze the full file context and generate ONLY the text that should be inserted at [CURSOR]. Do not return the complete file - just the completion text.
+
 **Response Format:**
 <reasoning>
 1. **Context Analysis**: The cursor is inside an `add` method that takes two integers
 2. **Code Pattern Recognition**: This is a simple arithmetic operation
 3. **Completion Strategy**: Return the sum of the two parameters
-4. **Additional Changes**: None needed for this simple case
+4. **Related Considerations**: No imports or dependencies needed for this simple case
 </reasoning>
 
-<code>
-public class Calculator {
-    public int add(int a, int b) {
-        return a + b;
-    }
-}
-</code>
+<completion>
+return a + b;
+</completion>
 ```
 
-### Diff Processing
+### Direct Text Extraction
 
-The parser extracts changes using:
-1. **Primary**: Java diff library (`com.github.difflib.DiffUtils`)
-2. **Fallback**: Simple line-by-line comparison if library unavailable
-3. **Focus**: Only changes within 10 lines of cursor position
-4. **Output**: Clean completion text without cursor markers
+The parser now extracts completion text directly:
+1. **Extract**: `<reasoning>` and `<completion>` sections
+2. **Clean**: Remove markdown, explanations, cursor markers
+3. **Validate**: Check length, format, and content quality
+4. **Return**: Clean completion text ready for insertion
 
 ## Usage
 
@@ -146,17 +145,19 @@ service.setCompletionStrategy(ZestCompletionProvider.CompletionStrategy.LEAN)
 ## Benefits of LEAN Strategy
 
 1. **Better Context Understanding**: AI sees full file structure
-2. **Multi-Change Support**: Can add imports, modify multiple areas
+2. **Focused Completions**: Generates only what's needed at cursor
 3. **Reasoning Transparency**: Shows AI's thought process
 4. **Pattern Recognition**: Learns from existing code patterns
 5. **Language Awareness**: Follows language-specific conventions
+6. **No Diff Complexity**: Simple, direct completion extraction
 
 ## Error Handling & Fallbacks
 
-- **Diff Library Missing**: Falls back to simple text comparison
+- **Missing Completion Tags**: Falls back to extracting from `<code>` tags
 - **AI Response Parsing Fails**: Returns empty completion
 - **Timeout**: Falls back to SIMPLE strategy
-- **Invalid Context**: Gracefully handles edge cases
+- **Invalid Content**: Gracefully handles edge cases
+- **Length Limits**: Truncates overly long completions
 
 ## Configuration
 

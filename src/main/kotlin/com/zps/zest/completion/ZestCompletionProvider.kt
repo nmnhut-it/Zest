@@ -320,7 +320,7 @@ class ZestCompletionProvider(private val project: Project) {
         private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds for simple
         private const val MAX_COMPLETION_TOKENS = 16 // Small for simple completions
         
-        private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L // 15 seconds for reasoning
-        private const val LEAN_MAX_COMPLETION_TOKENS = 1000 // More tokens for full file generation
+        private const val LEAN_COMPLETION_TIMEOUT_MS = 25000L // 15 seconds for reasoning
+        private const val LEAN_MAX_COMPLETION_TOKENS = 3000 // More tokens for full file generation
     }
 }

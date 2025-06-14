@@ -12,7 +12,7 @@ class ZestLeanPromptBuilder {
         val languageHints = getLanguageSpecificHints(context.language)
         
         return """
-You are an expert ${context.language} developer. Analyze the following code file and complete it at the cursor position marked with [CURSOR].
+You are an expert ${context.language} developer. Analyze the following code file and generate the completion text that should be inserted at the [CURSOR] position.
 
 **File: ${context.fileName}**
 **Context: ${context.contextType.name}**
@@ -27,17 +27,20 @@ ${contextualInstructions}
 **Language-Specific Guidelines:**
 ${languageHints}
 
+**Task:**
+Analyze the full file context and generate ONLY the text that should be inserted at [CURSOR]. Do not return the complete file - just the completion text.
+
 **Response Format:**
 <reasoning>
 1. **Context Analysis**: What is happening around the [CURSOR] position?
 2. **Code Pattern Recognition**: What patterns do I see in the existing code?
 3. **Completion Strategy**: What would be the most logical completion?
-4. **Additional Changes**: What related changes (imports, etc.) might be needed?
+4. **Related Considerations**: Any imports, dependencies, or context I should consider?
 </reasoning>
 
-<code>
-[Return the complete file with your changes. Replace [CURSOR] with the appropriate code.]
-</code>
+<completion>
+[Insert ONLY the text that should replace [CURSOR] - no full file, no explanations]
+</completion>
 """.trimIndent()
     }
     
@@ -130,16 +133,15 @@ ${languageHints}
      */
     fun buildSimpleLeanPrompt(context: ZestLeanContextCollector.LeanContext): String {
         return """
-Complete the ${context.language} code at [CURSOR]:
+Complete the ${context.language} code at [CURSOR]. Analyze the full file context but return only the completion text.
 
 ```${context.language}
 ${context.markedContent}
 ```
 
-Return the complete file with the completion:
-<code>
-[Complete file with changes]
-</code>
+<completion>
+[Text to insert at [CURSOR]]
+</completion>
 """.trimIndent()
     }
     
@@ -149,13 +151,15 @@ Return the complete file with the completion:
     fun buildFocusedPrompt(context: ZestLeanContextCollector.LeanContext): String {
         val focusArea = when (context.contextType) {
             ZestLeanContextCollector.CursorContextType.IMPORT_SECTION -> 
-                "Focus on adding the necessary import statements."
+                "Generate the import statement(s) needed."
             ZestLeanContextCollector.CursorContextType.METHOD_BODY -> 
-                "Focus on implementing the method body logically."
+                "Generate the method implementation."
             ZestLeanContextCollector.CursorContextType.CLASS_DECLARATION -> 
-                "Focus on adding appropriate class members (fields, methods, constructors)."
+                "Generate the appropriate class member (field, method, constructor)."
+            ZestLeanContextCollector.CursorContextType.VARIABLE_ASSIGNMENT -> 
+                "Generate the appropriate value or expression for the assignment."
             else -> 
-                "Focus on the most logical completion at the cursor position."
+                "Generate the most logical completion."
         }
         
         return """
@@ -169,9 +173,9 @@ ${context.markedContent}
 Quick analysis of what needs to be completed and why.
 </reasoning>
 
-<code>
-[Complete file with changes]
-</code>
+<completion>
+[Completion text to insert at [CURSOR]]
+</completion>
 """.trimIndent()
     }
 }

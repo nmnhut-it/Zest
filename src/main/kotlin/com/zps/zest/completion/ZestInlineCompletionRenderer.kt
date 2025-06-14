@@ -1,6 +1,7 @@
 package com.zps.zest.completion
 
-import com.intellij.openapi.application.invokeLater
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorCustomElementRenderer
@@ -12,14 +13,12 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.util.TextRange
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Rectangle
-
 /**
  * Renders inline completion suggestions in the editor
  */
@@ -43,6 +42,7 @@ class ZestInlineCompletionRenderer {
     
     /**
      * Show inline completion at the specified position
+     * Enhanced protection against IntelliJ action interference
      */
     fun show(
         editor: Editor,
@@ -50,13 +50,20 @@ class ZestInlineCompletionRenderer {
         completion: ZestInlineCompletionItem,
         callback: (context: RenderingContext) -> Unit = {}
     ) {
-        invokeLater {
+        ApplicationManager.getApplication().invokeLater {
             // Hide any existing completion
             current?.let { hide() }
             
             // Verify editor state
-            if (editor.caretModel.offset != offset) {
-                System.out.println("Editor caret moved, canceling completion display")
+            try {
+                // Try to access editor to check if it's still valid
+                val currentCaretOffset = editor.caretModel.offset
+                if (currentCaretOffset != offset) {
+                    System.out.println("Caret moved, canceling completion display")
+                    return@invokeLater
+                }
+            } catch (e: Exception) {
+                System.out.println("Editor disposed, canceling completion display")
                 return@invokeLater
             }
             
@@ -80,6 +87,10 @@ class ZestInlineCompletionRenderer {
                 
                 System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups")
                 
+                // Schedule a check to ensure our completion is still visible
+                // This helps detect when IntelliJ actions have interfered
+                scheduleVisibilityCheck(context)
+                
             } catch (e: Exception) {
                 logger.warn("Failed to render completion", e)
                 // Clean up any partial rendering
@@ -90,11 +101,36 @@ class ZestInlineCompletionRenderer {
     }
     
     /**
+     * Schedule a check to ensure completion visibility is maintained
+     */
+    private fun scheduleVisibilityCheck(context: RenderingContext) {
+        // SIMPLIFIED: Just check once, don't try to restore automatically
+        // This prevents the blinking caused by show/hide cycles
+        ApplicationManager.getApplication().invokeLater({
+            if (current == context) {
+                // Check if any of our inlays have been disposed unexpectedly
+                val disposedInlays = context.inlays.count { inlay ->
+                    try {
+                        !inlay.isValid
+                    } catch (e: Exception) {
+                        true // Assume disposed if we can't check
+                    }
+                }
+                if (disposedInlays > 0) {
+                    System.out.println("Detected $disposedInlays disposed inlays - clearing completion to prevent blinking")
+                    // DON'T try to restore - just clear to prevent blinking
+                    current = null
+                }
+            }
+        }, ModalityState.defaultModalityState())
+    }
+    
+    /**
      * Hide the current completion
      */
     fun hide() {
         current?.let { context ->
-            invokeLater {
+            ApplicationManager.getApplication().invokeLater {
                 try {
                     context.inlays.forEach { Disposer.dispose(it) }
                     context.markups.forEach { context.editor.markupModel.removeHighlighter(it) }
@@ -114,7 +150,6 @@ class ZestInlineCompletionRenderer {
         inlays: MutableList<Inlay<*>>,
         markups: MutableList<RangeHighlighter>
     ) {
-        val document = editor.document
         val insertText = completion.insertText
         val replaceRange = completion.replaceRange
         
@@ -134,33 +169,19 @@ class ZestInlineCompletionRenderer {
             markups.add(highlighter)
         }
         
-        // Split completion text into lines
+        // Only show the first line (since parser now returns first line only)
+        // Split just in case there are still multiple lines for robustness
         val lines = insertText.lines()
+        val firstLine = lines.firstOrNull() ?: return
         
-        if (lines.size == 1) {
-            // Single line completion
-            val inlay = createInlineInlay(editor, offset, lines[0])
+        if (firstLine.isNotEmpty()) {
+            val inlay = createInlineInlay(editor, offset, firstLine)
             if (inlay != null) {
                 inlays.add(inlay)
             }
-        } else {
-            // Multi-line completion
-            // First line goes inline at cursor
-            if (lines[0].isNotEmpty()) {
-                val inlay = createInlineInlay(editor, offset, lines[0])
-                if (inlay != null) {
-                    inlays.add(inlay)
-                }
-            }
-            
-            // Subsequent lines go as block elements
-            lines.drop(1).forEachIndexed { index, line ->
-                val blockInlay = createBlockInlay(editor, offset, line, index + 1)
-                if (blockInlay != null) {
-                    inlays.add(blockInlay)
-                }
-            }
         }
+        
+        // Remove the multi-line block rendering logic - we only show first line now
     }
     
     private fun createInlineInlay(editor: Editor, offset: Int, text: String): Inlay<*>? {
@@ -183,22 +204,6 @@ class ZestInlineCompletionRenderer {
         }
         
         return editor.inlayModel.addInlineElement(offset, true, renderer)
-    }
-    
-    private fun createBlockInlay(editor: Editor, offset: Int, text: String, lineOffset: Int): Inlay<*>? {
-        val renderer = object : EditorCustomElementRenderer {
-            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-                return maxOf(calculateTextWidth(inlay.editor, text), 1)
-            }
-            
-            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
-                g.font = getCompletionFont(inlay.editor)
-                g.color = getCompletionColor()
-                g.drawString(text, targetRect.x, targetRect.y + inlay.editor.ascent)
-            }
-        }
-        
-        return editor.inlayModel.addBlockElement(offset, true, false, -lineOffset, renderer)
     }
     
     private fun createReplaceTextAttributes(): TextAttributes {

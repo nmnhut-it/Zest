@@ -25,6 +25,7 @@ class ZestCompletionOverlapDetector {
     
     /**
      * Adjusts completion text based on what the user has already typed
+     * Enhanced for first-line-only completions with better edge case handling
      */
     fun adjustCompletionForOverlap(
         userTypedText: String,
@@ -41,6 +42,15 @@ class ZestCompletionOverlapDetector {
         val recentUserInput = extractRecentUserInput(documentText, cursorOffset)
         
         System.out.println("Overlap detection: userTyped='$recentUserInput', completion='${completionText.take(50)}...'")
+        
+        // Special case: if user typed exactly what completion suggests, return empty
+        if (recentUserInput.isNotEmpty() && completionText.startsWith(recentUserInput)) {
+            val remainingCompletion = completionText.substring(recentUserInput.length)
+            if (remainingCompletion.isBlank()) {
+                System.out.println("User typed the entire completion, returning empty")
+                return OverlapResult("", recentUserInput.length, OverlapType.EXACT_PREFIX)
+            }
+        }
         
         // Try different overlap detection strategies
         val strategies = listOf(

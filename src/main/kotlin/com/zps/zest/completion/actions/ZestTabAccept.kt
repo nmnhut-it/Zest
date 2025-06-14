@@ -11,8 +11,9 @@ import com.zps.zest.completion.ZestInlineCompletionService
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
     override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
-        // TAB only accepts next line - keep it simple and predictable
-        service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.NEXT_LINE)
+        // Since we now only show first line, TAB accepts the entire visible completion
+        // This is equivalent to NEXT_LINE but more intuitive for single-line display
+        service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
     }
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
@@ -45,7 +46,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
 }) {
     
     /**
-     * High priority for tab accept.
+     * Very high priority for tab accept to override IntelliJ's tab handling.
      */
-    override val priority: Int = 11
+    override val priority: Int = 500
 }

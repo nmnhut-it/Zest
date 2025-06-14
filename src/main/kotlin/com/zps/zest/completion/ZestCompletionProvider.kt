@@ -21,6 +21,7 @@ import java.util.*
 /**
  * Simplified completion provider using basic prefix/suffix context
  * Updated for Qwen 2.5 Coder FIM format with proper stop sequences
+ * Now returns only first line of completions for cleaner UX
  */
 class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
@@ -98,7 +99,7 @@ class ZestCompletionProvider(private val project: Project) {
             
             val totalTime = System.currentTimeMillis() - startTime
             
-            // Create completion item
+            // Create completion item with original response stored for re-processing
             val item = ZestInlineCompletionItem(
                 insertText = cleanedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
@@ -110,7 +111,8 @@ class ZestCompletionProvider(private val project: Project) {
                     model = "zest-llm-simple",
                     tokens = cleanedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
-                    requestId = UUID.randomUUID().toString()
+                    requestId = UUID.randomUUID().toString(),
+                    reasoning = response // Store original response for re-processing overlaps
                 )
             )
             
@@ -174,6 +176,6 @@ class ZestCompletionProvider(private val project: Project) {
     
     companion object {
         private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds
-        private const val MAX_COMPLETION_TOKENS = 10 // Increased for FIM completions
+        private const val MAX_COMPLETION_TOKENS = 16 // Increased for FIM completions
     }
 }

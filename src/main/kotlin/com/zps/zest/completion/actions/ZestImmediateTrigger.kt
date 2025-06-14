@@ -41,10 +41,16 @@ class ZestImmediateTrigger : AnAction(), HasPriority {
         val completionService = project?.serviceOrNull<ZestInlineCompletionService>()
         
         // Enable only when we have a project, editor, and completion service
+        val isEditorValid = try {
+            editor?.caretModel?.offset != null
+        } catch (e: Exception) {
+            false
+        }
+        
         e.presentation.isEnabledAndVisible = project != null && 
                                            editor != null && 
                                            completionService != null &&
-                                           !editor.isDisposed
+                                           isEditorValid
         
         // Now safe to access editor state since we're on EDT
         if (editor != null && completionService != null) {

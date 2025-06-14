@@ -6,30 +6,46 @@ import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.diagnostic.Logger
 
 /**
- * Action promoter for Zest inline completion actions.
- * Ensures that Zest completion actions have priority over other actions when multiple actions
- * are available for the same keyboard shortcut.
+ * High-priority action promoter for Zest inline completion actions.
+ * Ensures that Zest completion actions have priority over IntelliJ's built-in actions
+ * when multiple actions are available for the same keyboard shortcut.
+ * This prevents IntelliJ's completion popup from interfering with our inline completions.
  */
 class ZestActionPromoter : ActionPromoter {
     private val logger = Logger.getInstance(ZestActionPromoter::class.java)
 
     override fun promote(actions: List<AnAction>, context: DataContext): List<AnAction> {
-        System.out.println("Promoting actions: ${actions.map { it.javaClass.simpleName }}")
+        // Check if we have any Zest completion actions
+        val zestActions = actions.filter { it is ZestInlineCompletionAction || it is HasPriority }
+        val otherActions = actions.filter { it !is ZestInlineCompletionAction && it !is HasPriority }
         
+        if (zestActions.isNotEmpty()) {
+            System.out.println("Promoting ${zestActions.size} Zest actions over ${otherActions.size} other actions")
+            
+            // Sort Zest actions by priority
+            val sortedZestActions = zestActions.sortedByDescending { action ->
+                when {
+                    action is HasPriority -> {
+                        System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
+                        action.priority
+                    }
+                    action is ZestInlineCompletionAction -> {
+                        System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
+                        action.priority + 1000 // Boost Zest actions significantly
+                    }
+                    else -> 0
+                }
+            }
+            
+            // Return Zest actions first, then other actions
+            return sortedZestActions + otherActions
+        }
+        
+        // No Zest actions, use normal priority sorting
         return actions.sortedByDescending { action ->
             when {
-                action is HasPriority -> {
-                    System.out.println("Action ${action.javaClass.simpleName} has priority ${action.priority}")
-                    action.priority
-                }
-                action is ZestInlineCompletionAction -> {
-                    System.out.println("Action ${action.javaClass.simpleName} is Zest completion action with priority ${action.priority}")
-                    action.priority
-                }
-                else -> {
-                    System.out.println("Action ${action.javaClass.simpleName} has default priority 0")
-                    0
-                }
+                action is HasPriority -> action.priority
+                else -> 0
             }
         }
     }

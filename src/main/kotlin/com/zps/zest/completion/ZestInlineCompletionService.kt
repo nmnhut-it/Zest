@@ -1,6 +1,7 @@
 package com.zps.zest.completion
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
@@ -16,6 +17,7 @@ import com.intellij.util.messages.Topic
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.ZestInlineCompletionList
+import com.zps.zest.completion.parser.ZestSimpleResponseParser
 import com.zps.zest.events.ZestCaretListener
 import com.zps.zest.events.ZestDocumentListener
 import kotlinx.coroutines.*
@@ -32,6 +34,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val completionProvider = ZestCompletionProvider(project)
     private val renderer = ZestInlineCompletionRenderer()
+    private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
     
     // Configuration
     private var autoTriggerEnabled = true
@@ -111,7 +114,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         val textToInsert = calculateAcceptedText(completion.insertText, type)
         
         if (textToInsert.isNotEmpty()) {
-            invokeLater {
+            ApplicationManager.getApplication().invokeLater {
                 acceptCompletionText(editor, context, completion, textToInsert)
             }
         }
@@ -156,10 +159,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private suspend fun buildCompletionContext(editor: Editor, offset: Int, manually: Boolean): CompletionContext? {
         return try {
             kotlinx.coroutines.withContext(Dispatchers.Main) {
-                if (editor.isDisposed) {
-                    null
-                } else {
+                try {
+                    // Try to access editor to check if it's still valid
+                    editor.caretModel.offset
                     CompletionContext.from(editor, offset, manually)
+                } catch (e: Exception) {
+                    // Editor is likely disposed or invalid
+                    null
                 }
             }
         } catch (e: Exception) {
@@ -181,7 +187,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         val completion = completions.firstItem()!!
         currentCompletion = completion
         
-        invokeLater {
+        ApplicationManager.getApplication().invokeLater {
             renderer.show(editor, context.offset, completion) { renderingContext ->
                 project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
             }
@@ -239,16 +245,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         // Document change listener
         messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
             override fun documentChanged(document: com.intellij.openapi.editor.Document, editor: Editor, event: DocumentEvent) {
-                if (editorManager.selectedTextEditor == editor && autoTriggerEnabled) {
-                    // Debounce automatic triggers
-                    scope.launch {
-                        delay(AUTO_TRIGGER_DELAY_MS)
-                        invokeLater {
-                            if (!editor.isDisposed) {
-                                val currentOffset = editor.caretModel.offset
-                                provideInlineCompletion(editor, currentOffset, manually = false)
-                            }
-                        }
+                if (editorManager.selectedTextEditor == editor) {
+                    // SIMPLIFIED: Only handle real-time overlap, disable auto-trigger during active completion
+                    // This prevents conflicting completion requests that cause blinking
+                    if (currentCompletion != null) {
+                        // Handle real-time overlap for existing completion
+                        handleRealTimeOverlap(editor, event)
+                    } else if (autoTriggerEnabled) {
+                        // Only schedule new completion if no completion is active
+                        scheduleNewCompletion(editor)
                     }
                 }
             }
@@ -277,6 +282,179 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         })
     }
     
+    /**
+     * Handle real-time overlap detection and completion adjustment as user types
+     * SIMPLIFIED: Reduce frequency to prevent blinking
+     */
+    private fun handleRealTimeOverlap(editor: Editor, event: DocumentEvent) {
+        val completion = currentCompletion ?: return
+        val context = currentContext ?: return
+        
+        // Cancel any existing job to prevent race conditions
+        currentCompletionJob?.cancel()
+        
+        currentCompletionJob = scope.launch {
+            try {
+                // LONGER delay to reduce frequency and blinking
+                delay(150) // Increased from 50ms to 150ms
+                
+                val currentOffset = withContext(Dispatchers.Main) { 
+                    try {
+                        editor.caretModel.offset
+                    } catch (e: Exception) {
+                        -1 // Editor is disposed or invalid
+                    }
+                }
+                
+                if (currentOffset == -1) return@launch
+                
+                // Only handle if cursor is near the completion position (within reasonable range)
+                if (kotlin.math.abs(currentOffset - context.offset) > 100) {
+                    clearCurrentCompletion()
+                    return@launch
+                }
+                
+                val documentText = withContext(Dispatchers.Main) { 
+                    try {
+                        editor.document.text
+                    } catch (e: Exception) {
+                        "" // Editor is disposed or invalid
+                    }
+                }
+                
+                if (documentText.isEmpty()) return@launch
+                
+                // Re-parse the original completion with current document state
+                // Use the ORIGINAL response stored in metadata if available, otherwise use current text
+                val originalResponse = completion.metadata?.let { meta ->
+                    // Store original response in metadata for re-processing
+                    meta.reasoning ?: completion.insertText
+                } ?: completion.insertText
+                
+                val adjustedCompletion = responseParser.parseResponseWithOverlapDetection(
+                    originalResponse,
+                    documentText,
+                    currentOffset
+                )
+                
+                withContext(Dispatchers.Main) {
+                    // Check if we're still the active completion (not replaced by IntelliJ)
+                    if (currentCompletion == completion) {
+                        try {
+                            // Try to access editor to verify it's still valid
+                            editor.caretModel.offset
+                            
+                            when {
+                                adjustedCompletion.isBlank() -> {
+                                    // No meaningful completion left, dismiss
+                                    logger.debug("Completion became empty after overlap detection, dismissing")
+                                    clearCurrentCompletion()
+                                }
+                                adjustedCompletion != completion.insertText -> {
+                                    // Only update if change is significant to reduce blinking
+                                    val changeRatio = adjustedCompletion.length.toDouble() / completion.insertText.length
+                                    if (changeRatio > 0.3) { // Only update if at least 30% of original remains
+                                        logger.debug("Updating completion: '${completion.insertText}' -> '$adjustedCompletion'")
+                                        updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
+                                    } else {
+                                        // Too much change, just clear to avoid blinking
+                                        clearCurrentCompletion()
+                                    }
+                                }
+                                // Otherwise keep current completion as-is
+                            }
+                        } catch (e: Exception) {
+                            // Editor is disposed, clear completion
+                            clearCurrentCompletion()
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                // Normal cancellation, don't log
+                throw e
+            } catch (e: Exception) {
+                logger.debug("Error in real-time overlap handling", e)
+                // On error, clear completion to be safe
+                withContext(Dispatchers.Main) {
+                    clearCurrentCompletion()
+                }
+            }
+        }
+    }
+    
+    /**
+     * Schedule a new completion request with debouncing
+     * SIMPLIFIED: Longer delay to prevent conflicts with active completions
+     */
+    private fun scheduleNewCompletion(editor: Editor) {
+        scope.launch {
+            delay(AUTO_TRIGGER_DELAY_MS)
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    // Only trigger if no completion is currently active to prevent blinking
+                    if (currentCompletion == null) {
+                        val currentOffset = editor.caretModel.offset
+                        provideInlineCompletion(editor, currentOffset, manually = false)
+                    }
+                } catch (e: Exception) {
+                    // Editor is disposed, do nothing
+                }
+            }
+        }
+    }
+    
+    /**
+     * Update the currently displayed completion with new text
+     * SIMPLIFIED: Reduce blinking by avoiding hide/show cycles
+     */
+    private fun updateDisplayedCompletion(editor: Editor, offset: Int, newText: String) {
+        // Check if current completion is still valid (not interfered with by IntelliJ)
+        val currentRendering = renderer.current
+        if (currentRendering != null && currentRendering.editor == editor) {
+            // Check if any inlays have been disposed (sign of interference)
+            val hasDisposedInlays = currentRendering.inlays.any { inlay ->
+                try {
+                    !inlay.isValid
+                } catch (e: Exception) {
+                    true // Assume disposed if we can't check
+                }
+            }
+            if (hasDisposedInlays) {
+                System.out.println("Detected IntelliJ interference - inlays disposed, clearing completion")
+                clearCurrentCompletion()
+                return
+            }
+        }
+        
+        // Check if the new text is significantly different to avoid unnecessary updates
+        val currentText = currentCompletion?.insertText ?: ""
+        if (newText == currentText) {
+            return // No change needed
+        }
+        
+        // Only update if the change is substantial (avoid micro-updates that cause blinking)
+        if (newText.length < currentText.length / 2 && newText.isNotBlank()) {
+            // Text has shrunk significantly but isn't empty - might be user typing over it
+            // Just clear the completion instead of updating to avoid blinking
+            clearCurrentCompletion()
+            return
+        }
+        
+        val updatedCompletion = currentCompletion?.copy(
+            insertText = newText,
+            replaceRange = ZestInlineCompletionItem.Range(offset, offset)
+        ) ?: return
+        
+        currentCompletion = updatedCompletion
+        currentContext = currentContext?.copy(offset = offset)
+        
+        // Re-render with new text - this still causes blinking but less frequently
+        renderer.hide()
+        renderer.show(editor, offset, updatedCompletion) { renderingContext ->
+            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+        }
+    }
+    
     override fun dispose() {
         logger.info("Disposing simplified ZestInlineCompletionService")
         scope.cancel()
@@ -302,6 +480,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 300L // Shorter delay for simpler system
+        private const val AUTO_TRIGGER_DELAY_MS = 500L // Increased delay to reduce blinking
     }
 }

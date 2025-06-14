@@ -3,6 +3,7 @@ package com.zps.zest.completion.parser
 /**
  * Simple response parser that cleans up LLM responses for code completion
  * Enhanced with thread-safe overlap detection for Qwen 2.5 Coder FIM format
+ * Now extracts only the first meaningful line for cleaner inline display
  */
 class ZestSimpleResponseParser {
     
@@ -22,8 +23,52 @@ class ZestSimpleResponseParser {
     }
     
     /**
+     * Parse response and extract first line only (for display purposes)
+     * This is separate from overlap detection to preserve the full response for overlap analysis
+     */
+    fun parseResponseForDisplay(response: String): String {
+        val cleanedResponse = parseResponse(response)
+        return extractFirstLineOnly(cleanedResponse)
+    }
+    
+    /**
+     * Extract only the first meaningful line of code from the response
+     */
+    private fun extractFirstLineOnly(text: String): String {
+        val lines = text.lines()
+        
+        // Find the first non-empty line with actual code content
+        for (line in lines) {
+            val trimmedLine = line.trim()
+            if (trimmedLine.isNotEmpty() && !isMetaContent(trimmedLine)) {
+                return line // Return with original indentation
+            }
+        }
+        
+        return ""
+    }
+    
+    /**
+     * Check if a line contains meta-content rather than actual code
+     */
+    private fun isMetaContent(line: String): Boolean {
+        val lower = line.lowercase()
+        return lower.startsWith("here") || 
+               lower.startsWith("the") || 
+               lower.startsWith("this") ||
+               lower.startsWith("i ") ||
+               lower.startsWith("you ") ||
+               lower.contains("explanation") ||
+               lower.contains("suggestion") ||
+               lower.contains("completion") ||
+               lower.contains("will add") ||
+               lower.contains("should be")
+    }
+    
+    /**
      * Parse response with thread-safe overlap detection and adjustment
      * Only operates on provided strings, no editor access
+     * Now properly handles overlap detection BEFORE extracting first line
      */
     fun parseResponseWithOverlapDetection(
         response: String,
@@ -32,14 +77,14 @@ class ZestSimpleResponseParser {
     ): String {
         if (response.isBlank()) return ""
         
-        // First, clean the response normally
+        // First, clean the response but keep all lines for overlap detection
         val cleanedResponse = parseResponse(response)
         if (cleanedResponse.isBlank()) return ""
         
         // Extract recent user input (thread-safe string operations only)
         val recentUserInput = extractRecentUserInputSafe(documentText, cursorOffset)
         
-        // Detect and handle overlaps (pure string processing, thread-safe)
+        // Detect and handle overlaps with the FULL cleaned response
         val overlapResult = overlapDetector.adjustCompletionForOverlap(
             userTypedText = recentUserInput,
             completionText = cleanedResponse,
@@ -48,41 +93,57 @@ class ZestSimpleResponseParser {
         )
         
         // Handle edge cases (thread-safe)
-        val finalCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
+        val adjustedCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
+        
+        // NOW extract first line from the overlap-adjusted result
+        val firstLineCompletion = extractFirstLineOnly(adjustedCompletion)
         
         // Debug logging
         if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
-            System.out.println("Overlap detected: ${overlapResult.overlapType}, adjusting '$cleanedResponse' -> '$finalCompletion'")
+            System.out.println("Overlap detected: ${overlapResult.overlapType}")
+            System.out.println("Original: '${cleanedResponse.take(50)}...'")
+            System.out.println("Adjusted: '$adjustedCompletion'")
+            System.out.println("First line: '$firstLineCompletion'")
         }
         
-        return finalCompletion
+        return firstLineCompletion
     }
     
+    
     /**
-     * Thread-safe extraction of recent user input
-     * Only uses string operations, no editor access
+     * Enhanced thread-safe extraction of recent user input
+     * Analyzes current line and meaningful recent typing
      */
     private fun extractRecentUserInputSafe(documentText: String, cursorOffset: Int): String {
         if (cursorOffset <= 0 || cursorOffset > documentText.length) return ""
         
-        val startOffset = maxOf(0, cursorOffset - 50)
-        val textBeforeCursor = documentText.substring(startOffset, cursorOffset)
+        // Get current line
+        val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
+        val currentLine = documentText.substring(lineStart, cursorOffset)
         
-        // Get current incomplete token/identifier
-        val tokenMatch = Regex("""(\w+)$""").find(textBeforeCursor)
-        if (tokenMatch != null) {
-            return tokenMatch.value
+        // Extract meaningful recent input
+        return when {
+            // Get incomplete identifier/word (most common case)
+            currentLine.matches(Regex(".*\\w+$")) -> {
+                val match = Regex("(\\w+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get operator/symbol sequence (e.g., "=", "->", ".")
+            currentLine.matches(Regex(".*[^\\s\\w]+$")) -> {
+                val match = Regex("([^\\s\\w]+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get whitespace if user is indenting
+            currentLine.matches(Regex(".*\\s+$")) -> {
+                val match = Regex("(\\s+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get last few characters as fallback
+            else -> currentLine.takeLast(10).trim()
         }
-        
-        // Get last non-whitespace characters
-        val nonWhitespaceMatch = Regex("""(\S+)$""").find(textBeforeCursor)
-        if (nonWhitespaceMatch != null) {
-            return nonWhitespaceMatch.value
-        }
-        
-        return ""
     }
     
+
     /**
      * Remove FIM (Fill-In-the-Middle) tokens from response
      * Updated for Qwen 2.5 Coder format

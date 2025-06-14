@@ -43,7 +43,8 @@ class ZestSimpleResponseParser {
             "<code>", "</code>",
             "<completion>", "</completion>",
             "<answer>", "</answer>",
-            "<result>", "</result>"
+            "<fim_middle>", "</fim_middle>",
+            "<r>", "</r>"
         )
         
         xmlTags.forEach { tag ->

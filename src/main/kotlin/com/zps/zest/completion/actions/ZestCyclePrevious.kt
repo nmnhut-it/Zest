@@ -6,16 +6,18 @@ import com.zps.zest.completion.ZestInlineCompletionService
 
 /**
  * Action to cycle to the previous completion suggestion.
- * This allows users to navigate backward through multiple completion options.
+ * Currently disabled in simplified mode.
  */
 class ZestCyclePrevious : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
     override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
-        service.cycle(editor, caret?.offset, ZestInlineCompletionService.CycleDirection.PREVIOUS)
+        // Cycling disabled in simplified mode - just trigger new completion
+        service.provideInlineCompletion(editor, caret?.offset ?: editor.caretModel.offset, manually = true)
     }
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
-        return service.isInlineCompletionVisibleAt(editor, caret.offset)
+        // Disabled in simplified mode
+        return false
     }
 }) {
     

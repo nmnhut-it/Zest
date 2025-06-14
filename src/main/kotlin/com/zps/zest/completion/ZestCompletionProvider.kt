@@ -143,6 +143,6 @@ class ZestCompletionProvider(private val project: Project) {
     
     companion object {
         private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds
-        private const val MAX_COMPLETION_TOKENS = 50
+        private const val MAX_COMPLETION_TOKENS = 16
     }
 }

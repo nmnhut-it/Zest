@@ -245,7 +245,7 @@ public final class LLMService {
      * Creates request body for OpenWebUI/Zingplay API.
      */
     private String createOpenWebUIRequestBody(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
-        JsonObject root = new JsonObject();
+            JsonObject root = new JsonObject();
         root.addProperty("model", params.getModel());
         root.addProperty("stream", false);
         String usage = enumUsage.name();

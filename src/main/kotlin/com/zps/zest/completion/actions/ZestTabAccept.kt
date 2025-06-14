@@ -5,13 +5,14 @@ import com.intellij.openapi.editor.Editor
 import com.zps.zest.completion.ZestInlineCompletionService
 
 /**
- * Simplified action for accepting completions with the TAB key.
- * This action accepts completions when they are visible and contain meaningful code content.
+ * TAB action for accepting only the next line of completions.
+ * Simple and predictable: TAB = accept next line only.
  */
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
     override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
-        service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
+        // TAB only accepts next line - keep it simple and predictable
+        service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.NEXT_LINE)
     }
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {

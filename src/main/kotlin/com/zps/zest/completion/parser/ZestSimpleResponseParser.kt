@@ -2,8 +2,11 @@ package com.zps.zest.completion.parser
 
 /**
  * Simple response parser that cleans up LLM responses for code completion
+ * Enhanced with thread-safe overlap detection for Qwen 2.5 Coder FIM format
  */
 class ZestSimpleResponseParser {
+    
+    private val overlapDetector = ZestCompletionOverlapDetector()
     
     fun parseResponse(response: String): String {
         if (response.isBlank()) return ""
@@ -16,6 +19,68 @@ class ZestSimpleResponseParser {
             .let { removeExplanations(it) }
             .let { limitLength(it) }
             .trim()
+    }
+    
+    /**
+     * Parse response with thread-safe overlap detection and adjustment
+     * Only operates on provided strings, no editor access
+     */
+    fun parseResponseWithOverlapDetection(
+        response: String,
+        documentText: String,
+        cursorOffset: Int
+    ): String {
+        if (response.isBlank()) return ""
+        
+        // First, clean the response normally
+        val cleanedResponse = parseResponse(response)
+        if (cleanedResponse.isBlank()) return ""
+        
+        // Extract recent user input (thread-safe string operations only)
+        val recentUserInput = extractRecentUserInputSafe(documentText, cursorOffset)
+        
+        // Detect and handle overlaps (pure string processing, thread-safe)
+        val overlapResult = overlapDetector.adjustCompletionForOverlap(
+            userTypedText = recentUserInput,
+            completionText = cleanedResponse,
+            cursorOffset = cursorOffset,
+            documentText = documentText
+        )
+        
+        // Handle edge cases (thread-safe)
+        val finalCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
+        
+        // Debug logging
+        if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
+            System.out.println("Overlap detected: ${overlapResult.overlapType}, adjusting '$cleanedResponse' -> '$finalCompletion'")
+        }
+        
+        return finalCompletion
+    }
+    
+    /**
+     * Thread-safe extraction of recent user input
+     * Only uses string operations, no editor access
+     */
+    private fun extractRecentUserInputSafe(documentText: String, cursorOffset: Int): String {
+        if (cursorOffset <= 0 || cursorOffset > documentText.length) return ""
+        
+        val startOffset = maxOf(0, cursorOffset - 50)
+        val textBeforeCursor = documentText.substring(startOffset, cursorOffset)
+        
+        // Get current incomplete token/identifier
+        val tokenMatch = Regex("""(\w+)$""").find(textBeforeCursor)
+        if (tokenMatch != null) {
+            return tokenMatch.value
+        }
+        
+        // Get last non-whitespace characters
+        val nonWhitespaceMatch = Regex("""(\S+)$""").find(textBeforeCursor)
+        if (nonWhitespaceMatch != null) {
+            return nonWhitespaceMatch.value
+        }
+        
+        return ""
     }
     
     /**

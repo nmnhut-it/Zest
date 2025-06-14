@@ -44,20 +44,29 @@ class ZestCompletionProvider(private val project: Project) {
             
             val startTime = System.currentTimeMillis()
             
-            // Get current editor
-            val editor = getCurrentEditor() ?: run {
+            // Get current editor and document text on EDT
+            val (editor, documentText) = withContext(Dispatchers.Main) {
+                val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                if (ed != null) {
+                    Pair(ed, ed.document.text)
+                } else {
+                    Pair(null, "")
+                }
+            }
+            
+            if (editor == null) {
                 logger.debug("No active editor found")
                 return null
             }
             
-            // Collect simple context
+            // Collect simple context (thread-safe)
             val simpleContext = contextCollector.collectContext(editor, context.offset)
             
-            // Build prompt
+            // Build prompt (thread-safe)
             val prompt = promptBuilder.buildCompletionPrompt(simpleContext)
             logger.debug("Prompt built, length: ${prompt.length}")
             
-            // Query LLM with timeout
+            // Query LLM with timeout (background thread)
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -75,8 +84,13 @@ class ZestCompletionProvider(private val project: Project) {
                 return null
             }
             
-            // Parse response
-            val cleanedCompletion = responseParser.parseResponse(response)
+            // Parse response with overlap detection (thread-safe, uses captured documentText)
+            val cleanedCompletion = responseParser.parseResponseWithOverlapDetection(
+                response, 
+                documentText, 
+                context.offset
+            )
+            
             if (cleanedCompletion.isBlank()) {
                 logger.debug("No valid completion after parsing")
                 return null
@@ -160,6 +174,6 @@ class ZestCompletionProvider(private val project: Project) {
     
     companion object {
         private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds
-        private const val MAX_COMPLETION_TOKENS = 12 // Increased for FIM completions
+        private const val MAX_COMPLETION_TOKENS = 10 // Increased for FIM completions
     }
 }

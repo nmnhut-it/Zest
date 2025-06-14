@@ -10,11 +10,34 @@ class ZestSimpleResponseParser {
         
         return response
             .trim()
+            .let { cleanFimTokens(it) }
             .let { cleanMarkdownFormatting(it) }
             .let { cleanXmlTags(it) }
             .let { removeExplanations(it) }
             .let { limitLength(it) }
             .trim()
+    }
+    
+    /**
+     * Remove FIM (Fill-In-the-Middle) tokens from response
+     * Updated for Qwen 2.5 Coder format
+     */
+    private fun cleanFimTokens(text: String): String {
+        return text
+            // Qwen 2.5 Coder FIM tokens
+            .replace("<|fim_prefix|>", "")
+            .replace("<|fim_suffix|>", "") 
+            .replace("<|fim_middle|>", "")
+            .replace("<|fim_pad|>", "")
+            // Legacy FIM tokens (for backward compatibility)
+            .replace("<fim_prefix>", "")
+            .replace("<fim_suffix>", "") 
+            .replace("<fim_middle>", "")
+            .replace("</fim_middle>", "")
+            // Other completion tokens
+            .replace("<CURSOR>", "")
+            .replace("[COMPLETE]", "")
+            .replace("│", "") // Our minimal separator
     }
     
     private fun cleanMarkdownFormatting(text: String): String {
@@ -43,7 +66,11 @@ class ZestSimpleResponseParser {
             "<code>", "</code>",
             "<completion>", "</completion>",
             "<answer>", "</answer>",
+            // Qwen 2.5 Coder FIM tokens
+            "<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|fim_pad|>",
+            // Legacy FIM tokens
             "<fim_middle>", "</fim_middle>",
+            "<fim_prefix>", "<fim_suffix>",
             "<r>", "</r>"
         )
         

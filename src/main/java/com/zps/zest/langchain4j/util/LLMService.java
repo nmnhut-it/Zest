@@ -251,11 +251,22 @@ public final class LLMService {
         String usage = enumUsage.name();
         root.addProperty("custom_tool", "Zest|" + usage);
 
-        // Add params object with max_tokens and max_completion_tokens
+        // Add params object with max_tokens, temperature, and stop sequences
         JsonObject paramsObj = new JsonObject();
         paramsObj.addProperty("max_tokens", params.getMaxTokens());
         paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
         paramsObj.addProperty("num_predict", params.getMaxTokens());
+        paramsObj.addProperty("temperature", params.getTemperature());
+        
+        // Add stop sequences if provided
+        if (!params.getStopSequences().isEmpty()) {
+            com.google.gson.JsonArray stopArray = new com.google.gson.JsonArray();
+            for (String stop : params.getStopSequences()) {
+                stopArray.add(stop);
+            }
+            paramsObj.add("stop", stopArray);
+        }
+        
         root.add("params", paramsObj);
 
         JsonObject message = new JsonObject();
@@ -290,6 +301,17 @@ public final class LLMService {
 
         JsonObject options = new JsonObject();
         options.addProperty("num_predict", params.getMaxTokens());
+        options.addProperty("temperature", params.getTemperature());
+        
+        // Add stop sequences if provided
+        if (!params.getStopSequences().isEmpty()) {
+            com.google.gson.JsonArray stopArray = new com.google.gson.JsonArray();
+            for (String stop : params.getStopSequences()) {
+                stopArray.add(stop);
+            }
+            options.add("stop", stopArray);
+        }
+        
         root.add("options", options);
 
         return GSON.toJson(root);
@@ -407,6 +429,8 @@ public final class LLMService {
         private int maxRetries = MAX_RETRY_ATTEMPTS;
         private long timeoutMs = READ_TIMEOUT_MS;
         private int maxTokens = DEFAULT_MAX_TOKENS;
+        private double temperature = 0.7; // Default temperature
+        private java.util.List<String> stopSequences = new java.util.ArrayList<>(); // Stop sequences
 
         public LLMQueryParams(@NotNull String prompt) {
             this.prompt = prompt;
@@ -432,12 +456,29 @@ public final class LLMService {
             return this;
         }
 
+        public LLMQueryParams withTemperature(double temperature) {
+            this.temperature = temperature;
+            return this;
+        }
+
+        public LLMQueryParams withStopSequences(java.util.List<String> stopSequences) {
+            this.stopSequences = new java.util.ArrayList<>(stopSequences);
+            return this;
+        }
+
+        public LLMQueryParams withStopSequence(String stopSequence) {
+            this.stopSequences.add(stopSequence);
+            return this;
+        }
+
         // Getters
         public String getPrompt() { return prompt; }
         public String getModel() { return model; }
         public int getMaxRetries() { return maxRetries; }
         public long getTimeoutMs() { return timeoutMs; }
         public int getMaxTokens() { return maxTokens; }
+        public double getTemperature() { return temperature; }
+        public java.util.List<String> getStopSequences() { return stopSequences; }
     }
 
     /**

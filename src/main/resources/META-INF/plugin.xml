@@ -194,6 +194,13 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>
         </action>
 
+        <action id="Zest.TestQwenCoderAction"
+                class="com.zps.zest.completion.actions.TestQwenCoderAction"
+                text="Test Qwen 2.5 Coder Integration"
+                description="Test and validate Qwen 2.5 Coder FIM configuration and integration">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.JCefDiagnosticAction"/>
+        </action>
+
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"
                 text="Step-by-Step Test Writing (Agent)"

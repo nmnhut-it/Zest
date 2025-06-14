@@ -20,6 +20,7 @@ import java.util.*
 
 /**
  * Simplified completion provider using basic prefix/suffix context
+ * Updated for Qwen 2.5 Coder FIM format with proper stop sequences
  */
 class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
@@ -62,6 +63,8 @@ class ZestCompletionProvider(private val project: Project) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
                     .withModel("local-model-mini")
                     .withMaxTokens(MAX_COMPLETION_TOKENS)
+                    .withTemperature(0.1) // Low temperature for more deterministic completions
+                    .withStopSequences(getStopSequences()) // Add stop sequences for Qwen FIM
                 
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
@@ -141,8 +144,22 @@ class ZestCompletionProvider(private val project: Project) {
         return confidence.coerceIn(0.0f, 1.0f)
     }
     
+    /**
+     * Get stop sequences for Qwen 2.5 Coder FIM format
+     */
+    private fun getStopSequences(): List<String> {
+        return listOf(
+            "<|fim_suffix|>", 
+            "<|fim_prefix|>", 
+            "<|fim_pad|>", 
+            "<|endoftext|>",
+            "<|repo_name|>",
+            "<|file_sep|>"
+        )
+    }
+    
     companion object {
         private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds
-        private const val MAX_COMPLETION_TOKENS = 16
+        private const val MAX_COMPLETION_TOKENS = 50 // Increased for FIM completions
     }
 }

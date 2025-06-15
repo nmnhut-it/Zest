@@ -2,7 +2,9 @@ package com.zps.zest.completion.actions
 
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.components.serviceOrNull
 import com.zps.zest.completion.ZestInlineCompletionService
+import com.zps.zest.completion.ZestMethodRewriteService
 
 /**
  * TAB action for accepting only the next line of completions.
@@ -11,12 +13,27 @@ import com.zps.zest.completion.ZestInlineCompletionService
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
     override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
+        // First check if we have an active method rewrite
+        val methodRewriteService = editor.project?.serviceOrNull<ZestMethodRewriteService>()
+        if (methodRewriteService?.isRewriteInProgress() == true) {
+            // Accept the method rewrite instead of inline completion
+            methodRewriteService.acceptMethodRewrite(editor)
+            return
+        }
+        
+        // Otherwise handle inline completion acceptance
         // Since we now only show first line, TAB accepts the entire visible completion
         // This is equivalent to NEXT_LINE but more intuitive for single-line display
         service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
     }
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
+        // Enable if we have an active method rewrite
+        val methodRewriteService = editor.project?.serviceOrNull<ZestMethodRewriteService>()
+        if (methodRewriteService?.isRewriteInProgress() == true) {
+            return true
+        }
+        
         // Check if completion is visible
         if (!service.isInlineCompletionVisibleAt(editor, caret.offset)) {
             return false

@@ -40,9 +40,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val promptBuilder = ZestMethodPromptBuilder()
     private val responseParser = ZestMethodResponseParser()
     private val gdiff = GDiff()
+    private val inlineDiffRenderer = ZestInlineMethodDiffRenderer()
     
     // State management
-    private var currentFloatingWindow: FloatingCodeWindow? = null
     private var currentRewriteJob: Job? = null
     private var currentMethodContext: ZestMethodContextCollector.MethodContext? = null
     private var currentRewrittenMethod: String? = null
@@ -80,21 +80,18 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 
                 logger.info("Found method: ${methodContext.methodName} (${methodContext.language})")
                 
-                // Show loading window immediately with method info
+                // Show loading notification
                 withContext(Dispatchers.Main) {
-                    currentFloatingWindow = FloatingCodeWindow.createLoadingWindow(
-                        project = project,
-                        mainEditor = editor,
-                        originalCode = methodContext.methodContent,
-                        onAccept = { acceptMethodRewrite() },
-                        onReject = { cancelCurrentRewrite() }
+                    ZestNotifications.showInfo(
+                        project,
+                        "Method Rewrite",
+                        "Rewriting method '${methodContext.methodName}'..."
                     )
-                    currentFloatingWindow?.show()
                 }
                 
                 // Start method rewrite process
                 currentRewriteJob = scope.launch {
-                    performMethodRewrite(methodContext, customInstruction)
+                    performMethodRewrite(editor, methodContext, customInstruction)
                 }
                 
             } catch (e: Exception) {
@@ -114,6 +111,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      * Perform the method rewrite operation with enhanced context
      */
     private suspend fun performMethodRewrite(
+        editor: Editor,
         methodContext: ZestMethodContextCollector.MethodContext,
         customInstruction: String?
     ) {
@@ -129,7 +127,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             
             logger.debug("Generated method prompt length: ${prompt.length}")
             
-            // Query the LLM with method-optimized parameters
+            //
             val startTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -169,11 +167,15 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             currentDiffResult = diffResult
             currentRewrittenMethod = parseResult.rewrittenMethod
             
-            // Update the floating window with the rewritten method and diff info
+            // Show inline diff in the editor
             withContext(Dispatchers.Main) {
-                currentFloatingWindow?.updateContent(
-                    newSuggestedCode = parseResult.rewrittenMethod,
-                    isValid = parseResult.isValid
+                inlineDiffRenderer.show(
+                    editor = editor,
+                    methodContext = methodContext,
+                    diffResult = diffResult,
+                    rewrittenMethod = parseResult.rewrittenMethod,
+                    onAccept = { acceptMethodRewriteInternal(editor) },
+                    onReject = { cancelCurrentRewrite() }
                 )
                 
                 // Show improvement summary
@@ -189,11 +191,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     appendLine("• ${stats.deletions} deletions") 
                     appendLine("• ${stats.modifications} modifications")
                     appendLine("• Confidence: ${(parseResult.confidence * 100).toInt()}%")
+                    appendLine()
+                    appendLine("Press TAB to accept, ESC to reject")
                 }
-                // Note: Using a notification instead of showInfo since FloatingCodeWindow might not have that method
+                
                 ZestNotifications.showInfo(
                     project,
-                    "Method Improvements",
+                    "Method Rewrite Ready",
                     improvementMessage
                 )
             }
@@ -207,7 +211,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             logger.error("Method rewrite failed", e)
             
             withContext(Dispatchers.Main) {
-                currentFloatingWindow?.hide()
+                inlineDiffRenderer.hide()
                 ZestNotifications.showError(
                     project,
                     "Method Rewrite Failed",
@@ -236,9 +240,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
     
     /**
-     * Accept the current method rewrite and apply it using GDiff for precise changes
+     * Internal method to accept the current method rewrite and apply it using GDiff for precise changes
      */
-    private fun acceptMethodRewrite() {
+    private fun acceptMethodRewriteInternal(editor: Editor) {
         val methodContext = currentMethodContext ?: return
         val rewrittenMethod = currentRewrittenMethod ?: return
         val diffResult = currentDiffResult
@@ -246,7 +250,6 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeLater {
             try {
                 WriteCommandAction.runWriteCommandAction(project) {
-                    val editor = getCurrentEditor() ?: return@runWriteCommandAction
                     val document = editor.document
                     
                     if (diffResult != null && diffResult.hasChanges()) {
@@ -272,8 +275,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     logger.info("Applied method rewrite successfully")
                 }
                 
-                // Close the floating window
-                currentFloatingWindow?.hide()
+                // Hide the inline diff
+                inlineDiffRenderer.hide()
                 
                 val stats = diffResult?.getStatistics()
                 val message = if (stats != null) {
@@ -306,7 +309,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      */
     fun cancelCurrentRewrite() {
         currentRewriteJob?.cancel()
-        currentFloatingWindow?.hide()
+        inlineDiffRenderer.hide()
         cleanup()
     }
     
@@ -314,18 +317,71 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      * Check if a method rewrite operation is currently in progress
      */
     fun isRewriteInProgress(): Boolean {
-        return currentRewriteJob?.isActive == true || currentFloatingWindow != null
+        return currentRewriteJob?.isActive == true || inlineDiffRenderer.isActive()
     }
     
     /**
-     * Get the current editor (helper method)
+     * Accept the method rewrite (public method for tab acceptance)
      */
-    private fun getCurrentEditor(): Editor? {
-        return try {
-            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
-        } catch (e: Exception) {
-            logger.warn("Failed to get current editor", e)
-            null
+    fun acceptMethodRewrite(editor: Editor) {
+        val methodContext = currentMethodContext ?: return
+        val rewrittenMethod = currentRewrittenMethod ?: return
+        val diffResult = currentDiffResult
+        
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                WriteCommandAction.runWriteCommandAction(project) {
+                    val document = editor.document
+                    
+                    if (diffResult != null && diffResult.hasChanges()) {
+                        // Apply changes using GDiff for more precise updates
+                        logger.info("Applying precise method changes using GDiff: ${diffResult.getStatistics().totalChanges} changes")
+                        
+                        // Replace the entire method with the rewritten version
+                        document.replaceString(
+                            methodContext.methodStartOffset,
+                            methodContext.methodEndOffset,
+                            rewrittenMethod
+                        )
+                        
+                    } else {
+                        // Fallback to simple replacement
+                        document.replaceString(
+                            methodContext.methodStartOffset,
+                            methodContext.methodEndOffset,
+                            rewrittenMethod
+                        )
+                    }
+                    
+                    logger.info("Applied method rewrite successfully")
+                }
+                
+                // Hide the inline diff
+                inlineDiffRenderer.hide()
+                
+                val stats = diffResult?.getStatistics()
+                val message = if (stats != null) {
+                    "Method '${methodContext.methodName}' rewritten successfully with ${stats.totalChanges} changes"
+                } else {
+                    "Method '${methodContext.methodName}' has been successfully rewritten"
+                }
+                
+                ZestNotifications.showInfo(
+                    project,
+                    "Method Rewrite Applied",
+                    message
+                )
+                
+            } catch (e: Exception) {
+                logger.error("Failed to apply method rewrite", e)
+                ZestNotifications.showError(
+                    project,
+                    "Apply Method Rewrite Failed",
+                    "Failed to apply the rewritten method: ${e.message}"
+                )
+            } finally {
+                cleanup()
+            }
         }
     }
     
@@ -358,7 +414,6 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private fun cleanup() {
         currentRewriteJob = null
         currentMethodContext = null
-        currentFloatingWindow = null
         currentRewrittenMethod = null
         currentDiffResult = null
     }
@@ -366,7 +421,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     override fun dispose() {
         logger.info("Disposing ZestMethodRewriteService")
         scope.cancel()
-        currentFloatingWindow?.hide()
+        inlineDiffRenderer.hide()
         cleanup()
     }
     

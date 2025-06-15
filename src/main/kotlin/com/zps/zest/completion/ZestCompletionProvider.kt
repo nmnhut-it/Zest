@@ -47,13 +47,17 @@ class ZestCompletionProvider(private val project: Project) {
     private val leanPromptBuilder = ZestLeanPromptBuilder()
     private val leanResponseParser = ZestLeanResponseParser()
     
+    // Block rewrite strategy components
+    private val blockRewriteService by lazy { project.getService(ZestBlockRewriteService::class.java) }
+    
     // Configuration
     var strategy: CompletionStrategy = CompletionStrategy.SIMPLE
         private set
     
     enum class CompletionStrategy {
-        SIMPLE,  // Original FIM-based approach
-        LEAN     // Full-file with reasoning approach
+        SIMPLE,       // Original FIM-based approach
+        LEAN,         // Full-file with reasoning approach
+        BLOCK_REWRITE // Block-level rewrite with floating window preview
     }
     
     /**
@@ -68,6 +72,7 @@ class ZestCompletionProvider(private val project: Project) {
         return when (strategy) {
             CompletionStrategy.SIMPLE -> requestSimpleCompletion(context)
             CompletionStrategy.LEAN -> requestLeanCompletion(context)
+            CompletionStrategy.BLOCK_REWRITE -> requestBlockRewrite(context)
         }
     }
     
@@ -240,9 +245,7 @@ class ZestCompletionProvider(private val project: Project) {
                     tokens = reasoningResult.completionText.split("\\s+".toRegex()).size,
                     latency = totalTime,
                     requestId = UUID.randomUUID().toString(),
-                    reasoning = reasoningResult.reasoning,
-                    contextType = leanContext.contextType.name,
-                    hasValidReasoning = reasoningResult.hasValidReasoning
+                    reasoning = reasoningResult.reasoning
                 )
             )
             
@@ -315,6 +318,37 @@ class ZestCompletionProvider(private val project: Project) {
             "<|end|>",
             "# End of file"
         )
+    }
+    
+    /**
+     * Block rewrite strategy - shows floating window with whole block rewrites
+     */
+    private suspend fun requestBlockRewrite(context: CompletionContext): ZestInlineCompletionList? {
+        return try {
+            logger.debug("Requesting block rewrite for ${context.fileName} at offset ${context.offset}")
+            
+            // Get current editor on EDT
+            val editor = withContext(Dispatchers.Main) {
+                FileEditorManager.getInstance(project).selectedTextEditor
+            }
+            
+            if (editor == null) {
+                logger.debug("No active editor found for block rewrite")
+                return null
+            }
+            
+            // Trigger the block rewrite service (this will show floating window)
+            withContext(Dispatchers.Main) {
+                blockRewriteService.triggerBlockRewrite(editor, context.offset)
+            }
+            
+            // Return empty completion list since we're showing floating window instead
+            ZestInlineCompletionList.EMPTY
+            
+        } catch (e: Exception) {
+            logger.warn("Block rewrite request failed", e)
+            null
+        }
     }
     
     companion object {

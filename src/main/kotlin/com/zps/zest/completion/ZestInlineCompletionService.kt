@@ -36,6 +36,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val renderer = ZestInlineCompletionRenderer()
     private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
     
+    // Block rewrite service integration
+    private val blockRewriteService by lazy { project.getService(ZestBlockRewriteService::class.java) }
+    
     // Configuration
     private var autoTriggerEnabled = false // Default to false, will be set from config
     
@@ -195,6 +198,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     ) {
         if (completions == null || completions.isEmpty()) {
             logger.debug("No completions available")
+            return
+        }
+        
+        // Check if we're in block rewrite mode
+        if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE) {
+            // Block rewrite mode handles its own UI via floating windows
+            // The completion provider already triggered the block rewrite service
+            logger.debug("Block rewrite mode - floating window should be shown")
             return
         }
         

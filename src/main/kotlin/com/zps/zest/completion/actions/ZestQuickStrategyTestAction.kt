@@ -57,6 +57,18 @@ class ZestQuickStrategyTestAction : AnAction("Quick Strategy Demo"), DumbAware {
                     appendLine("• Simple inline suggestions")
                     appendLine("• Less resource usage")
                 }
+                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
+                    appendLine("🔄 BLOCK_REWRITE Strategy Features:")
+                    appendLine("• Block-level code rewriting")
+                    appendLine("• Shows floating window preview")
+                    appendLine("• Rewrites entire code blocks")
+                    appendLine("• Context-aware improvements")
+                    appendLine()
+                    appendLine("💡 Try switching to SIMPLE or LEAN for:")
+                    appendLine("• Traditional inline completions")
+                    appendLine("• Single-line suggestions")
+                    appendLine("• Faster responses")
+                }
             }
             appendLine()
             appendLine("🎯 Triggering completion at offset $offset")

@@ -214,6 +214,11 @@ class ZestInlineCompletionRenderer {
                     System.out.println("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays)")
                 }
             }
+            
+            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
+                // BLOCK_REWRITE: Not used for inline rendering (uses floating windows)
+                System.out.println("BLOCK_REWRITE strategy: skipping inline rendering (uses floating windows)")
+            }
         }
     }
     

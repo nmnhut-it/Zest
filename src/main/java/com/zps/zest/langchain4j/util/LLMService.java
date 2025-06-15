@@ -264,7 +264,7 @@ public final class LLMService {
             for (String stop : params.getStopSequences()) {
                 stopArray.add(stop);
             }
-            paramsObj.add("stop", stopArray);
+//            paramsObj.add("stop", stopArray);
         }
         
         root.add("params", paramsObj);

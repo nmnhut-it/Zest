@@ -43,6 +43,15 @@ class ZestTestMultiLineAction : AnAction("Test Multi-Line Display"), DumbAware {
 }
 return value.toString();"""
             }
+            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
+                """// BLOCK_REWRITE displays in floating window
+public String processValue(String value) {
+    if (value == null || value.trim().isEmpty()) {
+        throw new IllegalArgumentException("Value cannot be null or empty");
+    }
+    return value.trim().toUpperCase();
+}"""
+            }
         }
         
         val testCompletion = ZestInlineCompletionItem(
@@ -81,6 +90,10 @@ return value.toString();"""
                     ZestCompletionProvider.CompletionStrategy.LEAN -> {
                         appendLine("✓ LEAN should show: ${multiLineCompletion.lines().size} lines")
                         appendLine("Expected: Multi-line with blocks")
+                    }
+                    ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
+                        appendLine("✓ BLOCK_REWRITE should show: Floating window")
+                        appendLine("Expected: Separate preview window with block rewrite")
                     }
                 }
                 appendLine()
@@ -122,6 +135,7 @@ return value.toString();"""
             val lineCount = when (currentStrategy) {
                 ZestCompletionProvider.CompletionStrategy.SIMPLE -> "1"
                 ZestCompletionProvider.CompletionStrategy.LEAN -> "3"
+                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "floating"
             }
             e.presentation.text = "Test Multi-Line ($lineCount lines in $currentStrategy)"
         }

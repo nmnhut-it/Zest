@@ -70,6 +70,9 @@ dependencies {
     implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
     
     // No Lucene dependencies needed - using in-memory index instead
+    
+    // Java Diff Utils for gdiff functionality
+    implementation("io.github.java-diff-utils:java-diff-utils:4.12")
 }
 
 intellijPlatform {

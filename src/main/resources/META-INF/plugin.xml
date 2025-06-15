@@ -324,5 +324,16 @@
                 description="Toggle the visibility of developer tools in ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
+        <!-- GDiff Actions -->
+        <action id="Zest.GDiff.CompareFiles"
+                class="com.zps.zest.gdiff.action.CompareFilesAction"
+                text="Compare Files with GDiff"
+                icon="AllIcons.Actions.Diff"
+                description="Compare selected files using GDiff multi-language diff utility">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="CompareFiles"/>
+            <add-to-group group-id="EditorTabPopupMenu" anchor="after" relative-to-action="CompareFiles"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.StartAgentProxyServer"/>
+        </action>
     </actions>
 </idea-plugin>

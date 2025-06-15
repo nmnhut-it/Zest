@@ -215,9 +215,9 @@ class ZestInlineCompletionRenderer {
                 }
             }
             
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
-                // BLOCK_REWRITE: Not used for inline rendering (uses floating windows)
-                System.out.println("BLOCK_REWRITE strategy: skipping inline rendering (uses floating windows)")
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
+                // METHOD_REWRITE: Not used for inline rendering (uses floating windows)
+                System.out.println("METHOD_REWRITE strategy: skipping inline rendering (uses floating windows)")
             }
         }
     }

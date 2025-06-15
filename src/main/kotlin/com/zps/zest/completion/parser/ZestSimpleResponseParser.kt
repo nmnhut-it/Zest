@@ -135,8 +135,8 @@ class ZestSimpleResponseParser {
                 // LEAN strategy: show full completion (multi-line allowed)
                 adjustedCompletion
             }
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
-                // BLOCK_REWRITE strategy: not used for inline completions (uses floating windows)
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
+                // METHOD_REWRITE strategy: not used for inline completions (uses floating windows)
                 ""
             }
         }

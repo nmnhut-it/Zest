@@ -8,30 +8,30 @@ import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ui.InputValidator
 import com.intellij.openapi.ui.Messages
-import com.zps.zest.completion.ZestBlockRewriteService
+import com.zps.zest.completion.ZestMethodRewriteService
 
 /**
- * Action to manually trigger block rewrite at cursor position
+ * Action to manually trigger method rewrite at cursor position
  */
-class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPriority {
-    private val logger = Logger.getInstance(ZestTriggerBlockRewriteAction::class.java)
+class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPriority {
+    private val logger = Logger.getInstance(ZestTriggerMethodRewriteAction::class.java)
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getRequiredData(CommonDataKeys.PROJECT)
         val editor = e.getRequiredData(CommonDataKeys.EDITOR)
-        val blockRewriteService = project.serviceOrNull<ZestBlockRewriteService>()
+        val methodRewriteService = project.serviceOrNull<ZestMethodRewriteService>()
         
-        if (blockRewriteService == null) {
-            logger.warn("ZestBlockRewriteService not available")
+        if (methodRewriteService == null) {
+            logger.warn("ZestMethodRewriteService not available")
             return
         }
         
         // Check if another rewrite is in progress
-        if (blockRewriteService.isRewriteInProgress()) {
+        if (methodRewriteService.isRewriteInProgress()) {
             Messages.showWarningDialog(
                 project,
-                "A block rewrite operation is already in progress. Please wait for it to complete or cancel it first.",
-                "Block Rewrite In Progress"
+                "A method rewrite operation is already in progress. Please wait for it to complete or cancel it first.",
+                "Method Rewrite In Progress"
             )
             return
         }
@@ -41,8 +41,8 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
         // Ask user for custom instructions (optional)
         val customInstruction = Messages.showInputDialog(
             project,
-            "Enter custom instructions for the block rewrite (optional):\nLeave empty for general improvements.",
-            "Block Rewrite Instructions",
+            "Enter custom instructions for the method rewrite (optional):\nLeave empty for general improvements.",
+            "Method Rewrite Instructions",
             Messages.getQuestionIcon(),
             "",
             object : InputValidator {
@@ -56,33 +56,33 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
             return
         }
         
-        // Trigger the block rewrite
+        // Trigger the method rewrite
         val instruction = if (customInstruction.trim().isEmpty()) null else customInstruction.trim()
-        blockRewriteService.triggerBlockRewrite(editor, offset, instruction)
+        methodRewriteService.rewriteCurrentMethod(editor, offset, instruction)
         
-        logger.info("Triggered block rewrite at offset $offset with custom instruction: ${instruction != null}")
+        logger.info("Triggered method rewrite at offset $offset with custom instruction: ${instruction != null}")
     }
     
     override fun update(e: AnActionEvent) {
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
-        val blockRewriteService = project?.serviceOrNull<ZestBlockRewriteService>()
+        val methodRewriteService = project?.serviceOrNull<ZestMethodRewriteService>()
         
         val isAvailable = project != null && 
                          editor != null && 
-                         blockRewriteService != null &&
+                         methodRewriteService != null &&
                          !editor.isDisposed
         
         e.presentation.isEnabledAndVisible = isAvailable
         
         // Update description based on service state
-        if (blockRewriteService?.isRewriteInProgress() == true) {
-            e.presentation.text = "Block Rewrite (In Progress...)"
-            e.presentation.description = "A block rewrite is currently in progress"
+        if (methodRewriteService?.isRewriteInProgress() == true) {
+            e.presentation.text = "Method Rewrite (In Progress...)"
+            e.presentation.description = "A method rewrite is currently in progress"
             e.presentation.isEnabled = false
         } else {
-            e.presentation.text = "Trigger Block Rewrite"
-            e.presentation.description = "Rewrite the current code block/function with AI improvements"
+            e.presentation.text = "Trigger Method Rewrite"
+            e.presentation.description = "Rewrite the current method with AI improvements"
             e.presentation.isEnabled = isAvailable
         }
     }

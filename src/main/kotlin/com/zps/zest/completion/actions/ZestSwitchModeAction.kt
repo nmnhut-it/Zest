@@ -71,8 +71,8 @@ class ZestSwitchModeAction : AnAction("Switch Zest Mode"), HasPriority {
     private fun getNextStrategy(current: ZestCompletionProvider.CompletionStrategy): ZestCompletionProvider.CompletionStrategy {
         return when (current) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> ZestCompletionProvider.CompletionStrategy.LEAN
-            ZestCompletionProvider.CompletionStrategy.LEAN -> ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> ZestCompletionProvider.CompletionStrategy.SIMPLE
+            ZestCompletionProvider.CompletionStrategy.LEAN -> ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> ZestCompletionProvider.CompletionStrategy.SIMPLE
         }
     }
     
@@ -83,7 +83,7 @@ class ZestSwitchModeAction : AnAction("Switch Zest Mode"), HasPriority {
         return when (strategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> "Simple Mode - FIM-based inline completions"
             ZestCompletionProvider.CompletionStrategy.LEAN -> "Lean Mode - Context-aware completions with reasoning"
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "Block Rewrite Mode - Whole block/function rewrites in floating window"
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "Block Rewrite Mode - Whole block/function rewrites in floating window"
         }
     }
     
@@ -94,7 +94,7 @@ class ZestSwitchModeAction : AnAction("Switch Zest Mode"), HasPriority {
         return when (strategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> "Simple"
             ZestCompletionProvider.CompletionStrategy.LEAN -> "Lean"
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "Block Rewrite"
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "Block Rewrite"
         }
     }
     

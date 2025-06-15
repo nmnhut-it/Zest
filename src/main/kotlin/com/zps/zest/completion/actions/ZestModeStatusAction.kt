@@ -48,12 +48,13 @@ class ZestModeStatusAction : AnAction("Show Zest Mode Status"), HasPriority {
                     appendLine("• Includes reasoning process")
                     appendLine("• Better code understanding")
                 }
-                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
+                ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
                     appendLine("• Whole block/function rewrites")
                     appendLine("• Floating window previews")
                     appendLine("• Comprehensive improvements")
                     appendLine("• Perfect for refactoring")
                 }
+
             }
             
             appendLine()
@@ -79,7 +80,7 @@ class ZestModeStatusAction : AnAction("Show Zest Mode Status"), HasPriority {
             val modeIcon = when (currentStrategy) {
                 ZestCompletionProvider.CompletionStrategy.SIMPLE -> "⚡"
                 ZestCompletionProvider.CompletionStrategy.LEAN -> "🧠"
-                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "🔄"
+                ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "🔄"
             }
             e.presentation.text = "$modeIcon ${getStrategyName(currentStrategy)} Mode"
             e.presentation.description = "Current Zest mode: ${getStrategyDescription(currentStrategy)}"
@@ -97,7 +98,7 @@ class ZestModeStatusAction : AnAction("Show Zest Mode Status"), HasPriority {
         return when (strategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> "Simple"
             ZestCompletionProvider.CompletionStrategy.LEAN -> "Lean"
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "Block Rewrite"
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "Block Rewrite"
         }
     }
     
@@ -105,7 +106,7 @@ class ZestModeStatusAction : AnAction("Show Zest Mode Status"), HasPriority {
         return when (strategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> "Fast inline completions with minimal context"
             ZestCompletionProvider.CompletionStrategy.LEAN -> "Context-aware completions with reasoning"
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "Whole block rewrites with floating window preview"
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "Whole block rewrites with floating window preview"
         }
     }
     

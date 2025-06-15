@@ -57,11 +57,11 @@ class ZestQuickStrategyTestAction : AnAction("Quick Strategy Demo"), DumbAware {
                     appendLine("• Simple inline suggestions")
                     appendLine("• Less resource usage")
                 }
-                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> {
-                    appendLine("🔄 BLOCK_REWRITE Strategy Features:")
-                    appendLine("• Block-level code rewriting")
+                ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
+                    appendLine("🔄 METHOD_REWRITE Strategy Features:")
+                    appendLine("• Method-level code rewriting")
                     appendLine("• Shows floating window preview")
-                    appendLine("• Rewrites entire code blocks")
+                    appendLine("• Rewrites entire methods")
                     appendLine("• Context-aware improvements")
                     appendLine()
                     appendLine("💡 Try switching to SIMPLE or LEAN for:")

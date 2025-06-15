@@ -175,7 +175,7 @@ class ZestBlockRewriteResponseParser {
     }
     
     /**
-     * Validate the rewritten code
+     * Validate the rewritten code (loosened validation)
      */
     private fun validateRewrittenCode(
         rewrittenCode: String,
@@ -185,97 +185,110 @@ class ZestBlockRewriteResponseParser {
     ): ValidationResult {
         val issues = mutableListOf<String>()
         
-        // Basic validation
-        if (rewrittenCode.length < originalCode.length / 10) {
-            issues.add("Rewritten code is significantly shorter than original")
+        // Very basic validation - only catch obvious errors
+        if (rewrittenCode.length < 3) {
+            issues.add("Rewritten code is too short to be meaningful")
         }
         
-        if (rewrittenCode.length > originalCode.length * 5) {
-            issues.add("Rewritten code is significantly longer than original")
+        // Much more lenient length checks - only flag extreme cases
+        if (rewrittenCode.length < originalCode.length / 200) {
+            issues.add("Rewritten code is extremely short compared to original (potential extraction error)")
         }
         
-        // Language-specific validation
+        if (rewrittenCode.length > originalCode.length * 1000) {
+            issues.add("Rewritten code is extremely long compared to original (potential duplication)")
+        }
+        
+        // Loosened language-specific validation - only basic sanity checks
         when (language.lowercase()) {
-            "java", "kotlin", "scala" -> validateJvmLanguage(rewrittenCode, blockType, issues)
-            "javascript", "typescript" -> validateJavaScript(rewrittenCode, blockType, issues)
-            "python" -> validatePython(rewrittenCode, blockType, issues)
+            "java", "kotlin", "scala" -> validateJvmLanguageLoose(rewrittenCode, blockType, issues)
+            "javascript", "typescript" -> validateJavaScriptLoose(rewrittenCode, blockType, issues)
+            "python" -> validatePythonLoose(rewrittenCode, blockType, issues)
         }
         
-        // Check for proper structure based on block type
-        validateBlockStructure(rewrittenCode, blockType, issues)
+        // Much more lenient structure validation
+        validateBlockStructureLoose(rewrittenCode, blockType, issues)
         
-        return ValidationResult(issues.isEmpty(), issues)
+        // Accept the code unless there are serious structural issues
+        val isValid = issues.none { it.contains("extremely") || it.contains("too short") }
+        
+        return ValidationResult(isValid, issues)
     }
     
     /**
-     * Validate JVM language code
+     * Very loose JVM language validation - only catch obvious errors
      */
-    private fun validateJvmLanguage(
+    private fun validateJvmLanguageLoose(
         code: String,
         blockType: ZestBlockContextCollector.BlockType,
         issues: MutableList<String>
     ) {
         when (blockType) {
             ZestBlockContextCollector.BlockType.METHOD -> {
-                if (!code.contains("{") || !code.contains("}")) {
-                    issues.add("Method should have opening and closing braces")
-                }
-                if (!code.matches(Regex(".*\\w+\\s*\\([^)]*\\).*", RegexOption.DOT_MATCHES_ALL))) {
-                    issues.add("Method should have a proper signature with parentheses")
+                // Just check if it's completely malformed - allow flexible method structures
+                if (!code.contains("(") && !code.contains(")")) {
+                    // Even this might be too strict - could be a property or field
+                    // issues.add("Method-like code should typically have parentheses")
                 }
             }
             ZestBlockContextCollector.BlockType.CLASS -> {
-                if (!code.contains("class ") && !code.contains("interface ")) {
-                    issues.add("Class code should contain 'class' or 'interface' keyword")
+                // Very loose - just check it's not completely empty
+                if (code.trim().length < 10) {
+                    issues.add("Class code seems too minimal")
                 }
             }
-            else -> { /* Other validations */ }
+            else -> { 
+                // For other types, no specific validation - trust the AI
+            }
         }
     }
     
     /**
-     * Validate JavaScript code
+     * Very loose JavaScript validation
      */
-    private fun validateJavaScript(
+    private fun validateJavaScriptLoose(
         code: String,
         blockType: ZestBlockContextCollector.BlockType,
         issues: MutableList<String>
     ) {
         when (blockType) {
             ZestBlockContextCollector.BlockType.METHOD -> {
-                if (!code.contains("function") && !code.contains("=>") && !code.contains("(")) {
-                    issues.add("JavaScript function should contain 'function' keyword or arrow syntax")
+                // Only check for completely malformed code
+                if (code.trim().length < 5) {
+                    issues.add("Function code seems too minimal")
                 }
             }
-            else -> { /* Other validations */ }
+            else -> { 
+                // No validation for other types
+            }
         }
     }
     
     /**
-     * Validate Python code
+     * Very loose Python validation
      */
-    private fun validatePython(
+    private fun validatePythonLoose(
         code: String,
         blockType: ZestBlockContextCollector.BlockType,
         issues: MutableList<String>
     ) {
         when (blockType) {
             ZestBlockContextCollector.BlockType.METHOD -> {
-                if (!code.contains("def ")) {
-                    issues.add("Python method should contain 'def' keyword")
-                }
-                if (!code.contains(":")) {
-                    issues.add("Python method should end with colon")
+                // Only check for completely malformed code
+                if (code.trim().length < 5) {
+                    issues.add("Function code seems too minimal")
                 }
             }
-            else -> { /* Other validations */ }
+            else -> { 
+                // No validation for other types
+            }
         }
     }
     
     /**
-     * Validate block structure
+     * Very loose block structure validation
      */
-    private fun validateBlockStructure(
+    private fun validateBlockStructureLoose(
         code: String,
         blockType: ZestBlockContextCollector.BlockType,
         issues: MutableList<String>
@@ -285,102 +298,163 @@ class ZestBlockRewriteResponseParser {
             ZestBlockContextCollector.BlockType.CODE_BLOCK -> {
                 val openBraces = code.count { it == '{' }
                 val closeBraces = code.count { it == '}' }
-                if (openBraces != closeBraces) {
-                    issues.add("Mismatched braces: $openBraces opening, $closeBraces closing")
+                
+                // Only flag major mismatches - allow some flexibility for partial rewrites
+                val braceDiff = kotlin.math.abs(openBraces - closeBraces)
+                if (braceDiff > 2) {
+                    issues.add("Significant brace mismatch: $openBraces opening, $closeBraces closing (difference: $braceDiff)")
                 }
             }
             ZestBlockContextCollector.BlockType.LINE -> {
-                if (code.lines().size > 3) {
-                    issues.add("Line rewrite should not result in multiple lines")
+                // Be much more lenient - allow multi-line improvements of single lines
+                if (code.lines().size > 20) {
+                    issues.add("Single line rewrite resulted in many lines (${code.lines().size})")
                 }
             }
-            else -> { /* Other structure validations */ }
+            else -> { 
+                // No structure validation for other types
+            }
         }
     }
     
     /**
-     * Calculate confidence based on various factors
+     * Calculate confidence based on various factors (more lenient)
      */
     private fun calculateConfidence(
         rewrittenCode: String,
         originalCode: String,
         validationResult: ValidationResult
     ): Float {
-        var confidence = 0.7f
+        var confidence = 0.8f // Start with higher base confidence
         
-        // Reduce confidence for validation issues
-        confidence -= validationResult.issues.size * 0.1f
+        // Only reduce confidence for serious validation issues
+        val seriousIssues = validationResult.issues.count { 
+            it.contains("extremely") || it.contains("too short") || it.contains("too minimal")
+        }
+        confidence -= seriousIssues * 0.1f
         
-        // Increase confidence for reasonable length changes
+        // Less penalty for minor issues
+        val minorIssues = validationResult.issues.size - seriousIssues
+        confidence -= minorIssues * 0.05f
+        
+        // Reward reasonable length changes more generously
         val lengthRatio = rewrittenCode.length.toFloat() / originalCode.length
-        if (lengthRatio in 0.5f..3.0f) {
-            confidence += 0.1f
+        when {
+            lengthRatio in 0.3f..5.0f -> confidence += 0.1f // Much wider acceptable range
+            lengthRatio in 0.1f..10.0f -> confidence += 0.05f // Still acceptable
+            else -> confidence -= 0.1f // Only penalize extreme cases
         }
         
-        // Increase confidence for structured code
+        // Reward structured code
         if (rewrittenCode.contains("{") && rewrittenCode.contains("}")) {
             confidence += 0.05f
         }
         
-        // Increase confidence for meaningful improvements
+        // Reward meaningful improvements more generously
         if (detectImprovementIndicators(rewrittenCode, originalCode)) {
-            confidence += 0.15f
+            confidence += 0.2f // Higher reward for improvements
         }
         
-        return confidence.coerceIn(0.0f, 1.0f)
+        // Reward non-trivial changes
+        if (rewrittenCode.trim() != originalCode.trim()) {
+            confidence += 0.05f
+        }
+        
+        return confidence.coerceIn(0.1f, 1.0f) // Keep minimum confidence higher
     }
     
     /**
-     * Detect significant changes between original and rewritten code
+     * Detect significant changes between original and rewritten code (more generous)
      */
     private fun detectSignificantChanges(rewrittenCode: String, originalCode: String): Boolean {
-        // Simple change detection
+        // Simple change detection - be more generous about what counts as "significant"
         val lengthChange = kotlin.math.abs(rewrittenCode.length - originalCode.length)
-        val lengthChangeRatio = lengthChange.toFloat() / originalCode.length
+        val lengthChangeRatio = lengthChange.toFloat() / maxOf(originalCode.length, 1)
         
-        // Consider it significant if length changed by more than 20%
-        if (lengthChangeRatio > 0.2f) return true
+        // Consider it significant if length changed by more than 10% (was 20%)
+        if (lengthChangeRatio > 0.1f) return true
         
-        // Check for structural changes
+        // Check for structural changes - be more sensitive to line differences
         val originalLines = originalCode.lines().filter { it.trim().isNotEmpty() }
         val rewrittenLines = rewrittenCode.lines().filter { it.trim().isNotEmpty() }
         
-        if (kotlin.math.abs(originalLines.size - rewrittenLines.size) > 2) return true
+        // Any line count difference is significant
+        if (originalLines.size != rewrittenLines.size) return true
         
-        // Check for addition of common improvement patterns
+        // Check for textual differences - if more than 30% of words are different
+        val originalWords = originalCode.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
+        val rewrittenWords = rewrittenCode.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
+        
+        val commonWords = originalWords.intersect(rewrittenWords)
+        val totalUniqueWords = originalWords.union(rewrittenWords).size
+        val similarityRatio = commonWords.size.toFloat() / maxOf(totalUniqueWords, 1)
+        
+        if (similarityRatio < 0.7f) return true // 30% or more words changed
+        
+        // Check for addition of any improvement patterns (more generous)
         val improvements = listOf(
-            "try", "catch", "finally", "throw",
-            "null", "error", "exception", "validate",
-            "log", "debug", "info", "warn"
+            "try", "catch", "finally", "throw", "error", "exception",
+            "null", "undefined", "validate", "check", "assert",
+            "log", "debug", "info", "warn", "trace", "console",
+            "const", "let", "final", "readonly",
+            "private", "public", "protected"
         )
         
         val originalImprovements = improvements.count { originalCode.lowercase().contains(it) }
         val rewrittenImprovements = improvements.count { rewrittenCode.lowercase().contains(it) }
         
-        return rewrittenImprovements > originalImprovements + 1
+        // Any addition of improvement patterns counts as significant
+        if (rewrittenImprovements > originalImprovements) return true
+        
+        // If we get here, changes are probably not significant
+        return false
     }
     
     /**
-     * Detect indicators that the code was meaningfully improved
+     * Detect indicators that the code was meaningfully improved (more generous detection)
      */
     private fun detectImprovementIndicators(rewrittenCode: String, originalCode: String): Boolean {
         val rewrittenLower = rewrittenCode.lowercase()
         val originalLower = originalCode.lowercase()
         
         // Look for addition of error handling
-        val errorHandlingKeywords = listOf("try", "catch", "throw", "error", "exception")
+        val errorHandlingKeywords = listOf("try", "catch", "throw", "error", "exception", "validate", "check")
         val addedErrorHandling = errorHandlingKeywords.count { rewrittenLower.contains(it) } >
                                  errorHandlingKeywords.count { originalLower.contains(it) }
         
-        // Look for addition of null checks
-        val nullSafetyKeywords = listOf("null", "undefined", "?.", "!!")
+        // Look for addition of null checks and safety
+        val nullSafetyKeywords = listOf("null", "undefined", "?.", "!!", "nullable", "optional")
         val addedNullSafety = nullSafetyKeywords.count { rewrittenLower.contains(it) } >
                              nullSafetyKeywords.count { originalLower.contains(it) }
         
-        // Look for addition of documentation
-        val hasMoreComments = rewrittenCode.count { it == '/' } > originalCode.count { it == '/' }
+        // Look for addition of documentation and comments
+        val hasMoreComments = rewrittenCode.count { it == '/' } > originalCode.count { it == '/' } ||
+                             rewrittenCode.count { it == '*' } > originalCode.count { it == '*' }
         
-        return addedErrorHandling || addedNullSafety || hasMoreComments
+        // Look for better naming (longer, more descriptive variable names)
+        val rewrittenWords = rewrittenCode.split(Regex("\\W+")).filter { it.length > 2 }
+        val originalWords = originalCode.split(Regex("\\W+")).filter { it.length > 2 }
+        val hasBetterNaming = rewrittenWords.any { word -> 
+            word.length > 5 && !originalWords.contains(word) && word.matches(Regex("[a-zA-Z]+"))
+        }
+        
+        // Look for additional logging or debugging
+        val loggingKeywords = listOf("log", "debug", "info", "warn", "trace", "print", "console")
+        val addedLogging = loggingKeywords.count { rewrittenLower.contains(it) } >
+                          loggingKeywords.count { originalLower.contains(it) }
+        
+        // Look for better structure (more lines with meaningful content)
+        val originalMeaningfulLines = originalCode.lines().count { it.trim().isNotEmpty() && it.trim().length > 5 }
+        val rewrittenMeaningfulLines = rewrittenCode.lines().count { it.trim().isNotEmpty() && it.trim().length > 5 }
+        val hasMoreStructure = rewrittenMeaningfulLines > originalMeaningfulLines
+        
+        // Look for improved formatting/readability (more whitespace, better spacing)
+        val hasImprovedFormatting = rewrittenCode.count { it == '\n' } > originalCode.count { it == '\n' } ||
+                                   rewrittenCode.count { it == ' ' } > originalCode.count { it == ' ' } * 1.2
+        
+        // Consider it an improvement if any of these indicators are present
+        return addedErrorHandling || addedNullSafety || hasMoreComments || hasBetterNaming || 
+               addedLogging || hasMoreStructure || hasImprovedFormatting
     }
     
     private data class ValidationResult(

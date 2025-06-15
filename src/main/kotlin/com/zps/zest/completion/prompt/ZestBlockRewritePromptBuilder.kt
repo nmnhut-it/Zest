@@ -27,36 +27,48 @@ class ZestBlockRewritePromptBuilder {
      */
     private fun buildMethodRewritePrompt(context: ZestBlockContextCollector.BlockContext): String {
         return """
-You are an expert ${context.language} developer. I need you to improve and rewrite a method.
+You are an expert ${context.language} developer. I need you to improve and rewrite a method with full context understanding.
 
 **Context:**
 - File: ${context.fileName}
 - Language: ${context.language}
 - ${context.contextDescription}
 
-**Current Method:**
+**Code Block BEFORE (for context):**
+```${context.language.lowercase()}
+${context.beforeBlock ?: "// No preceding block"}
+```
+
+**CURRENT Method (TO REWRITE):**
 ```${context.language.lowercase()}
 ${context.originalBlock}
 ```
 
-**Surrounding Code for Reference:**
+**Code Block AFTER (for context):**
 ```${context.language.lowercase()}
-${context.surroundingCode}
+${context.afterBlock ?: "// No following block"}
+```
+
+**Extended Context (for understanding flow):**
+```${context.language.lowercase()}
+${context.extendedContext}
 ```
 
 **Instructions:**
-1. Analyze the current method and understand its purpose
-2. Improve the method by:
-   - Adding proper error handling
+1. Analyze the current method and understand its purpose within the context flow
+2. Consider how it relates to the preceding and following code blocks
+3. Improve the method by:
+   - Adding proper error handling that fits the context
    - Improving readability and structure
    - Adding meaningful comments where helpful
    - Following best practices for ${context.language}
    - Optimizing performance if possible
    - Ensuring type safety and null safety where applicable
+   - Maintaining consistency with surrounding code style
 
-3. Keep the same method signature unless there's a compelling reason to change it
-4. Maintain compatibility with the surrounding code
-5. Add unit test suggestions in comments if appropriate
+4. Keep the same method signature unless there's a compelling reason to change it
+5. Maintain compatibility with the surrounding code
+6. Ensure the rewritten method integrates well with the before/after blocks
 
 **Output Format:**
 Provide ONLY the rewritten method code without any explanations or markdown formatting.
@@ -191,36 +203,48 @@ Do not include surrounding context - just the improved line.
      */
     private fun buildCodeBlockRewritePrompt(context: ZestBlockContextCollector.BlockContext): String {
         return """
-You are an expert ${context.language} developer. I need you to improve and rewrite a code block.
+You are an expert ${context.language} developer. I need you to improve and rewrite a code block with full context understanding.
 
 **Context:**
 - File: ${context.fileName}
 - Language: ${context.language}
 - ${context.contextDescription}
 
-**Current Code Block:**
+**Code Block BEFORE (for context):**
+```${context.language.lowercase()}
+${context.beforeBlock ?: "// No preceding block"}
+```
+
+**CURRENT Code Block (TO REWRITE):**
 ```${context.language.lowercase()}
 ${context.originalBlock}
 ```
 
-**Surrounding Code for Reference:**
+**Code Block AFTER (for context):**
 ```${context.language.lowercase()}
-${context.surroundingCode}
+${context.afterBlock ?: "// No following block"}
+```
+
+**Extended Context (for understanding flow):**
+```${context.language.lowercase()}
+${context.extendedContext}
 ```
 
 **Instructions:**
-1. Analyze the current code block and understand its purpose
-2. Improve the code block by:
-   - Restructuring for better readability
-   - Adding appropriate error handling
-   - Optimizing logic flow
-   - Following ${context.language} best practices
-   - Adding meaningful variable names
-   - Reducing complexity where possible
+1. Analyze the current code block and understand its purpose within the broader context
+2. Consider how it relates to the preceding and following code blocks
+3. Improve the code block by:
+   - Restructuring for better readability while maintaining context flow
+   - Adding appropriate error handling that fits with surrounding patterns
+   - Optimizing logic flow and performance
+   - Following ${context.language} best practices consistently
+   - Adding meaningful variable names that align with context
+   - Reducing complexity where possible without breaking integration
+   - Ensuring compatibility with before/after blocks
 
-3. Maintain the same overall behavior
-4. Ensure compatibility with surrounding code
-5. Consider edge cases and error scenarios
+4. Maintain the same overall behavior and interface
+5. Ensure the rewritten block integrates seamlessly with surrounding code
+6. Consider data flow and dependencies with adjacent blocks
 
 **Output Format:**
 Provide ONLY the rewritten code block without any explanations or markdown formatting.
@@ -281,21 +305,31 @@ The output should be ready to replace the original selection directly.
         customInstruction: String
     ): String {
         return """
-You are an expert ${context.language} developer. I need you to rewrite code according to specific instructions.
+You are an expert ${context.language} developer. I need you to rewrite code according to specific instructions with full context understanding.
 
 **Context:**
 - File: ${context.fileName}
 - Language: ${context.language}
 - ${context.contextDescription}
 
-**Current Code:**
+**Code Block BEFORE (for context):**
+```${context.language.lowercase()}
+${context.beforeBlock ?: "// No preceding block"}
+```
+
+**CURRENT Code (TO REWRITE):**
 ```${context.language.lowercase()}
 ${context.originalBlock}
 ```
 
-**Surrounding Code for Reference:**
+**Code Block AFTER (for context):**
 ```${context.language.lowercase()}
-${context.surroundingCode}
+${context.afterBlock ?: "// No following block"}
+```
+
+**Extended Context (for understanding flow):**
+```${context.language.lowercase()}
+${context.extendedContext}
 ```
 
 **Custom Instructions:**
@@ -303,10 +337,12 @@ ${customInstruction}
 
 **General Guidelines:**
 1. Follow the custom instructions above as the primary requirement
-2. Maintain compatibility with surrounding code
-3. Follow ${context.language} best practices
-4. Ensure the code remains functional and correct
-5. Keep the same interface unless specifically requested to change it
+2. Consider the context flow and how the rewrite affects preceding/following blocks
+3. Maintain compatibility with surrounding code patterns and style
+4. Follow ${context.language} best practices while meeting custom requirements
+5. Ensure the code remains functional and integrates well with context
+6. Keep the same interface unless specifically requested to change it
+7. Consider data dependencies and flow between before/current/after blocks
 
 **Output Format:**
 Provide ONLY the rewritten code without any explanations or markdown formatting.

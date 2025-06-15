@@ -47,8 +47,8 @@ class ZestCompletionProvider(private val project: Project) {
     private val leanPromptBuilder = ZestLeanPromptBuilder()
     private val leanResponseParser = ZestLeanResponseParser()
     
-    // Block rewrite strategy components
-    private val blockRewriteService by lazy { project.getService(ZestBlockRewriteService::class.java) }
+    // Method rewrite strategy components
+    private val methodRewriteService by lazy { project.getService(ZestMethodRewriteService::class.java) }
     
     // Configuration
     var strategy: CompletionStrategy = CompletionStrategy.SIMPLE
@@ -57,7 +57,7 @@ class ZestCompletionProvider(private val project: Project) {
     enum class CompletionStrategy {
         SIMPLE,       // Original FIM-based approach
         LEAN,         // Full-file with reasoning approach
-        BLOCK_REWRITE // Block-level rewrite with floating window preview
+        METHOD_REWRITE // Method-level rewrite with floating window preview
     }
     
     /**
@@ -72,7 +72,7 @@ class ZestCompletionProvider(private val project: Project) {
         return when (strategy) {
             CompletionStrategy.SIMPLE -> requestSimpleCompletion(context)
             CompletionStrategy.LEAN -> requestLeanCompletion(context)
-            CompletionStrategy.BLOCK_REWRITE -> requestBlockRewrite(context)
+            CompletionStrategy.METHOD_REWRITE -> requestMethodRewrite(context)
         }
     }
     
@@ -204,7 +204,7 @@ class ZestCompletionProvider(private val project: Project) {
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("local-model") // Use full model for reasoning
+                    .withModel("local-model-mini") // Use full model for reasoning
                     .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS) // Limit tokens to control response length
                     .withTemperature(0.2) // Slightly higher for creative reasoning
                     .withStopSequences(getLeanStopSequences())
@@ -321,11 +321,11 @@ class ZestCompletionProvider(private val project: Project) {
     }
     
     /**
-     * Block rewrite strategy - shows floating window with whole block rewrites
+     * Method rewrite strategy - shows floating window with method rewrites
      */
-    private suspend fun requestBlockRewrite(context: CompletionContext): ZestInlineCompletionList? {
+    private suspend fun requestMethodRewrite(context: CompletionContext): ZestInlineCompletionList? {
         return try {
-            logger.debug("Requesting block rewrite for ${context.fileName} at offset ${context.offset}")
+            logger.debug("Requesting method rewrite for ${context.fileName} at offset ${context.offset}")
             
             // Get current editor on EDT
             val editor = withContext(Dispatchers.Main) {
@@ -333,20 +333,20 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             if (editor == null) {
-                logger.debug("No active editor found for block rewrite")
+                logger.debug("No active editor found for method rewrite")
                 return null
             }
             
-            // Trigger the block rewrite service (this will show floating window)
+            // Trigger the method rewrite service (this will show floating window)
             withContext(Dispatchers.Main) {
-                blockRewriteService.triggerBlockRewrite(editor, context.offset)
+                methodRewriteService.rewriteCurrentMethod(editor, context.offset)
             }
             
             // Return empty completion list since we're showing floating window instead
             ZestInlineCompletionList.EMPTY
             
         } catch (e: Exception) {
-            logger.warn("Block rewrite request failed", e)
+            logger.warn("Method rewrite request failed", e)
             null
         }
     }

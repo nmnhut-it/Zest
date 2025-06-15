@@ -16,6 +16,7 @@ import com.intellij.openapi.project.Project
 /**
  * Collects context for block-level code rewrites
  * Identifies and extracts complete code blocks, functions, or lines for rewriting
+ * Includes context blocks before and after for better AI understanding
  */
 class ZestBlockContextCollector(private val project: Project) {
     private val logger = Logger.getInstance(ZestBlockContextCollector::class.java)
@@ -30,7 +31,13 @@ class ZestBlockContextCollector(private val project: Project) {
         val blockEndOffset: Int,
         val surroundingCode: String,
         val contextDescription: String,
-        val fullFileContent: String
+        val fullFileContent: String,
+        // Enhanced context for better AI understanding
+        val beforeBlock: String?,
+        val afterBlock: String?,
+        val extendedContext: String,
+        val beforeBlockOffset: Int?,
+        val afterBlockOffset: Int?
     )
     
     enum class BlockType {
@@ -43,7 +50,7 @@ class ZestBlockContextCollector(private val project: Project) {
     }
     
     /**
-     * Collect context for block-level rewriting
+     * Collect context for block-level rewriting with enhanced before/after context
      */
     fun collectBlockContext(editor: Editor, offset: Int): BlockContext {
         val document = editor.document
@@ -61,6 +68,9 @@ class ZestBlockContextCollector(private val project: Project) {
             detectBlockTextually(fullFileContent, offset)
         }
         
+        // Collect enhanced context: before and after blocks
+        val contextInfo = collectEnhancedContext(fullFileContent, blockInfo, psiFile)
+        
         return BlockContext(
             fileName = fileName,
             language = language,
@@ -71,8 +81,202 @@ class ZestBlockContextCollector(private val project: Project) {
             blockEndOffset = blockInfo.endOffset,
             surroundingCode = extractSurroundingCode(fullFileContent, blockInfo.startOffset, blockInfo.endOffset),
             contextDescription = blockInfo.description,
-            fullFileContent = fullFileContent
+            fullFileContent = fullFileContent,
+            beforeBlock = contextInfo.beforeBlock,
+            afterBlock = contextInfo.afterBlock,
+            extendedContext = contextInfo.extendedContext,
+            beforeBlockOffset = contextInfo.beforeBlockOffset,
+            afterBlockOffset = contextInfo.afterBlockOffset
         )
+    }
+    
+    /**
+     * Collect enhanced context including blocks before and after the target block
+     */
+    private fun collectEnhancedContext(
+        fullContent: String,
+        blockInfo: BlockInfo,
+        psiFile: PsiFile?
+    ): EnhancedContextInfo {
+        val lines = fullContent.lines()
+        val blockStartLine = fullContent.substring(0, blockInfo.startOffset).count { it == '\n' }
+        val blockEndLine = fullContent.substring(0, blockInfo.endOffset).count { it == '\n' }
+        
+        // Try to find logical blocks before and after using PSI if available
+        val beforeBlockInfo = findBlockBefore(lines, blockStartLine, psiFile, blockInfo)
+        val afterBlockInfo = findBlockAfter(lines, blockEndLine, psiFile, blockInfo)
+        
+        // Create extended context that includes before + current + after
+        val extendedStartLine = beforeBlockInfo?.startLine ?: maxOf(0, blockStartLine - 5)
+        val extendedEndLine = afterBlockInfo?.endLine ?: minOf(lines.size - 1, blockEndLine + 5)
+        
+        val extendedContext = lines.subList(extendedStartLine, extendedEndLine + 1).joinToString("\n")
+        
+        return EnhancedContextInfo(
+            beforeBlock = beforeBlockInfo?.blockText,
+            afterBlock = afterBlockInfo?.blockText,
+            extendedContext = extendedContext,
+            beforeBlockOffset = beforeBlockInfo?.startOffset,
+            afterBlockOffset = afterBlockInfo?.startOffset
+        )
+    }
+    
+    /**
+     * Find a logical block before the target block
+     */
+    private fun findBlockBefore(
+        lines: List<String>,
+        targetBlockStartLine: Int,
+        psiFile: PsiFile?,
+        targetBlockInfo: BlockInfo
+    ): BlockInfo? {
+        // Search backwards for a logical block
+        for (i in targetBlockStartLine - 1 downTo maxOf(0, targetBlockStartLine - 10)) {
+            val candidate = detectBlockAtLine(lines, i, psiFile)
+            if (candidate != null && candidate.endLine < targetBlockStartLine) {
+                return candidate
+            }
+        }
+        
+        // Fallback: grab previous 3-5 lines as context
+        val startLine = maxOf(0, targetBlockStartLine - 5)
+        val endLine = targetBlockStartLine - 1
+        if (startLine <= endLine) {
+            val blockText = lines.subList(startLine, endLine + 1).joinToString("\n")
+            val startOffset = lines.take(startLine).sumOf { it.length + 1 }
+            return BlockInfo(
+                type = BlockType.LINE,
+                blockText = blockText,
+                startOffset = startOffset,
+                endOffset = startOffset + blockText.length,
+                description = "Context before",
+                startLine = startLine,
+                endLine = endLine
+            )
+        }
+        
+        return null
+    }
+    
+    /**
+     * Find a logical block after the target block
+     */
+    private fun findBlockAfter(
+        lines: List<String>,
+        targetBlockEndLine: Int,
+        psiFile: PsiFile?,
+        targetBlockInfo: BlockInfo
+    ): BlockInfo? {
+        // Search forwards for a logical block
+        for (i in targetBlockEndLine + 1 until minOf(lines.size, targetBlockEndLine + 10)) {
+            val candidate = detectBlockAtLine(lines, i, psiFile)
+            if (candidate != null && candidate.startLine > targetBlockEndLine) {
+                return candidate
+            }
+        }
+        
+        // Fallback: grab next 3-5 lines as context
+        val startLine = targetBlockEndLine + 1
+        val endLine = minOf(lines.size - 1, targetBlockEndLine + 5)
+        if (startLine <= endLine && startLine < lines.size) {
+            val blockText = lines.subList(startLine, endLine + 1).joinToString("\n")
+            val startOffset = lines.take(startLine).sumOf { it.length + 1 }
+            return BlockInfo(
+                type = BlockType.LINE,
+                blockText = blockText,
+                startOffset = startOffset,
+                endOffset = startOffset + blockText.length,
+                description = "Context after",
+                startLine = startLine,
+                endLine = endLine
+            )
+        }
+        
+        return null
+    }
+    
+    /**
+     * Try to detect a block starting at a specific line
+     */
+    private fun detectBlockAtLine(lines: List<String>, lineNumber: Int, psiFile: PsiFile?): BlockInfo? {
+        if (lineNumber >= lines.size || lineNumber < 0) return null
+        
+        val line = lines[lineNumber].trim()
+        
+        // Look for method signatures
+        val methodPatterns = listOf(
+            Regex("""^\s*(public|private|protected|static|final)?\s*\w+\s+\w+\s*\([^)]*\)\s*\{?\s*$"""),
+            Regex("""^\s*fun\s+\w+\s*\([^)]*\).*\{?\s*$"""),
+            Regex("""^\s*function\s+\w+\s*\([^)]*\)\s*\{?\s*$"""),
+            Regex("""^\s*def\s+\w+\s*\([^)]*\).*:?\s*$""")
+        )
+        
+        if (methodPatterns.any { it.matches(line) }) {
+            // Try to find the end of this method
+            val methodEnd = findBlockEnd(lines, lineNumber)
+            if (methodEnd != null) {
+                val blockText = lines.subList(lineNumber, methodEnd + 1).joinToString("\n")
+                val startOffset = lines.take(lineNumber).sumOf { it.length + 1 }
+                return BlockInfo(
+                    type = BlockType.METHOD,
+                    blockText = blockText,
+                    startOffset = startOffset,
+                    endOffset = startOffset + blockText.length,
+                    description = "Method",
+                    startLine = lineNumber,
+                    endLine = methodEnd
+                )
+            }
+        }
+        
+        // Look for class signatures
+        if (line.matches(Regex("""^\s*(public|private|protected)?\s*(class|interface|enum)\s+\w+.*"""))) {
+            val classEnd = findBlockEnd(lines, lineNumber)
+            if (classEnd != null) {
+                val blockText = lines.subList(lineNumber, classEnd + 1).joinToString("\n")
+                val startOffset = lines.take(lineNumber).sumOf { it.length + 1 }
+                return BlockInfo(
+                    type = BlockType.CLASS,
+                    blockText = blockText,
+                    startOffset = startOffset,
+                    endOffset = startOffset + blockText.length,
+                    description = "Class",
+                    startLine = lineNumber,
+                    endLine = classEnd
+                )
+            }
+        }
+        
+        return null
+    }
+    
+    /**
+     * Find the end of a block starting at the given line
+     */
+    private fun findBlockEnd(lines: List<String>, startLine: Int): Int? {
+        var braceCount = 0
+        var foundOpenBrace = false
+        
+        for (i in startLine until lines.size) {
+            val line = lines[i]
+            
+            for (char in line) {
+                when (char) {
+                    '{' -> {
+                        braceCount++
+                        foundOpenBrace = true
+                    }
+                    '}' -> {
+                        braceCount--
+                        if (foundOpenBrace && braceCount == 0) {
+                            return i
+                        }
+                    }
+                }
+            }
+        }
+        
+        return null
     }
     
     /**
@@ -95,7 +299,9 @@ class ZestBlockContextCollector(private val project: Project) {
                     blockText = method.text,
                     startOffset = startOffset,
                     endOffset = endOffset,
-                    description = "Method: ${method.name}"
+                    description = "Method: ${method.name}",
+                    startLine = fullFileContent.substring(0, startOffset).count { it == '\n' },
+                    endLine = fullFileContent.substring(0, endOffset).count { it == '\n' }
                 )
             }
             
@@ -109,7 +315,9 @@ class ZestBlockContextCollector(private val project: Project) {
                     blockText = codeBlock.text,
                     startOffset = startOffset,
                     endOffset = endOffset,
-                    description = "Code block"
+                    description = "Code block",
+                    startLine = fullFileContent.substring(0, startOffset).count { it == '\n' },
+                    endLine = fullFileContent.substring(0, endOffset).count { it == '\n' }
                 )
             }
             
@@ -123,7 +331,9 @@ class ZestBlockContextCollector(private val project: Project) {
                     blockText = statement.text,
                     startOffset = startOffset,
                     endOffset = endOffset,
-                    description = "Statement"
+                    description = "Statement",
+                    startLine = fullFileContent.substring(0, startOffset).count { it == '\n' },
+                    endLine = fullFileContent.substring(0, endOffset).count { it == '\n' }
                 )
             }
             
@@ -137,7 +347,9 @@ class ZestBlockContextCollector(private val project: Project) {
                     blockText = psiClass.text,
                     startOffset = startOffset,
                     endOffset = endOffset,
-                    description = "Class: ${psiClass.name}"
+                    description = "Class: ${psiClass.name}",
+                    startLine = fullFileContent.substring(0, startOffset).count { it == '\n' },
+                    endLine = fullFileContent.substring(0, endOffset).count { it == '\n' }
                 )
             }
             
@@ -168,7 +380,9 @@ class ZestBlockContextCollector(private val project: Project) {
                 blockText = blockText,
                 startOffset = startOffset,
                 endOffset = endOffset,
-                description = "Method (detected textually)"
+                description = "Method (detected textually)",
+                startLine = methodBoundaries.first,
+                endLine = methodBoundaries.second
             )
         }
         
@@ -184,7 +398,9 @@ class ZestBlockContextCollector(private val project: Project) {
                 blockText = blockText,
                 startOffset = startOffset,
                 endOffset = endOffset,
-                description = "Code block (detected textually)"
+                description = "Code block (detected textually)",
+                startLine = blockBoundaries.first,
+                endLine = blockBoundaries.second
             )
         }
         
@@ -198,7 +414,9 @@ class ZestBlockContextCollector(private val project: Project) {
             blockText = currentLine,
             startOffset = lineStartOffset,
             endOffset = lineEndOffset,
-            description = "Current line"
+            description = "Current line",
+            startLine = offsetToLine,
+            endLine = offsetToLine
         )
     }
     
@@ -315,6 +533,16 @@ class ZestBlockContextCollector(private val project: Project) {
         val blockText: String,
         val startOffset: Int,
         val endOffset: Int,
-        val description: String
+        val description: String,
+        val startLine: Int,
+        val endLine: Int
+    )
+    
+    private data class EnhancedContextInfo(
+        val beforeBlock: String?,
+        val afterBlock: String?,
+        val extendedContext: String,
+        val beforeBlockOffset: Int?,
+        val afterBlockOffset: Int?
     )
 }

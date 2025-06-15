@@ -30,8 +30,8 @@ class ZestSwitchStrategyAction : AnAction("Switch Completion Strategy"), DumbAwa
         val currentStrategy = getCurrentStrategy(project)
         val newStrategy = when (currentStrategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> ZestCompletionProvider.CompletionStrategy.LEAN
-            ZestCompletionProvider.CompletionStrategy.LEAN -> ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> ZestCompletionProvider.CompletionStrategy.SIMPLE
+            ZestCompletionProvider.CompletionStrategy.LEAN -> ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> ZestCompletionProvider.CompletionStrategy.SIMPLE
         }
         
         setStrategy(project, newStrategy)
@@ -41,8 +41,8 @@ class ZestSwitchStrategyAction : AnAction("Switch Completion Strategy"), DumbAwa
                 "Switched to SIMPLE strategy (FIM-based, fast completions)"
             ZestCompletionProvider.CompletionStrategy.LEAN -> 
                 "Switched to LEAN strategy (reasoning-based, context-aware completions)"
-            ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> 
-                "Switched to BLOCK_REWRITE strategy (block-level rewrites with floating preview)"
+            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> 
+                "Switched to METHOD_REWRITE strategy (method-level rewrites with floating preview)"
         }
         
         ZestNotifications.showInfo(
@@ -64,8 +64,8 @@ class ZestSwitchStrategyAction : AnAction("Switch Completion Strategy"), DumbAwa
             val currentStrategy = getCurrentStrategy(project)
             e.presentation.text = when (currentStrategy) {
                 ZestCompletionProvider.CompletionStrategy.SIMPLE -> "Switch to LEAN Strategy"
-                ZestCompletionProvider.CompletionStrategy.LEAN -> "Switch to BLOCK_REWRITE Strategy"
-                ZestCompletionProvider.CompletionStrategy.BLOCK_REWRITE -> "Switch to SIMPLE Strategy"
+                ZestCompletionProvider.CompletionStrategy.LEAN -> "Switch to METHOD_REWRITE Strategy"
+                ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "Switch to SIMPLE Strategy"
             }
         }
     }

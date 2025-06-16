@@ -28,6 +28,7 @@ import java.util.*
  */
 class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
+
     private val llmService by lazy { 
         try {
             LLMService(project)
@@ -51,7 +52,7 @@ class ZestCompletionProvider(private val project: Project) {
     private val methodRewriteService by lazy { project.getService(ZestMethodRewriteService::class.java) }
     
     // Configuration
-    var strategy: CompletionStrategy = CompletionStrategy.SIMPLE
+    var strategy: CompletionStrategy = CompletionStrategy.METHOD_REWRITE
         private set
     
     enum class CompletionStrategy {

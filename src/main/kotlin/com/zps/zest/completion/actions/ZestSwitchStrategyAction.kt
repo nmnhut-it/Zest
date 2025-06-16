@@ -73,7 +73,7 @@ class ZestSwitchStrategyAction : AnAction("Switch Completion Strategy"), DumbAwa
     private fun getCurrentStrategy(project: com.intellij.openapi.project.Project): ZestCompletionProvider.CompletionStrategy {
         // Get strategy from the completion service
         val completionService = project.serviceOrNull<ZestInlineCompletionService>()
-        return completionService?.getCompletionStrategy() ?: ZestCompletionProvider.CompletionStrategy.SIMPLE
+        return completionService?.getCompletionStrategy() ?: ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
     }
     
     private fun setStrategy(project: com.intellij.openapi.project.Project, strategy: ZestCompletionProvider.CompletionStrategy) {

@@ -73,6 +73,9 @@ dependencies {
     
     // Java Diff Utils for gdiff functionality
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
+    
+    // GumTree for AST-based diffing - using only core which is reliably available
+    implementation("com.github.gumtreediff:core:3.0.0")
 }
 
 intellijPlatform {

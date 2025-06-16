@@ -15,6 +15,7 @@ import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.gdiff.GDiff
+import com.zps.zest.gdiff.EnhancedGDiff
 import kotlinx.coroutines.*
 
 /**
@@ -40,6 +41,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val promptBuilder = ZestMethodPromptBuilder()
     private val responseParser = ZestMethodResponseParser()
     private val gdiff = GDiff()
+    private val enhancedGDiff = EnhancedGDiff()
     private val inlineDiffRenderer = ZestInlineMethodDiffRenderer()
     
     // State management
@@ -47,6 +49,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private var currentMethodContext: ZestMethodContextCollector.MethodContext? = null
     private var currentRewrittenMethod: String? = null
     private var currentDiffResult: GDiff.DiffResult? = null
+    private var currentEnhancedDiffResult: EnhancedGDiff.EnhancedDiffResult? = null
     
     /**
      * Trigger method rewrite at cursor position
@@ -159,7 +162,15 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 throw Exception("Generated method is invalid: ${parseResult.issues.joinToString(", ")}")
             }
             
-            // Use GDiff to calculate precise changes for the method
+            // Use enhanced AST diffing to calculate semantic changes for the method
+            val enhancedDiffResult = calculateSemanticChanges(
+                originalCode = methodContext.methodContent,
+                rewrittenCode = parseResult.rewrittenMethod,
+                language = methodContext.language
+            )
+            currentEnhancedDiffResult = enhancedDiffResult
+            
+            // Also maintain legacy diff for compatibility
             val diffResult = calculatePreciseChanges(
                 originalCode = methodContext.methodContent,
                 rewrittenCode = parseResult.rewrittenMethod
@@ -178,18 +189,36 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     onReject = { cancelCurrentRewrite() }
                 )
                 
-                // Show improvement summary
-                val stats = diffResult.getStatistics()
+                // Show improvement summary with semantic analysis
+                val textStats = diffResult.getStatistics()
+                val semanticSummary = enhancedDiffResult.getSummary()
                 val improvementMessage = buildString {
                     appendLine("🔧 Method Improvements:")
                     parseResult.improvements.forEach { improvement: String ->
                         appendLine("• $improvement")
                     }
                     appendLine()
+                    appendLine("🧠 Semantic Analysis:")
+                    appendLine("• Language: ${enhancedDiffResult.language}")
+                    appendLine("• Diff Strategy: ${semanticSummary.strategy}")
+                    appendLine("• Structural Similarity: ${(semanticSummary.structuralSimilarity * 100).toInt()}%")
+                    if (semanticSummary.hasLogicChanges) {
+                        appendLine("• ⚠️ Contains logic changes")
+                    }
+                    if (semanticSummary.hasStructuralChanges) {
+                        appendLine("• 🏗️ Contains structural changes")
+                    }
+                    if (enhancedDiffResult.astDiff?.getMajorChanges()?.isNotEmpty() == true) {
+                        appendLine("• 🔴 ${enhancedDiffResult.astDiff.getMajorChanges().size} major semantic changes")
+                    }
+                    appendLine()
                     appendLine("📊 Change Summary:")
-                    appendLine("• ${stats.additions} additions")
-                    appendLine("• ${stats.deletions} deletions") 
-                    appendLine("• ${stats.modifications} modifications")
+                    appendLine("• ${textStats.additions} text additions")
+                    appendLine("• ${textStats.deletions} text deletions") 
+                    appendLine("• ${textStats.modifications} text modifications")
+                    if (semanticSummary.semanticChanges > 0) {
+                        appendLine("• ${semanticSummary.semanticChanges} semantic changes")
+                    }
                     appendLine("• Confidence: ${(parseResult.confidence * 100).toInt()}%")
                     appendLine()
                     appendLine("Press TAB to accept, ESC to reject")
@@ -222,7 +251,18 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
     
     /**
-     * Calculate precise changes using GDiff
+     * Calculate precise changes using enhanced AST diffing for better semantic understanding
+     */
+    private fun calculateSemanticChanges(
+        originalCode: String,
+        rewrittenCode: String,
+        language: String
+    ): EnhancedGDiff.EnhancedDiffResult {
+        return enhancedGDiff.calculateSemanticChanges(originalCode, rewrittenCode, language)
+    }
+    
+    /**
+     * Calculate precise changes using GDiff (legacy method maintained for compatibility)
      */
     private fun calculatePreciseChanges(
         originalCode: String,
@@ -240,11 +280,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
     
     /**
-     * Internal method to accept the current method rewrite and apply it using GDiff for precise changes
+     * Internal method to accept the current method rewrite and apply it using enhanced diffing
      */
     private fun acceptMethodRewriteInternal(editor: Editor) {
         val methodContext = currentMethodContext ?: return
         val rewrittenMethod = currentRewrittenMethod ?: return
+        val enhancedDiffResult = currentEnhancedDiffResult
         val diffResult = currentDiffResult
         
         ApplicationManager.getApplication().invokeLater {
@@ -252,9 +293,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 WriteCommandAction.runWriteCommandAction(project) {
                     val document = editor.document
                     
-                    if (diffResult != null && diffResult.hasChanges()) {
-                        // Apply changes using GDiff for more precise updates
-                        logger.info("Applying precise method changes using GDiff: ${diffResult.getStatistics().totalChanges} changes")
+                    if (enhancedDiffResult != null && enhancedDiffResult.hasAnyChanges()) {
+                        // Apply changes using enhanced diffing with semantic understanding
+                        logger.info("Applying enhanced semantic changes: ${enhancedDiffResult.getSummary()}")
                         
                         // Replace the entire method with the rewritten version
                         document.replaceString(
@@ -263,8 +304,18 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                             rewrittenMethod
                         )
                         
+                    } else if (diffResult != null && diffResult.hasChanges()) {
+                        // Fallback to traditional diff application
+                        logger.info("Applying traditional diff changes: ${diffResult.getStatistics().totalChanges} changes")
+                        
+                        document.replaceString(
+                            methodContext.methodStartOffset,
+                            methodContext.methodEndOffset,
+                            rewrittenMethod
+                        )
+                        
                     } else {
-                        // Fallback to simple replacement
+                        // Simple replacement if no diff available
                         document.replaceString(
                             methodContext.methodStartOffset,
                             methodContext.methodEndOffset,
@@ -278,11 +329,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 // Hide the inline diff
                 inlineDiffRenderer.hide()
                 
-                val stats = diffResult?.getStatistics()
-                val message = if (stats != null) {
-                    "Method '${methodContext.methodName}' rewritten successfully with ${stats.totalChanges} changes"
+                val message = if (enhancedDiffResult != null) {
+                    val summary = enhancedDiffResult.getSummary()
+                    "Method '${methodContext.methodName}' rewritten successfully with ${summary.semanticChanges} semantic changes and ${summary.textChanges} text changes"
                 } else {
-                    "Method '${methodContext.methodName}' has been successfully rewritten"
+                    val stats = diffResult?.getStatistics()
+                    if (stats != null) {
+                        "Method '${methodContext.methodName}' rewritten successfully with ${stats.totalChanges} changes"
+                    } else {
+                        "Method '${methodContext.methodName}' has been successfully rewritten"
+                    }
                 }
                 
                 ZestNotifications.showInfo(
@@ -326,6 +382,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     fun acceptMethodRewrite(editor: Editor) {
         val methodContext = currentMethodContext ?: return
         val rewrittenMethod = currentRewrittenMethod ?: return
+        val enhancedDiffResult = currentEnhancedDiffResult
         val diffResult = currentDiffResult
         
         ApplicationManager.getApplication().invokeLater {
@@ -333,9 +390,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 WriteCommandAction.runWriteCommandAction(project) {
                     val document = editor.document
                     
-                    if (diffResult != null && diffResult.hasChanges()) {
-                        // Apply changes using GDiff for more precise updates
-                        logger.info("Applying precise method changes using GDiff: ${diffResult.getStatistics().totalChanges} changes")
+                    if (enhancedDiffResult != null && enhancedDiffResult.hasAnyChanges()) {
+                        // Apply changes using enhanced diffing with semantic understanding
+                        logger.info("Applying enhanced semantic changes: ${enhancedDiffResult.getSummary()}")
                         
                         // Replace the entire method with the rewritten version
                         document.replaceString(
@@ -344,8 +401,18 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                             rewrittenMethod
                         )
                         
+                    } else if (diffResult != null && diffResult.hasChanges()) {
+                        // Fallback to traditional diff application
+                        logger.info("Applying traditional diff changes: ${diffResult.getStatistics().totalChanges} changes")
+                        
+                        document.replaceString(
+                            methodContext.methodStartOffset,
+                            methodContext.methodEndOffset,
+                            rewrittenMethod
+                        )
+                        
                     } else {
-                        // Fallback to simple replacement
+                        // Simple replacement if no diff available
                         document.replaceString(
                             methodContext.methodStartOffset,
                             methodContext.methodEndOffset,
@@ -359,11 +426,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 // Hide the inline diff
                 inlineDiffRenderer.hide()
                 
-                val stats = diffResult?.getStatistics()
-                val message = if (stats != null) {
-                    "Method '${methodContext.methodName}' rewritten successfully with ${stats.totalChanges} changes"
+                val message = if (enhancedDiffResult != null) {
+                    val summary = enhancedDiffResult.getSummary()
+                    "Method '${methodContext.methodName}' rewritten successfully with ${summary.semanticChanges} semantic changes and ${summary.textChanges} text changes"
                 } else {
-                    "Method '${methodContext.methodName}' has been successfully rewritten"
+                    val stats = diffResult?.getStatistics()
+                    if (stats != null) {
+                        "Method '${methodContext.methodName}' rewritten successfully with ${stats.totalChanges} changes"
+                    } else {
+                        "Method '${methodContext.methodName}' has been successfully rewritten"
+                    }
                 }
                 
                 ZestNotifications.showInfo(
@@ -416,6 +488,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         currentMethodContext = null
         currentRewrittenMethod = null
         currentDiffResult = null
+        currentEnhancedDiffResult = null
     }
     
     override fun dispose() {

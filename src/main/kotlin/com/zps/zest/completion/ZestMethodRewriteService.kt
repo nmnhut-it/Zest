@@ -19,6 +19,9 @@ import com.zps.zest.ZestNotifications
 import com.zps.zest.gdiff.GDiff
 import com.zps.zest.gdiff.EnhancedGDiff
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Service for managing method-level code rewrites with language-specific semantic diffing.
@@ -46,6 +49,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val enhancedGDiff = EnhancedGDiff()
     private val inlineDiffRenderer = ZestInlineMethodDiffRenderer()
     
+    // Request tracking to prevent multiple concurrent rewrites
+    private val rewriteRequestId = AtomicInteger(0)
+    private var activeRewriteId: Int? = null
+    
+    // Mutex for critical sections
+    private val rewriteMutex = Mutex()
+    
     // State management
     private var currentRewriteJob: Job? = null
     private var currentMethodContext: ZestMethodContextCollector.MethodContext? = null
@@ -57,58 +67,112 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      * Trigger method rewrite at cursor position
      */
     fun rewriteCurrentMethod(editor: Editor, offset: Int, customInstruction: String? = null) {
+        System.out.println("[ZestMethodRewrite] rewriteCurrentMethod called:")
+        System.out.println("  - offset: $offset")
+        System.out.println("  - customInstruction: $customInstruction")
+        System.out.println("  - editor: ${editor}")
+        
         scope.launch {
-            try {
-                logger.info("Starting method rewrite at offset $offset")
+            val requestId = rewriteRequestId.incrementAndGet()
+            
+            System.out.println("[ZestMethodRewrite] Starting method rewrite with requestId=$requestId")
+            logger.info("Starting method rewrite at offset $offset, requestId=$requestId")
+            
+            // Use mutex to ensure only one rewrite is processed at a time
+            System.out.println("[ZestMethodRewrite] Acquiring rewrite mutex...")
+            rewriteMutex.withLock {
+                System.out.println("[ZestMethodRewrite] Mutex acquired for request $requestId")
                 
-                // Cancel any existing rewrite
-                cancelCurrentRewrite()
-                
-                // Find the method containing the cursor - must be done on EDT
-                val methodContext = withContext(Dispatchers.Main) {
-                    methodContextCollector.findMethodAtCursor(editor, offset)
+                // Check if this is still the latest request
+                if (requestId < (activeRewriteId ?: 0)) {
+                    System.out.println("[ZestMethodRewrite] Request $requestId is outdated (activeRewriteId=$activeRewriteId), skipping")
+                    logger.debug("Request $requestId is outdated, skipping")
+                    return@withLock
                 }
                 
-                if (methodContext == null) {
+                activeRewriteId = requestId
+                System.out.println("[ZestMethodRewrite] Set activeRewriteId to $requestId")
+                
+                try {
+                    // Cancel any existing rewrite
+                    System.out.println("[ZestMethodRewrite] Cancelling any existing rewrite...")
+                    cancelCurrentRewrite()
+                    
+                    // Find the method containing the cursor - must be done on EDT
+                    System.out.println("[ZestMethodRewrite] Finding method at cursor...")
+                    val methodContext = withContext(Dispatchers.Main) {
+                        val context = methodContextCollector.findMethodAtCursor(editor, offset)
+                        System.out.println("[ZestMethodRewrite] Method found: ${context != null}")
+                        context?.let {
+                            System.out.println("[ZestMethodRewrite] Method details:")
+                            System.out.println("  - name: ${it.methodName}")
+                            System.out.println("  - language: ${it.language}")
+                            System.out.println("  - startOffset: ${it.methodStartOffset}")
+                            System.out.println("  - endOffset: ${it.methodEndOffset}")
+                            System.out.println("  - content length: ${it.methodContent.length}")
+                        }
+                        context
+                    }
+                    
+                    if (methodContext == null) {
+                        System.out.println("[ZestMethodRewrite] No method found at cursor position")
+                        withContext(Dispatchers.Main) {
+                            ZestNotifications.showWarning(
+                                project,
+                                "No Method Found",
+                                "Could not identify a method at the current cursor position. " +
+                                "Place cursor inside a method to rewrite it."
+                            )
+                        }
+                        return@withLock
+                    }
+                    
+                    // Check if this request is still active
+                    if (activeRewriteId != requestId) {
+                        System.out.println("[ZestMethodRewrite] Request $requestId is no longer active")
+                        logger.debug("Request $requestId is no longer active")
+                        return@withLock
+                    }
+                    
+                    currentMethodContext = methodContext
+                    
+                    System.out.println("[ZestMethodRewrite] Method context stored, showing notification...")
+                    logger.info("Found method: ${methodContext.methodName} (${methodContext.language})")
+                    
+                    // Show loading notification on EDT
                     withContext(Dispatchers.Main) {
-                        ZestNotifications.showWarning(
+                        ZestNotifications.showInfo(
                             project,
-                            "No Method Found",
-                            "Could not identify a method at the current cursor position. " +
-                            "Place cursor inside a method to rewrite it."
+                            "Method Rewrite",
+                            "Analyzing and rewriting method '${methodContext.methodName}' using ${methodContext.language} semantics..."
                         )
                     }
-                    return@launch
-                }
-                
-                currentMethodContext = methodContext
-                
-                logger.info("Found method: ${methodContext.methodName} (${methodContext.language})")
-                
-                // Show loading notification on EDT
-                withContext(Dispatchers.Main) {
-                    ZestNotifications.showInfo(
-                        project,
-                        "Method Rewrite",
-                        "Analyzing and rewriting method '${methodContext.methodName}' using ${methodContext.language} semantics..."
-                    )
-                }
-                
-                // Start method rewrite process in background
-                currentRewriteJob = scope.launch {
-                    performMethodRewrite(editor, methodContext, customInstruction)
-                }
-                
-            } catch (e: Exception) {
-                logger.error("Failed to trigger method rewrite", e)
-                withContext(Dispatchers.Main) {
-                    ZestNotifications.showError(
-                        project,
-                        "Method Rewrite Error",
-                        "Failed to start method rewrite: ${e.message}"
-                    )
+                    
+                    // Start method rewrite process in background
+                    System.out.println("[ZestMethodRewrite] Starting performMethodRewrite job...")
+                    currentRewriteJob = scope.launch {
+                        performMethodRewrite(editor, methodContext, customInstruction, requestId)
+                    }
+                    
+                } catch (e: Exception) {
+                    System.out.println("[ZestMethodRewrite] Failed to trigger method rewrite: ${e.message}")
+                    e.printStackTrace()
+                    logger.error("Failed to trigger method rewrite", e)
+                    withContext(Dispatchers.Main) {
+                        ZestNotifications.showError(
+                            project,
+                            "Method Rewrite Error",
+                            "Failed to start method rewrite: ${e.message}"
+                        )
+                    }
+                } finally {
+                    if (activeRewriteId == requestId) {
+                        System.out.println("[ZestMethodRewrite] Clearing activeRewriteId")
+                        activeRewriteId = null
+                    }
                 }
             }
+            System.out.println("[ZestMethodRewrite] Released rewrite mutex")
         }
     }
     
@@ -118,10 +182,17 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private suspend fun performMethodRewrite(
         editor: Editor,
         methodContext: ZestMethodContextCollector.MethodContext,
-        customInstruction: String?
+        customInstruction: String?,
+        requestId: Int
     ) {
         try {
             logger.info("Performing method rewrite for ${methodContext.methodName} in ${methodContext.language}")
+            
+            // Check if this request is still active
+            if (activeRewriteId != requestId) {
+                logger.debug("Request $requestId is no longer active")
+                return
+            }
             
             // Build the method-specific prompt
             val prompt = if (customInstruction != null) {
@@ -147,6 +218,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             
             if (response == null) {
                 throw Exception("LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
+            }
+            
+            // Check again if this request is still active
+            if (activeRewriteId != requestId) {
+                logger.debug("Request $requestId is no longer active after LLM response")
+                return
             }
             
             logger.info("Received LLM response in ${responseTime}ms")
@@ -180,6 +257,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             currentDiffResult = diffResult
             // Store the complete rewritten method (with any closing characters)
             currentRewrittenMethod = parseResult.rewrittenMethod
+            
+            // Final check before showing diff
+            if (activeRewriteId != requestId) {
+                logger.debug("Request $requestId is no longer active before showing diff")
+                return
+            }
             
             // Show diff rendering on EDT
             withContext(Dispatchers.Main) {
@@ -798,10 +881,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         currentRewrittenMethod = null
         currentDiffResult = null
         currentEnhancedDiffResult = null
+        activeRewriteId = null
     }
     
     override fun dispose() {
         logger.info("Disposing ZestMethodRewriteService")
+        activeRewriteId = null
         scope.cancel()
         ApplicationManager.getApplication().invokeLater {
             inlineDiffRenderer.hide()

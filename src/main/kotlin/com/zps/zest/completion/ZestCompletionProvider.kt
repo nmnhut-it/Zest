@@ -78,6 +78,10 @@ class ZestCompletionProvider(private val project: Project) {
     }
     
     suspend fun requestCompletion(context: CompletionContext): ZestInlineCompletionList? {
+        System.out.println("[ZestCompletionProvider] requestCompletion called with strategy: $strategy")
+        System.out.println("  - context offset: ${context.offset}")
+        System.out.println("  - context file: ${context.fileName}")
+        
         return when (strategy) {
             CompletionStrategy.SIMPLE -> requestSimpleCompletion(context)
             CompletionStrategy.LEAN -> requestLeanCompletion(context)
@@ -89,34 +93,53 @@ class ZestCompletionProvider(private val project: Project) {
      * Original simple completion strategy
      */
     private suspend fun requestSimpleCompletion(context: CompletionContext): ZestInlineCompletionList? {
+        System.out.println("[ZestCompletionProvider] requestSimpleCompletion started")
+        System.out.println("  - offset: ${context.offset}")
+        System.out.println("  - fileName: ${context.fileName}")
+        
         return try {
             logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
             
             val startTime = System.currentTimeMillis()
             
             // Get current editor and document text on EDT
+            System.out.println("[ZestCompletionProvider] Getting editor on EDT...")
             val (editor, documentText) = withContext(Dispatchers.Main) {
                 val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                System.out.println("[ZestCompletionProvider] Editor found: ${ed != null}")
                 if (ed != null) {
-                    Pair(ed, ed.document.text)
+                    val text = ed.document.text
+                    System.out.println("[ZestCompletionProvider] Document length: ${text.length}")
+                    Pair(ed, text)
                 } else {
                     Pair(null, "")
                 }
             }
             
             if (editor == null) {
+                System.out.println("[ZestCompletionProvider] No active editor found - returning null")
                 logger.debug("No active editor found")
                 return null
             }
             
             // Collect simple context (thread-safe)
+            System.out.println("[ZestCompletionProvider] Collecting simple context...")
             val simpleContext = simpleContextCollector.collectContext(editor, context.offset)
+            System.out.println("[ZestCompletionProvider] Context collected:")
+            System.out.println("  - prefix length: ${simpleContext.prefixCode.length}")
+            System.out.println("  - suffix length: ${simpleContext.suffixCode.length}")
+            System.out.println("  - language: ${simpleContext.language}")
             
             // Build prompt (thread-safe)
+            System.out.println("[ZestCompletionProvider] Building prompt...")
             val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
+            System.out.println("[ZestCompletionProvider] Prompt built:")
+            System.out.println("  - length: ${prompt.length}")
+            System.out.println("  - first 100 chars: '${prompt.take(100)}...'")
             logger.debug("Prompt built, length: ${prompt.length}")
             
             // Query LLM with timeout (background thread)
+            System.out.println("[ZestCompletionProvider] Querying LLM...")
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -125,24 +148,43 @@ class ZestCompletionProvider(private val project: Project) {
                     .withTemperature(0.1)  // Low temperature for more deterministic completions
                     .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
                 
-                llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                System.out.println("[ZestCompletionProvider] LLM query params:")
+                System.out.println("  - model: qwen/qwen2.5-coder-32b-instruct")
+                System.out.println("  - maxTokens: $MAX_COMPLETION_TOKENS")
+                System.out.println("  - temperature: 0.1")
+                System.out.println("  - stop sequences: ${getStopSequences()}")
+                
+                val result = llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                System.out.println("[ZestCompletionProvider] LLM response received:")
+                System.out.println("  - response null: ${result == null}")
+                System.out.println("  - response length: ${result?.length}")
+                System.out.println("  - response preview: '${result?.take(100)}...'")
+                result
             }
             val llmTime = System.currentTimeMillis() - llmStartTime
+            System.out.println("[ZestCompletionProvider] LLM query took ${llmTime}ms")
             
             if (response == null) {
+                System.out.println("[ZestCompletionProvider] Completion request timed out - returning null")
                 logger.debug("Completion request timed out")
                 return null
             }
             
             // Parse response with overlap detection (thread-safe, uses captured documentText)
+            System.out.println("[ZestCompletionProvider] Parsing response with overlap detection...")
             val cleanedCompletion = simpleResponseParser.parseResponseWithOverlapDetection(
                 response, 
                 documentText, 
                 context.offset,
                 strategy = CompletionStrategy.SIMPLE
             )
+            System.out.println("[ZestCompletionProvider] Parsed completion:")
+            System.out.println("  - cleaned length: ${cleanedCompletion.length}")
+            System.out.println("  - cleaned preview: '${cleanedCompletion.take(50)}...'")
+            System.out.println("  - is blank: ${cleanedCompletion.isBlank()}")
             
             if (cleanedCompletion.isBlank()) {
+                System.out.println("[ZestCompletionProvider] No valid completion after parsing - returning null")
                 logger.debug("No valid completion after parsing")
                 return null
             }
@@ -150,16 +192,23 @@ class ZestCompletionProvider(private val project: Project) {
             val totalTime = System.currentTimeMillis() - startTime
             
             // Format the completion text using IntelliJ's code style
+            System.out.println("[ZestCompletionProvider] Formatting completion...")
             val formattedCompletion = formatCompletionText(editor, cleanedCompletion, context.offset)
+            System.out.println("[ZestCompletionProvider] Formatted completion:")
+            System.out.println("  - formatted length: ${formattedCompletion.length}")
+            System.out.println("  - formatted preview: '${formattedCompletion.take(50)}...'")
             
             // Create completion item with original response stored for re-processing
+            val confidence = calculateConfidence(formattedCompletion)
+            System.out.println("[ZestCompletionProvider] Calculated confidence: $confidence")
+            
             val item = ZestInlineCompletionItem(
                 insertText = formattedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset,
                     end = context.offset
                 ),
-                confidence = calculateConfidence(formattedCompletion),
+                confidence = confidence,
                 metadata = CompletionMetadata(
                     model = "zest-llm-simple",
                     tokens = formattedCompletion.split("\\s+".toRegex()).size,
@@ -169,13 +218,25 @@ class ZestCompletionProvider(private val project: Project) {
                 )
             )
             
+            System.out.println("[ZestCompletionProvider] Created completion item:")
+            System.out.println("  - insertText: '${item.insertText}'")
+            System.out.println("  - range: ${item.replaceRange}")
+            System.out.println("  - confidence: ${item.confidence}")
+            System.out.println("  - latency: ${totalTime}ms")
+            
+            val result = ZestInlineCompletionList.single(item)
+            System.out.println("[ZestCompletionProvider] Returning completion list with ${result.items.size} items")
+            
             logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms)")
-            ZestInlineCompletionList.single(item)
+            result
             
         } catch (e: kotlinx.coroutines.CancellationException) {
+            System.out.println("[ZestCompletionProvider] Completion request was cancelled")
             logger.debug("Completion request was cancelled")
             throw e
         } catch (e: Exception) {
+            System.out.println("[ZestCompletionProvider] Simple completion failed with exception: ${e.message}")
+            e.printStackTrace()
             logger.warn("Simple completion failed", e)
             null
         }
@@ -417,28 +478,41 @@ class ZestCompletionProvider(private val project: Project) {
      * Method rewrite strategy - shows floating window with method rewrites
      */
     private suspend fun requestMethodRewrite(context: CompletionContext): ZestInlineCompletionList? {
+        System.out.println("[ZestCompletionProvider] requestMethodRewrite started")
+        System.out.println("  - offset: ${context.offset}")
+        System.out.println("  - fileName: ${context.fileName}")
+        
         return try {
             logger.debug("Requesting method rewrite for ${context.fileName} at offset ${context.offset}")
             
             // Get current editor on EDT
+            System.out.println("[ZestCompletionProvider] Getting editor on EDT for method rewrite...")
             val editor = withContext(Dispatchers.Main) {
-                FileEditorManager.getInstance(project).selectedTextEditor
+                val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                System.out.println("[ZestCompletionProvider] Editor found for method rewrite: ${ed != null}")
+                ed
             }
             
             if (editor == null) {
+                System.out.println("[ZestCompletionProvider] No active editor found for method rewrite - returning null")
                 logger.debug("No active editor found for method rewrite")
                 return null
             }
             
             // Trigger the method rewrite service (this will show floating window)
+            System.out.println("[ZestCompletionProvider] Triggering method rewrite service...")
             withContext(Dispatchers.Main) {
+                System.out.println("[ZestCompletionProvider] Calling methodRewriteService.rewriteCurrentMethod")
                 methodRewriteService.rewriteCurrentMethod(editor, context.offset)
             }
             
             // Return empty completion list since we're showing floating window instead
+            System.out.println("[ZestCompletionProvider] Returning EMPTY completion list (floating window should show)")
             ZestInlineCompletionList.EMPTY
             
         } catch (e: Exception) {
+            System.out.println("[ZestCompletionProvider] Method rewrite request failed: ${e.message}")
+            e.printStackTrace()
             logger.warn("Method rewrite request failed", e)
             null
         }

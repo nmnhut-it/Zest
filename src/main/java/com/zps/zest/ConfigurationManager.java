@@ -819,6 +819,14 @@ public class ConfigurationManager {
 
     public void setInlineCompletionEnabled(boolean enabled) {
         this.inlineCompletionEnabled = enabled;
+        saveConfig();
+        
+        // Notify inline completion service of configuration change
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
     }
 
     public boolean isAutoTriggerEnabled() {
@@ -827,6 +835,14 @@ public class ConfigurationManager {
 
     public void setAutoTriggerEnabled(boolean enabled) {
         this.autoTriggerEnabled = enabled;
+        saveConfig();
+        
+        // Notify inline completion service of configuration change
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
     }
     
     public boolean isBackgroundContextEnabled() {
@@ -835,6 +851,14 @@ public class ConfigurationManager {
 
     public void setBackgroundContextEnabled(boolean enabled) {
         this.backgroundContextEnabled = enabled;
+        saveConfig();
+        
+        // Notify inline completion service of configuration change
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
     }
     
     /**

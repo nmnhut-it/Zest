@@ -52,8 +52,8 @@ class ZestInlineCompletionRenderer {
         callback: (context: RenderingContext) -> Unit = {}
     ) {
         ApplicationManager.getApplication().invokeLater {
-            // Hide any existing completion
-            current?.let { hide() }
+            // Always hide any existing completion first to prevent duplicates
+            hide()
             
             // Verify editor state
             try {
@@ -95,8 +95,21 @@ class ZestInlineCompletionRenderer {
             } catch (e: Exception) {
                 logger.warn("Failed to render completion", e)
                 // Clean up any partial rendering
-                inlays.forEach { Disposer.dispose(it) }
-                markups.forEach { editor.markupModel.removeHighlighter(it) }
+                inlays.forEach { 
+                    try {
+                        if (it.isValid) Disposer.dispose(it)
+                    } catch (ex: Exception) {
+                        // Ignore disposal errors
+                    }
+                }
+                markups.forEach { 
+                    try {
+                        editor.markupModel.removeHighlighter(it)
+                    } catch (ex: Exception) {
+                        // Ignore removal errors
+                    }
+                }
+                current = null
             }
         }
     }
@@ -130,18 +143,47 @@ class ZestInlineCompletionRenderer {
      * Hide the current completion
      */
     fun hide() {
-        current?.let { context ->
+        val context = current
+        current = null // Clear current reference immediately to prevent re-entry
+        
+        context?.let { 
             ApplicationManager.getApplication().invokeLater {
                 try {
-                    context.inlays.forEach { Disposer.dispose(it) }
-                    context.markups.forEach { context.editor.markupModel.removeHighlighter(it) }
+                    // Dispose all inlays with error handling
+                    context.inlays.forEach { inlay ->
+                        try {
+                            if (inlay.isValid) {
+                                Disposer.dispose(inlay)
+                            }
+                        } catch (e: Exception) {
+                            // Continue disposing other inlays even if one fails
+                            logger.debug("Error disposing inlay", e)
+                        }
+                    }
+                    
+                    // Remove all markups with error handling
+                    context.markups.forEach { markup ->
+                        try {
+                            context.editor.markupModel.removeHighlighter(markup)
+                        } catch (e: Exception) {
+                            // Continue removing other markups even if one fails
+                            logger.debug("Error removing markup", e)
+                        }
+                    }
+                    
                     System.out.println("Hidden completion: ${context.id}")
                 } catch (e: Exception) {
                     logger.warn("Error hiding completion", e)
                 }
             }
-            current = null
         }
+    }
+    
+    /**
+     * Check if there's an active completion rendering
+     */
+    fun isActive(): Boolean {
+        return current != null
     }
     
     private fun renderCompletion(

@@ -6,11 +6,14 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorCustomElementRenderer
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.markup.*
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.completion.diff.WordDiffUtil
 import com.zps.zest.gdiff.GDiff
 import java.awt.Font
 import java.awt.Graphics
@@ -214,7 +217,7 @@ class ZestInlineMethodDiffRenderer {
             
             when {
                 originalLine != null && rewrittenLine != null && originalLine != rewrittenLine -> {
-                    // Modified line - show as deletion + addition
+                    // Modified line - show side-by-side with word diff
                     renderLineModification(context, i, originalLine, rewrittenLine, methodLineOffset)
                 }
                 originalLine != null && rewrittenLine == null -> {
@@ -233,7 +236,7 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Render a line modification (deletion + addition)
+     * Render a line modification with side-by-side word diff
      */
     private fun renderLineModification(
         context: RenderingContext, 
@@ -242,8 +245,41 @@ class ZestInlineMethodDiffRenderer {
         rewrittenLine: String,
         methodLineOffset: Int
     ) {
-        renderLineDeletion(context, lineIndex, originalLine, methodLineOffset)
-        renderLineAddition(context, lineIndex, rewrittenLine, methodLineOffset)
+        val document = context.editor.document
+        val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
+        val actualLineNumber = methodStartLine + methodLineOffset
+        
+        if (actualLineNumber >= 0 && actualLineNumber < document.lineCount) {
+            val lineStartOffset = document.getLineStartOffset(actualLineNumber)
+            val lineEndOffset = document.getLineEndOffset(actualLineNumber)
+            
+            // Hide the original line (we'll show it in the inlay)
+            val hideHighlighter = context.editor.markupModel.addRangeHighlighter(
+                lineStartOffset,
+                lineEndOffset,
+                HighlighterLayer.LAST + 100,
+                TextAttributes().apply {
+                    foregroundColor = context.editor.colorsScheme.defaultBackground
+                    backgroundColor = context.editor.colorsScheme.defaultBackground
+                },
+                HighlighterTargetArea.EXACT_RANGE
+            )
+            context.deletionHighlighters.add(hideHighlighter)
+            
+            // Create side-by-side diff inlay
+            val renderer = createSideBySideDiffRenderer(originalLine, rewrittenLine, context.editor.colorsScheme)
+            val inlay = context.editor.inlayModel.addBlockElement(
+                lineEndOffset,
+                true,
+                false,
+                0,
+                renderer
+            )
+            
+            if (inlay != null) {
+                context.additionInlays.add(inlay)
+            }
+        }
     }
     
     /**
@@ -263,12 +299,12 @@ class ZestInlineMethodDiffRenderer {
             val lineStartOffset = document.getLineStartOffset(actualLineNumber)
             val lineEndOffset = document.getLineEndOffset(actualLineNumber)
             
-            // Create red strike-through highlighting
+            // Create red strike-through highlighting with theme-aware colors
             val highlighter = context.editor.markupModel.addRangeHighlighter(
                 lineStartOffset,
                 lineEndOffset,
                 HighlighterLayer.LAST + 100,
-                createDeletionTextAttributes(),
+                createDeletionTextAttributes(context.editor.colorsScheme),
                 HighlighterTargetArea.EXACT_RANGE
             )
             
@@ -296,8 +332,8 @@ class ZestInlineMethodDiffRenderer {
                 document.textLength
             }
             
-            // Create green addition inlay
-            val renderer = createAdditionRenderer(rewrittenLine)
+            // Create green addition inlay with theme-aware colors
+            val renderer = createAdditionRenderer(rewrittenLine, context.editor.colorsScheme)
             val inlay = context.editor.inlayModel.addBlockElement(
                 insertOffset,
                 true,
@@ -313,21 +349,143 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Create text attributes for deletions (red background, strike-through)
+     * Create text attributes for deletions with theme-aware colors
      */
-    private fun createDeletionTextAttributes(): TextAttributes {
+    private fun createDeletionTextAttributes(scheme: EditorColorsScheme): TextAttributes {
         return TextAttributes().apply {
-            backgroundColor = JBColor.RED.darker()
-            foregroundColor = JBColor.LIGHT_GRAY
+            backgroundColor = JBColor(
+                // Light theme: subtle red background
+                java.awt.Color(255, 220, 220),
+                // Dark theme: subtle red background
+                java.awt.Color(92, 22, 36)
+            )
+            foregroundColor = scheme.defaultForeground // Use theme's default text color
             effectType = EffectType.STRIKEOUT
-            effectColor = JBColor.RED
+            effectColor = JBColor(
+                java.awt.Color(255, 85, 85),
+                java.awt.Color(248, 81, 73)
+            )
         }
     }
     
     /**
-     * Create renderer for addition lines (green background)
+     * Create renderer for side-by-side diff with word highlighting
      */
-    private fun createAdditionRenderer(text: String): EditorCustomElementRenderer {
+    private fun createSideBySideDiffRenderer(
+        originalLine: String, 
+        modifiedLine: String,
+        scheme: EditorColorsScheme
+    ): EditorCustomElementRenderer {
+        // Perform word-level diff
+        val wordDiff = WordDiffUtil.diffWords(originalLine, modifiedLine)
+        
+        return object : EditorCustomElementRenderer {
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                
+                // Calculate width for both lines plus arrow
+                val originalWidth = metrics.stringWidth(originalLine)
+                val modifiedWidth = metrics.stringWidth(modifiedLine)
+                val arrowWidth = metrics.stringWidth(" → ")
+                
+                return originalWidth + arrowWidth + modifiedWidth + 20 // Add padding
+            }
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                return metrics.height + 4 // Add padding
+            }
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val font = getEditorFont(inlay.editor)
+                g.font = font
+                val metrics = g.fontMetrics
+                
+                // Use theme background
+                g.color = scheme.defaultBackground
+                g.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
+                
+                var xPos = targetRect.x + 5
+                val yPos = targetRect.y + metrics.ascent + 2
+                
+                // Draw original segments with highlighting
+                val originalSegments = WordDiffUtil.mergeSegments(wordDiff.originalSegments)
+                for (segment in originalSegments) {
+                    when (segment.type) {
+                        WordDiffUtil.ChangeType.DELETED, WordDiffUtil.ChangeType.MODIFIED -> {
+                            // Draw background highlight
+                            val segmentWidth = metrics.stringWidth(segment.text)
+                            g.color = JBColor(
+                                java.awt.Color(255, 220, 220),
+                                java.awt.Color(92, 22, 36)
+                            )
+                            g.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
+                            
+                            // Draw text with strikethrough
+                            g.color = scheme.defaultForeground
+                            g.drawString(segment.text, xPos, yPos)
+                            
+                            // Draw strikethrough
+                            g.color = JBColor(
+                                java.awt.Color(255, 85, 85),
+                                java.awt.Color(248, 81, 73)
+                            )
+                            val strikeY = yPos - metrics.height / 3
+                            g.drawLine(xPos, strikeY, xPos + segmentWidth, strikeY)
+                            
+                            xPos += segmentWidth
+                        }
+                        else -> {
+                            // Draw unchanged text
+                            g.color = scheme.defaultForeground
+                            g.drawString(segment.text, xPos, yPos)
+                            xPos += metrics.stringWidth(segment.text)
+                        }
+                    }
+                }
+                
+                // Draw arrow
+                g.color = scheme.defaultForeground
+                g.drawString(" → ", xPos, yPos)
+                xPos += metrics.stringWidth(" → ")
+                
+                // Draw modified segments with highlighting
+                val modifiedSegments = WordDiffUtil.mergeSegments(wordDiff.modifiedSegments)
+                for (segment in modifiedSegments) {
+                    when (segment.type) {
+                        WordDiffUtil.ChangeType.ADDED, WordDiffUtil.ChangeType.MODIFIED -> {
+                            // Draw background highlight
+                            val segmentWidth = metrics.stringWidth(segment.text)
+                            g.color = JBColor(
+                                java.awt.Color(220, 255, 228),
+                                java.awt.Color(15, 83, 35)
+                            )
+                            g.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
+                            
+                            // Draw text
+                            g.color = scheme.defaultForeground
+                            g.drawString(segment.text, xPos, yPos)
+                            
+                            xPos += segmentWidth
+                        }
+                        else -> {
+                            // Draw unchanged text
+                            g.color = scheme.defaultForeground
+                            g.drawString(segment.text, xPos, yPos)
+                            xPos += metrics.stringWidth(segment.text)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Create renderer for addition lines with theme-aware colors
+     */
+    private fun createAdditionRenderer(text: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
@@ -346,11 +504,14 @@ class ZestInlineMethodDiffRenderer {
                 g.font = font
                 
                 // Green background
-                g.color = JBColor.GREEN.darker().darker()
+                g.color = JBColor(
+                    java.awt.Color(220, 255, 228),
+                    java.awt.Color(15, 83, 35)
+                )
                 g.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
                 
-                // Green text
-                g.color = JBColor.WHITE
+                // Use theme's default text color
+                g.color = scheme.defaultForeground
                 val metrics = g.fontMetrics
                 g.drawString("+ $text", targetRect.x + 5, targetRect.y + metrics.ascent + 2)
             }
@@ -363,7 +524,7 @@ class ZestInlineMethodDiffRenderer {
     private fun getEditorFont(editor: Editor): Font {
         val scheme = EditorColorsManager.getInstance().globalScheme
         return UIUtil.getFontWithFallbackIfNeeded(
-            scheme.getFont(com.intellij.openapi.editor.colors.EditorFontType.PLAIN),
+            scheme.getFont(EditorFontType.PLAIN),
             "sample"
         )
     }

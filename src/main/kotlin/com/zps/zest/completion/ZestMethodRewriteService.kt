@@ -176,6 +176,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 rewrittenCode = parseResult.rewrittenMethod
             )
             currentDiffResult = diffResult
+            // Store the complete rewritten method (with any closing characters)
             currentRewrittenMethod = parseResult.rewrittenMethod
             
             // Show diff rendering on EDT
@@ -211,6 +212,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     
     /**
      * Calculate language-specific semantic changes using EnhancedGDiff with optimal configuration
+     * Strips trailing closing characters to focus diff on method content
      */
     private fun calculateLanguageSpecificDiff(
         originalCode: String,
@@ -218,6 +220,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         language: String
     ): EnhancedGDiff.EnhancedDiffResult {
         logger.info("Calculating language-specific diff for $language")
+        
+        // Strip trailing closing characters for cleaner diff
+        val (originalStripped, originalClosing) = stripTrailingClosingChars(originalCode)
+        val (rewrittenStripped, rewrittenClosing) = stripTrailingClosingChars(rewrittenCode)
+        
+        logger.debug("Stripped original closing: '$originalClosing', rewritten closing: '$rewrittenClosing'")
         
         // Configure EnhancedGDiff for optimal language-specific analysis
         val diffConfig = EnhancedGDiff.EnhancedDiffConfig(
@@ -231,13 +239,21 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             useHybridApproach = true // Always use hybrid for best results
         )
         
-        val result = enhancedGDiff.diffStrings(originalCode, rewrittenCode, diffConfig)
+        // Perform diff on stripped content
+        val strippedResult = enhancedGDiff.diffStrings(originalStripped, rewrittenStripped, diffConfig)
         
-        logger.info("Language-specific diff completed - Strategy: ${result.diffStrategy}, " +
-                   "Semantic changes: ${result.astDiff?.semanticChanges?.size ?: 0}, " +
-                   "Structural similarity: ${(result.astDiff?.structuralSimilarity ?: 0.0) * 100}%")
+        // Reconstruct full result with closing characters added back
+        val reconstructedResult = reconstructDiffWithClosingChars(
+            strippedResult, 
+            originalClosing, 
+            rewrittenClosing
+        )
         
-        return result
+        logger.info("Language-specific diff completed - Strategy: ${reconstructedResult.diffStrategy}, " +
+                   "Semantic changes: ${reconstructedResult.astDiff?.semanticChanges?.size ?: 0}, " +
+                   "Structural similarity: ${(reconstructedResult.astDiff?.structuralSimilarity ?: 0.0) * 100}%")
+        
+        return reconstructedResult
     }
     
     /**
@@ -336,6 +352,20 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 appendLine("• Changes: ${textStats.totalChanges} (${textStats.additions} additions, ${textStats.deletions} deletions)")
             }
             
+            // Show diffing mode based on language configuration
+            val isWordLevel = shouldIgnoreWhitespaceForLanguage(language)
+            if (isWordLevel) {
+                val textStats = legacyDiffResult.getStatistics()
+                appendLine()
+                appendLine("📊 Word-Level Analysis:")
+                appendLine("• ✨ Using semantic word/token diffing (ignoring whitespace)")
+                appendLine("• ${textStats.additions} word/token additions")
+                appendLine("• ${textStats.deletions} word/token deletions")
+                appendLine("• ${textStats.modifications} word/token modifications")
+            } else {
+                appendLine("• Using character-level text diffing (preserving whitespace)")
+            }
+            
             // Language-specific hints
             appendLine()
             appendLine(getLanguageSpecificHints(language, enhancedDiffResult))
@@ -413,8 +443,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      */
     private fun shouldIgnoreWhitespaceForLanguage(language: String): Boolean {
         return when (language.lowercase()) {
-            "python" -> false // Python is whitespace-sensitive
-            else -> false // Preserve whitespace by default for better diff accuracy
+            "python" -> false // Python is whitespace-sensitive  
+            "yaml", "yml" -> false // YAML is whitespace-sensitive
+            else -> true // Use word-level diffing for most languages to focus on semantic changes
         }
     }
     
@@ -442,19 +473,164 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     
     /**
      * Calculate precise changes using GDiff (legacy method maintained for compatibility)
+     * Strips trailing closing characters to focus diff on method content
      */
     private fun calculatePreciseChanges(
         originalCode: String,
         rewrittenCode: String
     ): GDiff.DiffResult {
-        return gdiff.diffStrings(
-            source = originalCode,
-            target = rewrittenCode,
+        // Strip trailing closing characters for cleaner diff
+        val (originalStripped, originalClosing) = stripTrailingClosingChars(originalCode)
+        val (rewrittenStripped, rewrittenClosing) = stripTrailingClosingChars(rewrittenCode)
+        
+        logger.debug("Legacy diff - stripped original closing: '$originalClosing', rewritten closing: '$rewrittenClosing'")
+        
+        // Perform diff on stripped content
+        val strippedResult = gdiff.diffStrings(
+            source = originalStripped,
+            target = rewrittenStripped,
             config = GDiff.DiffConfig(
                 ignoreWhitespace = false, // Preserve formatting changes
                 ignoreCase = false,
                 contextLines = 3
             )
+        )
+        
+        // For legacy diff, we reconstruct by updating the target in changes
+        return reconstructLegacyDiffWithClosingChars(
+            strippedResult,
+            originalStripped,
+            rewrittenStripped,
+            originalClosing,
+            rewrittenClosing
+        )
+    }
+    
+    /**
+     * Strip trailing closing characters from method code
+     * Returns pair of (strippedCode, closingChars)
+     */
+    private fun stripTrailingClosingChars(code: String): Pair<String, String> {
+        var stripped = code.trimEnd()
+        val closingChars = StringBuilder()
+        
+        // Extract trailing closing characters (}, ], ), ;) and whitespace
+        while (stripped.isNotEmpty()) {
+            val lastChar = stripped.last()
+            if (lastChar in "}]);" || lastChar.isWhitespace()) {
+                closingChars.insert(0, lastChar)
+                stripped = stripped.dropLast(1)
+            } else {
+                break
+            }
+        }
+        
+        return Pair(stripped, closingChars.toString())
+    }
+    
+    /**
+     * Reconstruct EnhancedGDiff result with closing characters added back
+     */
+    private fun reconstructDiffWithClosingChars(
+        strippedResult: EnhancedGDiff.EnhancedDiffResult,
+        originalClosing: String,
+        rewrittenClosing: String
+    ): EnhancedGDiff.EnhancedDiffResult {
+        // If closing characters are the same, just preserve the diff as-is
+        val reconstructedTextDiff = if (originalClosing == rewrittenClosing) {
+            // Same closing - no additional changes needed
+            strippedResult.textDiff
+        } else {
+            // Different closing - this is actually a change we should track
+            logger.info("Closing characters differ: '$originalClosing' -> '$rewrittenClosing'")
+            
+            // Add closing character difference to the changes
+            val modifiedChanges = strippedResult.textDiff.changes.toMutableList()
+            
+            if (originalClosing != rewrittenClosing) {
+                // Calculate appropriate line numbers for the closing change
+                val sourceLines = strippedResult.textDiff.changes.lastOrNull()?.sourceLineNumber ?: 1
+                val targetLines = strippedResult.textDiff.changes.lastOrNull()?.targetLineNumber ?: 1
+                
+                modifiedChanges.add(
+                    GDiff.DiffChange(
+                        type = if (originalClosing.isEmpty()) GDiff.ChangeType.INSERT 
+                               else if (rewrittenClosing.isEmpty()) GDiff.ChangeType.DELETE
+                               else GDiff.ChangeType.CHANGE,
+                        sourceLineNumber = sourceLines + 1,
+                        targetLineNumber = targetLines + 1,
+                        sourceLines = if (originalClosing.isEmpty()) emptyList() else listOf(originalClosing.trim()),
+                        targetLines = if (rewrittenClosing.isEmpty()) emptyList() else listOf(rewrittenClosing.trim())
+                    )
+                )
+            }
+            
+            GDiff.DiffResult(
+                changes = modifiedChanges,
+                identical = false,
+                sourceFile = strippedResult.textDiff.sourceFile,
+                targetFile = strippedResult.textDiff.targetFile
+            )
+        }
+        
+        return EnhancedGDiff.EnhancedDiffResult(
+            textDiff = reconstructedTextDiff,
+            astDiff = strippedResult.astDiff, // AST diff should work on stripped content
+            language = strippedResult.language,
+            diffStrategy = strippedResult.diffStrategy
+        )
+    }
+    
+    /**
+     * Reconstruct legacy GDiff result with closing characters
+     */
+    private fun reconstructLegacyDiffWithClosingChars(
+        strippedResult: GDiff.DiffResult,
+        originalStripped: String,
+        rewrittenStripped: String,
+        originalClosing: String,
+        rewrittenClosing: String
+    ): GDiff.DiffResult {
+        // If it's identical after stripping and closing chars are same, mark as identical
+        if (strippedResult.identical && originalClosing == rewrittenClosing) {
+            return GDiff.DiffResult(
+                changes = emptyList(),
+                identical = true
+            )
+        }
+        
+        // If closing characters differ, we need to add that as a change
+        val finalChanges = if (originalClosing != rewrittenClosing && originalClosing.isNotEmpty() || rewrittenClosing.isNotEmpty()) {
+            val modifiedChanges = strippedResult.changes.toMutableList()
+            
+            // Add closing character change at the end
+            val lastSourceLine = originalStripped.lines().size
+            val lastTargetLine = rewrittenStripped.lines().size
+            
+            if (originalClosing != rewrittenClosing) {
+                modifiedChanges.add(
+                    GDiff.DiffChange(
+                        type = if (originalClosing.isEmpty()) GDiff.ChangeType.INSERT 
+                               else if (rewrittenClosing.isEmpty()) GDiff.ChangeType.DELETE
+                               else GDiff.ChangeType.CHANGE,
+                        sourceLineNumber = lastSourceLine + 1,
+                        targetLineNumber = lastTargetLine + 1,
+                        sourceLines = if (originalClosing.isEmpty()) emptyList() else listOf(originalClosing),
+                        targetLines = if (rewrittenClosing.isEmpty()) emptyList() else listOf(rewrittenClosing)
+                    )
+                )
+            }
+            
+            modifiedChanges
+        } else {
+            strippedResult.changes
+        }
+        
+        return GDiff.DiffResult(
+            changes = finalChanges,
+            identical = strippedResult.identical && originalClosing == rewrittenClosing,
+            sourceFile = strippedResult.sourceFile,
+            targetFile = strippedResult.targetFile
         )
     }
     

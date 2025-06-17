@@ -13,6 +13,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.completion.diff.DiffDebugUtil
 import com.zps.zest.completion.diff.DiffRenderingConfig
 import com.zps.zest.completion.diff.MultiLineDiffRenderer
 import com.zps.zest.completion.diff.WordDiffUtil
@@ -220,50 +221,85 @@ class ZestInlineMethodDiffRenderer {
             context.methodContext.language
         )
         
+        // Debug logging if enabled
+        if (logger.isDebugEnabled) {
+            DiffDebugUtil.logDiffDetails(originalText, modifiedText, lineDiff, context.methodContext.methodName)
+            logger.debug("Diff visualization:\n${DiffDebugUtil.createDiffVisualization(lineDiff)}")
+        }
+        
         // Process each diff block
-        var currentOriginalLine = 0
         val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
+        val methodEndLine = document.getLineNumber(context.methodContext.methodEndOffset)
+        
+        logger.info("Method ${context.methodContext.methodName} spans lines $methodStartLine-$methodEndLine")
         
         for (block in lineDiff.blocks) {
+            // Validate block position
+            if (!DiffDebugUtil.validateLinePositions(
+                    document,
+                    context.methodContext.methodStartOffset,
+                    context.methodContext.methodEndOffset,
+                    block.originalStartLine,
+                    block.originalLines.size
+                )) {
+                logger.warn("Skipping invalid block: ${block.type} at line ${block.originalStartLine}")
+                continue
+            }
+            
+            val blockStartInDocument = methodStartLine + block.originalStartLine
+            
             when (block.type) {
                 WordDiffUtil.BlockType.MODIFIED -> {
                     // Check if this is a multi-line modification based on config
                     if (config.shouldRenderAsMultiLine(block.originalLines.size, block.modifiedLines.size)) {
                         // Render as multi-line block
-                        renderMultiLineBlock(context, block, methodStartLine + currentOriginalLine)
-                        currentOriginalLine += block.originalLines.size
+                        renderMultiLineBlock(context, block, blockStartInDocument)
                     } else {
                         // Single line modification - use existing renderer
                         renderLineModification(
                             context,
-                            currentOriginalLine,
+                            block.originalStartLine,
                             block.originalLines.firstOrNull() ?: "",
                             block.modifiedLines.firstOrNull() ?: "",
-                            currentOriginalLine
+                            block.originalStartLine
                         )
-                        currentOriginalLine++
                     }
                 }
                 WordDiffUtil.BlockType.DELETED -> {
                     // Render each deleted line
                     block.originalLines.forEachIndexed { index, line ->
-                        renderLineDeletion(context, currentOriginalLine + index, line, currentOriginalLine + index)
+                        renderLineDeletion(
+                            context, 
+                            block.originalStartLine + index, 
+                            line, 
+                            block.originalStartLine + index
+                        )
                     }
-                    currentOriginalLine += block.originalLines.size
                 }
                 WordDiffUtil.BlockType.ADDED -> {
-                    // Render added lines as a block if multiple, otherwise single
+                    // For additions, determine the correct insertion point
+                    // Additions should appear after the line they're associated with
+                    val insertionPoint = if (block.originalStartLine > 0) {
+                        // Insert after the previous line in the original
+                        methodStartLine + block.originalStartLine - 1
+                    } else {
+                        // Insert at the beginning of the method
+                        methodStartLine - 1
+                    }
+                    
+                    logger.info("Adding ${block.modifiedLines.size} lines after document line $insertionPoint")
+                    
                     if (block.modifiedLines.size > 1) {
-                        renderMultiLineAddition(context, block.modifiedLines, methodStartLine + currentOriginalLine)
+                        renderMultiLineAddition(context, block.modifiedLines, insertionPoint + 1)
                     } else {
                         block.modifiedLines.forEach { line ->
-                            renderLineAddition(context, currentOriginalLine, line, currentOriginalLine)
+                            renderLineAddition(context, insertionPoint + 1, line, block.originalStartLine)
                         }
                     }
                 }
                 WordDiffUtil.BlockType.UNCHANGED -> {
                     // Skip unchanged lines
-                    currentOriginalLine += block.originalLines.size
+                    logger.debug("Skipping ${block.originalLines.size} unchanged lines")
                 }
             }
         }
@@ -330,30 +366,38 @@ class ZestInlineMethodDiffRenderer {
     private fun renderMultiLineAddition(
         context: RenderingContext,
         addedLines: List<String>,
-        documentLineNumber: Int
+        insertAfterDocumentLine: Int
     ) {
         val document = context.editor.document
         
-        if (documentLineNumber >= 0 && documentLineNumber <= document.lineCount) {
-            val insertOffset = if (documentLineNumber < document.lineCount) {
-                document.getLineStartOffset(documentLineNumber)
-            } else {
+        // Calculate the proper insertion offset
+        val insertOffset = when {
+            insertAfterDocumentLine < 0 -> {
+                // Insert at the beginning of the method
+                context.methodContext.methodStartOffset
+            }
+            insertAfterDocumentLine < document.lineCount -> {
+                // Insert after the specified line
+                document.getLineEndOffset(insertAfterDocumentLine)
+            }
+            else -> {
+                // Insert at the end of the document
                 document.textLength
             }
-            
-            // Create a block renderer for all added lines
-            val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
-            val inlay = context.editor.inlayModel.addBlockElement(
-                insertOffset,
-                true,
-                false,
-                0,
-                renderer
-            )
-            
-            if (inlay != null) {
-                context.additionInlays.add(inlay)
-            }
+        }
+        
+        // Create a block renderer for all added lines
+        val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
+        val inlay = context.editor.inlayModel.addBlockElement(
+            insertOffset,
+            true,  // relatesToPrecedingText
+            true,  // showAbove
+            0,
+            renderer
+        )
+        
+        if (inlay != null) {
+            context.additionInlays.add(inlay)
         }
     }
     
@@ -361,17 +405,20 @@ class ZestInlineMethodDiffRenderer {
      * Create renderer for multiple ghost text lines
      */
     private fun createMultiLineGhostTextRenderer(lines: List<String>, scheme: EditorColorsScheme): EditorCustomElementRenderer {
+        val config = DiffRenderingConfig.getInstance()
+        
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
                 val metrics = inlay.editor.contentComponent.getFontMetrics(font)
-                return lines.maxOfOrNull { metrics.stringWidth("+ $it") } ?: 0
+                // Use full editor width to ensure proper background clearing
+                return inlay.editor.contentComponent.width - 20
             }
             
             override fun calcHeightInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
                 val metrics = inlay.editor.contentComponent.getFontMetrics(font)
-                return lines.size * (metrics.height + 2)
+                return lines.size * (metrics.height + 2) + 4 // Add extra padding
             }
             
             override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
@@ -380,17 +427,21 @@ class ZestInlineMethodDiffRenderer {
                 g2d.font = font
                 val metrics = g2d.fontMetrics
                 
-                // Clear background
+                // Enable antialiasing
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                
+                // Clear background with editor background color to prevent overlap
                 g2d.color = scheme.defaultBackground
                 g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
                 
                 // Draw each line as ghost text
                 val originalComposite = g2d.composite
-                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                val ghostAlpha = config.getGhostTextAlpha(!JBColor.isBright())
                 g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
                 g2d.color = getGhostTextColor(scheme)
                 
-                var yPos = targetRect.y + metrics.ascent
+                var yPos = targetRect.y + metrics.ascent + 2
                 for (line in lines) {
                     g2d.drawString("+ $line", targetRect.x + 5, yPos)
                     yPos += metrics.height + 2
@@ -488,34 +539,53 @@ class ZestInlineMethodDiffRenderer {
      */
     private fun renderLineAddition(
         context: RenderingContext, 
-        lineIndex: Int, 
+        insertAtDocumentLine: Int, 
         rewrittenLine: String,
-        methodLineOffset: Int
+        originalBlockLine: Int
     ) {
         val document = context.editor.document
-        val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
-        val actualLineNumber = methodStartLine + methodLineOffset
         
-        if (actualLineNumber >= 0 && actualLineNumber <= document.lineCount) {
-            val insertOffset = if (actualLineNumber < document.lineCount) {
-                document.getLineStartOffset(actualLineNumber)
-            } else {
-                document.textLength
+        logger.debug("Rendering line addition at document line $insertAtDocumentLine: ${rewrittenLine.take(50)}")
+        
+        if (insertAtDocumentLine >= 0 && insertAtDocumentLine <= document.lineCount) {
+            // Calculate the proper insertion offset
+            val insertOffset = when {
+                insertAtDocumentLine == 0 -> {
+                    // Insert at the beginning of the document
+                    0
+                }
+                insertAtDocumentLine <= document.lineCount -> {
+                    // Insert after the previous line (insertAtDocumentLine - 1)
+                    if (insertAtDocumentLine - 1 < document.lineCount) {
+                        document.getLineEndOffset(insertAtDocumentLine - 1)
+                    } else {
+                        document.textLength
+                    }
+                }
+                else -> {
+                    // Insert at the end of document
+                    document.textLength
+                }
             }
             
             // Create ghost text addition inlay
             val renderer = createGhostTextRenderer(rewrittenLine, context.editor.colorsScheme)
             val inlay = context.editor.inlayModel.addBlockElement(
                 insertOffset,
-                true,
-                false,
+                true,  // relatesToPrecedingText
+                true,  // showAbove - show the inlay above the next line
                 0,
                 renderer
             )
             
             if (inlay != null) {
                 context.additionInlays.add(inlay)
+                logger.debug("Successfully created inlay at offset $insertOffset")
+            } else {
+                logger.warn("Failed to create inlay at offset $insertOffset")
             }
+        } else {
+            logger.warn("Invalid insertion line: $insertAtDocumentLine (document has ${document.lineCount} lines)")
         }
     }
     
@@ -714,17 +784,18 @@ class ZestInlineMethodDiffRenderer {
      * Create renderer for pure addition lines with ghost text style
      */
     private fun createGhostTextRenderer(text: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
+        val config = DiffRenderingConfig.getInstance()
+        
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
-                val font = getEditorFont(inlay.editor)
-                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
-                return metrics.stringWidth("+ $text") + 10 // Add padding
+                // Use full editor width to ensure proper background clearing
+                return inlay.editor.contentComponent.width - 20
             }
             
             override fun calcHeightInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
                 val metrics = inlay.editor.contentComponent.getFontMetrics(font)
-                return metrics.height + 4 // Add padding
+                return metrics.height + 6 // Add padding
             }
             
             override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
@@ -732,18 +803,22 @@ class ZestInlineMethodDiffRenderer {
                 val font = getEditorFont(inlay.editor)
                 g2d.font = font
                 
-                // Clear background
+                // Enable antialiasing
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                
+                // Clear background to prevent overlap
                 g2d.color = scheme.defaultBackground
                 g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
                 
                 // Draw ghost text with transparency
                 val originalComposite = g2d.composite
-                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                val ghostAlpha = config.getGhostTextAlpha(!JBColor.isBright())
                 g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
                 
                 g2d.color = getGhostTextColor(scheme)
                 val metrics = g2d.fontMetrics
-                g2d.drawString("+ $text", targetRect.x + 5, targetRect.y + metrics.ascent + 2)
+                g2d.drawString("+ $text", targetRect.x + 5, targetRect.y + metrics.ascent + 3)
                 
                 // Restore composite
                 g2d.composite = originalComposite

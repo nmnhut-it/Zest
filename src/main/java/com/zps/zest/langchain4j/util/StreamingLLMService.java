@@ -174,7 +174,7 @@ public final class StreamingLLMService {
             root.addProperty("prompt", prompt);
             
             JsonObject options = new JsonObject();
-            options.addProperty("num_predict", 32000);
+//            options.addProperty("num_predict", 32000);
             root.add("options", options);
         }
         

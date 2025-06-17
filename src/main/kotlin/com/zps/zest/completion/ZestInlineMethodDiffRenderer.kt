@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorCustomElementRenderer
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.EditorFontType
@@ -32,6 +33,24 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Renders method diff inline in the editor using GDiff results
  * Handles proper threading, cleanup, and integration with tab acceptance
+ * 
+ * Rendering Modes:
+ * 1. Addition-only diffs: Uses ghost text inline rendering
+ *    - Semi-transparent text with "+" prefix
+ *    - No hiding of original code
+ *    - No scrolling needed (appears inline)
+ *    
+ * 2. Diffs with modifications/deletions: Uses side-by-side or color-coded view
+ *    - Hides original method
+ *    - Shows full comparison
+ *    - Supports scrolling/navigation options
+ * 
+ * Focus Options (for full diff view):
+ * 1. autoScrollToDiff (default: true) - Automatically scrolls to show the diff
+ * 2. showDiffAtStart (default: false) - Shows diff at method start instead of end
+ * 3. showFloatingDiffButton (default: false) - Shows a button to jump to diff
+ * 
+ * When autoScrollToDiff is false, shows a temporary hint at cursor position.
  */
 class ZestInlineMethodDiffRenderer {
     private val logger = Logger.getInstance(ZestInlineMethodDiffRenderer::class.java)
@@ -56,7 +75,10 @@ class ZestInlineMethodDiffRenderer {
         val deletionHighlighters: MutableList<RangeHighlighter> = mutableListOf(),
         val additionInlays: MutableList<Inlay<*>> = mutableListOf(),
         val acceptCallback: () -> Unit,
-        val rejectCallback: () -> Unit
+        val rejectCallback: () -> Unit,
+        var mainDiffInlay: Inlay<*>? = null,
+        var floatingButtonInlay: Inlay<*>? = null,
+        var isAdditionOnly: Boolean = false
     ) {
         fun dispose() {
             // Remove all highlighters
@@ -78,6 +100,19 @@ class ZestInlineMethodDiffRenderer {
                 }
             }
             additionInlays.clear()
+            
+            // Dispose floating button if exists
+            floatingButtonInlay?.let { inlay ->
+                try {
+                    if (inlay.isValid) {
+                        Disposer.dispose(inlay)
+                    }
+                } catch (e: Exception) {
+                    // Inlay might already be disposed
+                }
+            }
+            floatingButtonInlay = null
+            mainDiffInlay = null
         }
     }
     
@@ -124,6 +159,9 @@ class ZestInlineMethodDiffRenderer {
             renderDiffChanges(context)
             
             logger.info("Inline diff rendered successfully with ${context.deletionHighlighters.size} deletions and ${context.additionInlays.size} additions")
+            if (context.isAdditionOnly) {
+                logger.info("Used ghost text rendering for addition-only diff")
+            }
             
         } catch (e: Exception) {
             logger.error("Failed to show inline diff", e)
@@ -215,6 +253,11 @@ class ZestInlineMethodDiffRenderer {
     /**
      * Render diff changes using either side-by-side or color-coded view
      * 
+     * For addition-only diffs:
+     * - Uses ghost text inline rendering (no side-by-side view)
+     * - Shows additions as semi-transparent text
+     * 
+     * For diffs with modifications/deletions:
      * Side-by-side view (default):
      * 1. Hides the entire original method in the editor
      * 2. Shows a side-by-side comparison below:
@@ -243,6 +286,14 @@ class ZestInlineMethodDiffRenderer {
             context.methodContext.language
         )
         
+        // Special handling for empty original method
+        if (originalText.trim().isEmpty() && modifiedText.isNotEmpty()) {
+            logger.info("Original method is empty - treating as pure addition")
+            context.isAdditionOnly = true
+            renderAdditionOnlyDiff(context, lineDiff)
+            return
+        }
+        
         // Debug logging if enabled
         if (DEBUG_DIFF_RENDERING || logger.isDebugEnabled) {
             logger.info("=== Original method content ===")
@@ -256,6 +307,270 @@ class ZestInlineMethodDiffRenderer {
             
             DiffDebugUtil.logDiffDetails(originalText, modifiedText, lineDiff, context.methodContext.methodName)
         }
+        
+        // Check if this is an addition-only diff
+        val isAdditionOnly = isAdditionOnlyDiff(lineDiff)
+        
+        if (isAdditionOnly && config.useGhostTextForAdditions()) {
+            logger.info("Detected addition-only diff, using ghost text rendering")
+            context.isAdditionOnly = true
+            // For addition-only diffs, use ghost text rendering
+            renderAdditionOnlyDiff(context, lineDiff)
+        } else {
+            if (isAdditionOnly) {
+                logger.info("Detected addition-only diff, but ghost text is disabled - using full diff view")
+            } else {
+                logger.info("Detected modifications/deletions in diff, using full diff view")
+            }
+            // For diffs with modifications/deletions, use the full diff view
+            renderFullDiff(context, originalText, modifiedText, lineDiff)
+        }
+    }
+    
+    /**
+     * Check if the diff contains only additions (no deletions or modifications)
+     * 
+     * This is common when:
+     * - Adding new methods to a class
+     * - Adding new parameters to existing methods
+     * - Adding new code blocks within methods
+     * - Adding comments or documentation
+     * - The entire method is new (original is empty)
+     * 
+     * For these cases, ghost text is cleaner than showing a full diff view.
+     */
+    private fun isAdditionOnlyDiff(lineDiff: WordDiffUtil.LineDiffResult): Boolean {
+        // Special case: if original is empty, this is purely an addition
+        if (lineDiff.blocks.all { it.originalLines.isEmpty() && it.modifiedLines.isNotEmpty() }) {
+            return true
+        }
+        
+        return lineDiff.blocks.all { block ->
+            block.type == WordDiffUtil.BlockType.UNCHANGED || 
+            block.type == WordDiffUtil.BlockType.ADDED
+        }
+    }
+    
+    /**
+     * Render addition-only diff using ghost text
+     */
+    private fun renderAdditionOnlyDiff(
+        context: RenderingContext,
+        lineDiff: WordDiffUtil.LineDiffResult
+    ) {
+        val config = DiffRenderingConfig.getInstance()
+        var totalAddedLines = 0
+        
+        // Process each diff block
+        for (block in lineDiff.blocks) {
+            when (block.type) {
+                WordDiffUtil.BlockType.ADDED -> {
+                    totalAddedLines += block.modifiedLines.size
+                    
+                    // Find where to insert these lines
+                    val insertAfterOriginalLine = if (block.originalStartLine > 0) {
+                        block.originalStartLine - 1
+                    } else {
+                        -1
+                    }
+                    
+                    // Calculate document line number
+                    val document = context.editor.document
+                    val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
+                    val insertAfterDocumentLine = if (insertAfterOriginalLine >= 0) {
+                        methodStartLine + insertAfterOriginalLine
+                    } else {
+                        methodStartLine - 1
+                    }
+                    
+                    // Render the added lines as ghost text
+                    if (block.modifiedLines.size == 1) {
+                        // Single line addition
+                        renderSingleLineGhostAddition(
+                            context,
+                            insertAfterDocumentLine,
+                            block.modifiedLines[0]
+                        )
+                    } else {
+                        // Multi-line addition
+                        renderMultiLineGhostAddition(
+                            context,
+                            insertAfterDocumentLine,
+                            block.modifiedLines
+                        )
+                    }
+                }
+                WordDiffUtil.BlockType.UNCHANGED -> {
+                    // Nothing to do for unchanged blocks
+                }
+                else -> {
+                    // Should not happen in addition-only diff
+                    logger.warn("Unexpected block type in addition-only diff: ${block.type}")
+                }
+            }
+        }
+        
+        logger.info("Rendered $totalAddedLines added lines as ghost text")
+        
+        // Show a subtle hint about the ghost text additions
+        if (config.showAdditionHint() && totalAddedLines > 0) {
+            showAdditionHint(context.editor)
+        }
+        
+        // Note: No scrolling needed for ghost text as it appears inline with existing code
+    }
+    
+    /**
+     * Render single line ghost addition
+     */
+    private fun renderSingleLineGhostAddition(
+        context: RenderingContext,
+        insertAfterDocumentLine: Int,
+        addedLine: String
+    ) {
+        val document = context.editor.document
+        
+        val insertOffset = when {
+            insertAfterDocumentLine < 0 -> {
+                context.methodContext.methodStartOffset
+            }
+            insertAfterDocumentLine < document.lineCount -> {
+                document.getLineEndOffset(insertAfterDocumentLine)
+            }
+            else -> {
+                document.textLength
+            }
+        }
+        
+        val renderer = createGhostTextRenderer(addedLine, context.editor.colorsScheme)
+        val inlay = context.editor.inlayModel.addBlockElement(
+            insertOffset,
+            true,
+            true,
+            0,
+            renderer
+        )
+        
+        if (inlay != null) {
+            context.additionInlays.add(inlay)
+        }
+    }
+    
+    /**
+     * Render multi-line ghost addition
+     */
+    private fun renderMultiLineGhostAddition(
+        context: RenderingContext,
+        insertAfterDocumentLine: Int,
+        addedLines: List<String>
+    ) {
+        val document = context.editor.document
+        
+        val insertOffset = when {
+            insertAfterDocumentLine < 0 -> {
+                context.methodContext.methodStartOffset
+            }
+            insertAfterDocumentLine < document.lineCount -> {
+                document.getLineEndOffset(insertAfterDocumentLine)
+            }
+            else -> {
+                document.textLength
+            }
+        }
+        
+        val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
+        val inlay = context.editor.inlayModel.addBlockElement(
+            insertOffset,
+            true,
+            true,
+            0,
+            renderer
+        )
+        
+        if (inlay != null) {
+            context.additionInlays.add(inlay)
+        }
+    }
+    
+    /**
+     * Show a hint about ghost text additions
+     */
+    private fun showAdditionHint(editor: Editor) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val cursorOffset = editor.caretModel.offset
+                val hintRenderer = createAdditionHintRenderer(editor.colorsScheme)
+                
+                val hintInlay = editor.inlayModel.addInlineElement(
+                    cursorOffset,
+                    true,
+                    hintRenderer
+                )
+                
+                if (hintInlay != null) {
+                    // Auto-remove after 2 seconds
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        Thread.sleep(2000)
+                        ApplicationManager.getApplication().invokeLater {
+                            if (!hintInlay.isValid) return@invokeLater
+                            Disposer.dispose(hintInlay)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to show addition hint", e)
+            }
+        }
+    }
+    
+    /**
+     * Create hint renderer for addition-only diffs
+     */
+    private fun createAdditionHintRenderer(scheme: EditorColorsScheme): EditorCustomElementRenderer {
+        return object : EditorCustomElementRenderer {
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor).deriveFont(Font.ITALIC)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                return metrics.stringWidth(" ✨ Tab to accept additions ") + 10
+            }
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int {
+                return inlay.editor.lineHeight
+            }
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                
+                // Draw background
+                g2d.color = JBColor(
+                    java.awt.Color(92, 225, 92, 60),   // Light green
+                    java.awt.Color(59, 91, 59, 60)     // Dark green
+                )
+                g2d.fillRoundRect(targetRect.x, targetRect.y + 2, targetRect.width, targetRect.height - 4, 6, 6)
+                
+                // Draw text
+                g2d.color = JBColor(
+                    java.awt.Color(34, 139, 34),
+                    java.awt.Color(152, 251, 152)
+                )
+                g2d.font = getEditorFont(inlay.editor).deriveFont(Font.ITALIC)
+                val metrics = g2d.fontMetrics
+                g2d.drawString(" ✨ Tab to accept additions ", targetRect.x + 5, targetRect.y + metrics.ascent)
+            }
+        }
+    }
+    
+    /**
+     * Render full diff with modifications/deletions using the configured view
+     */
+    private fun renderFullDiff(
+        context: RenderingContext,
+        originalText: String,
+        modifiedText: String,
+        lineDiff: WordDiffUtil.LineDiffResult
+    ) {
+        val config = DiffRenderingConfig.getInstance()
         
         // Hide the entire original method
         val methodStartOffset = context.methodContext.methodStartOffset
@@ -294,19 +609,46 @@ class ZestInlineMethodDiffRenderer {
             )
         }
         
-        // Insert the new method rendering after the hidden original
+        // Determine where to insert the diff
+        val inlayOffset = if (config.showDiffAtStart()) {
+            // Insert at the beginning of the method
+            methodStartOffset
+        } else {
+            // Insert at the end of the method
+            methodEndOffset
+        }
+        
+        // Insert the diff rendering at the calculated position
         val inlay = context.editor.inlayModel.addBlockElement(
-            methodEndOffset,
+            inlayOffset,
             true,
-            false,
+            config.showDiffAtStart(), // showAbove: true if at start, false if at end
             0,
             renderer
         )
         
         if (inlay != null) {
             context.additionInlays.add(inlay)
+            context.mainDiffInlay = inlay
             val viewType = if (config.useSideBySideView()) "side-by-side" else "color-coded"
-            logger.info("Successfully rendered $viewType method diff")
+            val position = if (config.showDiffAtStart()) "start" else "end"
+            logger.info("Successfully rendered $viewType method diff at $position")
+            
+            // Handle diff visibility based on configuration
+            when {
+                config.autoScrollToDiff() -> {
+                    // Automatically scroll to the diff
+                    scrollToDiff(context.editor, inlay)
+                }
+                config.showFloatingDiffButton() -> {
+                    // Show a floating button to jump to diff
+                    showFloatingDiffButton(context)
+                }
+                else -> {
+                    // Show a temporary hint at cursor position
+                    showDiffHint(context.editor, inlayOffset)
+                }
+            }
         }
     }
     
@@ -441,6 +783,7 @@ class ZestInlineMethodDiffRenderer {
     
     /**
      * Create renderer for multiple ghost text lines
+     * Used for addition-only diffs and multi-line additions
      */
     private fun createMultiLineGhostTextRenderer(lines: List<String>, scheme: EditorColorsScheme): EditorCustomElementRenderer {
         val config = DiffRenderingConfig.getInstance()
@@ -816,6 +1159,7 @@ class ZestInlineMethodDiffRenderer {
     
     /**
      * Create renderer for pure addition lines with ghost text style
+     * Used for single-line additions in addition-only diffs
      */
     private fun createGhostTextRenderer(text: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
         val config = DiffRenderingConfig.getInstance()
@@ -981,6 +1325,181 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
+     * Manually scroll to the diff (can be called from outside)
+     */
+    fun scrollToCurrentDiff() {
+        val context = currentRenderingContext ?: return
+        val inlay = context.mainDiffInlay ?: return
+        
+        if (inlay.isValid) {
+            scrollToDiff(context.editor, inlay)
+        }
+    }
+    
+    /**
+     * Show a floating button to jump to the diff
+     */
+    private fun showFloatingDiffButton(context: RenderingContext) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val config = DiffRenderingConfig.getInstance()
+                val cursorOffset = context.editor.caretModel.offset
+                
+                // Create floating button renderer
+                val buttonRenderer = createFloatingButtonRenderer(
+                    if (config.showDiffAtStart()) "↑" else "↓",
+                    "Jump to diff",
+                    context.editor.colorsScheme
+                ) {
+                    // On click, scroll to the diff
+                    context.mainDiffInlay?.let { scrollToDiff(context.editor, it) }
+                }
+                
+                // Place the button after the current line
+                val document = context.editor.document
+                val currentLine = document.getLineNumber(cursorOffset)
+                val lineEndOffset = document.getLineEndOffset(currentLine)
+                
+                val buttonInlay = context.editor.inlayModel.addBlockElement(
+                    lineEndOffset,
+                    false,
+                    true,
+                    1, // Higher priority to show above other elements
+                    buttonRenderer
+                )
+                
+                if (buttonInlay != null) {
+                    context.floatingButtonInlay = buttonInlay
+                    // Don't add to additionInlays to handle disposal separately
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to show floating diff button", e)
+            }
+        }
+    }
+    
+    /**
+     * Create a clickable floating button renderer
+     */
+    private fun createFloatingButtonRenderer(
+        icon: String,
+        tooltip: String,
+        scheme: EditorColorsScheme,
+        onClick: () -> Unit
+    ): EditorCustomElementRenderer {
+        return object : EditorCustomElementRenderer {
+            private val buttonWidth = 120
+            private val buttonHeight = 30
+            
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int = buttonWidth
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int = buttonHeight + 10
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                
+                // Calculate button position (right-aligned)
+                val buttonX = targetRect.x + targetRect.width - buttonWidth - 20
+                val buttonY = targetRect.y + 5
+                
+                // Draw button background
+                g2d.color = JBColor(
+                    java.awt.Color(100, 149, 237, 200),  // Semi-transparent blue
+                    java.awt.Color(70, 130, 180, 200)
+                )
+                g2d.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 8, 8)
+                
+                // Draw button border
+                g2d.color = JBColor(
+                    java.awt.Color(70, 130, 180),
+                    java.awt.Color(135, 206, 235)
+                )
+                g2d.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 8, 8)
+                
+                // Draw text
+                g2d.color = java.awt.Color.WHITE
+                g2d.font = getEditorFont(inlay.editor).deriveFont(Font.BOLD)
+                val metrics = g2d.fontMetrics
+                val text = "$icon $tooltip"
+                val textX = buttonX + (buttonWidth - metrics.stringWidth(text)) / 2
+                val textY = buttonY + (buttonHeight + metrics.ascent - metrics.descent) / 2
+                g2d.drawString(text, textX, textY)
+            }
+        }
+    }
+    
+    /**
+     * Show a hint that diff is available
+     */
+    private fun showDiffHint(editor: Editor, diffOffset: Int) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val config = DiffRenderingConfig.getInstance()
+                val position = if (config.showDiffAtStart()) "above" else "below"
+                
+                // Create a temporary inlay hint at cursor position
+                val cursorOffset = editor.caretModel.offset
+                val hintRenderer = createDiffHintRenderer(position, editor.colorsScheme)
+                
+                val hintInlay = editor.inlayModel.addInlineElement(
+                    cursorOffset,
+                    true,
+                    hintRenderer
+                )
+                
+                if (hintInlay != null) {
+                    // Auto-remove the hint after 3 seconds
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        Thread.sleep(3000)
+                        ApplicationManager.getApplication().invokeLater {
+                            if (!hintInlay.isValid) return@invokeLater
+                            Disposer.dispose(hintInlay)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to show diff hint", e)
+            }
+        }
+    }
+    
+    /**
+     * Create a hint renderer that shows where the diff is
+     */
+    private fun createDiffHintRenderer(position: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
+        return object : EditorCustomElementRenderer {
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor).deriveFont(Font.ITALIC)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                return metrics.stringWidth(" ← Method diff $position ") + 10
+            }
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int {
+                return inlay.editor.lineHeight
+            }
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                
+                // Draw background
+                g2d.color = JBColor(
+                    java.awt.Color(255, 235, 59, 80),  // Light yellow
+                    java.awt.Color(107, 99, 50, 80)    // Dark yellow
+                )
+                g2d.fillRoundRect(targetRect.x, targetRect.y + 2, targetRect.width, targetRect.height - 4, 6, 6)
+                
+                // Draw text
+                g2d.color = scheme.defaultForeground
+                g2d.font = getEditorFont(inlay.editor).deriveFont(Font.ITALIC)
+                val metrics = g2d.fontMetrics
+                g2d.drawString(" ← Method diff $position ", targetRect.x + 5, targetRect.y + metrics.ascent)
+            }
+        }
+    }
+    
+    /**
      * Get editor font for consistent rendering
      */
     private fun getEditorFont(editor: Editor): Font {
@@ -989,5 +1508,47 @@ class ZestInlineMethodDiffRenderer {
             scheme.getFont(EditorFontType.PLAIN),
             "sample"
         )
+    }
+    
+    /**
+     * Scroll editor to make the diff inlay visible
+     */
+    private fun scrollToDiff(editor: Editor, inlay: Inlay<*>) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val config = DiffRenderingConfig.getInstance()
+                val inlayOffset = inlay.offset
+                
+                // Move caret to the diff location
+                editor.caretModel.moveToOffset(inlayOffset)
+                
+                // Scroll to make the diff visible
+                if (config.showDiffAtStart()) {
+                    // If diff is at start, scroll to show it with some context above
+                    editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+                    
+                    // Then adjust to show a bit of the original method above
+                    val currentY = editor.scrollingModel.verticalScrollOffset
+                    val adjustment = editor.lineHeight * 2 // Show 2 lines above
+                    editor.scrollingModel.scrollVertically(Math.max(0, currentY - adjustment))
+                } else {
+                    // If diff is at end, center it in the view if possible
+                    editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+                }
+                
+                // Flash the caret to draw attention
+                val caretModel = editor.caretModel
+                caretModel.addCaretListener(object : com.intellij.openapi.editor.event.CaretListener {
+                    override fun caretPositionChanged(event: com.intellij.openapi.editor.event.CaretEvent) {
+                        // Remove listener after first position change
+                        caretModel.removeCaretListener(this)
+                    }
+                })
+                
+                logger.debug("Scrolled to diff at offset $inlayOffset")
+            } catch (e: Exception) {
+                logger.warn("Failed to scroll to diff", e)
+            }
+        }
     }
 }

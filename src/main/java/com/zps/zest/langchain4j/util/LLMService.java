@@ -74,7 +74,7 @@ public final class LLMService {
      */
     @Nullable
     public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
-        return query(prompt+"\n/no_think", "local-model-mini", enumUsage);
+        return query(prompt+"\n/no_think", "qwen/qwen2.5-coder-32b-instruct", enumUsage);
     }
 
     /**
@@ -255,7 +255,7 @@ public final class LLMService {
         JsonObject paramsObj = new JsonObject();
         paramsObj.addProperty("max_tokens", params.getMaxTokens());
         paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
-        paramsObj.addProperty("num_predict", params.getMaxTokens());
+//        paramsObj.addProperty("num_predict", params.getMaxTokens());
         paramsObj.addProperty("temperature", params.getTemperature());
         
         // Add stop sequences if provided
@@ -300,7 +300,7 @@ public final class LLMService {
         root.addProperty("stream", false);
 
         JsonObject options = new JsonObject();
-        options.addProperty("num_predict", params.getMaxTokens());
+//        options.addProperty("num_predict", params.getMaxTokens());
         options.addProperty("temperature", params.getTemperature());
         
         // Add stop sequences if provided

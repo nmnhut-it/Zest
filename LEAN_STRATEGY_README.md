@@ -101,7 +101,7 @@ Use the "Test Lean Strategy" action to verify all components are working correct
 ### SIMPLE Strategy
 - **Timeout**: 8 seconds
 - **Max Tokens**: 16 (small completions)
-- **Model**: local-model-mini
+- **Model**: qwen/qwen2.5-coder-32b-instruct
 - **Temperature**: 0.1 (deterministic)
 
 ### LEAN Strategy  

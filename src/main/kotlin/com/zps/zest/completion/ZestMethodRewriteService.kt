@@ -136,7 +136,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             val startTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("local-model-mini") // Use full model for method rewrites
+                    .withModel("qwen/qwen2.5-coder-32b-instruct") // Use full model for method rewrites
                     .withMaxTokens(METHOD_REWRITE_MAX_TOKENS)
                     .withTemperature(0.3) // Slightly creative but focused
                     .withStopSequences(getMethodRewriteStopSequences())
@@ -810,7 +810,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
     
     companion object {
-        private const val METHOD_REWRITE_TIMEOUT_MS = 20000L // 20 seconds for method rewrites
+        private const val METHOD_REWRITE_TIMEOUT_MS = 200000L // 20 seconds for method rewrites
         private const val METHOD_REWRITE_MAX_TOKENS = 1500 // Allow larger responses for methods
     }
 }

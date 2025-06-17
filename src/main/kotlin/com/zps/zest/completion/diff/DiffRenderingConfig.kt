@@ -29,7 +29,12 @@ class DiffRenderingConfig : PersistentStateComponent<DiffRenderingConfig.State> 
         var wrapAtOperators: Boolean = true,
         var continuationIndentSize: Int = 2,
         var useSubtleColors: Boolean = true,
-        var useSideBySideView: Boolean = true
+        var useSideBySideView: Boolean = true,
+        var showDiffAtStart: Boolean = false,
+        var autoScrollToDiff: Boolean = true,
+        var showFloatingDiffButton: Boolean = false,
+        var showAdditionHint: Boolean = true,
+        var useGhostTextForAdditions: Boolean = true
     )
     
     enum class DiffAlgorithm {
@@ -83,4 +88,14 @@ class DiffRenderingConfig : PersistentStateComponent<DiffRenderingConfig.State> 
     fun useSubtleColors(): Boolean = myState.useSubtleColors
     
     fun useSideBySideView(): Boolean = myState.useSideBySideView
+    
+    fun showDiffAtStart(): Boolean = myState.showDiffAtStart
+    
+    fun autoScrollToDiff(): Boolean = myState.autoScrollToDiff
+    
+    fun showFloatingDiffButton(): Boolean = myState.showFloatingDiffButton
+    
+    fun showAdditionHint(): Boolean = myState.showAdditionHint
+    
+    fun useGhostTextForAdditions(): Boolean = myState.useGhostTextForAdditions
 }

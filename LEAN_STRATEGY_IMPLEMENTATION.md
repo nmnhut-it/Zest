@@ -7,7 +7,7 @@ I've successfully implemented a **LEAN completion strategy** alongside the exist
 ### 1. SIMPLE Strategy (Original)
 - **Approach**: FIM (Fill-In-the-Middle) with prefix/suffix context
 - **Speed**: Fast (8 seconds timeout, 16 max tokens)
-- **Model**: Uses `local-model-mini`
+- **Model**: Uses `qwen/qwen2.5-coder-32b-instruct`
 - **Prompt**: Qwen 2.5 Coder FIM format: `<|fim_prefix|>...<|fim_suffix|>...<|fim_middle|>`
 
 ### 2. LEAN Strategy (New)

@@ -4,6 +4,11 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.codeStyle.CodeStyleManager
+import com.intellij.psi.PsiFile
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.completion.data.ZestInlineCompletionItem
@@ -25,6 +30,7 @@ import java.util.*
  * Completion provider with multiple strategies (A/B testing)
  * - SIMPLE: Basic prefix/suffix context (original)
  * - LEAN: Full file context with reasoning prompts (new)
+ * - METHOD_REWRITE: Method-level rewrite with floating window preview
  */
 class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
@@ -49,16 +55,18 @@ class ZestCompletionProvider(private val project: Project) {
     private val leanResponseParser = ZestLeanResponseParser()
     
     // Method rewrite strategy components
-    private val methodRewriteService by lazy { project.getService(ZestMethodRewriteService::class.java) }
+    private val methodRewriteService by lazy { 
+        project.getService(ZestMethodRewriteService::class.java) 
+    }
     
     // Configuration
     var strategy: CompletionStrategy = CompletionStrategy.METHOD_REWRITE
         private set
     
     enum class CompletionStrategy {
-        SIMPLE,       // Original FIM-based approach
-        LEAN,         // Full-file with reasoning approach
-        METHOD_REWRITE // Method-level rewrite with floating window preview
+        SIMPLE,         // Original FIM-based approach
+        LEAN,           // Full-file with reasoning approach
+        METHOD_REWRITE  // Method-level rewrite with floating window preview
     }
     
     /**
@@ -114,8 +122,8 @@ class ZestCompletionProvider(private val project: Project) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
                     .withModel("qwen/qwen2.5-coder-32b-instruct")
                     .withMaxTokens(MAX_COMPLETION_TOKENS)
-                    .withTemperature(0.1) // Low temperature for more deterministic completions
-                    .withStopSequences(getStopSequences()) // Add stop sequences for Qwen FIM
+                    .withTemperature(0.1)  // Low temperature for more deterministic completions
+                    .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
                 
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
@@ -141,20 +149,23 @@ class ZestCompletionProvider(private val project: Project) {
             
             val totalTime = System.currentTimeMillis() - startTime
             
+            // Format the completion text using IntelliJ's code style
+            val formattedCompletion = formatCompletionText(editor, cleanedCompletion, context.offset)
+            
             // Create completion item with original response stored for re-processing
             val item = ZestInlineCompletionItem(
-                insertText = cleanedCompletion,
+                insertText = formattedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset,
                     end = context.offset
                 ),
-                confidence = calculateConfidence(cleanedCompletion),
+                confidence = calculateConfidence(formattedCompletion),
                 metadata = CompletionMetadata(
                     model = "zest-llm-simple",
-                    tokens = cleanedCompletion.split("\\s+".toRegex()).size,
+                    tokens = formattedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
                     requestId = UUID.randomUUID().toString(),
-                    reasoning = response // Store original response for re-processing overlaps
+                    reasoning = response  // Store original response for re-processing overlaps
                 )
             )
             
@@ -205,9 +216,9 @@ class ZestCompletionProvider(private val project: Project) {
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("qwen/qwen2.5-coder-32b-instruct") // Use full model for reasoning
-                    .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS) // Limit tokens to control response length
-                    .withTemperature(0.2) // Slightly higher for creative reasoning
+                    .withModel("qwen/qwen2.5-coder-32b-instruct")  // Use full model for reasoning
+                    .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
+                    .withTemperature(0.2)  // Slightly higher for creative reasoning
                     .withStopSequences(getLeanStopSequences())
                 
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
@@ -233,9 +244,12 @@ class ZestCompletionProvider(private val project: Project) {
             
             val totalTime = System.currentTimeMillis() - startTime
             
+            // Format the completion text using IntelliJ's code style
+            val formattedCompletion = formatCompletionText(editor, reasoningResult.completionText, context.offset)
+            
             // Create completion item with reasoning metadata
             val item = ZestInlineCompletionItem(
-                insertText = reasoningResult.completionText,
+                insertText = formattedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset,
                     end = context.offset
@@ -243,7 +257,7 @@ class ZestCompletionProvider(private val project: Project) {
                 confidence = reasoningResult.confidence,
                 metadata = CompletionMetadata(
                     model = "zest-llm-lean",
-                    tokens = reasoningResult.completionText.split("\\s+".toRegex()).size,
+                    tokens = formattedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
                     requestId = UUID.randomUUID().toString(),
                     reasoning = reasoningResult.reasoning
@@ -293,6 +307,84 @@ class ZestCompletionProvider(private val project: Project) {
         }
         
         return confidence.coerceIn(0.0f, 1.0f)
+    }
+    
+    /**
+     * Format the completion text using IntelliJ's code style settings
+     * This ensures the inserted code follows the project's formatting rules
+     */
+    private fun formatCompletionText(editor: Editor, completionText: String, offset: Int): String {
+        return try {
+            // If completion is very short or doesn't contain code structure, return as-is
+            if (completionText.length < 5 || !containsCodeStructure(completionText)) {
+                return completionText
+            }
+            
+            // Get the PsiFile for the current editor
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+            if (psiFile == null) {
+                logger.debug("Cannot format completion text: PsiFile is null")
+                return completionText
+            }
+            
+            // Create a temporary document with the completion text in context
+            val documentText = editor.document.text
+            val beforeText = documentText.substring(0, offset)
+            val afterText = documentText.substring(offset)
+            val tempText = beforeText + completionText + afterText
+            
+            // Format the region containing the completion
+            var formattedText = completionText
+            ApplicationManager.getApplication().runReadAction {
+                try {
+                    // Create a copy of the PSI file with the new text
+                    val tempPsiFile = psiFile.copy() as PsiFile
+                    val tempDocument = PsiDocumentManager.getInstance(project).getDocument(tempPsiFile)
+                    
+                    if (tempDocument != null) {
+                        WriteCommandAction.runWriteCommandAction(project) {
+                            tempDocument.setText(tempText)
+                            PsiDocumentManager.getInstance(project).commitDocument(tempDocument)
+                            
+                            // Format the range containing the completion
+                            val codeStyleManager = CodeStyleManager.getInstance(project)
+                            codeStyleManager.reformatRange(tempPsiFile, offset, offset + completionText.length)
+                            
+                            // Extract the formatted completion text
+                            formattedText = tempDocument.text.substring(offset, offset + completionText.length)
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.debug("Failed to format completion text in temporary file: ${e.message}")
+                }
+            }
+            
+            formattedText
+        } catch (e: Exception) {
+            logger.warn("Failed to format completion text: ${e.message}")
+            completionText
+        }
+    }
+    
+    /**
+     * Check if the completion text contains code structure that should be formatted
+     */
+    private fun containsCodeStructure(text: String): Boolean {
+        return text.contains('{') || 
+               text.contains('}') || 
+               text.contains('(') || 
+               text.contains(')') || 
+               text.contains('\n') ||
+               text.contains(';') ||
+               text.contains('=') ||
+               text.contains("->") ||
+               text.contains("fun ") ||
+               text.contains("val ") ||
+               text.contains("var ") ||
+               text.contains("class ") ||
+               text.contains("if ") ||
+               text.contains("when ") ||
+               text.contains("for ")
     }
     
     /**
@@ -353,10 +445,10 @@ class ZestCompletionProvider(private val project: Project) {
     }
     
     companion object {
-        private const val COMPLETION_TIMEOUT_MS = 8000L // 8 seconds for simple
-        private const val MAX_COMPLETION_TOKENS = 16 // Small for simple completions
+        private const val COMPLETION_TIMEOUT_MS = 8000L  // 8 seconds for simple
+        private const val MAX_COMPLETION_TOKENS = 16  // Small for simple completions
         
-        private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L // 15 seconds for reasoning
-        private const val LEAN_MAX_COMPLETION_TOKENS = 1000 // Limited tokens for focused completions (reasoning + completion)
+        private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L  // 15 seconds for reasoning
+        private const val LEAN_MAX_COMPLETION_TOKENS = 1000  // Limited tokens for focused completions (reasoning + completion)
     }
 }

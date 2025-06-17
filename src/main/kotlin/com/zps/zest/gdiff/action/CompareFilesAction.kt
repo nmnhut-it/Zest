@@ -1,5 +1,6 @@
 package com.zps.zest.gdiff.action
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -12,6 +13,11 @@ import com.zps.zest.gdiff.GDiffVfsUtil
  * IntelliJ Action to compare two selected files using GDiff
  */
 class CompareFilesAction : AnAction("Compare Files with GDiff") {
+    
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        // This action's update() method accesses VIRTUAL_FILE_ARRAY which requires BGT
+        return ActionUpdateThread.BGT
+    }
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

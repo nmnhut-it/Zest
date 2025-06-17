@@ -13,6 +13,8 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.util.messages.Topic
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionItem
@@ -238,6 +240,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             // Move cursor to end of inserted text
             val newCaretPosition = startOffset + textToInsert.length
             editor.caretModel.moveToOffset(newCaretPosition)
+            
+            // Format the inserted text using IntelliJ's code style
+            formatInsertedText(editor, startOffset, newCaretPosition)
             
             logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
         }
@@ -487,6 +492,31 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         if (newText.trim().length < 2) {
             clearCurrentCompletion()
             return
+        }
+    }
+    
+    /**
+     * Format the inserted completion text using IntelliJ's code style
+     * This ensures the accepted completion follows the project's formatting rules
+     */
+    private fun formatInsertedText(editor: Editor, startOffset: Int, endOffset: Int) {
+        try {
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+            if (psiFile != null) {
+                // Commit any pending PSI changes
+                PsiDocumentManager.getInstance(project).commitDocument(editor.document)
+                
+                // Format the range where we inserted the completion
+                val codeStyleManager = CodeStyleManager.getInstance(project)
+                codeStyleManager.reformatRange(psiFile, startOffset, endOffset)
+                
+                logger.debug("Formatted inserted text from offset $startOffset to $endOffset")
+            } else {
+                logger.debug("Cannot format inserted text: PsiFile is null")
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to format inserted text: ${e.message}")
+            // Don't fail the acceptance if formatting fails
         }
     }
     

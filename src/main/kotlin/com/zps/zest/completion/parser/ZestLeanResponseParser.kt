@@ -29,7 +29,7 @@ class ZestLeanResponseParser {
         val (reasoning, completion) = extractReasoningAndCompletion(response)
         
         // Clean the completion text
-        val cleanedCompletion = cleanCompletionText(completion)
+        val cleanedCompletion = extractWrappedContent(completion)
         
         // Validate the reasoning
         val hasValidReasoning = validateReasoning(reasoning)
@@ -54,8 +54,7 @@ class ZestLeanResponseParser {
             "**Code Completion:**",
             "**Completion:**",
             "Code Completion:",
-            "Completion:",
-            "```"
+            "Completion:"
         )
         
         for (marker in completionMarkers) {
@@ -70,33 +69,81 @@ class ZestLeanResponseParser {
         // If no clear separation, treat entire response as completion
         return Pair("", response)
     }
-    
+
     /**
-     * Clean the completion text
+     * Extract content from markdown code blocks and XML tags
      */
-    private fun cleanCompletionText(completion: String): String {
-        var cleaned = completion.trim()
-        
-        // Remove markdown code blocks
-        cleaned = cleaned
-            .replace(Regex("^```[a-zA-Z]*\\s*", RegexOption.MULTILINE), "")
-            .replace(Regex("```\\s*$", RegexOption.MULTILINE), "")
-        
-        // Remove XML tags
-        val xmlTags = listOf(
-            "<code>", "</code>",
-            "<completion>", "</completion>",
-            "<reasoning>", "</reasoning>"
-        )
-        
-        xmlTags.forEach { tag ->
-            cleaned = cleaned.replace(tag, "", ignoreCase = true)
+    private fun extractWrappedContent(completion: String): String {
+        var content = completion.trim()
+
+        // Extract from markdown code blocks (```...```)
+        val markdownPattern = Regex("```[a-zA-Z]*\\s*(.+?)```", RegexOption.DOT_MATCHES_ALL)
+        val markdownMatch = markdownPattern.find(content)
+        if (markdownMatch != null) {
+            content = markdownMatch.groupValues[1].trim()
         }
-        
-        // Remove explanatory text at the end
-        cleaned = removeTrailingExplanations(cleaned)
-        
-        return cleaned.trim()
+
+        // Extract from XML tags - try each tag type
+        val xmlPatterns = listOf(
+            "<code>(.+?)</code>",
+            "<completion>(.+?)</completion>",
+            "<reasoning>(.+?)</reasoning>"
+        )
+
+        for (pattern in xmlPatterns) {
+            val xmlRegex = Regex(pattern, setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            val xmlMatch = xmlRegex.find(content)
+            if (xmlMatch != null) {
+                content = xmlMatch.groupValues[1].trim()
+                break // Use the first matching tag
+            }
+        }
+
+        // Remove any remaining wrapper artifacts
+//        content = removeTrailingExplanations(content)
+
+        return content.trim()
+    }
+
+    /**
+     * Alternative version that handles nested wrappers
+     */
+    private fun extractNestedContent(completion: String): String {
+        var content = completion.trim()
+
+        // Keep extracting until no more wrappers are found
+        var previousContent: String
+        do {
+            previousContent = content
+
+            // Try to extract from markdown code blocks
+            val markdownPattern = Regex("```[a-zA-Z]*\\s*(.+?)```", RegexOption.DOT_MATCHES_ALL)
+            val markdownMatch = markdownPattern.find(content)
+            if (markdownMatch != null) {
+                content = markdownMatch.groupValues[1].trim()
+            }
+
+            // Try to extract from XML tags
+            val xmlPatterns = listOf(
+                "<code>(.+?)</code>",
+                "<completion>(.+?)</completion>",
+                "<reasoning>(.+?)</reasoning>"
+            )
+
+            for (pattern in xmlPatterns) {
+                val xmlRegex = Regex(pattern, setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                val xmlMatch = xmlRegex.find(content)
+                if (xmlMatch != null) {
+                    content = xmlMatch.groupValues[1].trim()
+                    break
+                }
+            }
+        } while (content != previousContent) // Continue while content is changing
+
+        // Final cleanup
+//        content = removeTrailingExplanations(content)
+
+        return content.trim()
     }
     
     /**

@@ -359,136 +359,72 @@ class ZestInlineMethodDiffRenderer {
         lineDiff: WordDiffUtil.LineDiffResult
     ) {
         val config = DiffRenderingConfig.getInstance()
+        val document = context.editor.document
+        val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
+        val methodEndLine = document.getLineNumber(context.methodContext.methodEndOffset)
+        
+        // Group consecutive additions by their insertion point
+        val additionGroups = mutableMapOf<Int, MutableList<String>>()
         var totalAddedLines = 0
         
-        // Process each diff block
         for (block in lineDiff.blocks) {
-            when (block.type) {
-                WordDiffUtil.BlockType.ADDED -> {
-                    totalAddedLines += block.modifiedLines.size
-                    
-                    // Find where to insert these lines
-                    val insertAfterOriginalLine = if (block.originalStartLine > 0) {
-                        block.originalStartLine - 1
-                    } else {
-                        -1
-                    }
-                    
-                    // Calculate document line number
-                    val document = context.editor.document
-                    val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
-                    val insertAfterDocumentLine = if (insertAfterOriginalLine >= 0) {
-                        methodStartLine + insertAfterOriginalLine
-                    } else {
-                        methodStartLine - 1
-                    }
-                    
-                    // Render the added lines as ghost text
-                    if (block.modifiedLines.size == 1) {
-                        // Single line addition
-                        renderSingleLineGhostAddition(
-                            context,
-                            insertAfterDocumentLine,
-                            block.modifiedLines[0]
-                        )
-                    } else {
-                        // Multi-line addition
-                        renderMultiLineGhostAddition(
-                            context,
-                            insertAfterDocumentLine,
-                            block.modifiedLines
-                        )
-                    }
+            if (block.type == WordDiffUtil.BlockType.ADDED) {
+                totalAddedLines += block.modifiedLines.size
+                
+                val insertAfterOriginalLine = if (block.originalStartLine > 0) {
+                    block.originalStartLine - 1
+                } else {
+                    -1
                 }
-                WordDiffUtil.BlockType.UNCHANGED -> {
-                    // Nothing to do for unchanged blocks
+                
+                val insertAfterDocumentLine = if (insertAfterOriginalLine >= 0) {
+                    methodStartLine + insertAfterOriginalLine
+                } else {
+                    methodStartLine - 1
+                }
+                
+                // Ensure we don't insert beyond method boundaries
+                val clampedInsertLine = insertAfterDocumentLine.coerceIn(methodStartLine - 1, methodEndLine)
+                
+                additionGroups.getOrPut(clampedInsertLine) { mutableListOf() }.addAll(block.modifiedLines)
+            }
+        }
+        
+        // Render grouped additions
+        for ((insertAfterLine, lines) in additionGroups.entries.sortedBy { it.key }) {
+            val insertOffset = when {
+                insertAfterLine < 0 -> {
+                    context.methodContext.methodStartOffset
+                }
+                insertAfterLine >= document.lineCount -> {
+                    // Insert at method end, not document end
+                    context.methodContext.methodEndOffset
                 }
                 else -> {
-                    // Should not happen in addition-only diff
-                    logger.warn("Unexpected block type in addition-only diff: ${block.type}")
+                    val lineEnd = document.getLineEndOffset(insertAfterLine)
+                    // Ensure we don't go beyond method end
+                    lineEnd.coerceAtMost(context.methodContext.methodEndOffset)
                 }
             }
+            
+            val renderer = createMultiLineGhostTextRenderer(lines, context.editor.colorsScheme)
+            val inlay = context.editor.inlayModel.addBlockElement(
+                insertOffset,
+                insertOffset < context.methodContext.methodEndOffset, // relatesToPrecedingText
+                true, // showAbove
+                0,
+                renderer
+            )
+            
+            if (inlay != null) {
+                context.additionInlays.add(inlay)
+            }
         }
         
-        logger.info("Rendered $totalAddedLines added lines as ghost text")
+        logger.info("Rendered $totalAddedLines added lines as ghost text in ${additionGroups.size} blocks")
         
-        // Show a subtle hint about the ghost text additions
         if (config.showAdditionHint() && totalAddedLines > 0) {
             showAdditionHint(context.editor)
-        }
-        
-        // Note: No scrolling needed for ghost text as it appears inline with existing code
-    }
-    
-    /**
-     * Render single line ghost addition
-     */
-    private fun renderSingleLineGhostAddition(
-        context: RenderingContext,
-        insertAfterDocumentLine: Int,
-        addedLine: String
-    ) {
-        val document = context.editor.document
-        
-        val insertOffset = when {
-            insertAfterDocumentLine < 0 -> {
-                context.methodContext.methodStartOffset
-            }
-            insertAfterDocumentLine < document.lineCount -> {
-                document.getLineEndOffset(insertAfterDocumentLine)
-            }
-            else -> {
-                document.textLength
-            }
-        }
-        
-        val renderer = createGhostTextRenderer(addedLine, context.editor.colorsScheme)
-        val inlay = context.editor.inlayModel.addBlockElement(
-            insertOffset,
-            true,
-            true,
-            0,
-            renderer
-        )
-        
-        if (inlay != null) {
-            context.additionInlays.add(inlay)
-        }
-    }
-    
-    /**
-     * Render multi-line ghost addition
-     */
-    private fun renderMultiLineGhostAddition(
-        context: RenderingContext,
-        insertAfterDocumentLine: Int,
-        addedLines: List<String>
-    ) {
-        val document = context.editor.document
-        
-        val insertOffset = when {
-            insertAfterDocumentLine < 0 -> {
-                context.methodContext.methodStartOffset
-            }
-            insertAfterDocumentLine < document.lineCount -> {
-                document.getLineEndOffset(insertAfterDocumentLine)
-            }
-            else -> {
-                document.textLength
-            }
-        }
-        
-        val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
-        val inlay = context.editor.inlayModel.addBlockElement(
-            insertOffset,
-            true,
-            true,
-            0,
-            renderer
-        )
-        
-        if (inlay != null) {
-            context.additionInlays.add(inlay)
         }
     }
     
@@ -799,7 +735,7 @@ class ZestInlineMethodDiffRenderer {
             override fun calcHeightInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
                 val metrics = inlay.editor.contentComponent.getFontMetrics(font)
-                return lines.size * (metrics.height + 2) + 4 // Add extra padding
+                return lines.size * metrics.height + 4 // Minimal padding
             }
             
             override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
@@ -825,7 +761,7 @@ class ZestInlineMethodDiffRenderer {
                 var yPos = targetRect.y + metrics.ascent + 2
                 for (line in lines) {
                     g2d.drawString("+ $line", targetRect.x + 5, yPos)
-                    yPos += metrics.height + 2
+                    yPos += metrics.height
                 }
                 
                 g2d.composite = originalComposite

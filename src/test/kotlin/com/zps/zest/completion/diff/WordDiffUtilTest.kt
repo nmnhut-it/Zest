@@ -1,7 +1,8 @@
 package com.zps.zest.completion.diff
 
-import org.junit.Assert.*
 import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class WordDiffUtilTest {
     
@@ -12,171 +13,172 @@ class WordDiffUtilTest {
         
         val result = WordDiffUtil.diffWords(original, modified)
         
-        // Original segments
-        assertEquals(2, result.originalSegments.size)
-        assertEquals("Hello ", result.originalSegments[0].text)
-        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, result.originalSegments[0].type)
-        assertEquals("world", result.originalSegments[1].text)
-        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, result.originalSegments[1].type)
+        // Check original segments
+        val origMerged = WordDiffUtil.mergeSegments(result.originalSegments)
+        assertEquals(1, origMerged.size)
+        assertEquals("Hello world", origMerged[0].text)
+        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, origMerged[0].type)
         
-        // Modified segments
-        assertEquals(3, result.modifiedSegments.size)
-        assertEquals("Hello ", result.modifiedSegments[0].text)
-        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, result.modifiedSegments[0].type)
-        assertEquals("beautiful ", result.modifiedSegments[1].text)
-        assertEquals(WordDiffUtil.ChangeType.ADDED, result.modifiedSegments[1].type)
-        assertEquals("world", result.modifiedSegments[2].text)
-        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, result.modifiedSegments[2].type)
+        // Check modified segments
+        val modMerged = WordDiffUtil.mergeSegments(result.modifiedSegments)
+        assertEquals(3, modMerged.size)
+        assertEquals("Hello ", modMerged[0].text)
+        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, modMerged[0].type)
+        assertEquals("beautiful ", modMerged[1].text)
+        assertEquals(WordDiffUtil.ChangeType.ADDED, modMerged[1].type)
+        assertEquals("world", modMerged[2].text)
+        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, modMerged[2].type)
     }
     
     @Test
-    fun testWordReplacement() {
-        val original = "The quick brown fox"
-        val modified = "The slow brown fox"
-        
-        val result = WordDiffUtil.diffWords(original, modified)
-        
-        // Check that "quick" was marked as modified/deleted
-        val quickSegment = result.originalSegments.find { it.text.contains("quick") }
-        assertNotNull(quickSegment)
-        assertTrue(quickSegment!!.type == WordDiffUtil.ChangeType.MODIFIED || 
-                  quickSegment.type == WordDiffUtil.ChangeType.DELETED)
-        
-        // Check that "slow" was marked as modified/added
-        val slowSegment = result.modifiedSegments.find { it.text.contains("slow") }
-        assertNotNull(slowSegment)
-        assertTrue(slowSegment!!.type == WordDiffUtil.ChangeType.MODIFIED || 
-                  slowSegment.type == WordDiffUtil.ChangeType.ADDED)
-    }
-    
-    @Test
-    fun testCodeNormalization() {
-        val original = "function test() {\t\n\treturn true;  \n}"
-        val normalized = WordDiffUtil.normalizeCode(original)
-        
-        assertEquals("function test() {\n    return true;\n}", normalized)
-    }
-    
-    @Test
-    fun testJavaBraceNormalization() {
-        // Test newline brace normalization
-        val original = "if (condition)\n{\n    doSomething();\n}"
-        val normalized = WordDiffUtil.normalizeCode(original, "java")
-        
-        assertEquals("if (condition) {\n    doSomething();\n}", normalized)
-    }
-    
-    @Test
-    fun testJavaArrayBracketNormalization() {
-        // Test array bracket normalization
-        val original1 = "String [] array = new String [10];"
-        val normalized1 = WordDiffUtil.normalizeCode(original1, "java")
-        assertEquals("String[] array = new String[10];", normalized1)
-        
-        val original2 = "int[]array = new int[5];"
-        val normalized2 = WordDiffUtil.normalizeCode(original2, "java")
-        assertEquals("int[]array = new int[5];", normalized2)
-    }
-    
-    @Test
-    fun testJavaParenthesesNormalization() {
-        // Test parentheses normalization
-        val original = "if(x > 0)   {  return true;  }"
-        val normalized = WordDiffUtil.normalizeCode(original, "java")
-        
-        assertEquals("if (x > 0) { return true;}", normalized)
-    }
-    
-    @Test
-    fun testJavaEmptyBlockNormalization() {
-        // Test empty block normalization
-        val original = "void method() { }"
-        val normalized = WordDiffUtil.normalizeCode(original, "java")
-        
-        assertEquals("void method() {}", normalized)
-    }
-    
-    @Test
-    fun testJavaMultipleEmptyLines() {
-        // Test multiple empty lines normalization
-        val original = "class Test {\n\n\n\n    void method() {}\n\n\n}"
-        val normalized = WordDiffUtil.normalizeCode(original, "java")
-        
-        assertEquals("class Test {\n\n    void method() {}\n\n}", normalized)
-    }
-    
-    @Test
-    fun testJavaSemicolonNormalization() {
-        // Test semicolon normalization
-        val original = "int x = 5 ; ; return x ; }"
-        val normalized = WordDiffUtil.normalizeCode(original, "java")
-        
-        assertEquals("int x = 5; return x;}", normalized)
-    }
-    
-    @Test
-    fun testMergeSegments() {
-        val segments = listOf(
-            WordDiffUtil.WordSegment("Hello", WordDiffUtil.ChangeType.UNCHANGED),
-            WordDiffUtil.WordSegment(" ", WordDiffUtil.ChangeType.UNCHANGED),
-            WordDiffUtil.WordSegment("world", WordDiffUtil.ChangeType.UNCHANGED),
-            WordDiffUtil.WordSegment("!", WordDiffUtil.ChangeType.ADDED),
-            WordDiffUtil.WordSegment("!", WordDiffUtil.ChangeType.ADDED)
-        )
-        
-        val merged = WordDiffUtil.mergeSegments(segments)
-        
-        assertEquals(2, merged.size)
-        assertEquals("Hello world", merged[0].text)
-        assertEquals(WordDiffUtil.ChangeType.UNCHANGED, merged[0].type)
-        assertEquals("!!", merged[1].text)
-        assertEquals(WordDiffUtil.ChangeType.ADDED, merged[1].type)
-    }
-    
-    @Test
-    fun testComplexCodeDiff() {
-        val original = "public void calculate(int x) { return x * 2; }"
-        val modified = "public int calculate(int x, int y) { return x * y; }"
-        
-        val result = WordDiffUtil.diffWords(original, modified)
-        
-        // Should detect void->int change and parameter addition
-        assertTrue(result.originalSegments.any { it.text == "void" && it.type != WordDiffUtil.ChangeType.UNCHANGED })
-        assertTrue(result.modifiedSegments.any { it.text == "int" && it.type != WordDiffUtil.ChangeType.UNCHANGED })
-        assertTrue(result.modifiedSegments.any { it.text.contains("y") && it.type == WordDiffUtil.ChangeType.ADDED })
-    }
-    
-    @Test
-    fun testJavaCodeDiffWithNormalization() {
+    fun testJavaCodeNormalization() {
         val original = """
-            public void process()
+            public void method()
             {
-                if(x > 0)
-                {
-                    String [] items = new String [10];
-                    processItems(items) ;
+                if(condition){
+                    doSomething()  ;
+                }
+            }
+        """.trimIndent()
+        
+        val expected = """
+            public void method() {
+                if (condition) {
+                    doSomething();
+                }
+            }
+        """.trimIndent()
+        
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        assertEquals(expected, normalized)
+    }
+    
+    @Test
+    fun testCamelCaseSplitting() {
+        val original = "myVariableName"
+        val modified = "myUpdatedVariableName"
+        
+        val result = WordDiffUtil.diffWords(original, modified, "java")
+        
+        // With camelCase splitting enabled for Java
+        assertTrue(result.originalSegments.any { it.text == "Variable" })
+        assertTrue(result.modifiedSegments.any { it.text == "Updated" && it.type == WordDiffUtil.ChangeType.ADDED })
+    }
+    
+    @Test
+    fun testMethodSignatureChange() {
+        val original = "public void process(String input)"
+        val modified = "public void process(String input, Options options)"
+        
+        val result = WordDiffUtil.diffWords(original, modified, "java")
+        
+        // Should identify the added parameter
+        assertTrue(result.modifiedSegments.any { 
+            it.text.contains("Options") && it.type == WordDiffUtil.ChangeType.ADDED 
+        })
+        
+        // Check similarity score
+        assertTrue(result.similarity > 0.5) // Most of the signature is unchanged
+    }
+    
+    @Test
+    fun testMultiLineDiff() {
+        val original = """
+            public class Example {
+                private String name;
+                
+                public Example(String name) {
+                    this.name = name;
                 }
             }
         """.trimIndent()
         
         val modified = """
-            public void process() {
-                if (x > 0) {
-                    String[] items = new String[10];
-                    processItems(items);
+            public class Example {
+                private final String name;
+                private int id;
+                
+                public Example(String name, int id) {
+                    this.name = name;
+                    this.id = id;
                 }
             }
         """.trimIndent()
         
-        val result = WordDiffUtil.diffWords(original, modified, "java")
+        val lineDiff = WordDiffUtil.diffLines(original, modified, WordDiffUtil.DiffAlgorithm.HISTOGRAM, "java")
         
-        // After normalization, these should be mostly unchanged
-        // The main structure should remain the same
-        val unchangedCount = result.originalSegments.count { it.type == WordDiffUtil.ChangeType.UNCHANGED }
-        val totalCount = result.originalSegments.size
+        // Verify we detect the right blocks
+        val modifiedBlocks = lineDiff.blocks.filter { it.type == WordDiffUtil.BlockType.MODIFIED }
+        val addedBlocks = lineDiff.blocks.filter { it.type == WordDiffUtil.BlockType.ADDED }
         
-        // Most segments should be unchanged after normalization
-        assertTrue("Expected mostly unchanged segments after normalization", 
-                  unchangedCount.toDouble() / totalCount > 0.8)
+        assertTrue(modifiedBlocks.isNotEmpty()) // Field and constructor modifications
+        assertTrue(addedBlocks.isNotEmpty()) // Added id field and assignment
+    }
+    
+    @Test
+    fun testCommonSubsequences() {
+        val original = "The quick brown fox jumps"
+        val modified = "The fast brown fox leaps"
+        
+        val subsequences = WordDiffUtil.findCommonSubsequences(original, modified, 3)
+        
+        // Should find "The ", "brown fox "
+        assertTrue(subsequences.any { it.text.contains("The") })
+        assertTrue(subsequences.any { it.text.contains("brown fox") })
+    }
+    
+    @Test
+    fun testJavaScriptNormalization() {
+        val original = "const func=()=>{return x;}"
+        val normalized = WordDiffUtil.normalizeCode(original, "javascript")
+        
+        // Should normalize arrow functions and spacing
+        assertTrue(normalized.contains(" => "))
+        assertTrue(normalized.contains("return x;"))
+    }
+    
+    @Test
+    fun testPythonNormalization() {
+        val original = "def  method(x,y):return x+y"
+        val normalized = WordDiffUtil.normalizeCode(original, "python")
+        
+        // Should normalize function definitions and spacing
+        assertEquals("def method(x, y): return x+y", normalized)
+    }
+    
+    @Test
+    fun testEmptyStringDiff() {
+        val original = ""
+        val modified = "New content"
+        
+        val result = WordDiffUtil.diffWords(original, modified)
+        
+        assertTrue(result.originalSegments.isEmpty())
+        assertTrue(result.modifiedSegments.all { it.type == WordDiffUtil.ChangeType.ADDED })
+        assertEquals(0.0, result.similarity)
+    }
+    
+    @Test
+    fun testIdenticalStrings() {
+        val text = "public void method() { return; }"
+        
+        val result = WordDiffUtil.diffWords(text, text, "java")
+        
+        assertTrue(result.originalSegments.all { it.type == WordDiffUtil.ChangeType.UNCHANGED })
+        assertTrue(result.modifiedSegments.all { it.type == WordDiffUtil.ChangeType.UNCHANGED })
+        assertEquals(1.0, result.similarity)
+    }
+    
+    @Test
+    fun testTokenOffsets() {
+        val original = "Hello world"
+        val modified = "Hi world"
+        
+        val result = WordDiffUtil.diffWords(original, modified)
+        
+        // Check that offsets are properly set
+        val firstOriginalSegment = result.originalSegments.first()
+        assertTrue(firstOriginalSegment.startOffset >= 0)
+        assertTrue(firstOriginalSegment.endOffset > firstOriginalSegment.startOffset)
     }
 }

@@ -13,6 +13,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.completion.diff.DiffRenderingConfig
+import com.zps.zest.completion.diff.MultiLineDiffRenderer
 import com.zps.zest.completion.diff.WordDiffUtil
 import com.zps.zest.gdiff.GDiff
 import java.awt.AlphaComposite
@@ -20,6 +22,7 @@ import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -201,39 +204,200 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Render diff changes using GDiff results
+     * Render diff changes using GDiff results with multi-line support
      */
     private fun renderDiffChanges(context: RenderingContext) {
         val document = context.editor.document
-        val originalLines = context.methodContext.methodContent.lines()
-        val rewrittenLines = context.rewrittenMethod.lines()
+        val originalText = context.methodContext.methodContent
+        val modifiedText = context.rewrittenMethod
+        val config = DiffRenderingConfig.getInstance()
         
-        // Simple line-by-line diff rendering
-        // For more sophisticated rendering, we'd parse the GDiff.DiffResult
-        val maxLines = maxOf(originalLines.size, rewrittenLines.size)
-        var methodLineOffset = 0
+        // Perform line-level diff to identify change blocks
+        val lineDiff = WordDiffUtil.diffLines(
+            originalText, 
+            modifiedText,
+            config.getDiffAlgorithm(),
+            context.methodContext.language
+        )
         
-        for (i in 0 until maxLines) {
-            val originalLine = originalLines.getOrNull(i)
-            val rewrittenLine = rewrittenLines.getOrNull(i)
-            
-            when {
-                originalLine != null && rewrittenLine != null && originalLine != rewrittenLine -> {
-                    // Modified line - show side-by-side with word diff
-                    renderLineModification(context, i, originalLine, rewrittenLine, methodLineOffset)
+        // Process each diff block
+        var currentOriginalLine = 0
+        val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
+        
+        for (block in lineDiff.blocks) {
+            when (block.type) {
+                WordDiffUtil.BlockType.MODIFIED -> {
+                    // Check if this is a multi-line modification based on config
+                    if (config.shouldRenderAsMultiLine(block.originalLines.size, block.modifiedLines.size)) {
+                        // Render as multi-line block
+                        renderMultiLineBlock(context, block, methodStartLine + currentOriginalLine)
+                        currentOriginalLine += block.originalLines.size
+                    } else {
+                        // Single line modification - use existing renderer
+                        renderLineModification(
+                            context,
+                            currentOriginalLine,
+                            block.originalLines.firstOrNull() ?: "",
+                            block.modifiedLines.firstOrNull() ?: "",
+                            currentOriginalLine
+                        )
+                        currentOriginalLine++
+                    }
                 }
-                originalLine != null && rewrittenLine == null -> {
-                    // Deleted line
-                    renderLineDeletion(context, i, originalLine, methodLineOffset)
+                WordDiffUtil.BlockType.DELETED -> {
+                    // Render each deleted line
+                    block.originalLines.forEachIndexed { index, line ->
+                        renderLineDeletion(context, currentOriginalLine + index, line, currentOriginalLine + index)
+                    }
+                    currentOriginalLine += block.originalLines.size
                 }
-                originalLine == null && rewrittenLine != null -> {
-                    // Added line
-                    renderLineAddition(context, i, rewrittenLine, methodLineOffset)
+                WordDiffUtil.BlockType.ADDED -> {
+                    // Render added lines as a block if multiple, otherwise single
+                    if (block.modifiedLines.size > 1) {
+                        renderMultiLineAddition(context, block.modifiedLines, methodStartLine + currentOriginalLine)
+                    } else {
+                        block.modifiedLines.forEach { line ->
+                            renderLineAddition(context, currentOriginalLine, line, currentOriginalLine)
+                        }
+                    }
                 }
-                // Unchanged lines don't need special rendering
+                WordDiffUtil.BlockType.UNCHANGED -> {
+                    // Skip unchanged lines
+                    currentOriginalLine += block.originalLines.size
+                }
+            }
+        }
+    }
+    
+    /**
+     * Render a multi-line modification block with side-by-side view
+     */
+    private fun renderMultiLineBlock(
+        context: RenderingContext,
+        block: WordDiffUtil.DiffBlock,
+        documentLineNumber: Int
+    ) {
+        val document = context.editor.document
+        
+        if (documentLineNumber >= 0 && documentLineNumber < document.lineCount) {
+            // Hide all original lines in the block
+            val startOffset = document.getLineStartOffset(documentLineNumber)
+            val endOffset = if (documentLineNumber + block.originalLines.size - 1 < document.lineCount) {
+                document.getLineEndOffset(documentLineNumber + block.originalLines.size - 1)
+            } else {
+                document.textLength
             }
             
-            if (originalLine != null) methodLineOffset++
+            // Hide the entire block
+            val hideHighlighter = context.editor.markupModel.addRangeHighlighter(
+                startOffset,
+                endOffset,
+                HighlighterLayer.LAST + 100,
+                TextAttributes().apply {
+                    foregroundColor = context.editor.colorsScheme.defaultBackground
+                    backgroundColor = context.editor.colorsScheme.defaultBackground
+                },
+                HighlighterTargetArea.EXACT_RANGE
+            )
+            context.deletionHighlighters.add(hideHighlighter)
+            
+            // Create multi-line side-by-side renderer
+            val renderer = MultiLineDiffRenderer(
+                block.originalLines,
+                block.modifiedLines,
+                context.editor.colorsScheme,
+                context.methodContext.language
+            )
+            
+            // Add inlay at the end of the block
+            val inlay = context.editor.inlayModel.addBlockElement(
+                endOffset,
+                true,
+                false,
+                0,
+                renderer
+            )
+            
+            if (inlay != null) {
+                context.additionInlays.add(inlay)
+            }
+        }
+    }
+    
+    /**
+     * Render a multi-line addition block
+     */
+    private fun renderMultiLineAddition(
+        context: RenderingContext,
+        addedLines: List<String>,
+        documentLineNumber: Int
+    ) {
+        val document = context.editor.document
+        
+        if (documentLineNumber >= 0 && documentLineNumber <= document.lineCount) {
+            val insertOffset = if (documentLineNumber < document.lineCount) {
+                document.getLineStartOffset(documentLineNumber)
+            } else {
+                document.textLength
+            }
+            
+            // Create a block renderer for all added lines
+            val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
+            val inlay = context.editor.inlayModel.addBlockElement(
+                insertOffset,
+                true,
+                false,
+                0,
+                renderer
+            )
+            
+            if (inlay != null) {
+                context.additionInlays.add(inlay)
+            }
+        }
+    }
+    
+    /**
+     * Create renderer for multiple ghost text lines
+     */
+    private fun createMultiLineGhostTextRenderer(lines: List<String>, scheme: EditorColorsScheme): EditorCustomElementRenderer {
+        return object : EditorCustomElementRenderer {
+            override fun calcWidthInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                return lines.maxOfOrNull { metrics.stringWidth("+ $it") } ?: 0
+            }
+            
+            override fun calcHeightInPixels(inlay: Inlay<*>): Int {
+                val font = getEditorFont(inlay.editor)
+                val metrics = inlay.editor.contentComponent.getFontMetrics(font)
+                return lines.size * (metrics.height + 2)
+            }
+            
+            override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
+                val font = getEditorFont(inlay.editor)
+                g2d.font = font
+                val metrics = g2d.fontMetrics
+                
+                // Clear background
+                g2d.color = scheme.defaultBackground
+                g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
+                
+                // Draw each line as ghost text
+                val originalComposite = g2d.composite
+                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                g2d.color = getGhostTextColor(scheme)
+                
+                var yPos = targetRect.y + metrics.ascent
+                for (line in lines) {
+                    g2d.drawString("+ $line", targetRect.x + 5, yPos)
+                    yPos += metrics.height + 2
+                }
+                
+                g2d.composite = originalComposite
+            }
         }
     }
     
@@ -386,6 +550,7 @@ class ZestInlineMethodDiffRenderer {
     ): EditorCustomElementRenderer {
         // Perform word-level diff with language-specific normalization
         val wordDiff = WordDiffUtil.diffWords(originalLine, modifiedLine, language)
+        val config = DiffRenderingConfig.getInstance()
         
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
@@ -412,6 +577,10 @@ class ZestInlineMethodDiffRenderer {
                 g2d.font = font
                 val metrics = g2d.fontMetrics
                 
+                // Enable antialiasing for better text rendering
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                
                 // Use theme background
                 g2d.color = scheme.defaultBackground
                 g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
@@ -419,40 +588,56 @@ class ZestInlineMethodDiffRenderer {
                 var xPos = targetRect.x + 5
                 val yPos = targetRect.y + metrics.ascent + 2
                 
-                // Draw original segments with highlighting
-                val originalSegments = WordDiffUtil.mergeSegments(wordDiff.originalSegments)
-                for (segment in originalSegments) {
-                    when (segment.type) {
-                        WordDiffUtil.ChangeType.DELETED, WordDiffUtil.ChangeType.MODIFIED -> {
-                            // Draw background highlight
-                            val segmentWidth = metrics.stringWidth(segment.text)
-                            g2d.color = JBColor(
-                                java.awt.Color(255, 220, 220),
-                                java.awt.Color(92, 22, 36)
-                            )
-                            g2d.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
-                            
-                            // Draw text with strikethrough
-                            g2d.color = scheme.defaultForeground
-                            g2d.drawString(segment.text, xPos, yPos)
-                            
-                            // Draw strikethrough
-                            g2d.color = JBColor(
-                                java.awt.Color(255, 85, 85),
-                                java.awt.Color(248, 81, 73)
-                            )
-                            val strikeY = yPos - metrics.height / 3
-                            g2d.drawLine(xPos, strikeY, xPos + segmentWidth, strikeY)
-                            
-                            xPos += segmentWidth
-                        }
-                        else -> {
-                            // Draw unchanged text
-                            g2d.color = scheme.defaultForeground
-                            g2d.drawString(segment.text, xPos, yPos)
-                            xPos += metrics.stringWidth(segment.text)
+                // Draw original segments with highlighting if word diff is enabled
+                if (config.isWordLevelDiffEnabled()) {
+                    val originalSegments = WordDiffUtil.mergeSegments(wordDiff.originalSegments)
+                    for (segment in originalSegments) {
+                        when (segment.type) {
+                            WordDiffUtil.ChangeType.DELETED, WordDiffUtil.ChangeType.MODIFIED -> {
+                                // Draw background highlight
+                                val segmentWidth = metrics.stringWidth(segment.text)
+                                g2d.color = JBColor(
+                                    java.awt.Color(255, 220, 220),
+                                    java.awt.Color(92, 22, 36)
+                                )
+                                g2d.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
+                                
+                                // Draw text with strikethrough
+                                g2d.color = scheme.defaultForeground
+                                g2d.drawString(segment.text, xPos, yPos)
+                                
+                                // Draw strikethrough
+                                g2d.color = JBColor(
+                                    java.awt.Color(255, 85, 85),
+                                    java.awt.Color(248, 81, 73)
+                                )
+                                val strikeY = yPos - metrics.height / 3
+                                g2d.drawLine(xPos, strikeY, xPos + segmentWidth, strikeY)
+                                
+                                xPos += segmentWidth
+                            }
+                            else -> {
+                                // Draw unchanged text
+                                g2d.color = scheme.defaultForeground
+                                g2d.drawString(segment.text, xPos, yPos)
+                                xPos += metrics.stringWidth(segment.text)
+                            }
                         }
                     }
+                } else {
+                    // Draw entire line with strikethrough if word diff is disabled
+                    val lineWidth = metrics.stringWidth(originalLine)
+                    g2d.color = getDeletionBackgroundColor()
+                    g2d.fillRect(xPos, targetRect.y, lineWidth, targetRect.height)
+                    
+                    g2d.color = scheme.defaultForeground
+                    g2d.drawString(originalLine, xPos, yPos)
+                    
+                    g2d.color = getDeletionEffectColor()
+                    val strikeY = yPos - metrics.height / 3
+                    g2d.drawLine(xPos, strikeY, xPos + lineWidth, strikeY)
+                    
+                    xPos += lineWidth
                 }
                 
                 // Draw arrow
@@ -461,34 +646,68 @@ class ZestInlineMethodDiffRenderer {
                 xPos += metrics.stringWidth(" → ")
                 
                 // Draw modified segments as ghost text
-                val modifiedSegments = WordDiffUtil.mergeSegments(wordDiff.modifiedSegments)
-                
-                // Set up ghost text rendering
                 val originalComposite = g2d.composite
-                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                val ghostAlpha = config.getGhostTextAlpha(!JBColor.isBright())
                 
-                for (segment in modifiedSegments) {
-                    when (segment.type) {
-                        WordDiffUtil.ChangeType.ADDED, WordDiffUtil.ChangeType.MODIFIED -> {
-                            // Draw as ghost text (semi-transparent)
-                            g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
-                            g2d.color = getGhostTextColor(scheme)
-                            g2d.drawString(segment.text, xPos, yPos)
-                            g2d.composite = originalComposite
-                            xPos += metrics.stringWidth(segment.text)
-                        }
-                        else -> {
-                            // Draw unchanged text as ghost too for consistency
-                            g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
-                            g2d.color = scheme.defaultForeground
-                            g2d.drawString(segment.text, xPos, yPos)
-                            g2d.composite = originalComposite
-                            xPos += metrics.stringWidth(segment.text)
+                if (config.isWordLevelDiffEnabled()) {
+                    val modifiedSegments = WordDiffUtil.mergeSegments(wordDiff.modifiedSegments)
+                    
+                    for (segment in modifiedSegments) {
+                        when (segment.type) {
+                            WordDiffUtil.ChangeType.ADDED, WordDiffUtil.ChangeType.MODIFIED -> {
+                                // Draw as highlighted ghost text
+                                g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                                g2d.color = getGhostTextColor(scheme)
+                                g2d.drawString(segment.text, xPos, yPos)
+                                g2d.composite = originalComposite
+                                xPos += metrics.stringWidth(segment.text)
+                            }
+                            else -> {
+                                // Draw unchanged text as ghost too for consistency
+                                g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                                g2d.color = scheme.defaultForeground
+                                g2d.drawString(segment.text, xPos, yPos)
+                                g2d.composite = originalComposite
+                                xPos += metrics.stringWidth(segment.text)
+                            }
                         }
                     }
+                } else {
+                    // Draw entire modified line as ghost text
+                    g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                    g2d.color = getGhostTextColor(scheme)
+                    g2d.drawString(modifiedLine, xPos, yPos)
+                    g2d.composite = originalComposite
                 }
+                
+                // Show similarity score in debug mode (commented out for production)
+                // if (wordDiff.similarity < 0.5) {
+                //     g2d.color = Color.GRAY
+                //     g2d.font = font.deriveFont(font.size * 0.8f)
+                //     g2d.drawString(" (${(wordDiff.similarity * 100).toInt()}%)", xPos + 10, yPos)
+                // }
             }
         }
+    }
+    
+    /**
+     * Get deletion background color based on theme
+     */
+    private fun getDeletionBackgroundColor(): java.awt.Color {
+        return JBColor(
+            java.awt.Color(255, 220, 220), // Light theme
+            java.awt.Color(92, 22, 36)     // Dark theme
+        )
+    }
+    
+    /**
+     * Get deletion effect color based on theme
+     */
+    private fun getDeletionEffectColor(): java.awt.Color {
+        return JBColor(
+            java.awt.Color(255, 85, 85),   // Light theme
+            java.awt.Color(248, 81, 73)    // Dark theme
+        )
     }
     
     /**

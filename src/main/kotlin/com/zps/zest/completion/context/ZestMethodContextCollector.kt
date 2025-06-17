@@ -97,6 +97,11 @@ class ZestMethodContextCollector(private val project: Project) {
         val methodStartOffset = psiMethod.textRange.startOffset
         val methodEndOffset = psiMethod.textRange.endOffset
         
+        // Log for debugging
+        logger.debug("PSI Method boundaries: start=$methodStartOffset, end=$methodEndOffset")
+        logger.debug("PSI Method content length: ${methodContent.length}")
+        logger.debug("PSI Method ends with: '${methodContent.takeLast(10).replace("\n", "\\n")}'")
+        
         // Get method signature
         val methodSignature = extractMethodSignature(methodContent)
         
@@ -184,9 +189,35 @@ class ZestMethodContextCollector(private val project: Project) {
         if (methodBoundaries == null) return null
         
         val (startLine, endLine) = methodBoundaries
-        val methodContent = lines.subList(startLine, endLine + 1).joinToString("\n")
-        val methodStartOffset = lines.take(startLine).sumOf { it.length + 1 }
+        
+        // Calculate offsets more accurately
+        var methodStartOffset = 0
+        for (i in 0 until startLine) {
+            methodStartOffset += lines[i].length + 1 // +1 for newline
+        }
+        
+        // Build method content preserving exact text including trailing characters
+        val methodLines = lines.subList(startLine, endLine + 1)
+        val methodContent = if (endLine < lines.size - 1) {
+            // Not the last line in file, include newline
+            methodLines.joinToString("\n") + "\n"
+        } else {
+            // Last line in file, check if original has trailing newline
+            val lastLineEnd = methodStartOffset + methodLines.dropLast(1).sumOf { it.length + 1 } + methodLines.last().length
+            if (lastLineEnd < text.length && text[lastLineEnd] == '\n') {
+                methodLines.joinToString("\n") + "\n"
+            } else {
+                methodLines.joinToString("\n")
+            }
+        }
+        
         val methodEndOffset = methodStartOffset + methodContent.length
+        
+        // Log for debugging
+        logger.debug("Method boundaries: start=$methodStartOffset, end=$methodEndOffset, content length=${methodContent.length}")
+        logger.debug("Method ends with: '${methodContent.takeLast(10).replace("\n", "\\n")}'")
+        logger.debug("Original text at end offset: '${if (methodEndOffset < text.length) text.substring(methodEndOffset, minOf(methodEndOffset + 5, text.length)).replace("\n", "\\n") else "EOF"}'")
+
         
         // Extract method name and signature
         val methodSignature = extractMethodSignature(methodContent)

@@ -6,6 +6,9 @@ package com.zps.zest.completion.diff
 fun main() {
     println("Testing WordDiffUtil...")
     
+    // Test the missing lines issue
+    testMissingLinesIssue()
+    
     // Test 1: Simple word diff
     val original = "Hello world"
     val modified = "Hello beautiful world"
@@ -63,4 +66,50 @@ fun main() {
     }
     
     println("\nAll tests completed!")
+}
+
+fun testMissingLinesIssue() {
+    println("\n=== Testing Missing Lines Issue ===")
+    
+    val original = """private String userIdToken(Long userId) {
+    if (userId == null) {
+        throw new IllegalArgumentException("User ID cannot be null");
+    }
+    return leaderboardKey + ":" + userId;
+}"""
+    
+    val modified = """private String userIdToken(Long userId) {
+    if (userId == null) {
+        throw new IllegalArgumentException("User ID cannot be null");
+    }
+    return leaderboardKey + ":" + userId;
+}"""
+    
+    println("Original has ${original.lines().size} lines:")
+    original.lines().forEachIndexed { idx, line ->
+        println("  [$idx] '$line'")
+    }
+    
+    println("\nModified has ${modified.lines().size} lines:")
+    modified.lines().forEachIndexed { idx, line ->
+        println("  [$idx] '$line'")
+    }
+    
+    val diff = WordDiffUtil.diffLines(original, modified)
+    println("\nDiff blocks: ${diff.blocks.size}")
+    diff.blocks.forEachIndexed { idx, block ->
+        println("\nBlock $idx: ${block.type}")
+        println("  Original lines ${block.originalStartLine}-${block.originalEndLine}")
+        println("  Modified lines ${block.modifiedStartLine}-${block.modifiedEndLine}")
+        println("  Original content: ${block.originalLines.size} lines")
+        println("  Modified content: ${block.modifiedLines.size} lines")
+    }
+    
+    // Check which lines are covered
+    val maxOriginalLine = diff.blocks.maxOfOrNull { it.originalEndLine } ?: -1
+    println("\nMax original line covered: $maxOriginalLine")
+    println("Total original lines: ${original.lines().size}")
+    if (maxOriginalLine < original.lines().size - 1) {
+        println("WARNING: Missing lines! Only covered up to line $maxOriginalLine but have ${original.lines().size} lines")
+    }
 }

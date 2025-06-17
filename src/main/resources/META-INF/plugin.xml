@@ -335,5 +335,14 @@
             <add-to-group group-id="EditorTabPopupMenu" anchor="after" relative-to-action="CompareFiles"/>
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.StartAgentProxyServer"/>
         </action>
+        
+        <!-- Test Actions -->
+        <action id="Zest.TestDiffRendering"
+                class="com.zps.zest.completion.actions.TestDiffRenderingAction"
+                text="Test Diff Rendering"
+                icon="AllIcons.Actions.Preview"
+                description="Test the diff rendering fixes for side-by-side view and missing lines">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GDiff.CompareFiles"/>
+        </action>
     </actions>
 </idea-plugin>

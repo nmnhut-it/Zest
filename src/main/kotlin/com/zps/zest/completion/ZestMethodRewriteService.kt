@@ -517,6 +517,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         val closingChars = StringBuilder()
         
         // Extract trailing closing characters (}, ], ), ;) and whitespace
+        // But preserve the last newline if it exists
+        val originalEndsWithNewline = code.endsWith("\n")
+        
         while (stripped.isNotEmpty()) {
             val lastChar = stripped.last()
             if (lastChar in "}]);" || lastChar.isWhitespace()) {
@@ -525,6 +528,11 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             } else {
                 break
             }
+        }
+        
+        // If original ended with newline, ensure we preserve it
+        if (originalEndsWithNewline && !closingChars.toString().endsWith("\n")) {
+            closingChars.append("\n")
         }
         
         return Pair(stripped, closingChars.toString())

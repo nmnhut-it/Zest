@@ -10,12 +10,15 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.markup.*
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.TextRange
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.diff.DiffDebugUtil
 import com.zps.zest.completion.diff.DiffRenderingConfig
 import com.zps.zest.completion.diff.MultiLineDiffRenderer
+import com.zps.zest.completion.diff.SideBySideMethodDiffRenderer
+import com.zps.zest.completion.diff.WholeMethodDiffRenderer
 import com.zps.zest.completion.diff.WordDiffUtil
 import com.zps.zest.gdiff.GDiff
 import java.awt.AlphaComposite
@@ -32,6 +35,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ZestInlineMethodDiffRenderer {
     private val logger = Logger.getInstance(ZestInlineMethodDiffRenderer::class.java)
+    
+    companion object {
+        // Enable debug logging to diagnose missing last line issue
+        private const val DEBUG_DIFF_RENDERING = true
+    }
     
     // State management
     private var currentRenderingContext: RenderingContext? = null
@@ -205,7 +213,21 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Render diff changes using GDiff results with multi-line support
+     * Render diff changes using either side-by-side or color-coded view
+     * 
+     * Side-by-side view (default):
+     * 1. Hides the entire original method in the editor
+     * 2. Shows a side-by-side comparison below:
+     *    - Left column: Original method with line numbers
+     *    - Right column: New method with line numbers
+     * 3. Uses subtle background colors to indicate changes
+     * 
+     * Color-coded view (alternative):
+     * 1. Hides the entire original method
+     * 2. Shows the complete new method in a single block
+     * 3. Uses color coding with indicators (+, ~) for changes
+     * 
+     * The view mode is controlled by the DiffRenderingConfig.useSideBySideView setting.
      */
     private fun renderDiffChanges(context: RenderingContext) {
         val document = context.editor.document
@@ -222,86 +244,69 @@ class ZestInlineMethodDiffRenderer {
         )
         
         // Debug logging if enabled
-        if (logger.isDebugEnabled) {
+        if (DEBUG_DIFF_RENDERING || logger.isDebugEnabled) {
+            logger.info("=== Original method content ===")
+            originalText.lines().forEachIndexed { idx, line ->
+                logger.info("Original[$idx]: '$line'")
+            }
+            logger.info("=== Modified method content ===")
+            modifiedText.lines().forEachIndexed { idx, line ->
+                logger.info("Modified[$idx]: '$line'")
+            }
+            
             DiffDebugUtil.logDiffDetails(originalText, modifiedText, lineDiff, context.methodContext.methodName)
-            logger.debug("Diff visualization:\n${DiffDebugUtil.createDiffVisualization(lineDiff)}")
         }
         
-        // Process each diff block
-        val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
-        val methodEndLine = document.getLineNumber(context.methodContext.methodEndOffset)
+        // Hide the entire original method
+        val methodStartOffset = context.methodContext.methodStartOffset
+        val methodEndOffset = context.methodContext.methodEndOffset
         
-        logger.info("Method ${context.methodContext.methodName} spans lines $methodStartLine-$methodEndLine")
+        if (methodStartOffset < methodEndOffset) {
+            val hideHighlighter = context.editor.markupModel.addRangeHighlighter(
+                methodStartOffset,
+                methodEndOffset,
+                HighlighterLayer.LAST + 100,
+                TextAttributes().apply {
+                    foregroundColor = context.editor.colorsScheme.defaultBackground
+                    backgroundColor = context.editor.colorsScheme.defaultBackground
+                },
+                HighlighterTargetArea.EXACT_RANGE
+            )
+            context.deletionHighlighters.add(hideHighlighter)
+        }
         
-        for (block in lineDiff.blocks) {
-            // Validate block position
-            if (!DiffDebugUtil.validateLinePositions(
-                    document,
-                    context.methodContext.methodStartOffset,
-                    context.methodContext.methodEndOffset,
-                    block.originalStartLine,
-                    block.originalLines.size
-                )) {
-                logger.warn("Skipping invalid block: ${block.type} at line ${block.originalStartLine}")
-                continue
-            }
-            
-            val blockStartInDocument = methodStartLine + block.originalStartLine
-            
-            when (block.type) {
-                WordDiffUtil.BlockType.MODIFIED -> {
-                    // Check if this is a multi-line modification based on config
-                    if (config.shouldRenderAsMultiLine(block.originalLines.size, block.modifiedLines.size)) {
-                        // Render as multi-line block
-                        renderMultiLineBlock(context, block, blockStartInDocument)
-                    } else {
-                        // Single line modification - use existing renderer
-                        renderLineModification(
-                            context,
-                            block.originalStartLine,
-                            block.originalLines.firstOrNull() ?: "",
-                            block.modifiedLines.firstOrNull() ?: "",
-                            block.originalStartLine
-                        )
-                    }
-                }
-                WordDiffUtil.BlockType.DELETED -> {
-                    // Render each deleted line
-                    block.originalLines.forEachIndexed { index, line ->
-                        renderLineDeletion(
-                            context, 
-                            block.originalStartLine + index, 
-                            line, 
-                            block.originalStartLine + index
-                        )
-                    }
-                }
-                WordDiffUtil.BlockType.ADDED -> {
-                    // For additions, determine the correct insertion point
-                    // Additions should appear after the line they're associated with
-                    val insertionPoint = if (block.originalStartLine > 0) {
-                        // Insert after the previous line in the original
-                        methodStartLine + block.originalStartLine - 1
-                    } else {
-                        // Insert at the beginning of the method
-                        methodStartLine - 1
-                    }
-                    
-                    logger.info("Adding ${block.modifiedLines.size} lines after document line $insertionPoint")
-                    
-                    if (block.modifiedLines.size > 1) {
-                        renderMultiLineAddition(context, block.modifiedLines, insertionPoint + 1)
-                    } else {
-                        block.modifiedLines.forEach { line ->
-                            renderLineAddition(context, insertionPoint + 1, line, block.originalStartLine)
-                        }
-                    }
-                }
-                WordDiffUtil.BlockType.UNCHANGED -> {
-                    // Skip unchanged lines
-                    logger.debug("Skipping ${block.originalLines.size} unchanged lines")
-                }
-            }
+        // Create renderer based on user preference
+        val renderer = if (config.useSideBySideView()) {
+            createSideBySideMethodRenderer(
+                originalText.lines(),
+                modifiedText.lines(), 
+                lineDiff,
+                context.editor.colorsScheme,
+                context.methodContext.language
+            )
+        } else {
+            createWholeMethodRenderer(
+                originalText.lines(),
+                modifiedText.lines(), 
+                lineDiff,
+                context.editor.colorsScheme,
+                context.methodContext.language
+            )
+        }
+        
+        // Insert the new method rendering after the hidden original
+        val inlay = context.editor.inlayModel.addBlockElement(
+            methodEndOffset,
+            true,
+            false,
+            0,
+            renderer
+        )
+        
+        if (inlay != null) {
+            context.additionInlays.add(inlay)
+            val viewType = if (config.useSideBySideView()) "side-by-side" else "color-coded"
+            logger.info("Successfully rendered $viewType method diff")
         }
     }
     
@@ -316,38 +321,64 @@ class ZestInlineMethodDiffRenderer {
         val document = context.editor.document
         
         if (documentLineNumber >= 0 && documentLineNumber < document.lineCount) {
-            // Hide all original lines in the block
-            val startOffset = document.getLineStartOffset(documentLineNumber)
-            val endOffset = if (documentLineNumber + block.originalLines.size - 1 < document.lineCount) {
-                document.getLineEndOffset(documentLineNumber + block.originalLines.size - 1)
-            } else {
-                document.textLength
+            // Only hide original lines if there are any
+            if (block.originalLines.isNotEmpty()) {
+                // Hide all original lines in the block
+                val startOffset = document.getLineStartOffset(documentLineNumber)
+                val endLineNumber = documentLineNumber + block.originalLines.size - 1
+                val endOffset = if (endLineNumber < document.lineCount) {
+                    document.getLineEndOffset(endLineNumber)
+                } else {
+                    document.textLength
+                }
+                
+                // Ensure valid offsets
+                if (startOffset <= endOffset) {
+                    // Hide the entire block
+                    val hideHighlighter = context.editor.markupModel.addRangeHighlighter(
+                        startOffset,
+                        endOffset,
+                        HighlighterLayer.LAST + 100,
+                        TextAttributes().apply {
+                            foregroundColor = context.editor.colorsScheme.defaultBackground
+                            backgroundColor = context.editor.colorsScheme.defaultBackground
+                        },
+                        HighlighterTargetArea.EXACT_RANGE
+                    )
+                    context.deletionHighlighters.add(hideHighlighter)
+                }
             }
             
-            // Hide the entire block
-            val hideHighlighter = context.editor.markupModel.addRangeHighlighter(
-                startOffset,
-                endOffset,
-                HighlighterLayer.LAST + 100,
-                TextAttributes().apply {
-                    foregroundColor = context.editor.colorsScheme.defaultBackground
-                    backgroundColor = context.editor.colorsScheme.defaultBackground
-                },
-                HighlighterTargetArea.EXACT_RANGE
-            )
-            context.deletionHighlighters.add(hideHighlighter)
+            // Determine the insertion offset for the inlay
+            val inlayOffset = if (block.originalLines.isNotEmpty()) {
+                // Insert after the last original line
+                val endLineNumber = documentLineNumber + block.originalLines.size - 1
+                if (endLineNumber < document.lineCount) {
+                    document.getLineEndOffset(endLineNumber)
+                } else {
+                    document.textLength
+                }
+            } else {
+                // For pure additions, insert at the current position
+                if (documentLineNumber > 0) {
+                    document.getLineEndOffset(documentLineNumber - 1)
+                } else {
+                    0
+                }
+            }
             
             // Create multi-line side-by-side renderer
             val renderer = MultiLineDiffRenderer(
                 block.originalLines,
                 block.modifiedLines,
                 context.editor.colorsScheme,
-                context.methodContext.language
+                context.methodContext.language,
+                isUnchanged = (block.type == WordDiffUtil.BlockType.UNCHANGED)
             )
             
-            // Add inlay at the end of the block
+            // Add inlay at the calculated offset
             val inlay = context.editor.inlayModel.addBlockElement(
-                endOffset,
+                inlayOffset,
                 true,
                 false,
                 0,
@@ -386,8 +417,15 @@ class ZestInlineMethodDiffRenderer {
             }
         }
         
-        // Create a block renderer for all added lines
-        val renderer = createMultiLineGhostTextRenderer(addedLines, context.editor.colorsScheme)
+        // Use MultiLineDiffRenderer for consistency with modifications
+        val renderer = MultiLineDiffRenderer(
+            emptyList(), // No original lines for pure additions
+            addedLines,
+            context.editor.colorsScheme,
+            context.methodContext.language,
+            isUnchanged = false
+        )
+        
         val inlay = context.editor.inlayModel.addBlockElement(
             insertOffset,
             true,  // relatesToPrecedingText
@@ -554,13 +592,9 @@ class ZestInlineMethodDiffRenderer {
                     // Insert at the beginning of the document
                     0
                 }
-                insertAtDocumentLine <= document.lineCount -> {
-                    // Insert after the previous line (insertAtDocumentLine - 1)
-                    if (insertAtDocumentLine - 1 < document.lineCount) {
-                        document.getLineEndOffset(insertAtDocumentLine - 1)
-                    } else {
-                        document.textLength
-                    }
+                insertAtDocumentLine < document.lineCount -> {
+                    // Insert after the specified line
+                    document.getLineEndOffset(insertAtDocumentLine)
                 }
                 else -> {
                     // Insert at the end of document
@@ -837,6 +871,113 @@ class ZestInlineMethodDiffRenderer {
             // Dark theme: light gray ghost text
             java.awt.Color(180, 180, 180)
         }
+    }
+    
+    /**
+     * Debug method to log detailed information about method boundaries and diff blocks
+     */
+    private fun debugMethodBoundaries(
+        context: RenderingContext,
+        lineDiff: WordDiffUtil.LineDiffResult
+    ) {
+        val document = context.editor.document
+        val methodContext = context.methodContext
+        
+        logger.info("=== DEBUG: Method Boundaries ===")
+        logger.info("Method: ${methodContext.methodName}")
+        logger.info("Method start offset: ${methodContext.methodStartOffset}")
+        logger.info("Method end offset: ${methodContext.methodEndOffset}")
+        
+        // Check what character is at the end offset
+        if (methodContext.methodEndOffset < document.textLength) {
+            val charAtEnd = document.charsSequence[methodContext.methodEndOffset]
+            logger.info("Character at end offset: '${charAtEnd}' (code: ${charAtEnd.toInt()})")
+        } else {
+            logger.info("Method end offset is at document end")
+        }
+        
+        // Log the actual method content with visible line endings
+        logger.info("Method content (with \\n visible):")
+        logger.info("'${methodContext.methodContent.replace("\n", "\\n")}'")
+        logger.info("Method content length: ${methodContext.methodContent.length}")
+        
+        // Log line information
+        val methodStartLine = document.getLineNumber(methodContext.methodStartOffset)
+        val methodEndLine = document.getLineNumber(methodContext.methodEndOffset)
+        logger.info("Method spans document lines: $methodStartLine to $methodEndLine")
+        
+        // Log each line in the method
+        for (line in methodStartLine..methodEndLine) {
+            val lineStart = document.getLineStartOffset(line)
+            val lineEnd = document.getLineEndOffset(line)
+            val lineText = document.getText(com.intellij.openapi.util.TextRange(lineStart, lineEnd))
+            logger.info("  Line $line: '${lineText.take(50)}${if (lineText.length > 50) "..." else ""}'")
+        }
+        
+        // Log the rewritten method content
+        logger.info("\nRewritten method content (with \\n visible):")
+        logger.info("'${context.rewrittenMethod.replace("\n", "\\n")}'")
+        logger.info("Rewritten method length: ${context.rewrittenMethod.length}")
+        
+        // Log diff blocks
+        logger.info("\nDiff blocks from line diff:")
+        lineDiff.blocks.forEachIndexed { index, block ->
+            logger.info("Block $index: ${block.type}")
+            logger.info("  Original lines: ${block.originalStartLine} to ${block.originalEndLine} (${block.originalLines.size} lines)")
+            logger.info("  Modified lines: ${block.modifiedStartLine} to ${block.modifiedEndLine} (${block.modifiedLines.size} lines)")
+            
+            // Show actual content for debugging
+            if (block.originalLines.isNotEmpty()) {
+                logger.info("  Original content: '${block.originalLines.joinToString("\\n") { it.take(40) }}'")
+            }
+            if (block.modifiedLines.isNotEmpty()) {
+                logger.info("  Modified content: '${block.modifiedLines.joinToString("\\n") { it.take(40) }}'")
+            }
+            
+            // Check if this is the last block
+            if (index == lineDiff.blocks.size - 1) {
+                logger.info("  This is the LAST block")
+                if (block.type == WordDiffUtil.BlockType.UNCHANGED) {
+                    logger.info("  Last block is UNCHANGED - might be why it's not displayed")
+                }
+            }
+        }
+        
+        // Check for missing lines
+        val originalLines = context.methodContext.methodContent.lines()
+        val lastCoveredLine = lineDiff.blocks.lastOrNull()?.originalEndLine ?: -1
+        if (lastCoveredLine < originalLines.size - 1) {
+            logger.warn("MISSING LINES: Last diff block covers up to line $lastCoveredLine, but method has ${originalLines.size} lines")
+            logger.warn("Missing lines: ${originalLines.subList(lastCoveredLine + 1, originalLines.size)}")
+        }
+        
+        logger.info("=== END DEBUG ===")
+    }
+    
+    /**
+     * Create a side-by-side renderer showing old method on left, new method on right
+     */
+    private fun createSideBySideMethodRenderer(
+        originalLines: List<String>,
+        modifiedLines: List<String>,
+        lineDiff: WordDiffUtil.LineDiffResult,
+        scheme: EditorColorsScheme,
+        language: String
+    ): EditorCustomElementRenderer {
+        return SideBySideMethodDiffRenderer(originalLines, modifiedLines, lineDiff, scheme, language)
+    }
+    
+    /**
+     * Create a renderer that shows the entire new method with color hints for changes
+     */
+    private fun createWholeMethodRenderer(
+        originalLines: List<String>,
+        modifiedLines: List<String>,
+        lineDiff: WordDiffUtil.LineDiffResult,
+        scheme: EditorColorsScheme,
+        language: String
+    ): EditorCustomElementRenderer {
+        return WholeMethodDiffRenderer(originalLines, modifiedLines, lineDiff, scheme, language)
     }
     
     /**

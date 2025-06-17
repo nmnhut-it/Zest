@@ -18,6 +18,7 @@ class MultiLineDiffRenderer(
     private val modifiedLines: List<String>,
     private val scheme: EditorColorsScheme,
     private val language: String?,
+    private val isUnchanged: Boolean = false,
     private val config: DiffRenderingConfig = DiffRenderingConfig.getInstance()
 ) : EditorCustomElementRenderer {
     
@@ -28,8 +29,9 @@ class MultiLineDiffRenderer(
     
     companion object {
         private const val ARROW_TEXT = " → "
-        private const val PADDING = 10
-        private const val LINE_PADDING = 4
+        private const val PADDING = 15
+        private const val LINE_PADDING = 6
+        private const val HEADER_HEIGHT = 30
     }
     
     override fun calcWidthInPixels(inlay: Inlay<*>): Int {
@@ -44,17 +46,30 @@ class MultiLineDiffRenderer(
         
         // Calculate wrapped lines for both columns
         val editorWidth = inlay.editor.contentComponent.width
-        val columnWidth = (editorWidth.toDouble() * config.getMaxColumnWidthPercentage()).toInt()
+        val columnWidth = calculateColumnWidth(editorWidth)
         
-        val wrappedOriginal = wrapLines(originalLines, font, columnWidth, metrics)
-        val wrappedModified = wrapLines(modifiedLines, font, columnWidth, metrics)
+        // Always wrap lines for accurate height calculation
+        val wrappedOriginal = wrapLines(originalLines, font, columnWidth - PADDING, metrics)
+        val wrappedModified = wrapLines(modifiedLines, font, columnWidth - PADDING, metrics)
         
         val totalLines = max(
             wrappedOriginal.sumOf { it.segments.size },
             wrappedModified.sumOf { it.segments.size }
         )
         
-        return totalLines * lineHeight + (PADDING * 2)
+        // Include header height
+        return totalLines * lineHeight + (PADDING * 2) + HEADER_HEIGHT
+    }
+    
+    private fun calculateColumnWidth(editorWidth: Int): Int {
+        // Calculate usable width for each column
+        val totalPadding = PADDING * 4 // Left, middle gaps, right padding
+        val arrowWidth = 40 // Space for arrow
+        val separatorWidth = 20 // Space for visual separation
+        val availableWidth = editorWidth - totalPadding - arrowWidth - separatorWidth
+        
+        // Each column gets roughly half of the available width
+        return (availableWidth * 0.45).toInt()
     }
     
     override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
@@ -67,34 +82,57 @@ class MultiLineDiffRenderer(
         
         // Calculate layout
         val editorWidth = targetRect.width
-        val columnWidth = (editorWidth.toDouble() * config.getMaxColumnWidthPercentage()).toInt()
+        val columnWidth = calculateColumnWidth(editorWidth)
         val arrowX = targetRect.x + columnWidth + PADDING
         val rightColumnX = arrowX + g2d.fontMetrics.stringWidth(ARROW_TEXT) + PADDING
+        val rightColumnWidth = columnWidth // Use same width for both columns
         
         // Fonts for each column
         val leftFont = getEditorFont(inlay.editor)
         val rightFont = leftFont.deriveFont(leftFont.size * config.getRightColumnFontSizeFactor())
         
-        // Wrap lines for both columns if enabled
+        // Wrap lines for both columns - ensure soft wrapping is always enabled
         g2d.font = leftFont
         val leftMetrics = g2d.fontMetrics
-        val wrappedOriginal = if (config.isSmartLineWrappingEnabled()) {
-            wrapLines(originalLines, leftFont, columnWidth, leftMetrics)
-        } else {
-            originalLines.map { WrappedLine(listOf(it)) }
-        }
+        val wrappedOriginal = wrapLines(originalLines, leftFont, columnWidth - PADDING, leftMetrics)
         
         g2d.font = rightFont
         val rightMetrics = g2d.fontMetrics
-        val wrappedModified = if (config.isSmartLineWrappingEnabled()) {
-            wrapLines(modifiedLines, rightFont, columnWidth - rightColumnX + targetRect.x, rightMetrics)
-        } else {
-            modifiedLines.map { WrappedLine(listOf(it)) }
-        }
+        val wrappedModified = wrapLines(modifiedLines, rightFont, rightColumnWidth - PADDING, rightMetrics)
         
-        // Draw both columns
-        var yPos = targetRect.y + PADDING
+        // Draw column headers
+        g2d.color = JBColor(
+            java.awt.Color(240, 240, 240), // Light theme
+            java.awt.Color(40, 40, 40)      // Dark theme
+        )
+        g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, HEADER_HEIGHT)
+        
+        // Draw header text
+        g2d.font = leftFont.deriveFont(Font.BOLD)
+        g2d.color = scheme.defaultForeground
+        g2d.drawString("Original", targetRect.x + PADDING, targetRect.y + HEADER_HEIGHT - 8)
+        g2d.drawString("Modified", rightColumnX, targetRect.y + HEADER_HEIGHT - 8)
+        
+        // Draw header separator line
+        g2d.color = JBColor.GRAY
+        g2d.drawLine(targetRect.x, targetRect.y + HEADER_HEIGHT, targetRect.x + targetRect.width, targetRect.y + HEADER_HEIGHT)
+        
+        // Draw both columns with clear separation
+        var yPos = targetRect.y + HEADER_HEIGHT + PADDING
         val lineHeight = max(leftMetrics.height, rightMetrics.height) + LINE_PADDING
+        
+        // Draw column background for better visibility
+        g2d.color = JBColor(
+            java.awt.Color(250, 250, 250), // Light theme: very light gray
+            java.awt.Color(30, 30, 30)      // Dark theme: slightly lighter than background
+        )
+        g2d.fillRect(targetRect.x, targetRect.y + HEADER_HEIGHT, columnWidth + PADDING, targetRect.height - HEADER_HEIGHT)
+        g2d.fillRect(rightColumnX - PADDING/2, targetRect.y + HEADER_HEIGHT, rightColumnWidth + PADDING, targetRect.height - HEADER_HEIGHT)
+        
+        // Draw vertical separator line
+        g2d.color = JBColor.GRAY
+        val separatorX = arrowX - PADDING/2
+        g2d.drawLine(separatorX, targetRect.y, separatorX, targetRect.y + targetRect.height)
         
         // Find max lines to ensure proper alignment
         val maxLineGroups = max(wrappedOriginal.size, wrappedModified.size)
@@ -112,27 +150,36 @@ class MultiLineDiffRenderer(
             for (j in 0 until maxSegments) {
                 val currentY = yPos + leftMetrics.ascent
                 
+                // Draw arrow for every line (not just first)
+                g2d.font = leftFont
+                g2d.color = scheme.defaultForeground
+                g2d.drawString(ARROW_TEXT, arrowX, currentY)
+                
                 // Draw left column (original)
                 if (originalGroup != null && j < originalGroup.segments.size) {
                     g2d.font = leftFont
                     val segment = originalGroup.segments[j]
                     
-                    // Draw deletion styling
-                    drawDeletionText(
-                        g2d, 
-                        segment, 
-                        targetRect.x + PADDING, 
-                        currentY,
-                        columnWidth,
-                        leftMetrics.height
-                    )
-                }
-                
-                // Draw arrow (only on first line of each logical line)
-                if (j == 0) {
-                    g2d.font = leftFont
-                    g2d.color = scheme.defaultForeground
-                    g2d.drawString(ARROW_TEXT, arrowX, currentY)
+                    // For unchanged lines, don't use deletion styling
+                    if (isUnchanged) {
+                        // Unchanged - draw normally
+                        g2d.color = scheme.defaultForeground
+                        g2d.drawString(segment, targetRect.x + PADDING, currentY)
+                    } else {
+                        // Changed - draw with deletion styling
+                        drawDeletionText(
+                            g2d, 
+                            segment, 
+                            targetRect.x + PADDING, 
+                            currentY,
+                            columnWidth - PADDING,
+                            leftMetrics.height
+                        )
+                    }
+                } else if (originalLines.isEmpty() && modifiedLines.isNotEmpty()) {
+                    // Pure addition - leave left column empty
+                    g2d.color = JBColor.GRAY
+                    g2d.drawString("", targetRect.x + PADDING, currentY)
                 }
                 
                 // Draw right column (modified) with ghost text
@@ -140,12 +187,22 @@ class MultiLineDiffRenderer(
                     g2d.font = rightFont
                     val segment = modifiedGroup.segments[j]
                     
-                    drawGhostText(
-                        g2d,
-                        segment,
-                        rightColumnX,
-                        currentY
-                    )
+                    // For unchanged lines, draw normally instead of ghost text
+                    if (isUnchanged) {
+                        g2d.color = scheme.defaultForeground
+                        g2d.drawString(segment, rightColumnX, currentY)
+                    } else {
+                        drawGhostText(
+                            g2d,
+                            segment,
+                            rightColumnX,
+                            currentY
+                        )
+                    }
+                } else if (modifiedLines.isEmpty() && originalLines.isNotEmpty()) {
+                    // Pure deletion - leave right column empty
+                    g2d.color = JBColor.GRAY
+                    g2d.drawString("", rightColumnX, currentY)
                 }
                 
                 yPos += lineHeight
@@ -175,21 +232,20 @@ class MultiLineDiffRenderer(
         maxWidth: Int,
         metrics: FontMetrics
     ): WrappedLine {
-        if (line.isEmpty() || metrics.stringWidth(line) <= maxWidth) {
+        if (line.isEmpty()) {
             return WrappedLine(listOf(line))
         }
         
-        val segments = mutableListOf<String>()
-        val words = if (config.shouldWrapAtOperators()) {
-            tokenizeForWrapping(line)
-        } else {
-            // Simple space-based splitting
-            line.split(Regex("\\s+"))
+        // Check if line fits within maxWidth
+        if (metrics.stringWidth(line) <= maxWidth) {
+            return WrappedLine(listOf(line))
         }
         
+        // Need to wrap the line
+        val segments = mutableListOf<String>()
+        val words = tokenizeForWrapping(line)
         val currentLine = StringBuilder()
         var currentWidth = 0
-        val spaceWidth = metrics.charWidth(' ')
         
         // Preserve leading whitespace
         val leadingWhitespace = line.takeWhile { it.isWhitespace() }
@@ -199,30 +255,41 @@ class MultiLineDiffRenderer(
         }
         
         // Create continuation indent
-        val continuationIndent = " ".repeat(config.getContinuationIndentSize()) + leadingWhitespace
+        val continuationIndent = leadingWhitespace + "  "
+        var isFirstSegment = true
         
         for (word in words) {
             val wordWidth = metrics.stringWidth(word)
+            val spaceWidth = if (currentLine.isNotEmpty() && !currentLine.endsWith(" ") && !word.startsWith(" ")) {
+                metrics.charWidth(' ')
+            } else {
+                0
+            }
             
-            if (currentWidth + wordWidth > maxWidth && currentLine.isNotEmpty()) {
-                // Need to wrap
+            // Check if adding this word would exceed the width
+            if (currentWidth + spaceWidth + wordWidth > maxWidth && currentLine.isNotEmpty()) {
+                // Save current line
                 segments.add(currentLine.toString())
                 currentLine.clear()
+                isFirstSegment = false
                 
-                // Add continuation indent
+                // Start new line with continuation indent
                 currentLine.append(continuationIndent)
                 currentWidth = metrics.stringWidth(continuationIndent)
             }
             
+            // Add space if needed
             if (currentLine.isNotEmpty() && !currentLine.endsWith(" ") && !word.startsWith(" ")) {
                 currentLine.append(" ")
-                currentWidth += spaceWidth
+                currentWidth += metrics.charWidth(' ')
             }
             
+            // Add the word
             currentLine.append(word)
             currentWidth += wordWidth
         }
         
+        // Add the last segment
         if (currentLine.isNotEmpty()) {
             segments.add(currentLine.toString())
         }

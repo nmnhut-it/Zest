@@ -3,12 +3,15 @@ package com.zps.zest.completion.diff
 import com.github.difflib.DiffUtils
 import com.github.difflib.patch.DeltaType
 import com.github.difflib.patch.Patch
+import com.intellij.openapi.diagnostic.Logger
 
 /**
  * Utility class for performing word-level and line-level diffing on text
  * Supports multiple diff algorithms including Myers and Histogram diff
  */
 object WordDiffUtil {
+    
+    private val logger = Logger.getInstance(WordDiffUtil::class.java)
     
     /**
      * Represents a word segment with its change type
@@ -117,9 +120,8 @@ object WordDiffUtil {
         val originalLines = originalText.lines()
         val modifiedLines = modifiedText.lines()
         
-        // Normalize lines for better diffing
-        val normalizedOriginal = originalLines.map { normalizeCode(it, language) }
-        val normalizedModified = modifiedLines.map { normalizeCode(it, language) }
+        // Don't normalize for diffing - keep exact text to preserve whitespace differences
+        // Normalization can cause the diff to miss actual changes
         
         // Create diff algorithm instance
         val diffAlgorithm = when (algorithm) {
@@ -127,16 +129,16 @@ object WordDiffUtil {
             DiffAlgorithm.HISTOGRAM -> HistogramDiff<String>()
         }
         
-        // Perform the diff
+        // Perform the diff on original lines (not normalized)
         val patch = try {
             if (diffAlgorithm != null) {
-                DiffUtils.diff(normalizedOriginal, normalizedModified, diffAlgorithm)
+                DiffUtils.diff(originalLines, modifiedLines, diffAlgorithm)
             } else {
-                DiffUtils.diff(normalizedOriginal, normalizedModified)
+                DiffUtils.diff(originalLines, modifiedLines)
             }
         } catch (e: Exception) {
             // Fallback to default if any algorithm fails
-            DiffUtils.diff(normalizedOriginal, normalizedModified)
+            DiffUtils.diff(originalLines, modifiedLines)
         }
         
         // Convert patch to diff blocks
@@ -193,22 +195,103 @@ object WordDiffUtil {
         
         // Add final unchanged block if needed
         if (lastOriginalLine < originalLines.size || lastModifiedLine < modifiedLines.size) {
-            blocks.add(DiffBlock(
-                originalStartLine = lastOriginalLine,
-                originalEndLine = originalLines.size - 1,
-                modifiedStartLine = lastModifiedLine,
-                modifiedEndLine = modifiedLines.size - 1,
-                originalLines = if (lastOriginalLine < originalLines.size) 
-                    originalLines.subList(lastOriginalLine, originalLines.size) 
-                else emptyList(),
-                modifiedLines = if (lastModifiedLine < modifiedLines.size)
-                    modifiedLines.subList(lastModifiedLine, modifiedLines.size)
-                else emptyList(),
-                type = BlockType.UNCHANGED
-            ))
+            // Make sure we include all remaining lines
+            val remainingOriginalLines = if (lastOriginalLine < originalLines.size) 
+                originalLines.subList(lastOriginalLine, originalLines.size) 
+            else emptyList()
+            val remainingModifiedLines = if (lastModifiedLine < modifiedLines.size)
+                modifiedLines.subList(lastModifiedLine, modifiedLines.size)
+            else emptyList()
+            
+            // Even if there's just one side with remaining lines, include them
+            if (remainingOriginalLines.isNotEmpty() || remainingModifiedLines.isNotEmpty()) {
+                blocks.add(DiffBlock(
+                    originalStartLine = lastOriginalLine,
+                    originalEndLine = originalLines.size - 1,
+                    modifiedStartLine = lastModifiedLine,
+                    modifiedEndLine = modifiedLines.size - 1,
+                    originalLines = remainingOriginalLines,
+                    modifiedLines = remainingModifiedLines,
+                    type = if (remainingOriginalLines == remainingModifiedLines) BlockType.UNCHANGED else BlockType.MODIFIED
+                ))
+            }
         }
         
-        return LineDiffResult(blocks)
+        // Post-process to merge adjacent DELETE and INSERT blocks into MODIFIED blocks
+        return LineDiffResult(mergeDeleteInsertBlocks(blocks))
+    }
+    
+    /**
+     * Merge adjacent DELETE and INSERT blocks into MODIFIED blocks
+     * This handles the common case where diff algorithms return delete+insert instead of change
+     */
+    private fun mergeDeleteInsertBlocks(blocks: List<DiffBlock>): List<DiffBlock> {
+        if (blocks.isEmpty()) return blocks
+        
+        val mergedBlocks = mutableListOf<DiffBlock>()
+        var i = 0
+        
+        // Debug logging
+        if (logger.isDebugEnabled) {
+            logger.debug("=== Merging DELETE/INSERT blocks ===")
+            logger.debug("Original blocks: ${blocks.size}")
+            blocks.forEach { block ->
+                logger.debug("  ${block.type}: lines ${block.originalStartLine}-${block.originalEndLine} -> ${block.modifiedStartLine}-${block.modifiedEndLine}")
+            }
+        }
+        
+        while (i < blocks.size) {
+            val currentBlock = blocks[i]
+            
+            // Check if this is a DELETE block followed by an INSERT block
+            if (currentBlock.type == BlockType.DELETED && 
+                i + 1 < blocks.size && 
+                blocks[i + 1].type == BlockType.ADDED) {
+                
+                val nextBlock = blocks[i + 1]
+                
+                // Check if they are logically adjacent
+                // DELETE block represents removed lines from original
+                // INSERT block represents added lines in modified
+                // They're related if the INSERT follows the DELETE position
+                val areAdjacent = true // Always merge DELETE followed by INSERT
+                
+                if (areAdjacent) {
+                    if (logger.isDebugEnabled) {
+                        logger.debug("  Merging DELETE (${currentBlock.originalStartLine}-${currentBlock.originalEndLine}) + INSERT (${nextBlock.modifiedStartLine}-${nextBlock.modifiedEndLine}) -> MODIFIED")
+                    }
+                    
+                    // Merge into a MODIFIED block
+                    mergedBlocks.add(DiffBlock(
+                        originalStartLine = currentBlock.originalStartLine,
+                        originalEndLine = currentBlock.originalEndLine,
+                        modifiedStartLine = nextBlock.modifiedStartLine,
+                        modifiedEndLine = nextBlock.modifiedEndLine,
+                        originalLines = currentBlock.originalLines,
+                        modifiedLines = nextBlock.modifiedLines,
+                        type = BlockType.MODIFIED
+                    ))
+                    
+                    // Skip the INSERT block since we've merged it
+                    i += 2
+                } else {
+                    // Not adjacent, keep as separate blocks
+                    mergedBlocks.add(currentBlock)
+                    i++
+                }
+            } else {
+                // Keep the block as-is
+                mergedBlocks.add(currentBlock)
+                i++
+            }
+        }
+        
+        if (logger.isDebugEnabled) {
+            logger.debug("Merged blocks: ${mergedBlocks.size}")
+            logger.debug("=== End merge ===")
+        }
+        
+        return mergedBlocks
     }
     
     /**

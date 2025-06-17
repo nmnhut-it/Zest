@@ -27,7 +27,9 @@ class DiffRenderingConfig : PersistentStateComponent<DiffRenderingConfig.State> 
         var enableWordLevelDiff: Boolean = true,
         var enableSmartLineWrapping: Boolean = true,
         var wrapAtOperators: Boolean = true,
-        var continuationIndentSize: Int = 2
+        var continuationIndentSize: Int = 2,
+        var useSubtleColors: Boolean = true,
+        var useSideBySideView: Boolean = true
     )
     
     enum class DiffAlgorithm {
@@ -77,4 +79,8 @@ class DiffRenderingConfig : PersistentStateComponent<DiffRenderingConfig.State> 
     fun shouldWrapAtOperators(): Boolean = myState.wrapAtOperators
     
     fun getContinuationIndentSize(): Int = myState.continuationIndentSize
+    
+    fun useSubtleColors(): Boolean = myState.useSubtleColors
+    
+    fun useSideBySideView(): Boolean = myState.useSideBySideView
 }

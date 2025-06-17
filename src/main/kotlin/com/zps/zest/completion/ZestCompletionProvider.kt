@@ -501,13 +501,21 @@ class ZestCompletionProvider(private val project: Project) {
             
             // Trigger the method rewrite service (this will show floating window)
             System.out.println("[ZestCompletionProvider] Triggering method rewrite service...")
+            
+            // Make sure to trigger on EDT and don't wait for result
             withContext(Dispatchers.Main) {
-                System.out.println("[ZestCompletionProvider] Calling methodRewriteService.rewriteCurrentMethod")
-                methodRewriteService.rewriteCurrentMethod(editor, context.offset)
+                System.out.println("[ZestCompletionProvider] On EDT, calling methodRewriteService.rewriteCurrentMethod")
+                try {
+                    methodRewriteService.rewriteCurrentMethod(editor, context.offset)
+                    System.out.println("[ZestCompletionProvider] Method rewrite triggered successfully")
+                } catch (e: Exception) {
+                    System.out.println("[ZestCompletionProvider] Error triggering method rewrite: ${e.message}")
+                    e.printStackTrace()
+                }
             }
             
-            // Return empty completion list since we're showing floating window instead
-            System.out.println("[ZestCompletionProvider] Returning EMPTY completion list (floating window should show)")
+            // Return empty completion list since we're showing inline diff instead
+            System.out.println("[ZestCompletionProvider] Returning EMPTY completion list (inline diff should show)")
             ZestInlineCompletionList.EMPTY
             
         } catch (e: Exception) {

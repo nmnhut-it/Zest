@@ -35,8 +35,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     // Dependencies
     private val llmService by lazy { 
         try {
-            LLMService(project)
+            System.out.println("[ZestMethodRewrite] Initializing LLMService...")
+            val service = LLMService(project)
+            System.out.println("[ZestMethodRewrite] LLMService initialized successfully")
+            service
         } catch (e: Exception) {
+            System.out.println("[ZestMethodRewrite] Failed to create LLMService: ${e.message}")
+            e.printStackTrace()
             logger.warn("Failed to create LLMService instance", e)
             throw IllegalStateException("LLMService not available", e)
         }
@@ -93,10 +98,17 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 activeRewriteId = requestId
                 System.out.println("[ZestMethodRewrite] Set activeRewriteId to $requestId")
                 
+                // IMPORTANT: activeRewriteId must be preserved during the entire request lifecycle
+                // It should only be cleared in the finally block of performMethodRewrite
+                // or when the service is disposed. This prevents race conditions where
+                // cancelling an old request would clear the ID for a new request.
+                
                 try {
                     // Cancel any existing rewrite
                     System.out.println("[ZestMethodRewrite] Cancelling any existing rewrite...")
+                    System.out.println("[ZestMethodRewrite] Before cancel - activeRewriteId: $activeRewriteId")
                     cancelCurrentRewrite()
+                    System.out.println("[ZestMethodRewrite] After cancel - activeRewriteId: $activeRewriteId")
                     
                     // Find the method containing the cursor - must be done on EDT
                     System.out.println("[ZestMethodRewrite] Finding method at cursor...")
@@ -128,6 +140,11 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     }
                     
                     // Check if this request is still active
+                    System.out.println("[ZestMethodRewrite] Checking if request is still active:")
+                    System.out.println("  - activeRewriteId: $activeRewriteId")
+                    System.out.println("  - requestId: $requestId")
+                    System.out.println("  - comparison (activeRewriteId != requestId): ${activeRewriteId != requestId}")
+                    
                     if (activeRewriteId != requestId) {
                         System.out.println("[ZestMethodRewrite] Request $requestId is no longer active")
                         logger.debug("Request $requestId is no longer active")
@@ -165,9 +182,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                             "Failed to start method rewrite: ${e.message}"
                         )
                     }
-                } finally {
+                    // Only clear activeRewriteId on error
                     if (activeRewriteId == requestId) {
-                        System.out.println("[ZestMethodRewrite] Clearing activeRewriteId")
+                        System.out.println("[ZestMethodRewrite] Clearing activeRewriteId due to error")
                         activeRewriteId = null
                     }
                 }
@@ -185,25 +202,33 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         customInstruction: String?,
         requestId: Int
     ) {
+        System.out.println("[ZestMethodRewrite] performMethodRewrite started for request $requestId")
+        System.out.println("  - method: ${methodContext.methodName}")
+        System.out.println("  - activeRewriteId: $activeRewriteId")
+        
         try {
             logger.info("Performing method rewrite for ${methodContext.methodName} in ${methodContext.language}")
             
             // Check if this request is still active
             if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active (activeRewriteId=$activeRewriteId)")
                 logger.debug("Request $requestId is no longer active")
                 return
             }
             
             // Build the method-specific prompt
+            System.out.println("[ZestMethodRewrite] Building prompt...")
             val prompt = if (customInstruction != null) {
                 promptBuilder.buildCustomMethodPrompt(methodContext, customInstruction)
             } else {
                 promptBuilder.buildMethodRewritePrompt(methodContext)
             }
             
+            System.out.println("[ZestMethodRewrite] Prompt built, length: ${prompt.length}")
             logger.debug("Generated method prompt length: ${prompt.length}")
             
             // Call LLM service in background thread
+            System.out.println("[ZestMethodRewrite] Calling LLM service...")
             val startTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -212,16 +237,27 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     .withTemperature(0.3) // Slightly creative but focused
                     .withStopSequences(getMethodRewriteStopSequences())
                 
+                System.out.println("[ZestMethodRewrite] LLM query params:")
+                System.out.println("  - model: qwen/qwen2.5-coder-32b-instruct")
+                System.out.println("  - maxTokens: $METHOD_REWRITE_MAX_TOKENS")
+                System.out.println("  - temperature: 0.3")
+                
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
             val responseTime = System.currentTimeMillis() - startTime
             
             if (response == null) {
+                System.out.println("[ZestMethodRewrite] LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
                 throw Exception("LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
             }
             
+            System.out.println("[ZestMethodRewrite] LLM response received in ${responseTime}ms")
+            System.out.println("  - response length: ${response.length}")
+            System.out.println("  - response preview: '${response.take(100)}...'")
+            
             // Check again if this request is still active
             if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active after LLM response")
                 logger.debug("Request $requestId is no longer active after LLM response")
                 return
             }
@@ -229,6 +265,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             logger.info("Received LLM response in ${responseTime}ms")
             
             // Parse the method rewrite response in background
+            System.out.println("[ZestMethodRewrite] Parsing response...")
             val parseResult = responseParser.parseMethodRewriteResponse(
                 response = response,
                 originalMethod = methodContext.methodContent,
@@ -236,12 +273,19 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 language = methodContext.language
             )
             
+            System.out.println("[ZestMethodRewrite] Parse result:")
+            System.out.println("  - isValid: ${parseResult.isValid}")
+            System.out.println("  - confidence: ${parseResult.confidence}")
+            System.out.println("  - issues: ${parseResult.issues}")
+            System.out.println("  - rewritten method length: ${parseResult.rewrittenMethod.length}")
+            
             if (!parseResult.isValid) {
                 logger.warn("Invalid method rewrite response: ${parseResult.issues}")
                 throw Exception("Generated method is invalid: ${parseResult.issues.joinToString(", ")}")
             }
             
             // Perform language-specific semantic analysis in background
+            System.out.println("[ZestMethodRewrite] Calculating language-specific diff...")
             val enhancedDiffResult = calculateLanguageSpecificDiff(
                 originalCode = methodContext.methodContent,
                 rewrittenCode = parseResult.rewrittenMethod,
@@ -260,11 +304,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             
             // Final check before showing diff
             if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active before showing diff")
                 logger.debug("Request $requestId is no longer active before showing diff")
                 return
             }
             
             // Show diff rendering on EDT
+            System.out.println("[ZestMethodRewrite] Showing language-aware diff...")
             withContext(Dispatchers.Main) {
                 showLanguageAwareDiff(
                     editor = editor,
@@ -276,12 +322,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 )
             }
             
+            System.out.println("[ZestMethodRewrite] Method rewrite completed successfully")
             logger.info("Method rewrite completed successfully (confidence: ${parseResult.confidence}, language: ${methodContext.language})")
             
         } catch (e: CancellationException) {
+            System.out.println("[ZestMethodRewrite] Method rewrite was cancelled")
             logger.debug("Method rewrite was cancelled")
             throw e
         } catch (e: Exception) {
+            System.out.println("[ZestMethodRewrite] Method rewrite failed: ${e.message}")
+            e.printStackTrace()
             logger.error("Method rewrite failed", e)
             
             withContext(Dispatchers.Main) {
@@ -291,6 +341,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     "Method Rewrite Failed",
                     "Failed to rewrite method: ${e.message}"
                 )
+            }
+        } finally {
+            // Clear activeRewriteId when the rewrite is complete
+            if (activeRewriteId == requestId) {
+                System.out.println("[ZestMethodRewrite] Clearing activeRewriteId after completion")
+                activeRewriteId = null
             }
         }
     }
@@ -352,16 +408,27 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         rewrittenMethod: String,
         parseResult: ZestMethodResponseParser.MethodRewriteResult
     ) {
+        System.out.println("[ZestMethodRewrite] showLanguageAwareDiff called")
+        System.out.println("  - method: ${methodContext.methodName}")
+        System.out.println("  - diff strategy: ${enhancedDiffResult.diffStrategy}")
+        
         ApplicationManager.getApplication().assertIsDispatchThread()
         
         // Show the inline diff renderer
+        System.out.println("[ZestMethodRewrite] Showing inline diff renderer...")
         inlineDiffRenderer.show(
             editor = editor,
             methodContext = methodContext,
             diffResult = legacyDiffResult,
             rewrittenMethod = rewrittenMethod,
-            onAccept = { acceptMethodRewriteInternal(editor) },
-            onReject = { cancelCurrentRewrite() }
+            onAccept = { 
+                System.out.println("[ZestMethodRewrite] Accept callback triggered")
+                acceptMethodRewriteInternal(editor) 
+            },
+            onReject = { 
+                System.out.println("[ZestMethodRewrite] Reject callback triggered")
+                cancelCurrentRewrite() 
+            }
         )
         
         // Generate language-specific diff summary
@@ -373,6 +440,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         )
         
         // Show enhanced notification with semantic analysis
+        System.out.println("[ZestMethodRewrite] Showing notification with diff summary")
         ZestNotifications.showInfo(
             project,
             "Method Rewrite Ready - ${methodContext.language.uppercase()}",
@@ -829,7 +897,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeLater {
             inlineDiffRenderer.hide()
         }
-        cleanup()
+        // Don't call cleanup() here as it clears activeRewriteId
+        // which might be set for a new request
+        // Instead, just clear the job-specific state
+        currentRewriteJob = null
+        currentMethodContext = null
+        currentRewrittenMethod = null
+        currentDiffResult = null
+        currentEnhancedDiffResult = null
+        // Note: activeRewriteId is managed separately and should only
+        // be cleared in the finally block of performMethodRewrite
     }
     
     /**
@@ -873,7 +950,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
     
     /**
-     * Clean up resources
+     * Clean up resources (except activeRewriteId which is managed separately)
      */
     private fun cleanup() {
         currentRewriteJob = null
@@ -881,7 +958,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         currentRewrittenMethod = null
         currentDiffResult = null
         currentEnhancedDiffResult = null
-        activeRewriteId = null
+        // Note: activeRewriteId is NOT cleared here as it's managed
+        // separately in the request lifecycle to prevent race conditions
     }
     
     override fun dispose() {
@@ -891,7 +969,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeLater {
             inlineDiffRenderer.hide()
         }
-        cleanup()
+        // Clean up all state
+        currentRewriteJob = null
+        currentMethodContext = null
+        currentRewrittenMethod = null
+        currentDiffResult = null
+        currentEnhancedDiffResult = null
     }
     
     companion object {

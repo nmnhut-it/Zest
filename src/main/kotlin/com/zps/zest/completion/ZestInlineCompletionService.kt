@@ -88,6 +88,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         loadConfiguration()
         
         setupEventListeners()
+        
+        // Log initial strategy
+        System.out.println("[ZestInlineCompletion] Initial completion strategy: ${completionProvider.strategy}")
+        
         System.out.println("[ZestInlineCompletion] Service initialization complete")
     }
     
@@ -250,11 +254,39 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         e.printStackTrace()
                         logger.warn("Completion request failed", e)
                     } finally {
-                        System.out.println("[ZestInlineCompletion] Completion job finished, notifying loading state: false")
-                        project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
-                        if (activeRequestId == requestId) {
-                            System.out.println("[ZestInlineCompletion] Clearing activeRequestId")
-                            activeRequestId = null
+                        System.out.println("[ZestInlineCompletion] Completion job finished")
+                        
+                        // For METHOD_REWRITE, keep loading state and activeRequestId active longer
+                        if (completionProvider.strategy != ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
+                            // Normal completion - clear immediately
+                            System.out.println("[ZestInlineCompletion] Normal completion - clearing loading state")
+                            project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
+                            
+                            if (activeRequestId == requestId) {
+                                System.out.println("[ZestInlineCompletion] Clearing activeRequestId")
+                                activeRequestId = null
+                            }
+                        } else {
+                            // METHOD_REWRITE - keep active for longer to allow method rewrite to complete
+                            System.out.println("[ZestInlineCompletion] METHOD_REWRITE mode - keeping state active")
+                            
+                            // Clear loading state after a delay
+                            scope.launch {
+                                delay(5000) // 5 seconds should be enough for method rewrite to show UI
+                                if (activeRequestId == requestId) {
+                                    System.out.println("[ZestInlineCompletion] Clearing loading state after delay")
+                                    project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
+                                }
+                            }
+                            
+                            // Clear activeRequestId after a shorter delay
+                            scope.launch {
+                                delay(2000) // 2 seconds for method rewrite service to start
+                                if (activeRequestId == requestId) {
+                                    System.out.println("[ZestInlineCompletion] Clearing activeRequestId after delay")
+                                    activeRequestId = null
+                                }
+                            }
                         }
                     }
                 }
@@ -386,18 +418,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 return
             }
             
-            if (completions == null || completions.isEmpty()) {
-                System.out.println("[ZestInlineCompletion] No completions available")
-                logger.debug("No completions available")
+            // Check if we're in method rewrite mode FIRST (before checking empty)
+            if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
+                System.out.println("[ZestInlineCompletion] Method rewrite mode - inline diff should be shown")
+                // Method rewrite mode handles its own UI via inline diff renderer
+                // The completion provider already triggered the method rewrite service
+                logger.debug("Method rewrite mode - inline diff should be shown")
+                // Don't process empty completions for method rewrite - it's expected
                 return
             }
             
-            // Check if we're in method rewrite mode
-            if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
-                System.out.println("[ZestInlineCompletion] Method rewrite mode - floating window should be shown")
-                // Method rewrite mode handles its own UI via floating windows
-                // The completion provider already triggered the method rewrite service
-                logger.debug("Method rewrite mode - floating window should be shown")
+            if (completions == null || completions.isEmpty()) {
+                System.out.println("[ZestInlineCompletion] No completions available")
+                logger.debug("No completions available")
                 return
             }
             

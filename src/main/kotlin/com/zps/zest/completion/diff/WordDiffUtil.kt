@@ -13,6 +13,15 @@ object WordDiffUtil {
     
     private val logger = Logger.getInstance(WordDiffUtil::class.java)
     
+    // Enable debug logging
+    private const val DEBUG = true
+    
+    private fun debugLog(message: String) {
+        if (DEBUG) {
+            println("[WordDiff] $message")
+        }
+    }
+    
     /**
      * Represents a word segment with its change type
      */
@@ -110,18 +119,33 @@ object WordDiffUtil {
     /**
      * Perform line-level diff to identify multi-line change blocks
      * Uses histogram diff by default for better code diffing
+     * 
+     * @param skipNormalization If true, skip code normalization and use raw text
      */
     fun diffLines(
         originalText: String, 
         modifiedText: String,
         algorithm: DiffAlgorithm = DiffAlgorithm.HISTOGRAM,
-        language: String? = null
+        language: String? = null,
+        skipNormalization: Boolean = false
     ): LineDiffResult {
-        val originalLines = originalText.lines()
-        val modifiedLines = modifiedText.lines()
+        // Use lines() but manually handle the trailing newline case
+        val originalLines = originalText.lines().toMutableList()
+        val modifiedLines = modifiedText.lines().toMutableList()
         
-        // Don't normalize for diffing - keep exact text to preserve whitespace differences
-        // Normalization can cause the diff to miss actual changes
+        // If text ends with newline, add an empty line that lines() removes
+        if (originalText.endsWith("\n") && (originalLines.isEmpty() || originalLines.last().isNotEmpty())) {
+            originalLines.add("")
+        }
+        if (modifiedText.endsWith("\n") && (modifiedLines.isEmpty() || modifiedLines.last().isNotEmpty())) {
+            modifiedLines.add("")
+        }
+        
+        debugLog("diffLines called:")
+        debugLog("  Original text length: ${originalText.length}, ends with \\n: ${originalText.endsWith("\n")}")
+        debugLog("  Modified text length: ${modifiedText.length}, ends with \\n: ${modifiedText.endsWith("\n")}")
+        debugLog("  Original lines count: ${originalLines.size}")
+        debugLog("  Modified lines count: ${modifiedLines.size}")
         
         // Create diff algorithm instance
         val diffAlgorithm = when (algorithm) {
@@ -129,7 +153,7 @@ object WordDiffUtil {
             DiffAlgorithm.HISTOGRAM -> HistogramDiff<String>()
         }
         
-        // Perform the diff on original lines (not normalized)
+        // Perform the diff on lines (skip normalization if requested)
         val patch = try {
             if (diffAlgorithm != null) {
                 DiffUtils.diff(originalLines, modifiedLines, diffAlgorithm)
@@ -157,10 +181,15 @@ object WordDiffUtil {
         var lastOriginalLine = 0
         var lastModifiedLine = 0
         
+        debugLog("Converting patch to diff blocks:")
+        debugLog("  Patch deltas: ${patch.deltas.size}")
+        
         for (delta in patch.deltas) {
+            debugLog("  Processing delta: ${delta.type} at ${delta.source.position}")
+            
             // Add unchanged block before this delta if needed
             if (delta.source.position > lastOriginalLine) {
-                blocks.add(DiffBlock(
+                val unchangedBlock = DiffBlock(
                     originalStartLine = lastOriginalLine,
                     originalEndLine = delta.source.position - 1,
                     modifiedStartLine = lastModifiedLine,
@@ -168,7 +197,9 @@ object WordDiffUtil {
                     originalLines = originalLines.subList(lastOriginalLine, delta.source.position),
                     modifiedLines = modifiedLines.subList(lastModifiedLine, delta.target.position),
                     type = BlockType.UNCHANGED
-                ))
+                )
+                blocks.add(unchangedBlock)
+                debugLog("    Added UNCHANGED block: lines $lastOriginalLine-${delta.source.position - 1}")
             }
             
             // Add the change block
@@ -179,7 +210,7 @@ object WordDiffUtil {
                 else -> BlockType.UNCHANGED
             }
             
-            blocks.add(DiffBlock(
+            val changeBlock = DiffBlock(
                 originalStartLine = delta.source.position,
                 originalEndLine = delta.source.position + delta.source.size() - 1,
                 modifiedStartLine = delta.target.position,
@@ -187,7 +218,9 @@ object WordDiffUtil {
                 originalLines = delta.source.lines,
                 modifiedLines = delta.target.lines,
                 type = blockType
-            ))
+            )
+            blocks.add(changeBlock)
+            debugLog("    Added ${blockType} block")
             
             lastOriginalLine = delta.source.position + delta.source.size()
             lastModifiedLine = delta.target.position + delta.target.size()
@@ -203,9 +236,15 @@ object WordDiffUtil {
                 modifiedLines.subList(lastModifiedLine, modifiedLines.size)
             else emptyList()
             
+            debugLog("  Checking for remaining lines:")
+            debugLog("    Original: $lastOriginalLine < ${originalLines.size} = ${lastOriginalLine < originalLines.size}")
+            debugLog("    Modified: $lastModifiedLine < ${modifiedLines.size} = ${lastModifiedLine < modifiedLines.size}")
+            debugLog("    Remaining original lines: ${remainingOriginalLines.size}")
+            debugLog("    Remaining modified lines: ${remainingModifiedLines.size}")
+            
             // Even if there's just one side with remaining lines, include them
             if (remainingOriginalLines.isNotEmpty() || remainingModifiedLines.isNotEmpty()) {
-                blocks.add(DiffBlock(
+                val finalBlock = DiffBlock(
                     originalStartLine = lastOriginalLine,
                     originalEndLine = originalLines.size - 1,
                     modifiedStartLine = lastModifiedLine,
@@ -213,12 +252,19 @@ object WordDiffUtil {
                     originalLines = remainingOriginalLines,
                     modifiedLines = remainingModifiedLines,
                     type = if (remainingOriginalLines == remainingModifiedLines) BlockType.UNCHANGED else BlockType.MODIFIED
-                ))
+                )
+                blocks.add(finalBlock)
+                debugLog("    Added final block: ${finalBlock.type}")
             }
         }
         
+        debugLog("  Total blocks before merge: ${blocks.size}")
+        
         // Post-process to merge adjacent DELETE and INSERT blocks into MODIFIED blocks
-        return LineDiffResult(mergeDeleteInsertBlocks(blocks))
+        val mergedBlocks = mergeDeleteInsertBlocks(blocks)
+        debugLog("  Total blocks after merge: ${mergedBlocks.size}")
+        
+        return LineDiffResult(mergedBlocks)
     }
     
     /**
@@ -231,14 +277,8 @@ object WordDiffUtil {
         val mergedBlocks = mutableListOf<DiffBlock>()
         var i = 0
         
-        // Debug logging
-        if (logger.isDebugEnabled) {
-            logger.debug("=== Merging DELETE/INSERT blocks ===")
-            logger.debug("Original blocks: ${blocks.size}")
-            blocks.forEach { block ->
-                logger.debug("  ${block.type}: lines ${block.originalStartLine}-${block.originalEndLine} -> ${block.modifiedStartLine}-${block.modifiedEndLine}")
-            }
-        }
+        debugLog("Merging DELETE/INSERT blocks:")
+        debugLog("  Original blocks: ${blocks.size}")
         
         while (i < blocks.size) {
             val currentBlock = blocks[i]
@@ -250,35 +290,22 @@ object WordDiffUtil {
                 
                 val nextBlock = blocks[i + 1]
                 
-                // Check if they are logically adjacent
-                // DELETE block represents removed lines from original
-                // INSERT block represents added lines in modified
-                // They're related if the INSERT follows the DELETE position
-                val areAdjacent = true // Always merge DELETE followed by INSERT
+                // Always merge DELETE followed by INSERT
+                debugLog("  Merging DELETE + INSERT -> MODIFIED")
                 
-                if (areAdjacent) {
-                    if (logger.isDebugEnabled) {
-                        logger.debug("  Merging DELETE (${currentBlock.originalStartLine}-${currentBlock.originalEndLine}) + INSERT (${nextBlock.modifiedStartLine}-${nextBlock.modifiedEndLine}) -> MODIFIED")
-                    }
-                    
-                    // Merge into a MODIFIED block
-                    mergedBlocks.add(DiffBlock(
-                        originalStartLine = currentBlock.originalStartLine,
-                        originalEndLine = currentBlock.originalEndLine,
-                        modifiedStartLine = nextBlock.modifiedStartLine,
-                        modifiedEndLine = nextBlock.modifiedEndLine,
-                        originalLines = currentBlock.originalLines,
-                        modifiedLines = nextBlock.modifiedLines,
-                        type = BlockType.MODIFIED
-                    ))
-                    
-                    // Skip the INSERT block since we've merged it
-                    i += 2
-                } else {
-                    // Not adjacent, keep as separate blocks
-                    mergedBlocks.add(currentBlock)
-                    i++
-                }
+                // Merge into a MODIFIED block
+                mergedBlocks.add(DiffBlock(
+                    originalStartLine = currentBlock.originalStartLine,
+                    originalEndLine = currentBlock.originalEndLine,
+                    modifiedStartLine = nextBlock.modifiedStartLine,
+                    modifiedEndLine = nextBlock.modifiedEndLine,
+                    originalLines = currentBlock.originalLines,
+                    modifiedLines = nextBlock.modifiedLines,
+                    type = BlockType.MODIFIED
+                ))
+                
+                // Skip the INSERT block since we've merged it
+                i += 2
             } else {
                 // Keep the block as-is
                 mergedBlocks.add(currentBlock)
@@ -286,16 +313,14 @@ object WordDiffUtil {
             }
         }
         
-        if (logger.isDebugEnabled) {
-            logger.debug("Merged blocks: ${mergedBlocks.size}")
-            logger.debug("=== End merge ===")
-        }
+        debugLog("  Merged blocks: ${mergedBlocks.size}")
         
         return mergedBlocks
     }
     
     /**
      * Normalize code for better diffing (handles whitespace and formatting)
+     * This is now optional and can be skipped
      */
     fun normalizeCode(text: String, language: String? = null): String {
         var normalized = text
@@ -312,9 +337,14 @@ object WordDiffUtil {
             "javascript", "typescript" -> normalized = normalizeJavaScriptCode(normalized)
         }
         
-        // Trim trailing whitespace from each line
-        return normalized.lines()
-            .joinToString("\n") { it.trimEnd() }
+        // Trim trailing whitespace from each line but preserve line structure
+        val lines = normalized.lines().toMutableList()
+        // If text ends with newline, add empty line that lines() removes
+        if (normalized.endsWith("\n") && (lines.isEmpty() || lines.last().isNotEmpty())) {
+            lines.add("")
+        }
+        
+        return lines.joinToString("\n") { it.trimEnd() }
     }
     
     /**
@@ -393,22 +423,25 @@ object WordDiffUtil {
     
     /**
      * Perform word-level diff between two lines of text with enhanced tokenization
+     * 
+     * @param skipNormalization If true, skip code normalization and use raw text
      */
     fun diffWords(
         original: String, 
         modified: String, 
-        language: String? = null
+        language: String? = null,
+        skipNormalization: Boolean = false
     ): WordDiffResult {
-        // Normalize the text first
-        val normalizedOriginal = normalizeCode(original, language)
-        val normalizedModified = normalizeCode(modified, language)
+        // Optionally normalize the text
+        val processedOriginal = if (skipNormalization) original else normalizeCode(original, language)
+        val processedModified = if (skipNormalization) modified else normalizeCode(modified, language)
         
         // Get language-specific settings
         val settings = languageSettings[language?.lowercase()] ?: TokenizationSettings()
         
         // Split into words/tokens while preserving whitespace
-        val originalTokens = tokenizeAdvanced(normalizedOriginal, settings)
-        val modifiedTokens = tokenizeAdvanced(normalizedModified, settings)
+        val originalTokens = tokenizeAdvanced(processedOriginal, settings)
+        val modifiedTokens = tokenizeAdvanced(processedModified, settings)
         
         // Perform diff on tokens
         val patch = DiffUtils.diff(originalTokens.map { it.text }, modifiedTokens.map { it.text })

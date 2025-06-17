@@ -20,26 +20,35 @@ object DiffDebugUtil {
     ) {
         logger.info("=== Diff Debug for method: $methodName ===")
         
-        val originalLines = originalText.lines()
-        val modifiedLines = modifiedText.lines()
+        // Use lines() but manually handle the trailing newline case
+        val originalLines = originalText.lines().toMutableList()
+        val modifiedLines = modifiedText.lines().toMutableList()
         
-        logger.info("Original: ${originalLines.size} lines")
-        originalLines.forEachIndexed { index, line ->
-            logger.info("  [$index] ${line.take(50)}${if (line.length > 50) "..." else ""}")
+        // If text ends with newline, add an empty line that lines() removes
+        if (originalText.endsWith("\n") && (originalLines.isEmpty() || originalLines.last().isNotEmpty())) {
+            originalLines.add("")
+        }
+        if (modifiedText.endsWith("\n") && (modifiedLines.isEmpty() || modifiedLines.last().isNotEmpty())) {
+            modifiedLines.add("")
         }
         
-        logger.info("Modified: ${modifiedLines.size} lines")
+        logger.info("Original: ${originalLines.size} lines, ends with newline: ${originalText.endsWith("\n")}")
+        originalLines.forEachIndexed { index, line ->
+            logger.info("  [$index] '${line.take(50).replace("\r", "\\r")}${if (line.length > 50) "..." else ""}'")
+        }
+        
+        logger.info("Modified: ${modifiedLines.size} lines, ends with newline: ${modifiedText.endsWith("\n")}")
         modifiedLines.forEachIndexed { index, line ->
-            logger.info("  [$index] ${line.take(50)}${if (line.length > 50) "..." else ""}")
+            logger.info("  [$index] '${line.take(50).replace("\r", "\\r")}${if (line.length > 50) "..." else ""}'")
         }
         
         logger.info("Diff blocks: ${lineDiff.blocks.size}")
         lineDiff.blocks.forEach { block ->
             logger.info("  ${block.type}:")
-            logger.info("    Original: lines ${block.originalStartLine}-${block.originalEndLine}")
-            logger.info("    Modified: lines ${block.modifiedStartLine}-${block.modifiedEndLine}")
-            logger.info("    Original content: ${block.originalLines.joinToString(" | ") { it.take(30) }}")
-            logger.info("    Modified content: ${block.modifiedLines.joinToString(" | ") { it.take(30) }}")
+            logger.info("    Original: lines ${block.originalStartLine}-${block.originalEndLine} (${block.originalLines.size} lines)")
+            logger.info("    Modified: lines ${block.modifiedStartLine}-${block.modifiedEndLine} (${block.modifiedLines.size} lines)")
+            logger.info("    Original content: ${block.originalLines.joinToString(" | ") { "'${it.take(30)}'" }}")
+            logger.info("    Modified content: ${block.modifiedLines.joinToString(" | ") { "'${it.take(30)}'" }}")
         }
         
         logger.info("=== End Diff Debug ===")

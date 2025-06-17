@@ -58,6 +58,12 @@ class ZestInlineMethodDiffRenderer {
     companion object {
         // Enable debug logging to diagnose missing last line issue
         private const val DEBUG_DIFF_RENDERING = true
+        
+        private fun debugLog(message: String) {
+            if (DEBUG_DIFF_RENDERING) {
+                println("[ZestDiff] $message")
+            }
+        }
     }
     
     // State management
@@ -136,12 +142,23 @@ class ZestInlineMethodDiffRenderer {
         }
         
         try {
-            logger.info("Showing inline method diff for ${methodContext.methodName}")
+            debugLog("Showing inline method diff for ${methodContext.methodName}")
             
             // Verify editor is still valid
             if (editor.isDisposed) {
                 logger.warn("Editor is disposed, cannot show diff")
                 return
+            }
+            
+            // Validate method boundaries
+            val document = editor.document
+            val extractedContent = document.getText(TextRange(methodContext.methodStartOffset, methodContext.methodEndOffset))
+            if (extractedContent != methodContext.methodContent) {
+                debugLog("WARNING: Method boundary mismatch!")
+                debugLog("  Expected length: ${methodContext.methodContent.length}")
+                debugLog("  Extracted length: ${extractedContent.length}")
+                debugLog("  Method content ends with newline: ${methodContext.methodContent.endsWith("\n")}")
+                debugLog("  Extracted content ends with newline: ${extractedContent.endsWith("\n")}")
             }
             
             val context = RenderingContext(
@@ -158,9 +175,9 @@ class ZestInlineMethodDiffRenderer {
             // Render the diff
             renderDiffChanges(context)
             
-            logger.info("Inline diff rendered successfully with ${context.deletionHighlighters.size} deletions and ${context.additionInlays.size} additions")
+            debugLog("Inline diff rendered successfully with ${context.deletionHighlighters.size} deletions and ${context.additionInlays.size} additions")
             if (context.isAdditionOnly) {
-                logger.info("Used ghost text rendering for addition-only diff")
+                debugLog("Used ghost text rendering for addition-only diff")
             }
             
         } catch (e: Exception) {
@@ -182,7 +199,7 @@ class ZestInlineMethodDiffRenderer {
             try {
                 currentRenderingContext?.dispose()
                 currentRenderingContext = null
-                logger.debug("Inline diff hidden and cleaned up")
+                debugLog("Inline diff hidden and cleaned up")
             } catch (e: Exception) {
                 logger.warn("Error during diff cleanup", e)
             }
@@ -198,7 +215,7 @@ class ZestInlineMethodDiffRenderer {
         
         ApplicationManager.getApplication().invokeLater {
             try {
-                logger.info("Accepting method diff changes")
+                debugLog("Accepting method diff changes")
                 context.acceptCallback()
                 hide()
             } catch (e: Exception) {
@@ -217,7 +234,7 @@ class ZestInlineMethodDiffRenderer {
         
         ApplicationManager.getApplication().invokeLater {
             try {
-                logger.info("Rejecting method diff changes")
+                debugLog("Rejecting method diff changes")
                 context.rejectCallback()
                 hide()
             } catch (e: Exception) {
@@ -288,7 +305,7 @@ class ZestInlineMethodDiffRenderer {
         
         // Special handling for empty original method
         if (originalText.trim().isEmpty() && modifiedText.isNotEmpty()) {
-            logger.info("Original method is empty - treating as pure addition")
+            debugLog("Original method is empty - treating as pure addition")
             context.isAdditionOnly = true
             renderAdditionOnlyDiff(context, lineDiff)
             return
@@ -296,13 +313,13 @@ class ZestInlineMethodDiffRenderer {
         
         // Debug logging if enabled
         if (DEBUG_DIFF_RENDERING || logger.isDebugEnabled) {
-            logger.info("=== Original method content ===")
+            debugLog("=== Original method content ===")
             originalText.lines().forEachIndexed { idx, line ->
-                logger.info("Original[$idx]: '$line'")
+                debugLog("Original[$idx]: '$line'")
             }
-            logger.info("=== Modified method content ===")
+            debugLog("=== Modified method content ===")
             modifiedText.lines().forEachIndexed { idx, line ->
-                logger.info("Modified[$idx]: '$line'")
+                debugLog("Modified[$idx]: '$line'")
             }
             
             DiffDebugUtil.logDiffDetails(originalText, modifiedText, lineDiff, context.methodContext.methodName)
@@ -312,15 +329,15 @@ class ZestInlineMethodDiffRenderer {
         val isAdditionOnly = isAdditionOnlyDiff(lineDiff)
         
         if (isAdditionOnly && config.useGhostTextForAdditions()) {
-            logger.info("Detected addition-only diff, using ghost text rendering")
+            debugLog("Detected addition-only diff, using ghost text rendering")
             context.isAdditionOnly = true
             // For addition-only diffs, use ghost text rendering
             renderAdditionOnlyDiff(context, lineDiff)
         } else {
             if (isAdditionOnly) {
-                logger.info("Detected addition-only diff, but ghost text is disabled - using full diff view")
+                debugLog("Detected addition-only diff, but ghost text is disabled - using full diff view")
             } else {
-                logger.info("Detected modifications/deletions in diff, using full diff view")
+                debugLog("Detected modifications/deletions in diff, using full diff view")
             }
             // For diffs with modifications/deletions, use the full diff view
             renderFullDiff(context, originalText, modifiedText, lineDiff)
@@ -363,6 +380,9 @@ class ZestInlineMethodDiffRenderer {
         val methodStartLine = document.getLineNumber(context.methodContext.methodStartOffset)
         val methodEndLine = document.getLineNumber(context.methodContext.methodEndOffset)
         
+        debugLog("Rendering addition-only diff:")
+        debugLog("  Method spans lines $methodStartLine to $methodEndLine")
+        
         // Group consecutive additions by their insertion point
         val additionGroups = mutableMapOf<Int, MutableList<String>>()
         var totalAddedLines = 0
@@ -371,47 +391,69 @@ class ZestInlineMethodDiffRenderer {
             if (block.type == WordDiffUtil.BlockType.ADDED) {
                 totalAddedLines += block.modifiedLines.size
                 
+                debugLog("  Processing ADDED block: ${block.modifiedLines.size} lines")
+                debugLog("    Original start line: ${block.originalStartLine}")
+                
+                // Calculate where this block should be inserted relative to original lines
+                // For additions, originalStartLine indicates where in the original text this should go
                 val insertAfterOriginalLine = if (block.originalStartLine > 0) {
                     block.originalStartLine - 1
                 } else {
-                    -1
+                    -1 // Insert at beginning
                 }
                 
-                val insertAfterDocumentLine = if (insertAfterOriginalLine >= 0) {
+                // Convert to document line number
+                val targetDocumentLine = if (insertAfterOriginalLine >= 0) {
                     methodStartLine + insertAfterOriginalLine
                 } else {
-                    methodStartLine - 1
+                    methodStartLine - 1 // Insert before method start
                 }
                 
-                // Ensure we don't insert beyond method boundaries
-                val clampedInsertLine = insertAfterDocumentLine.coerceIn(methodStartLine - 1, methodEndLine)
+                // Clamp to method boundaries
+                val clampedLine = when {
+                    targetDocumentLine < methodStartLine -> methodStartLine
+                    targetDocumentLine > methodEndLine -> methodEndLine
+                    else -> targetDocumentLine
+                }
                 
-                additionGroups.getOrPut(clampedInsertLine) { mutableListOf() }.addAll(block.modifiedLines)
+                debugLog("    Insert after original line: $insertAfterOriginalLine")
+                debugLog("    Target document line: $targetDocumentLine")
+                debugLog("    Clamped line: $clampedLine")
+                
+                additionGroups.getOrPut(clampedLine) { mutableListOf() }.addAll(block.modifiedLines)
             }
         }
         
         // Render grouped additions
-        for ((insertAfterLine, lines) in additionGroups.entries.sortedBy { it.key }) {
+        for ((documentLine, lines) in additionGroups.entries.sortedBy { it.key }) {
+            // Calculate the exact offset, ensuring it's within method bounds
+            val lineStartOffset = document.getLineStartOffset(documentLine)
+            val lineEndOffset = document.getLineEndOffset(documentLine)
+            
+            // Determine insertion offset based on position
             val insertOffset = when {
-                insertAfterLine < 0 -> {
-                    context.methodContext.methodStartOffset
-                }
-                insertAfterLine >= document.lineCount -> {
-                    // Insert at method end, not document end
-                    context.methodContext.methodEndOffset
-                }
-                else -> {
-                    val lineEnd = document.getLineEndOffset(insertAfterLine)
-                    // Ensure we don't go beyond method end
-                    lineEnd.coerceAtMost(context.methodContext.methodEndOffset)
-                }
+                // If at method start, insert after the line
+                documentLine == methodStartLine -> lineEndOffset.coerceAtMost(context.methodContext.methodEndOffset)
+                // If at method end, insert before the line
+                documentLine == methodEndLine -> lineStartOffset.coerceAtLeast(context.methodContext.methodStartOffset)
+                // Otherwise insert after the line
+                else -> lineEndOffset
             }
+            
+            // Final safety check
+            if (insertOffset < context.methodContext.methodStartOffset || 
+                insertOffset > context.methodContext.methodEndOffset) {
+                debugLog("WARNING: Skipping insertion outside method bounds: offset=$insertOffset, method=${context.methodContext.methodStartOffset}..${context.methodContext.methodEndOffset}")
+                continue
+            }
+            
+            debugLog("  Rendering ${lines.size} lines at document line $documentLine (offset $insertOffset)")
             
             val renderer = createMultiLineGhostTextRenderer(lines, context.editor.colorsScheme)
             val inlay = context.editor.inlayModel.addBlockElement(
                 insertOffset,
-                insertOffset < context.methodContext.methodEndOffset, // relatesToPrecedingText
-                true, // showAbove
+                true, // relatesToPrecedingText
+                false, // showAbove - show inline after the text
                 0,
                 renderer
             )
@@ -421,7 +463,7 @@ class ZestInlineMethodDiffRenderer {
             }
         }
         
-        logger.info("Rendered $totalAddedLines added lines as ghost text in ${additionGroups.size} blocks")
+        debugLog("Rendered $totalAddedLines added lines as ghost text in ${additionGroups.size} blocks")
         
         if (config.showAdditionHint() && totalAddedLines > 0) {
             showAdditionHint(context.editor)
@@ -526,19 +568,31 @@ class ZestInlineMethodDiffRenderer {
             context.deletionHighlighters.add(hideHighlighter)
         }
         
+        // Use lines() but manually handle the trailing newline case  
+        val originalLines = originalText.lines().toMutableList()
+        val modifiedLines = modifiedText.lines().toMutableList()
+        
+        // If text ends with newline, add an empty line that lines() removes
+        if (originalText.endsWith("\n") && (originalLines.isEmpty() || originalLines.last().isNotEmpty())) {
+            originalLines.add("")
+        }
+        if (modifiedText.endsWith("\n") && (modifiedLines.isEmpty() || modifiedLines.last().isNotEmpty())) {
+            modifiedLines.add("")
+        }
+        
         // Create renderer based on user preference
         val renderer = if (config.useSideBySideView()) {
             createSideBySideMethodRenderer(
-                originalText.lines(),
-                modifiedText.lines(), 
+                originalLines,
+                modifiedLines, 
                 lineDiff,
                 context.editor.colorsScheme,
                 context.methodContext.language
             )
         } else {
             createWholeMethodRenderer(
-                originalText.lines(),
-                modifiedText.lines(), 
+                originalLines,
+                modifiedLines, 
                 lineDiff,
                 context.editor.colorsScheme,
                 context.methodContext.language
@@ -568,7 +622,7 @@ class ZestInlineMethodDiffRenderer {
             context.mainDiffInlay = inlay
             val viewType = if (config.useSideBySideView()) "side-by-side" else "color-coded"
             val position = if (config.showDiffAtStart()) "start" else "end"
-            logger.info("Successfully rendered $viewType method diff at $position")
+            debugLog("Successfully rendered $viewType method diff at $position")
             
             // Handle diff visibility based on configuration
             when {
@@ -862,7 +916,7 @@ class ZestInlineMethodDiffRenderer {
     ) {
         val document = context.editor.document
         
-        logger.debug("Rendering line addition at document line $insertAtDocumentLine: ${rewrittenLine.take(50)}")
+        debugLog("Rendering line addition at document line $insertAtDocumentLine: ${rewrittenLine.take(50)}")
         
         if (insertAtDocumentLine >= 0 && insertAtDocumentLine <= document.lineCount) {
             // Calculate the proper insertion offset
@@ -893,12 +947,12 @@ class ZestInlineMethodDiffRenderer {
             
             if (inlay != null) {
                 context.additionInlays.add(inlay)
-                logger.debug("Successfully created inlay at offset $insertOffset")
+                debugLog("Successfully created inlay at offset $insertOffset")
             } else {
-                logger.warn("Failed to create inlay at offset $insertOffset")
+                debugLog("Failed to create inlay at offset $insertOffset")
             }
         } else {
-            logger.warn("Invalid insertion line: $insertAtDocumentLine (document has ${document.lineCount} lines)")
+            debugLog("Invalid insertion line: $insertAtDocumentLine (document has ${document.lineCount} lines)")
         }
     }
     
@@ -1224,7 +1278,10 @@ class ZestInlineMethodDiffRenderer {
         }
         
         // Check for missing lines
-        val originalLines = context.methodContext.methodContent.lines()
+        val originalLines = context.methodContext.methodContent.lines().toMutableList()
+        if (context.methodContext.methodContent.endsWith("\n") && (originalLines.isEmpty() || originalLines.last().isNotEmpty())) {
+            originalLines.add("")
+        }
         val lastCoveredLine = lineDiff.blocks.lastOrNull()?.originalEndLine ?: -1
         if (lastCoveredLine < originalLines.size - 1) {
             logger.warn("MISSING LINES: Last diff block covers up to line $lastCoveredLine, but method has ${originalLines.size} lines")
@@ -1481,7 +1538,7 @@ class ZestInlineMethodDiffRenderer {
                     }
                 })
                 
-                logger.debug("Scrolled to diff at offset $inlayOffset")
+                debugLog("Scrolled to diff at offset $inlayOffset")
             } catch (e: Exception) {
                 logger.warn("Failed to scroll to diff", e)
             }

@@ -41,22 +41,33 @@ class WholeMethodDiffRenderer(
             when (block.type) {
                 WordDiffUtil.BlockType.UNCHANGED -> {
                     // Mark corresponding lines as unchanged
-                    for (i in block.modifiedStartLine until block.modifiedEndLine) {
-                        if (i in statuses.indices) {
-                            statuses[i] = LineStatus.UNCHANGED
+                    // Fix: use the actual line count from the block
+                    for (i in 0 until block.modifiedLines.size) {
+                        val lineIdx = block.modifiedStartLine + i
+                        if (lineIdx in statuses.indices) {
+                            statuses[lineIdx] = LineStatus.UNCHANGED
                         }
                     }
                 }
                 WordDiffUtil.BlockType.MODIFIED -> {
                     // Mark corresponding lines as modified
-                    for (i in block.modifiedStartLine until block.modifiedEndLine) {
-                        if (i in statuses.indices) {
-                            statuses[i] = LineStatus.MODIFIED
+                    // Fix: use the actual line count from the block
+                    for (i in 0 until block.modifiedLines.size) {
+                        val lineIdx = block.modifiedStartLine + i
+                        if (lineIdx in statuses.indices) {
+                            statuses[lineIdx] = LineStatus.MODIFIED
                         }
                     }
                 }
                 WordDiffUtil.BlockType.ADDED -> {
                     // Lines are already marked as added by default
+                    // But ensure they are within bounds
+                    for (i in 0 until block.modifiedLines.size) {
+                        val lineIdx = block.modifiedStartLine + i
+                        if (lineIdx in statuses.indices) {
+                            statuses[lineIdx] = LineStatus.ADDED
+                        }
+                    }
                 }
                 WordDiffUtil.BlockType.DELETED -> {
                     // Deleted lines don't appear in the new method

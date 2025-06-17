@@ -40,8 +40,9 @@ class SideBySideMethodDiffRenderer(
             when (block.type) {
                 WordDiffUtil.BlockType.UNCHANGED, WordDiffUtil.BlockType.MODIFIED -> {
                     // Lines exist on both sides
-                    val leftCount = block.originalEndLine - block.originalStartLine
-                    val rightCount = block.modifiedEndLine - block.modifiedStartLine
+                    // Fix: the count should be the number of lines, not the difference
+                    val leftCount = block.originalLines.size
+                    val rightCount = block.modifiedLines.size
                     val maxCount = max(leftCount, rightCount)
                     
                     for (i in 0 until maxCount) {
@@ -52,14 +53,16 @@ class SideBySideMethodDiffRenderer(
                 }
                 WordDiffUtil.BlockType.DELETED -> {
                     // Lines only on left side
-                    for (i in block.originalStartLine until block.originalEndLine) {
-                        alignments.add(LineAlignment(i, null, block.type))
+                    // Fix: use line count from the block
+                    for (i in 0 until block.originalLines.size) {
+                        alignments.add(LineAlignment(block.originalStartLine + i, null, block.type))
                     }
                 }
                 WordDiffUtil.BlockType.ADDED -> {
                     // Lines only on right side
-                    for (i in block.modifiedStartLine until block.modifiedEndLine) {
-                        alignments.add(LineAlignment(null, i, block.type))
+                    // Fix: use line count from the block
+                    for (i in 0 until block.modifiedLines.size) {
+                        alignments.add(LineAlignment(null, block.modifiedStartLine + i, block.type))
                     }
                 }
             }

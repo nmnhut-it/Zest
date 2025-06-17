@@ -7,6 +7,8 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.codeStyle.CodeStyleManager
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.prompt.ZestMethodPromptBuilder
 import com.zps.zest.completion.parser.ZestMethodResponseParser
@@ -656,6 +658,26 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     methodContext.methodEndOffset,
                     rewrittenMethod
                 )
+                
+                // Calculate the new end offset after replacement
+                val newEndOffset = methodContext.methodStartOffset + rewrittenMethod.length
+                
+                // Reformat the replaced code using IntelliJ's code style
+                val psiFile = com.intellij.psi.PsiDocumentManager.getInstance(project).getPsiFile(document)
+                if (psiFile != null) {
+                    // Commit the document to sync PSI
+                    com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+                    
+                    // Reformat the replaced range
+                    val codeStyleManager = com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                    try {
+                        codeStyleManager.reformatRange(psiFile, methodContext.methodStartOffset, newEndOffset)
+                        logger.info("Reformatted replaced method range")
+                    } catch (e: Exception) {
+                        logger.warn("Failed to reformat replaced method: ${e.message}")
+                        // Continue even if reformatting fails
+                    }
+                }
                 
                 logger.info("Applied method rewrite successfully using ${enhancedDiffResult?.diffStrategy} strategy")
             }

@@ -58,6 +58,63 @@ class WordDiffUtilTest {
     }
     
     @Test
+    fun testJavaBraceNormalization() {
+        // Test newline brace normalization
+        val original = "if (condition)\n{\n    doSomething();\n}"
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        
+        assertEquals("if (condition) {\n    doSomething();\n}", normalized)
+    }
+    
+    @Test
+    fun testJavaArrayBracketNormalization() {
+        // Test array bracket normalization
+        val original1 = "String [] array = new String [10];"
+        val normalized1 = WordDiffUtil.normalizeCode(original1, "java")
+        assertEquals("String[] array = new String[10];", normalized1)
+        
+        val original2 = "int[]array = new int[5];"
+        val normalized2 = WordDiffUtil.normalizeCode(original2, "java")
+        assertEquals("int[]array = new int[5];", normalized2)
+    }
+    
+    @Test
+    fun testJavaParenthesesNormalization() {
+        // Test parentheses normalization
+        val original = "if(x > 0)   {  return true;  }"
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        
+        assertEquals("if (x > 0) { return true;}", normalized)
+    }
+    
+    @Test
+    fun testJavaEmptyBlockNormalization() {
+        // Test empty block normalization
+        val original = "void method() { }"
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        
+        assertEquals("void method() {}", normalized)
+    }
+    
+    @Test
+    fun testJavaMultipleEmptyLines() {
+        // Test multiple empty lines normalization
+        val original = "class Test {\n\n\n\n    void method() {}\n\n\n}"
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        
+        assertEquals("class Test {\n\n    void method() {}\n\n}", normalized)
+    }
+    
+    @Test
+    fun testJavaSemicolonNormalization() {
+        // Test semicolon normalization
+        val original = "int x = 5 ; ; return x ; }"
+        val normalized = WordDiffUtil.normalizeCode(original, "java")
+        
+        assertEquals("int x = 5; return x;}", normalized)
+    }
+    
+    @Test
     fun testMergeSegments() {
         val segments = listOf(
             WordDiffUtil.WordSegment("Hello", WordDiffUtil.ChangeType.UNCHANGED),
@@ -87,5 +144,39 @@ class WordDiffUtilTest {
         assertTrue(result.originalSegments.any { it.text == "void" && it.type != WordDiffUtil.ChangeType.UNCHANGED })
         assertTrue(result.modifiedSegments.any { it.text == "int" && it.type != WordDiffUtil.ChangeType.UNCHANGED })
         assertTrue(result.modifiedSegments.any { it.text.contains("y") && it.type == WordDiffUtil.ChangeType.ADDED })
+    }
+    
+    @Test
+    fun testJavaCodeDiffWithNormalization() {
+        val original = """
+            public void process()
+            {
+                if(x > 0)
+                {
+                    String [] items = new String [10];
+                    processItems(items) ;
+                }
+            }
+        """.trimIndent()
+        
+        val modified = """
+            public void process() {
+                if (x > 0) {
+                    String[] items = new String[10];
+                    processItems(items);
+                }
+            }
+        """.trimIndent()
+        
+        val result = WordDiffUtil.diffWords(original, modified, "java")
+        
+        // After normalization, these should be mostly unchanged
+        // The main structure should remain the same
+        val unchangedCount = result.originalSegments.count { it.type == WordDiffUtil.ChangeType.UNCHANGED }
+        val totalCount = result.originalSegments.size
+        
+        // Most segments should be unchanged after normalization
+        assertTrue("Expected mostly unchanged segments after normalization", 
+                  unchangedCount.toDouble() / totalCount > 0.8)
     }
 }

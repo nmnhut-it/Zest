@@ -15,8 +15,10 @@ import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.diff.WordDiffUtil
 import com.zps.zest.gdiff.GDiff
+import java.awt.AlphaComposite
 import java.awt.Font
 import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -266,8 +268,13 @@ class ZestInlineMethodDiffRenderer {
             )
             context.deletionHighlighters.add(hideHighlighter)
             
-            // Create side-by-side diff inlay
-            val renderer = createSideBySideDiffRenderer(originalLine, rewrittenLine, context.editor.colorsScheme)
+            // Create side-by-side diff inlay with ghost text for new content
+            val renderer = createSideBySideDiffRenderer(
+                originalLine, 
+                rewrittenLine, 
+                context.editor.colorsScheme,
+                context.methodContext.language
+            )
             val inlay = context.editor.inlayModel.addBlockElement(
                 lineEndOffset,
                 true,
@@ -313,7 +320,7 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Render line addition with green background
+     * Render line addition with ghost text style
      */
     private fun renderLineAddition(
         context: RenderingContext, 
@@ -332,8 +339,8 @@ class ZestInlineMethodDiffRenderer {
                 document.textLength
             }
             
-            // Create green addition inlay with theme-aware colors
-            val renderer = createAdditionRenderer(rewrittenLine, context.editor.colorsScheme)
+            // Create ghost text addition inlay
+            val renderer = createGhostTextRenderer(rewrittenLine, context.editor.colorsScheme)
             val inlay = context.editor.inlayModel.addBlockElement(
                 insertOffset,
                 true,
@@ -369,15 +376,16 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Create renderer for side-by-side diff with word highlighting
+     * Create renderer for side-by-side diff with word highlighting and ghost text
      */
     private fun createSideBySideDiffRenderer(
         originalLine: String, 
         modifiedLine: String,
-        scheme: EditorColorsScheme
+        scheme: EditorColorsScheme,
+        language: String
     ): EditorCustomElementRenderer {
-        // Perform word-level diff
-        val wordDiff = WordDiffUtil.diffWords(originalLine, modifiedLine)
+        // Perform word-level diff with language-specific normalization
+        val wordDiff = WordDiffUtil.diffWords(originalLine, modifiedLine, language)
         
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
@@ -399,13 +407,14 @@ class ZestInlineMethodDiffRenderer {
             }
             
             override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
                 val font = getEditorFont(inlay.editor)
-                g.font = font
-                val metrics = g.fontMetrics
+                g2d.font = font
+                val metrics = g2d.fontMetrics
                 
                 // Use theme background
-                g.color = scheme.defaultBackground
-                g.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
+                g2d.color = scheme.defaultBackground
+                g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
                 
                 var xPos = targetRect.x + 5
                 val yPos = targetRect.y + metrics.ascent + 2
@@ -417,63 +426,63 @@ class ZestInlineMethodDiffRenderer {
                         WordDiffUtil.ChangeType.DELETED, WordDiffUtil.ChangeType.MODIFIED -> {
                             // Draw background highlight
                             val segmentWidth = metrics.stringWidth(segment.text)
-                            g.color = JBColor(
+                            g2d.color = JBColor(
                                 java.awt.Color(255, 220, 220),
                                 java.awt.Color(92, 22, 36)
                             )
-                            g.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
+                            g2d.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
                             
                             // Draw text with strikethrough
-                            g.color = scheme.defaultForeground
-                            g.drawString(segment.text, xPos, yPos)
+                            g2d.color = scheme.defaultForeground
+                            g2d.drawString(segment.text, xPos, yPos)
                             
                             // Draw strikethrough
-                            g.color = JBColor(
+                            g2d.color = JBColor(
                                 java.awt.Color(255, 85, 85),
                                 java.awt.Color(248, 81, 73)
                             )
                             val strikeY = yPos - metrics.height / 3
-                            g.drawLine(xPos, strikeY, xPos + segmentWidth, strikeY)
+                            g2d.drawLine(xPos, strikeY, xPos + segmentWidth, strikeY)
                             
                             xPos += segmentWidth
                         }
                         else -> {
                             // Draw unchanged text
-                            g.color = scheme.defaultForeground
-                            g.drawString(segment.text, xPos, yPos)
+                            g2d.color = scheme.defaultForeground
+                            g2d.drawString(segment.text, xPos, yPos)
                             xPos += metrics.stringWidth(segment.text)
                         }
                     }
                 }
                 
                 // Draw arrow
-                g.color = scheme.defaultForeground
-                g.drawString(" → ", xPos, yPos)
+                g2d.color = scheme.defaultForeground
+                g2d.drawString(" → ", xPos, yPos)
                 xPos += metrics.stringWidth(" → ")
                 
-                // Draw modified segments with highlighting
+                // Draw modified segments as ghost text
                 val modifiedSegments = WordDiffUtil.mergeSegments(wordDiff.modifiedSegments)
+                
+                // Set up ghost text rendering
+                val originalComposite = g2d.composite
+                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                
                 for (segment in modifiedSegments) {
                     when (segment.type) {
                         WordDiffUtil.ChangeType.ADDED, WordDiffUtil.ChangeType.MODIFIED -> {
-                            // Draw background highlight
-                            val segmentWidth = metrics.stringWidth(segment.text)
-                            g.color = JBColor(
-                                java.awt.Color(220, 255, 228),
-                                java.awt.Color(15, 83, 35)
-                            )
-                            g.fillRect(xPos, targetRect.y, segmentWidth, targetRect.height)
-                            
-                            // Draw text
-                            g.color = scheme.defaultForeground
-                            g.drawString(segment.text, xPos, yPos)
-                            
-                            xPos += segmentWidth
+                            // Draw as ghost text (semi-transparent)
+                            g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                            g2d.color = getGhostTextColor(scheme)
+                            g2d.drawString(segment.text, xPos, yPos)
+                            g2d.composite = originalComposite
+                            xPos += metrics.stringWidth(segment.text)
                         }
                         else -> {
-                            // Draw unchanged text
-                            g.color = scheme.defaultForeground
-                            g.drawString(segment.text, xPos, yPos)
+                            // Draw unchanged text as ghost too for consistency
+                            g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                            g2d.color = scheme.defaultForeground
+                            g2d.drawString(segment.text, xPos, yPos)
+                            g2d.composite = originalComposite
                             xPos += metrics.stringWidth(segment.text)
                         }
                     }
@@ -483,9 +492,9 @@ class ZestInlineMethodDiffRenderer {
     }
     
     /**
-     * Create renderer for addition lines with theme-aware colors
+     * Create renderer for pure addition lines with ghost text style
      */
-    private fun createAdditionRenderer(text: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
+    private fun createGhostTextRenderer(text: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {
         return object : EditorCustomElementRenderer {
             override fun calcWidthInPixels(inlay: Inlay<*>): Int {
                 val font = getEditorFont(inlay.editor)
@@ -500,21 +509,39 @@ class ZestInlineMethodDiffRenderer {
             }
             
             override fun paint(inlay: Inlay<*>, g: Graphics, targetRect: Rectangle, textAttributes: TextAttributes) {
+                val g2d = g as Graphics2D
                 val font = getEditorFont(inlay.editor)
-                g.font = font
+                g2d.font = font
                 
-                // Green background
-                g.color = JBColor(
-                    java.awt.Color(220, 255, 228),
-                    java.awt.Color(15, 83, 35)
-                )
-                g.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
+                // Clear background
+                g2d.color = scheme.defaultBackground
+                g2d.fillRect(targetRect.x, targetRect.y, targetRect.width, targetRect.height)
                 
-                // Use theme's default text color
-                g.color = scheme.defaultForeground
-                val metrics = g.fontMetrics
-                g.drawString("+ $text", targetRect.x + 5, targetRect.y + metrics.ascent + 2)
+                // Draw ghost text with transparency
+                val originalComposite = g2d.composite
+                val ghostAlpha = if (JBColor.isBright()) 0.6f else 0.7f
+                g2d.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ghostAlpha)
+                
+                g2d.color = getGhostTextColor(scheme)
+                val metrics = g2d.fontMetrics
+                g2d.drawString("+ $text", targetRect.x + 5, targetRect.y + metrics.ascent + 2)
+                
+                // Restore composite
+                g2d.composite = originalComposite
             }
+        }
+    }
+    
+    /**
+     * Get appropriate ghost text color based on theme
+     */
+    private fun getGhostTextColor(scheme: EditorColorsScheme): java.awt.Color {
+        return if (JBColor.isBright()) {
+            // Light theme: dark gray ghost text
+            java.awt.Color(60, 60, 60)
+        } else {
+            // Dark theme: light gray ghost text
+            java.awt.Color(180, 180, 180)
         }
     }
     

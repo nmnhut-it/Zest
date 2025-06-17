@@ -34,25 +34,74 @@ object WordDiffUtil {
     /**
      * Normalize code for better diffing (handles whitespace and formatting)
      */
-    fun normalizeCode(text: String): String {
-        return text
+    fun normalizeCode(text: String, language: String? = null): String {
+        var normalized = text
             // Convert tabs to spaces
             .replace("\t", "    ")
-            // Trim trailing whitespace from each line
-            .lines()
-            .joinToString("\n") { it.trimEnd() }
             // Ensure consistent line endings
             .replace("\r\n", "\n")
             .replace("\r", "\n")
+        
+        // Apply language-specific normalization
+        if (language?.lowercase() == "java") {
+            normalized = normalizeJavaCode(normalized)
+        }
+        
+        // Trim trailing whitespace from each line
+        return normalized.lines()
+            .joinToString("\n") { it.trimEnd() }
+    }
+    
+    /**
+     * Java-specific code normalization for better semantic diffing
+     */
+    private fun normalizeJavaCode(code: String): String {
+        // Normalize brace positioning to same line (K&R style)
+        var normalized = code
+            // Opening brace on new line -> same line
+            .replace(Regex("\\s*\n\\s*\\{"), " {")
+            // Multiple spaces before opening brace -> single space
+            .replace(Regex("\\s+\\{"), " {")
+            // Closing brace with extra spaces
+            .replace(Regex("\\}\\s+"), "} ")
+            // Empty blocks: { } -> {}
+            .replace(Regex("\\{\\s+\\}"), "{}")
+            
+        // Normalize array brackets
+        normalized = normalized
+            // Type[] name -> Type[] name (ensure space)
+            .replace(Regex("(\\w)\\[\\]"), "$1[]")
+            // Type [] name -> Type[] name (remove space)
+            .replace(Regex("(\\w)\\s+\\[\\]"), "$1[]")
+            
+        // Normalize parentheses
+        normalized = normalized
+            // if( -> if (
+            .replace(Regex("\\b(if|for|while|switch|catch)\\("), "$1 (")
+            // ) { -> ) {
+            .replace(Regex("\\)\\s*\\{"), ") {")
+            
+        // Normalize empty lines (reduce multiple empty lines to single)
+        normalized = normalized
+            .replace(Regex("\n\\s*\n\\s*\n"), "\n\n")
+            
+        // Normalize semicolons
+        normalized = normalized
+            // ; } -> ;}
+            .replace(Regex(";\\s+\\}"), ";}")
+            // Multiple semicolons
+            .replace(Regex(";;+"), ";")
+            
+        return normalized
     }
     
     /**
      * Perform word-level diff between two lines of text
      */
-    fun diffWords(original: String, modified: String): WordDiffResult {
+    fun diffWords(original: String, modified: String, language: String? = null): WordDiffResult {
         // Normalize the text first
-        val normalizedOriginal = normalizeCode(original)
-        val normalizedModified = normalizeCode(modified)
+        val normalizedOriginal = normalizeCode(original, language)
+        val normalizedModified = normalizeCode(modified, language)
         
         // Split into words/tokens while preserving whitespace
         val originalTokens = tokenize(normalizedOriginal)
@@ -134,23 +183,24 @@ object WordDiffUtil {
     
     /**
      * Tokenize text into words and whitespace, preserving all characters
+     * Enhanced for better Java code tokenization
      */
     private fun tokenize(text: String): List<String> {
         val tokens = mutableListOf<String>()
         val currentToken = StringBuilder()
-        var inWord = false
+        var tokenType: TokenType? = null
         
         for (char in text) {
-            val isWordChar = char.isLetterOrDigit() || char == '_'
+            val charType = getTokenType(char)
             
-            if (isWordChar != inWord && currentToken.isNotEmpty()) {
-                // Transition between word and non-word
+            if (charType != tokenType && currentToken.isNotEmpty()) {
+                // Token type changed, save current token
                 tokens.add(currentToken.toString())
                 currentToken.clear()
             }
             
             currentToken.append(char)
-            inWord = isWordChar
+            tokenType = charType
         }
         
         if (currentToken.isNotEmpty()) {
@@ -158,6 +208,26 @@ object WordDiffUtil {
         }
         
         return tokens
+    }
+    
+    private enum class TokenType {
+        WORD,           // Letters, digits, underscore
+        WHITESPACE,     // Spaces, tabs, newlines
+        OPERATOR,       // +, -, *, /, =, <, >, !, &, |, etc.
+        DELIMITER,      // (, ), [, ], {, }
+        PUNCTUATION,    // ., ,, ;, :
+        OTHER
+    }
+    
+    private fun getTokenType(char: Char): TokenType {
+        return when {
+            char.isLetterOrDigit() || char == '_' -> TokenType.WORD
+            char.isWhitespace() -> TokenType.WHITESPACE
+            char in "+-*/%=<>!&|^~" -> TokenType.OPERATOR
+            char in "()[]{}" -> TokenType.DELIMITER
+            char in ".,:;" -> TokenType.PUNCTUATION
+            else -> TokenType.OTHER
+        }
     }
     
     /**

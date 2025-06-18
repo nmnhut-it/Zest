@@ -30,7 +30,7 @@ class DiffRenderingConfig : PersistentStateComponent<DiffRenderingConfig.State> 
         var continuationIndentSize: Int = 2,
         var useSubtleColors: Boolean = true,
         var useSideBySideView: Boolean = true,
-        var showDiffAtStart: Boolean = false,
+        var showDiffAtStart: Boolean = true,
         var autoScrollToDiff: Boolean = true,
         var showFloatingDiffButton: Boolean = false,
         var showAdditionHint: Boolean = true,

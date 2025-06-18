@@ -216,7 +216,7 @@ class ZestInlineCompletionRenderer {
         // Strategy-aware rendering
         when (strategy) {
             ZestCompletionProvider.CompletionStrategy.SIMPLE -> {
-                // SIMPLE: Only show the first line for clean inline display
+                // SIMPLE: Only show the first line for clean inline display (traditional full acceptance)
                 val lines = insertText.lines()
                 val firstLine = lines.firstOrNull() ?: return
                 
@@ -224,13 +224,13 @@ class ZestInlineCompletionRenderer {
                     val inlay = createInlineInlay(editor, offset, firstLine)
                     if (inlay != null) {
                         inlays.add(inlay)
-                        System.out.println("SIMPLE strategy: rendered single line: '$firstLine'")
+                        System.out.println("SIMPLE strategy: rendered single line: '$firstLine' (traditional full acceptance)")
                     }
                 }
             }
             
             ZestCompletionProvider.CompletionStrategy.LEAN -> {
-                // LEAN: Show full multi-line completion
+                // LEAN: Show full multi-line completion (line-by-line acceptance handled in service)
                 val lines = insertText.lines()
                 
                 if (lines.isNotEmpty()) {
@@ -253,7 +253,7 @@ class ZestInlineCompletionRenderer {
                         }
                     }
                     
-                    System.out.println("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays)")
+                    System.out.println("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays) with line-by-line acceptance")
                 }
             }
             

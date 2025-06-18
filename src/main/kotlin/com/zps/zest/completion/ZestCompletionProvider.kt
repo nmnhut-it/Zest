@@ -60,7 +60,7 @@ class ZestCompletionProvider(private val project: Project) {
     }
     
     // Configuration
-    var strategy: CompletionStrategy = CompletionStrategy.LEAN
+    var strategy: CompletionStrategy = CompletionStrategy.LEAN // Default to LEAN mode
         private set
     
     enum class CompletionStrategy {

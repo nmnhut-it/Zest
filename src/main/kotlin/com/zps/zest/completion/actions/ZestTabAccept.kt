@@ -7,8 +7,11 @@ import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestMethodRewriteService
 
 /**
- * TAB action for accepting only the next line of completions.
- * Simple and predictable: TAB = accept next line only.
+ * TAB action for line-by-line acceptance.
+ * Smart TAB behavior:
+ * - LEAN strategy: Line-by-line acceptance (Tab = first line only)
+ * - SIMPLE strategy: Traditional full completion acceptance
+ * - METHOD_REWRITE: Accept method rewrite
  */
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
@@ -21,9 +24,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
             return
         }
         
-        // Otherwise handle inline completion acceptance
-        // Since we now only show first line, TAB accepts the entire visible completion
-        // This is equivalent to NEXT_LINE but more intuitive for single-line display
+        // Handle inline completion acceptance with line-by-line support for LEAN strategy
         service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
     }
 

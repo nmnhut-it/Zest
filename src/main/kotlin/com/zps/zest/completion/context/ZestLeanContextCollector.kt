@@ -218,11 +218,61 @@ class ZestLeanContextCollector(private val project: Project) {
 
         // If still too long, truncate more aggressively
         return if (collapsedMarkedContent.length > MAX_CONTEXT_LENGTH) {
-            val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-            val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-            Triple(originalTruncated, truncated, true)
+            // Find cursor position to ensure it's preserved
+            val cursorIndex = collapsedMarkedContent.indexOf("[CURSOR]")
+            
+            if (cursorIndex != -1) {
+                // Cursor found - use smart truncation that preserves cursor
+                val truncated = smartTruncateAroundCursor(collapsedMarkedContent, cursorIndex, MAX_CONTEXT_LENGTH)
+                val originalTruncated = truncated.replace("[CURSOR]", "")
+                Triple(originalTruncated, truncated, true)
+            } else {
+                // No cursor found - use simple truncation (fallback)
+                val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
+                val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
+                Triple(originalTruncated, truncated, true)
+            }
         } else {
             Triple(collapsedOriginalContent, collapsedMarkedContent, collapsedOriginalContent != originalContent)
+        }
+    }
+
+    /**
+     * Smart truncation that ensures cursor position is preserved within the content.
+     * Keeps context around the cursor position while staying within the length limit.
+     */
+    private fun smartTruncateAroundCursor(content: String, cursorIndex: Int, maxLength: Int): String {
+        val truncationMarker = "\n/* ... content truncated ... */"
+        val availableLength = maxLength - truncationMarker.length * 2 // Account for both start and end markers
+        
+        if (availableLength <= 0) {
+            return content.take(maxLength)
+        }
+        
+        // Calculate how much content to keep before and after cursor
+        val halfLength = availableLength / 2
+        val beforeCursor = maxOf(0, cursorIndex - halfLength)
+        val afterCursor = minOf(content.length, cursorIndex + halfLength)
+        
+        // Adjust to line boundaries to avoid cutting words/lines awkwardly
+        val beforeLineStart = content.lastIndexOf('\n', beforeCursor).let { 
+            if (it == -1) 0 else it + 1 
+        }
+        val afterLineEnd = content.indexOf('\n', afterCursor).let { 
+            if (it == -1) content.length else it 
+        }
+        
+        val beforeTruncated = beforeLineStart > 0
+        val afterTruncated = afterLineEnd < content.length
+        
+        return buildString {
+            if (beforeTruncated) {
+                append("/* ... content truncated ... */\n")
+            }
+            append(content.substring(beforeLineStart, afterLineEnd))
+            if (afterTruncated) {
+                append("\n/* ... content truncated ... */")
+            }
         }
     }
 

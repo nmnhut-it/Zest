@@ -25,6 +25,18 @@ class ZestCocos2dxContextCollector(private val project: Project) {
             "ctor", "onEnter", "onExit", "onEnterTransitionDidFinish",
             "onExitTransitionDidStart", "update", "init"
         )
+        
+        // Syntax preference constants
+        private val SYNTAX_GUIDANCE = """
+            IMPORTANT COCOS2D-X-JS SYNTAX PREFERENCES:
+            - Use OLD VERSION cocos2d-x-js syntax patterns
+            - PREFER cc.Node() over cc.Node.create() - direct constructor calls preferred
+            - PREFER cc.Sprite() over cc.Sprite.create() - direct constructor calls preferred  
+            - PREFER cc.Scene() over cc.Scene.create() - direct constructor calls preferred
+            - Use .extend() pattern for class inheritance: var MyClass = cc.Layer.extend({...})
+            - Use object literal methods: methodName: function() {...}
+            - Include lifecycle methods: ctor, onEnter, onExit, init, update
+        """.trimIndent()
     }
 
     enum class Cocos2dxContextType {
@@ -75,7 +87,21 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         val cocosFrameworkVersion: String,
         val nearbyNodes: List<String>,
         val currentSceneContext: String?,
+        val syntaxPreferences: CocosSyntaxPreferences,
         val isTruncated: Boolean = false
+    )
+
+    data class CocosSyntaxPreferences(
+        val preferDirectConstructor: Boolean = true, // Prefer cc.Node() over cc.Node.create()
+        val useOldVersionSyntax: Boolean = true,     // Use cocos2d-x-js old version syntax
+        val preferredPatterns: List<String> = listOf(
+            "cc.Node() instead of cc.Node.create()",
+            "cc.Sprite() instead of cc.Sprite.create()",
+            "cc.Layer() instead of cc.Layer.create()",
+            "cc.Scene() instead of cc.Scene.create()",
+            "Use .extend() pattern for class inheritance",
+            "Prefer object literal methods over separate function definitions"
+        )
     )
 
     fun collectCocos2dxContext(editor: Editor, offset: Int): ZestLeanContextCollector.LeanContext {
@@ -100,16 +126,20 @@ class ZestCocos2dxContextCollector(private val project: Project) {
             Triple(text, markedContent, false)
         }
 
+        // Prepend Cocos2d-x specific syntax guidance to the marked content
+        val contentWithGuidance = SYNTAX_GUIDANCE + "\n\n" + finalMarkedContent
+        val originalWithGuidance = SYNTAX_GUIDANCE + "\n\n" + finalContent
+
         // Convert to standard LeanContext format
         val standardContextType = mapCocos2dxToStandardContext(cocosContext.contextType)
 
         return ZestLeanContextCollector.LeanContext(
             fileName = fileName,
             language = "cocos2d-x-js",
-            fullContent = finalContent,
-            markedContent = finalMarkedContent,
-            cursorOffset = offset,
-            cursorLine = cursorLine,
+            fullContent = originalWithGuidance,
+            markedContent = contentWithGuidance,
+            cursorOffset = offset + SYNTAX_GUIDANCE.length + 2, // Adjust offset for prepended content
+            cursorLine = cursorLine + SYNTAX_GUIDANCE.lines().size + 1, // Adjust line number
             contextType = standardContextType,
             isTruncated = isTruncated
         )
@@ -121,6 +151,7 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         val lines = beforeCursor.lines()
         val currentLine = lines.lastOrNull() ?: ""
         val contextType = detectCocos2dxContextType(beforeCursor, currentLine)
+        val frameworkVersion = detectCocos2dxVersion(text)
 
         return Cocos2dxContext(
             fileName = "unknown",
@@ -130,9 +161,10 @@ class ZestCocos2dxContextCollector(private val project: Project) {
             cursorOffset = offset,
             cursorLine = lines.size - 1,
             contextType = contextType,
-            cocosFrameworkVersion = detectCocos2dxVersion(text),
+            cocosFrameworkVersion = frameworkVersion,
             nearbyNodes = findNearbyNodeReferences(beforeCursor, afterCursor),
             currentSceneContext = findCurrentSceneContext(beforeCursor),
+            syntaxPreferences = createSyntaxPreferences(frameworkVersion),
             isTruncated = false
         )
     }
@@ -201,7 +233,10 @@ class ZestCocos2dxContextCollector(private val project: Project) {
 
     private fun isNodeCreation(line: String): Boolean {
         return COCOS_NODE_TYPES.any { nodeType ->
-            line.contains("new $nodeType") || line.contains("$nodeType.create") || line.contains("$nodeType(")
+            // Prefer direct constructor: cc.Node() over cc.Node.create()
+            line.contains("new $nodeType") || 
+            line.contains("$nodeType(") ||  // Direct constructor (preferred)
+            line.contains("$nodeType.create")  // Legacy .create() method (less preferred)
         }
     }
 
@@ -332,6 +367,100 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         return scenePattern.find(beforeCursor)?.groupValues?.get(2)
     }
 
+    private fun createSyntaxPreferences(frameworkVersion: String): CocosSyntaxPreferences {
+        return when (frameworkVersion) {
+            "2.x" -> CocosSyntaxPreferences(
+                preferDirectConstructor = true,
+                useOldVersionSyntax = true,
+                preferredPatterns = listOf(
+                    "Use cc.Node() instead of cc.Node.create() - direct constructor preferred",
+                    "Use cc.Sprite() instead of cc.Sprite.create() - direct constructor preferred", 
+                    "Use cc.Layer() instead of cc.Layer.create() - direct constructor preferred",
+                    "Use cc.Scene() instead of cc.Scene.create() - direct constructor preferred",
+                    "Use cc.Menu() instead of cc.Menu.create() - direct constructor preferred",
+                    "Use cc.Label() instead of cc.Label.create() - direct constructor preferred",
+                    "Use .extend() pattern for class inheritance: var MyLayer = cc.Layer.extend({...})",
+                    "Prefer object literal methods in extend: methodName: function() {...}",
+                    "Use old version cocos2d-x-js syntax patterns",
+                    "Lifecycle methods: ctor, onEnter, onExit, init, update",
+                    "Event handling with cc.EventListener patterns"
+                )
+            )
+            "3.x" -> CocosSyntaxPreferences(
+                preferDirectConstructor = true,
+                useOldVersionSyntax = true,
+                preferredPatterns = listOf(
+                    "Use cc.Node() instead of cc.Node.create() - direct constructor preferred",
+                    "Use cc.Sprite() instead of cc.Sprite.create() - direct constructor preferred",
+                    "Use cc.Layer() instead of cc.Layer.create() - direct constructor preferred", 
+                    "Use cc.Scene() instead of cc.Scene.create() - direct constructor preferred",
+                    "Use cc.Class for class definitions when available",
+                    "Prefer direct constructor calls over .create() methods",
+                    "Use old version cocos2d-x-js syntax patterns",
+                    "Modern event system with cc.EventListener",
+                    "Use cc.loader for resource management"
+                )
+            )
+            else -> CocosSyntaxPreferences(
+                preferDirectConstructor = true,
+                useOldVersionSyntax = true,
+                preferredPatterns = listOf(
+                    "Default: Use cc.Node() instead of cc.Node.create()",
+                    "Prefer direct constructor calls over .create() methods",
+                    "Use old version cocos2d-x-js syntax patterns",
+                    "Follow cocos2d-x-js conventions"
+                )
+            )
+        }
+    }
+
+    /**
+     * Extracts syntax guidance and completion hints based on Cocos2d-x context and preferences.
+     * This information can be used by the completion system to suggest appropriate patterns.
+     */
+    fun getCompletionHints(context: Cocos2dxContext): List<String> {
+        val hints = mutableListOf<String>()
+        
+        // Add general syntax preferences
+        hints.addAll(context.syntaxPreferences.preferredPatterns)
+        
+        // Add context-specific hints
+        when (context.contextType) {
+            Cocos2dxContextType.NODE_CREATION -> {
+                hints.add("SYNTAX: Use cc.Sprite() instead of cc.Sprite.create()")  
+                hints.add("SYNTAX: Use cc.Node() instead of cc.Node.create()")
+                hints.add("SYNTAX: Direct constructor calls are preferred over .create() methods")
+            }
+            Cocos2dxContextType.SCENE_DEFINITION -> {
+                hints.add("SYNTAX: Use var MyScene = cc.Scene.extend({...}) pattern")
+                hints.add("SYNTAX: Include ctor, onEnter, onExit lifecycle methods")
+            }
+            Cocos2dxContextType.SCENE_LIFECYCLE_METHOD -> {
+                hints.add("SYNTAX: Use old cocos2d-x-js lifecycle method patterns")
+                hints.add("SYNTAX: Call this._super() in lifecycle methods when appropriate")
+            }
+            Cocos2dxContextType.ACTION_CREATION -> {
+                hints.add("SYNTAX: Use cc.MoveTo() instead of cc.MoveTo.create()")
+                hints.add("SYNTAX: Use cc.ScaleTo() instead of cc.ScaleTo.create()")
+            }
+            else -> {
+                hints.add("SYNTAX: Follow cocos2d-x-js old version patterns")
+                hints.add("SYNTAX: Prefer direct constructors over .create() methods")
+            }
+        }
+        
+        // Add framework version specific hints
+        if (context.cocosFrameworkVersion == "2.x") {
+            hints.add("FRAMEWORK: Using Cocos2d-x JS v2.x patterns")
+            hints.add("FRAMEWORK: Use .extend() for inheritance")
+        } else if (context.cocosFrameworkVersion == "3.x") {
+            hints.add("FRAMEWORK: Using Cocos2d-x JS v3.x patterns") 
+            hints.add("FRAMEWORK: cc.Class available for class definitions")
+        }
+        
+        return hints.distinct()
+    }
+
     private fun truncateCocos2dxContent(originalContent: String, markedContent: String): Triple<String, String, Boolean> {
         // Process the marked content first to preserve cursor position
         val collapsedMarkedContent = collapseFunctionBodiesPreservingCursor(markedContent)
@@ -340,11 +469,81 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         val collapsedOriginalContent = collapsedMarkedContent.replace("[CURSOR]", "")
 
         return if (collapsedMarkedContent.length > MAX_CONTEXT_LENGTH) {
-            val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-            val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-            Triple(originalTruncated, truncated, true)
+            // Find cursor position to ensure it's preserved
+            val cursorIndex = collapsedMarkedContent.indexOf("[CURSOR]")
+            
+            if (cursorIndex != -1) {
+                // Cursor found - use smart truncation that preserves cursor
+                val truncated = smartTruncateAroundCursor(collapsedMarkedContent, cursorIndex, MAX_CONTEXT_LENGTH)
+                val originalTruncated = truncated.replace("[CURSOR]", "")
+                Triple(originalTruncated, truncated, true)
+            } else {
+                // No cursor found - use simple truncation (fallback)
+                val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
+                val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
+                Triple(originalTruncated, truncated, true)
+            }
         } else {
             Triple(collapsedOriginalContent, collapsedMarkedContent, collapsedOriginalContent != originalContent)
+        }
+    }
+
+    /**
+     * Smart truncation that ensures cursor position is preserved within the content.
+     * Keeps context around the cursor position while staying within the length limit.
+     * Always preserves Cocos2d-x syntax guidance at the beginning.
+     */
+    private fun smartTruncateAroundCursor(content: String, cursorIndex: Int, maxLength: Int): String {
+        val truncationMarker = "\n/* ... content truncated ... */"
+        val syntaxGuidanceLength = SYNTAX_GUIDANCE.length + 2 // +2 for the newlines
+        
+        // Always preserve syntax guidance + some minimum content
+        val minContentAfterGuidance = 500
+        val availableLength = maxLength - truncationMarker.length * 2 - syntaxGuidanceLength
+        
+        if (availableLength <= minContentAfterGuidance) {
+            // If we can't fit much after the guidance, just do simple truncation
+            return content.take(maxLength) + truncationMarker
+        }
+        
+        // Extract the syntax guidance part (should be at the beginning)
+        val syntaxGuidanceEnd = content.indexOf("\n\n") + 2
+        val guidance = if (syntaxGuidanceEnd > 2) content.substring(0, syntaxGuidanceEnd) else ""
+        val actualContent = if (syntaxGuidanceEnd > 2) content.substring(syntaxGuidanceEnd) else content
+        val adjustedCursorIndex = cursorIndex - syntaxGuidanceEnd
+        
+        if (adjustedCursorIndex < 0 || actualContent.isEmpty()) {
+            // Cursor is in guidance section or no actual content
+            return content.take(maxLength) + truncationMarker
+        }
+        
+        // Calculate how much content to keep before and after cursor in the actual content
+        val halfLength = availableLength / 2
+        val beforeCursor = maxOf(0, adjustedCursorIndex - halfLength)
+        val afterCursor = minOf(actualContent.length, adjustedCursorIndex + halfLength)
+        
+        // Adjust to line boundaries to avoid cutting words/lines awkwardly
+        val beforeLineStart = actualContent.lastIndexOf('\n', beforeCursor).let { 
+            if (it == -1) 0 else it + 1 
+        }
+        val afterLineEnd = actualContent.indexOf('\n', afterCursor).let { 
+            if (it == -1) actualContent.length else it 
+        }
+        
+        val beforeTruncated = beforeLineStart > 0
+        val afterTruncated = afterLineEnd < actualContent.length
+        
+        return buildString {
+            // Always include syntax guidance
+            append(guidance)
+            
+            if (beforeTruncated) {
+                append("/* ... content truncated ... */\n")
+            }
+            append(actualContent.substring(beforeLineStart, afterLineEnd))
+            if (afterTruncated) {
+                append("\n/* ... content truncated ... */")
+            }
         }
     }
 

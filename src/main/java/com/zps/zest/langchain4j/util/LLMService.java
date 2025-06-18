@@ -74,7 +74,7 @@ public final class LLMService {
      */
     @Nullable
     public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
-        return query(prompt+"\n/no_think", "qwen/qwen2.5-coder-32b-instruct", enumUsage);
+        return query(prompt+"\n/no_think", "local-model-mini", enumUsage);
     }
 
     /**
@@ -481,6 +481,11 @@ public final class LLMService {
         public int getMaxTokens() { return maxTokens; }
         public double getTemperature() { return temperature; }
         public java.util.List<String> getStopSequences() { return stopSequences; }
+
+        public LLMQueryParams useLiteCodeModel() {
+            this.model = "local-model-mini";
+            return this;
+        }
     }
 
     /**

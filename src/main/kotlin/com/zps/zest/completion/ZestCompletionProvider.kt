@@ -143,13 +143,13 @@ class ZestCompletionProvider(private val project: Project) {
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("qwen/qwen2.5-coder-32b-instruct")
+                    .useLiteCodeModel()
                     .withMaxTokens(MAX_COMPLETION_TOKENS)
                     .withTemperature(0.1)  // Low temperature for more deterministic completions
                     .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
                 
                 System.out.println("[ZestCompletionProvider] LLM query params:")
-                System.out.println("  - model: qwen/qwen2.5-coder-32b-instruct")
+                System.out.println("  - model: local-model-mini")
                 System.out.println("  - maxTokens: $MAX_COMPLETION_TOKENS")
                 System.out.println("  - temperature: 0.1")
                 System.out.println("  - stop sequences: ${getStopSequences()}")
@@ -277,7 +277,7 @@ class ZestCompletionProvider(private val project: Project) {
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("qwen/qwen2.5-coder-32b-instruct")  // Use full model for reasoning
+                    .useLiteCodeModel()  // Use full model for reasoning
                     .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
                     .withTemperature(0.2)  // Slightly higher for creative reasoning
                     .withStopSequences(getLeanStopSequences())

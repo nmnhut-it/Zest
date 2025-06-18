@@ -232,13 +232,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             val startTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
-                    .withModel("qwen/qwen2.5-coder-32b-instruct") // Use full model for method rewrites
+                    .useLiteCodeModel() // Use full model for method rewrites
                     .withMaxTokens(METHOD_REWRITE_MAX_TOKENS)
                     .withTemperature(0.3) // Slightly creative but focused
                     .withStopSequences(getMethodRewriteStopSequences())
                 
                 System.out.println("[ZestMethodRewrite] LLM query params:")
-                System.out.println("  - model: qwen/qwen2.5-coder-32b-instruct")
+                System.out.println("  - model: local-model-mini")
                 System.out.println("  - maxTokens: $METHOD_REWRITE_MAX_TOKENS")
                 System.out.println("  - temperature: 0.3")
                 

@@ -354,5 +354,13 @@
                 description="Test the Zest completion status bar widget functionality">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestProgressiveCompletion"/>
         </action>
+        
+        <action id="Zest.DebugJSFlow"
+                class="com.zps.zest.completion.actions.ZestJavaScriptFlowDiagnosticAction"
+                text="Debug JS Completion Flow"
+                icon="AllIcons.Actions.Find"
+                description="Debug why completion is not working for JavaScript files">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestStatusBar"/>
+        </action>
     </actions>
 </idea-plugin>

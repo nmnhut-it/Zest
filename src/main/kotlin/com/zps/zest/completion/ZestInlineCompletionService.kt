@@ -1035,12 +1035,73 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     System.out.println("[ZestInlineCompletion] Caret position changed:")
                     System.out.println("  - new offset: $currentOffset")
                     System.out.println("  - context offset: ${context?.offset}")
-                    System.out.println("  - should dismiss: ${context != null && currentOffset != context.offset}")
                     
-                    if (context != null && currentOffset != context.offset) {
-                        System.out.println("[ZestInlineCompletion] Caret moved, dismissing completion")
-                        logger.debug("Caret moved, dismissing completion")
-                        clearCurrentCompletion()
+                    if (context != null) {
+                        val offsetDiff = currentOffset - context.offset
+                        System.out.println("  - offset difference: $offsetDiff")
+                        
+                        // More lenient dismissal logic - only dismiss if cursor moved far away
+                        // or if user moved backwards (suggesting they want to edit earlier text)
+                        val shouldDismiss = when {
+                            offsetDiff < 0 -> {
+                                // User moved backwards - check if they moved far back
+                                kotlin.math.abs(offsetDiff) > 5 // Allow small backward movements
+                            }
+                            offsetDiff > 100 -> {
+                                // User moved too far forward
+                                true
+                            }
+                            offsetDiff > 0 -> {
+                                // User moved forward but within reasonable range
+                                // Check if the completion is still meaningful at this position
+                                val completion = currentCompletion
+                                if (completion != null) {
+                                    // Check if user is typing characters that could match the completion
+                                    val userTypedText = try {
+                                        val documentText = editor.document.text
+                                        val lineStart = documentText.lastIndexOf('\n', currentOffset - 1) + 1
+                                        val currentLine = documentText.substring(lineStart, currentOffset)
+                                        val originalLineStart = documentText.lastIndexOf('\n', context.offset - 1) + 1
+                                        val originalLine = documentText.substring(originalLineStart, context.offset)
+                                        
+                                        // Get what the user has typed since the original completion position
+                                        if (currentLine.startsWith(originalLine)) {
+                                            currentLine.substring(originalLine.length)
+                                        } else {
+                                            "" // Lines don't match, user probably edited
+                                        }
+                                    } catch (e: Exception) {
+                                        ""
+                                    }
+                                    
+                                    System.out.println("  - user typed since completion: '$userTypedText'")
+                                    System.out.println("  - completion starts with: '${completion.insertText.take(20)}...'")
+                                    
+                                    // Don't dismiss if user is typing text that matches the beginning of completion
+                                    if (userTypedText.isNotEmpty() && completion.insertText.startsWith(userTypedText, ignoreCase = true)) {
+                                        System.out.println("  - user typing matches completion start, keeping completion")
+                                        false // Don't dismiss - user is typing matching text
+                                    } else if (userTypedText.length > 20) {
+                                        System.out.println("  - user typed too much non-matching text, dismissing")
+                                        true // User typed too much non-matching text
+                                    } else {
+                                        System.out.println("  - user typed some non-matching text, but keeping completion for now")
+                                        false // Keep completion for now
+                                    }
+                                } else {
+                                    false // No completion to dismiss
+                                }
+                            }
+                            else -> false // No movement, don't dismiss
+                        }
+                        
+                        System.out.println("  - should dismiss: $shouldDismiss")
+                        
+                        if (shouldDismiss) {
+                            System.out.println("[ZestInlineCompletion] Caret moved significantly, dismissing completion")
+                            logger.debug("Caret moved significantly, dismissing completion")
+                            clearCurrentCompletion()
+                        }
                     }
                     
                     // If auto-trigger is enabled and no completion is active, schedule a new one
@@ -1202,26 +1263,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     clearCurrentCompletion()
                                 }
                                 adjustedCompletion != completion.insertText -> {
-                                    // Only update if change is significant to reduce blinking
-                                    val changeRatio = adjustedCompletion.length.toDouble() / completion.insertText.length
-                                    System.out.println("[ZestInlineCompletion] Change ratio: $changeRatio")
-                                    
-                                    if (changeRatio > 0.2) { // Reduced threshold from 0.3 to 0.2 for better overlap handling
-                                        System.out.println("[ZestInlineCompletion] Significant change, updating display")
-                                        logger.debug("Updating completion: '${completion.insertText}' -> '$adjustedCompletion'")
-                                        updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
-                                    } else {
-                                        // Only clear if the remaining text is truly meaningless
-                                        if (adjustedCompletion.trim().length < 2) {
-                                            System.out.println("[ZestInlineCompletion] Text too small, clearing")
-                                            clearCurrentCompletion()
-                                        } else {
-                                            // Keep the completion even if it's small - user might want it
-                                            System.out.println("[ZestInlineCompletion] Keeping small completion")
-                                            logger.debug("Keeping small completion: '$adjustedCompletion'")
-                                            updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
-                                        }
-                                    }
+                                    // Always update if there's a change - don't filter by change ratio
+                                    // This prevents completions from disappearing when user types matching characters
+                                    System.out.println("[ZestInlineCompletion] Completion changed, updating display")
+                                    logger.debug("Updating completion: '${completion.insertText}' -> '$adjustedCompletion'")
+                                    updateDisplayedCompletion(editor, currentOffset, adjustedCompletion)
                                 }
                                 else -> {
                                     System.out.println("[ZestInlineCompletion] No change needed")
@@ -1325,7 +1371,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     /**
      * Update the currently displayed completion with new text
-     * SIMPLIFIED: Reduce blinking by avoiding hide/show cycles
+     * ENHANCED: More permissive about small completions to prevent hints from disappearing
      */
     private fun updateDisplayedCompletion(editor: Editor, offset: Int, newText: String) {
         System.out.println("[ZestInlineCompletion] updateDisplayedCompletion called:")
@@ -1365,44 +1411,50 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             return // No change needed
         }
         
-        // Don't clear small but meaningful completions
-        if (newText.trim().length >= 2) {
-            // Always update if we have at least 2 characters of meaningful content
-            val updatedCompletion = currentCompletion?.copy(
-                insertText = newText,
-                replaceRange = ZestInlineCompletionItem.Range(offset, offset)
-            ) ?: return
+        // ENHANCED: Be more permissive about small completions
+        // Keep completions even if they're just 1 character, as long as they're meaningful
+        val trimmedText = newText.trim()
+        if (trimmedText.isNotEmpty()) {
+            // Check if it's a meaningful completion (not just whitespace or punctuation)
+            val isMeaningful = trimmedText.any { it.isLetterOrDigit() } || 
+                               trimmedText.any { it in "(){}[]<>=\"';:.,!?-+*/\\|&^%$#@" }
             
-            currentCompletion = updatedCompletion
-            currentContext = currentContext?.copy(offset = offset)
-            
-            System.out.println("[ZestInlineCompletion] Re-rendering with updated text")
-            
-            // Re-render with new text - using mutex to prevent concurrent rendering
-            scope.launch {
-                completionMutex.withLock {
-                    ApplicationManager.getApplication().invokeAndWait {
-                        System.out.println("[ZestInlineCompletion] Hiding renderer for update")
-                        renderer.hide()
-                    }
-                    ApplicationManager.getApplication().invokeLater {
-                        System.out.println("[ZestInlineCompletion] Showing updated completion")
-                        renderer.show(editor, offset, updatedCompletion, completionProvider.strategy) { renderingContext ->
-                            System.out.println("[ZestInlineCompletion] Updated completion displayed")
-                            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+            if (isMeaningful) {
+                System.out.println("[ZestInlineCompletion] Keeping meaningful completion: '$trimmedText'")
+                
+                val updatedCompletion = currentCompletion?.copy(
+                    insertText = newText,
+                    replaceRange = ZestInlineCompletionItem.Range(offset, offset)
+                ) ?: return
+                
+                currentCompletion = updatedCompletion
+                currentContext = currentContext?.copy(offset = offset)
+                
+                System.out.println("[ZestInlineCompletion] Re-rendering with updated text")
+                
+                // Re-render with new text - using mutex to prevent concurrent rendering
+                scope.launch {
+                    completionMutex.withLock {
+                        ApplicationManager.getApplication().invokeAndWait {
+                            System.out.println("[ZestInlineCompletion] Hiding renderer for update")
+                            renderer.hide()
+                        }
+                        ApplicationManager.getApplication().invokeLater {
+                            System.out.println("[ZestInlineCompletion] Showing updated completion")
+                            renderer.show(editor, offset, updatedCompletion, completionProvider.strategy) { renderingContext ->
+                                System.out.println("[ZestInlineCompletion] Updated completion displayed")
+                                project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+                            }
                         }
                     }
                 }
+                return
             }
-            return
         }
         
-        // Only clear if remaining text is truly too small
-        if (newText.trim().length < 2) {
-            System.out.println("[ZestInlineCompletion] Text too small, clearing completion")
-            clearCurrentCompletion()
-            return
-        }
+        // Only clear if the text is truly empty or meaningless
+        System.out.println("[ZestInlineCompletion] Text is empty or meaningless, clearing completion")
+        clearCurrentCompletion()
     }
     
     /**

@@ -38,8 +38,10 @@ class ZestCompletionOverlapDetector {
             return OverlapResult(completionText, 0, OverlapType.NONE)
         }
         
-        // Extract what the user has typed recently at cursor position
-        val recentUserInput = extractRecentUserInput(documentText, cursorOffset)
+        // Use passed parameter with fallback to extraction if empty
+        val recentUserInput = userTypedText.ifEmpty { 
+            extractRecentUserInput(documentText, cursorOffset) 
+        }
         
         System.out.println("=== OVERLAP DETECTOR DEBUG ===")
         System.out.println("User input: '$recentUserInput'")
@@ -128,6 +130,7 @@ class ZestCompletionOverlapDetector {
     
     /**
      * Detect fuzzy prefix overlap (case-insensitive, whitespace-tolerant)
+     * ENHANCED: Better handling of partial character matches to prevent hint disappearing
      */
     private fun detectFuzzyPrefixOverlap(userInput: String, completion: String): OverlapResult {
         if (userInput.isEmpty()) return OverlapResult(completion, 0, OverlapType.NONE)
@@ -135,6 +138,7 @@ class ZestCompletionOverlapDetector {
         val normalizedUserInput = userInput.lowercase().replace(Regex("\\s+"), "")
         val normalizedCompletion = completion.lowercase().replace(Regex("\\s+"), "")
         
+        // Check for exact fuzzy match first
         if (normalizedCompletion.startsWith(normalizedUserInput)) {
             // Find the actual overlap length in the original completion
             val overlapLength = findActualOverlapLength(userInput, completion)
@@ -144,11 +148,45 @@ class ZestCompletionOverlapDetector {
             }
         }
         
+        // ENHANCED: Check for similar/close matches to prevent hints from disappearing
+        // If user input is similar to the start of completion, consider it a partial match
+        if (normalizedUserInput.length >= 1 && normalizedCompletion.length >= 1) {
+            val similarity = calculateStringSimilarity(normalizedUserInput, normalizedCompletion.take(normalizedUserInput.length))
+            System.out.println("Fuzzy similarity check: '$normalizedUserInput' vs '${normalizedCompletion.take(normalizedUserInput.length)}' = $similarity")
+            
+            // If similarity is high, treat as fuzzy match but don't remove text
+            if (similarity >= 0.7) { // 70% similarity threshold
+                System.out.println("High similarity detected, treating as fuzzy match but keeping completion")
+                // Return the completion without removing any text to keep the hint visible
+                return OverlapResult(completion, 0, OverlapType.FUZZY_PREFIX)
+            }
+        }
+        
         return OverlapResult(completion, 0, OverlapType.NONE)
     }
     
     /**
+     * Calculate string similarity using simple character-based approach
+     */
+    private fun calculateStringSimilarity(str1: String, str2: String): Double {
+        if (str1.isEmpty() && str2.isEmpty()) return 1.0
+        if (str1.isEmpty() || str2.isEmpty()) return 0.0
+        
+        val maxLength = maxOf(str1.length, str2.length)
+        var matchingChars = 0
+        
+        for (i in 0 until minOf(str1.length, str2.length)) {
+            if (str1[i] == str2[i]) {
+                matchingChars++
+            }
+        }
+        
+        return matchingChars.toDouble() / maxLength
+    }
+    
+    /**
      * Detect partial word overlap (user typed part of first word)
+     * ENHANCED: More lenient matching to prevent hints from disappearing
      */
     private fun detectPartialWordOverlap(userInput: String, completion: String): OverlapResult {
         if (userInput.isEmpty()) return OverlapResult(completion, 0, OverlapType.NONE)
@@ -158,10 +196,26 @@ class ZestCompletionOverlapDetector {
         if (firstWordMatch != null) {
             val firstWord = firstWordMatch.value
             
-            // Check if user input is a prefix of the first word
+            // Check if user input is a prefix of the first word (case-insensitive)
             if (firstWord.startsWith(userInput, ignoreCase = true)) {
                 val adjustedCompletion = completion.substring(userInput.length)
                 return OverlapResult(adjustedCompletion, userInput.length, OverlapType.PARTIAL_WORD)
+            }
+            
+            // ENHANCED: Check for similar/close matches
+            if (userInput.length >= 2 && firstWord.length >= 2) {
+                val similarity = calculateStringSimilarity(
+                    userInput.lowercase(), 
+                    firstWord.take(userInput.length).lowercase()
+                )
+                System.out.println("Partial word similarity: '$userInput' vs '${firstWord.take(userInput.length)}' = $similarity")
+                
+                // If user input is similar to the beginning of the first word, keep the completion visible
+                if (similarity >= 0.6) { // 60% similarity threshold for partial words
+                    System.out.println("Partial word similarity detected, keeping completion visible")
+                    // Don't remove any text, just mark as partial match to keep hint visible
+                    return OverlapResult(completion, 0, OverlapType.PARTIAL_WORD)
+                }
             }
         }
         

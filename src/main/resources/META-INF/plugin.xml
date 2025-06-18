@@ -103,7 +103,7 @@
             <action id="Zest.InlineCompletion.Accept"
                     class="com.zps.zest.completion.actions.ZestAccept"
                     text="Accept Completion">
-                <keyboard-shortcut first-keystroke="ctrl ENTER" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
             </action>
 
 <!--            <action id="Zest.InlineCompletion.AcceptNextLine"-->

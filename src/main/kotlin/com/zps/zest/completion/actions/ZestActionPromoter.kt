@@ -27,11 +27,11 @@ class ZestActionPromoter : ActionPromoter {
                 when {
                     action is HasPriority -> {
                         System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
-                        action.priority
+                        action.priority + 1000
                     }
                     action is ZestInlineCompletionAction -> {
                         System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
-                        action.priority + 1000 // Boost Zest actions significantly
+                        action.priority + 10000 // Boost Zest actions significantly
                     }
                     else -> 0
                 }

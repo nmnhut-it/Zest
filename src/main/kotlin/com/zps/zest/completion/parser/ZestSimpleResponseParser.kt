@@ -160,14 +160,20 @@ class ZestSimpleResponseParser {
     
     /**
      * Enhanced thread-safe extraction of recent user input
-     * Analyzes current line and meaningful recent typing
+     * ENHANCED: Try matching the whole line trimmed first, then other cases
      */
     private fun extractRecentUserInputSafe(documentText: String, cursorOffset: Int): String {
         if (cursorOffset <= 0 || cursorOffset > documentText.length) return ""
         
-        // Get current line
+        // Get current line up to cursor
         val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
         val currentLine = documentText.substring(lineStart, cursorOffset)
+        
+        // ENHANCED: Try whole line trimmed first (most comprehensive match)
+        val trimmedLine = currentLine.trim()
+        if (trimmedLine.isNotEmpty() && trimmedLine.length <= 50) { // Reasonable length limit
+            return trimmedLine
+        }
         
         // Extract meaningful recent input with better handling for single characters
         return when {

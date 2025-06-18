@@ -5,6 +5,8 @@ package com.zps.zest.completion.parser
  */
 class ZestLeanResponseParser {
     
+    private val overlapDetector = ZestCompletionOverlapDetector()
+    
     data class LeanReasoningResult(
         val completionText: String,
         val reasoning: String,
@@ -13,7 +15,7 @@ class ZestLeanResponseParser {
     )
     
     /**
-     * Parse a reasoning-based response from the lean strategy
+     * Parse a reasoning-based response from the lean strategy with overlap detection
      */
     fun parseReasoningResponse(
         response: String,
@@ -31,18 +33,91 @@ class ZestLeanResponseParser {
         // Clean the completion text
         val cleanedCompletion = extractWrappedContent(completion)
         
+        // Apply overlap detection to the cleaned completion
+        val adjustedCompletion = if (cleanedCompletion.isNotEmpty()) {
+            val recentUserInput = extractRecentUserInputSafe(documentText, offset)
+            val overlapResult = overlapDetector.adjustCompletionForOverlap(
+                userTypedText = recentUserInput,
+                completionText = cleanedCompletion,
+                cursorOffset = offset,
+                documentText = documentText
+            )
+            
+            // Handle edge cases
+            val finalCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
+            
+            // Debug logging for lean strategy overlap detection
+            if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
+                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
+                System.out.println("User input: '$recentUserInput'")
+                System.out.println("Original completion: '$cleanedCompletion'")
+                System.out.println("Overlap type: ${overlapResult.overlapType}")
+                System.out.println("Overlap length: ${overlapResult.overlapLength}")
+                System.out.println("Final completion: '$finalCompletion'")
+                System.out.println("=== END LEAN DEBUG ===")
+            }
+            
+            finalCompletion
+        } else {
+            cleanedCompletion
+        }
+        
         // Validate the reasoning
         val hasValidReasoning = validateReasoning(reasoning)
         
         // Calculate confidence
-        val confidence = calculateConfidence(cleanedCompletion, reasoning, hasValidReasoning)
+        val confidence = calculateConfidence(adjustedCompletion, reasoning, hasValidReasoning)
         
         return LeanReasoningResult(
-            completionText = cleanedCompletion,
+            completionText = adjustedCompletion,
             reasoning = reasoning,
             confidence = confidence,
             hasValidReasoning = hasValidReasoning
         )
+    }
+    
+    /**
+     * Enhanced thread-safe extraction of recent user input (copied from ZestSimpleResponseParser)
+     * ENHANCED: Try matching the whole line trimmed first, then other cases
+     */
+    private fun extractRecentUserInputSafe(documentText: String, cursorOffset: Int): String {
+        if (cursorOffset <= 0 || cursorOffset > documentText.length) return ""
+        
+        // Get current line up to cursor
+        val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
+        val currentLine = documentText.substring(lineStart, cursorOffset)
+        
+        // ENHANCED: Try whole line trimmed first (most comprehensive match)
+        val trimmedLine = currentLine.trim()
+        if (trimmedLine.isNotEmpty() && trimmedLine.length <= 50) { // Reasonable length limit
+            return trimmedLine
+        }
+        
+        // Extract meaningful recent input with better handling for single characters
+        return when {
+            // Get incomplete identifier/word (most common case)
+            currentLine.matches(Regex(".*\\w+$")) -> {
+                val match = Regex("(\\w+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get single character that might be start of identifier
+            currentLine.matches(Regex(".*\\w$")) -> {
+                val match = Regex("(\\w)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get operator/symbol sequence (e.g., "=", "->", ".")
+            currentLine.matches(Regex(".*[^\\s\\w]+$")) -> {
+                val match = Regex("([^\\s\\w]+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get whitespace if user is indenting
+            currentLine.matches(Regex(".*\\s+$")) -> {
+                val match = Regex("(\\s+)$").find(currentLine)
+                match?.value ?: ""
+            }
+            // Get last few characters as fallback
+            else -> currentLine.takeLast(10).trim()
+        }
     }
     
     /**

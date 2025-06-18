@@ -6,6 +6,7 @@ import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -490,6 +491,16 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 isAcceptingCompletion = false
                                 cancelAcceptanceTimeoutGuard()
                                 System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false for line-by-line acceptance")
+                                System.out.println("  - timestamp: ${System.currentTimeMillis()}")
+                                System.out.println("  - hasCompletion: ${currentCompletion != null}")
+                            }
+                        } else {
+                            // No remaining lines, reset immediately
+                            scope.launch {
+                                delay(100) // Very short delay
+                                isAcceptingCompletion = false
+                                cancelAcceptanceTimeoutGuard()
+                                System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false (no remaining lines)")
                             }
                         }
                     }
@@ -617,6 +628,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     fun dismiss() {
         System.out.println("[ZestInlineCompletion] Dismiss called")
         logger.debug("Dismissing completion")
+        
+        // IMPORTANT: Reset accepting flag when dismissing
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false on dismiss")
+            isAcceptingCompletion = false
+            cancelAcceptanceTimeoutGuard()
+        }
+        
         clearCurrentCompletion()
     }
     
@@ -639,6 +658,47 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     /**
+     * Check and fix any stuck acceptance states (called by status bar widget)
+     */
+    fun checkAndFixStuckState(): Boolean {
+        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+        val isStuck = isAcceptingCompletion && timeSinceAccept > 3000L // 3 seconds is stuck
+        
+        if (isStuck) {
+            System.out.println("[ZestInlineCompletion] STUCK STATE DETECTED: Force resetting")
+            System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
+            System.out.println("  - timeSinceAccept: ${timeSinceAccept}ms")
+            
+            // Force reset all flags
+            isAcceptingCompletion = false
+            isProgrammaticEdit = false
+            cancelAcceptanceTimeoutGuard()
+            
+            logger.warn("Force reset stuck acceptance state after ${timeSinceAccept}ms")
+            return true
+        }
+        
+        return false
+    }
+    
+    /**
+     * Get detailed state for debugging
+     */
+    fun getDetailedState(): Map<String, Any> {
+        return mapOf(
+            "isAcceptingCompletion" to isAcceptingCompletion,
+            "isProgrammaticEdit" to isProgrammaticEdit,
+            "hasCurrentCompletion" to (currentCompletion != null),
+            "activeRequestId" to (activeRequestId ?: "null"),
+            "lastAcceptedTimestamp" to lastAcceptedTimestamp,
+            "timeSinceAccept" to (System.currentTimeMillis() - lastAcceptedTimestamp),
+            "strategy" to completionProvider.strategy.name,
+            "isEnabled" to inlineCompletionEnabled,
+            "autoTrigger" to autoTriggerEnabled
+        )
+    }
+    
+    /**
      * Force refresh/clear all completion state - useful for status bar refresh button
      */
     fun forceRefreshState() {
@@ -652,10 +712,17 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 completionTimer?.cancel()
                 acceptanceTimeoutJob?.cancel()
                 
-                // Reset all flags
+                // Reset ALL flags (this is the key fix)
                 isAcceptingCompletion = false
                 isProgrammaticEdit = false
                 activeRequestId = null
+                lastAcceptedTimestamp = 0L
+                lastAcceptedText = null
+                
+                System.out.println("[ZestInlineCompletion] Force reset all flags:")
+                System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
+                System.out.println("  - isProgrammaticEdit: $isProgrammaticEdit")
+                System.out.println("  - activeRequestId: $activeRequestId")
                 
                 // Clear all state
                 currentContext = null
@@ -898,6 +965,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("  - had job: ${currentCompletionJob != null}")
         System.out.println("  - had context: ${currentContext != null}")
         System.out.println("  - had completion: ${currentCompletion != null}")
+        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
         
         completionTimer?.cancel()
         completionTimer = null
@@ -905,6 +973,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         currentCompletionJob = null
         currentContext = null
         currentCompletion = null
+        
+        // IMPORTANT: Reset accepting flag when clearing completion (unless we're in the middle of line-by-line acceptance)
+        // For LEAN strategy, only reset if it's been more than a short delay since acceptance
+        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+        if (isAcceptingCompletion && (completionProvider.strategy != ZestCompletionProvider.CompletionStrategy.LEAN || timeSinceAccept > 1000L)) {
+            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false in clearCurrentCompletion")
+            isAcceptingCompletion = false
+            cancelAcceptanceTimeoutGuard()
+        }
         
         // DO NOT clear activeRequestId here - it's managed by the request lifecycle
         // activeRequestId = null  // REMOVED - this was causing the bug!
@@ -924,8 +1001,23 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 if (editorManager.selectedTextEditor == editor) {
                     // Don't process caret changes during acceptance
                     if (isAcceptingCompletion) {
+                        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
                         System.out.println("[ZestInlineCompletion] Caret changed during acceptance, ignoring")
-                        return
+                        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
+                        System.out.println("  - lastAcceptedTimestamp: $lastAcceptedTimestamp")
+                        System.out.println("  - currentTime: ${System.currentTimeMillis()}")
+                        System.out.println("  - timeSinceAccept: $timeSinceAccept")
+                        
+                        // Auto-recovery: if accepting state has been stuck for too long, force reset
+                        if (timeSinceAccept > 5000L) { // 5 seconds
+                            System.out.println("[ZestInlineCompletion] RECOVERY: Accepting state stuck too long, force resetting")
+                            isAcceptingCompletion = false
+                            isProgrammaticEdit = false
+                            cancelAcceptanceTimeoutGuard()
+                            clearCurrentCompletion()
+                        } else {
+                            return
+                        }
                     }
                     
                     // For method rewrite, also check if we're in the post-accept cooldown
@@ -964,7 +1056,39 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         messageBusConnection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
             override fun selectionChanged(event: FileEditorManagerEvent) {
                 System.out.println("[ZestInlineCompletion] Editor selection changed, clearing completion")
+                // Reset accepting flag when switching editors
+                if (isAcceptingCompletion) {
+                    System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false on editor selection change")
+                    isAcceptingCompletion = false
+                    cancelAcceptanceTimeoutGuard()
+                }
                 clearCurrentCompletion()
+            }
+        })
+        
+        // Document change listener - reset accepting flag when user types (not during programmatic edits)
+        messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
+            override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
+                if (editorManager.selectedTextEditor == editor && !isProgrammaticEdit) {
+                    System.out.println("[ZestInlineCompletion] Document changed by user (non-programmatic)")
+                    
+                    // If we're accepting and user types something else, cancel the acceptance
+                    if (isAcceptingCompletion) {
+                        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+                        System.out.println("[ZestInlineCompletion] User typed during acceptance, timeSinceAccept: ${timeSinceAccept}ms")
+                        
+                        // If it's been more than a brief moment since acceptance, user is typing something new
+                        if (timeSinceAccept > 500L) {
+                            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false due to user typing")
+                            isAcceptingCompletion = false
+                            cancelAcceptanceTimeoutGuard()
+                            clearCurrentCompletion()
+                        }
+                    } else {
+                        // Handle real-time overlap detection for existing completions
+                        handleRealTimeOverlap(editor, event)
+                    }
+                }
             }
         })
         

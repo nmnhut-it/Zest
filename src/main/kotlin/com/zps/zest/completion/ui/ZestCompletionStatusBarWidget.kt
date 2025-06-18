@@ -63,6 +63,9 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         
         // Listen to completion service events
         setupCompletionServiceListener()
+        
+        // Start periodic state synchronization
+        startPeriodicStateSync()
     }
     
     override fun dispose() {
@@ -177,6 +180,23 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         
         group.addSeparator()
         
+        // Add immediate state check action
+        group.add(object : AnAction("Check State Now", "Immediately check and fix completion state", AllIcons.Actions.Refresh) {
+            override fun actionPerformed(e: AnActionEvent) {
+                checkForOrphanedState()
+                showQuickInfo("State check completed")
+            }
+        })
+        
+        // Add manual reset action for stuck states
+        group.add(object : AnAction("Force Reset Flags", "Force reset all completion flags (emergency recovery)", AllIcons.Actions.ForceRefresh) {
+            override fun actionPerformed(e: AnActionEvent) {
+                completionService.forceRefreshState()
+                updateState(CompletionState.IDLE)
+                showQuickInfo("All flags force reset!")
+            }
+        })
+        
         // Add debug info action
         group.add(object : AnAction("Show Debug Info", "Show current completion state information", AllIcons.Actions.Show) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -206,7 +226,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun showQuickActions(mouseEvent: MouseEvent) {
         when (currentState) {
-            CompletionState.ERROR -> refreshCompletionState()
+            CompletionState.ERROR -> {
+                refreshCompletionState()
+                checkForOrphanedState()
+            }
             CompletionState.REQUESTING -> {
                 // Show info about current request
                 showQuickInfo("Completion request in progress...")
@@ -215,10 +238,20 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 showQuickInfo("Completion ready - Press Tab to accept")
             }
             CompletionState.ACCEPTING -> {
-                showQuickInfo("Accepting completion...")
+                // Check if this state is stuck
+                val detailedState = completionService.getDetailedState()
+                val timeSinceAccept = detailedState["timeSinceAccept"] as? Long ?: 0L
+                if (timeSinceAccept > 3000L) {
+                    showQuickInfo("Acceptance stuck - checking state...")
+                    checkForOrphanedState()
+                } else {
+                    showQuickInfo("Accepting completion...")
+                }
             }
             CompletionState.IDLE -> {
                 showQuickInfo("Ready for new completion request")
+                // Force check state to ensure it's really idle
+                checkForOrphanedState()
             }
         }
     }
@@ -278,13 +311,16 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun showDebugInfo() {
         try {
-            val stateInfo = completionService.getCompletionStateInfo()
+            val detailedState = completionService.getDetailedState()
             val cacheStats = completionService.getCacheStats()
             
             val info = buildString {
                 appendLine("=== Zest Completion Debug Info ===")
                 appendLine("Widget State: ${currentState.displayText}")
-                appendLine("Service State: $stateInfo")
+                appendLine("Detailed State:")
+                detailedState.forEach { (key, value) -> 
+                    appendLine("  $key: $value")
+                }
                 appendLine("Cache: $cacheStats")
                 
                 val currentCompletion = completionService.getCurrentCompletion()
@@ -319,20 +355,47 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     fun checkForOrphanedState() {
         ApplicationManager.getApplication().invokeLater {
             try {
+                // First check if completion service has stuck state
+                val wasStuck = completionService.checkAndFixStuckState()
+                if (wasStuck) {
+                    updateState(CompletionState.ERROR)
+                    showQuickInfo("Fixed stuck acceptance state!")
+                    return@invokeLater
+                }
+                
                 val hasCompletion = completionService.getCurrentCompletion() != null
                 val isEnabled = completionService.isEnabled()
+                val detailedState = completionService.getDetailedState()
                 
-                if (!isEnabled) {
-                    updateState(CompletionState.ERROR)
-                } else if (hasCompletion) {
-                    updateState(CompletionState.WAITING)
-                } else {
-                    updateState(CompletionState.IDLE)
+                logger.debug("Status bar state check: $detailedState")
+                
+                when {
+                    !isEnabled -> updateState(CompletionState.ERROR)
+                    detailedState["isAcceptingCompletion"] == true -> updateState(CompletionState.ACCEPTING)
+                    hasCompletion -> updateState(CompletionState.WAITING)
+                    detailedState["activeRequestId"] != "null" -> updateState(CompletionState.REQUESTING)
+                    else -> updateState(CompletionState.IDLE)
                 }
                 
             } catch (e: Exception) {
                 logger.warn("Error checking for orphaned state", e)
                 updateState(CompletionState.ERROR)
+            }
+        }
+    }
+    
+    /**
+     * Periodic state sync - check every few seconds for discrepancies
+     */
+    private fun startPeriodicStateSync() {
+        scope.launch {
+            while (true) {
+                delay(3000) // Check every 3 seconds
+                try {
+                    checkForOrphanedState()
+                } catch (e: Exception) {
+                    logger.debug("Error in periodic state sync", e)
+                }
             }
         }
     }

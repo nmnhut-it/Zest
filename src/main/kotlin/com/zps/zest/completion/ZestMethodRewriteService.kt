@@ -52,7 +52,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val responseParser = ZestMethodResponseParser()
     private val gdiff = GDiff()
     private val enhancedGDiff = EnhancedGDiff()
-    private val inlineDiffRenderer = ZestInlineMethodDiffRenderer()
+    private val methodDiffRenderer = ZestMethodDiffRenderer()
     
     // Request tracking to prevent multiple concurrent rewrites
     private val rewriteRequestId = AtomicInteger(0)
@@ -335,7 +335,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             logger.error("Method rewrite failed", e)
             
             withContext(Dispatchers.Main) {
-                inlineDiffRenderer.hide()
+                methodDiffRenderer.hide()
                 ZestNotifications.showError(
                     project,
                     "Method Rewrite Failed",
@@ -414,13 +414,11 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         
         ApplicationManager.getApplication().assertIsDispatchThread()
         
-        // Show the inline diff renderer
-        System.out.println("[ZestMethodRewrite] Showing inline diff renderer...")
-        inlineDiffRenderer.show(
+        // Start the new method rewrite flow
+        System.out.println("[ZestMethodRewrite] Starting method diff renderer...")
+        methodDiffRenderer.startMethodRewrite(
             editor = editor,
             methodContext = methodContext,
-            diffResult = legacyDiffResult,
-            rewrittenMethod = rewrittenMethod,
             onAccept = { 
                 System.out.println("[ZestMethodRewrite] Accept callback triggered")
                 acceptMethodRewriteInternal(editor) 
@@ -431,21 +429,32 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             }
         )
         
-        // Generate language-specific diff summary
-        val diffSummary = createLanguageAwareDiffSummary(
-            enhancedDiffResult = enhancedDiffResult,
-            legacyDiffResult = legacyDiffResult,
-            parseResult = parseResult,
-            language = methodContext.language
-        )
+        // Show processing state
+        methodDiffRenderer.showProcessing()
         
-        // Show enhanced notification with semantic analysis
-        System.out.println("[ZestMethodRewrite] Showing notification with diff summary")
-        ZestNotifications.showInfo(
-            project,
-            "Method Rewrite Ready - ${methodContext.language.uppercase()}",
-            diffSummary
-        )
+        // Brief delay to show processing, then show diff
+        ApplicationManager.getApplication().executeOnPooledThread {
+            Thread.sleep(300) // Quick processing indication
+            ApplicationManager.getApplication().invokeLater {
+                methodDiffRenderer.showDiff(legacyDiffResult, rewrittenMethod)
+                
+                // Generate language-specific diff summary
+                val diffSummary = createLanguageAwareDiffSummary(
+                    enhancedDiffResult = enhancedDiffResult,
+                    legacyDiffResult = legacyDiffResult,
+                    parseResult = parseResult,
+                    language = methodContext.language
+                )
+                
+                // Show enhanced notification with semantic analysis
+                System.out.println("[ZestMethodRewrite] Showing notification with diff summary")
+                ZestNotifications.showInfo(
+                    project,
+                    "Method Rewrite Ready - ${methodContext.language.uppercase()}",
+                    diffSummary
+                )
+            }
+        }
     }
     
     /**
@@ -808,6 +817,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         val diffResult = currentDiffResult
         
         try {
+            // Show accepting state
+            methodDiffRenderer.acceptChanges()
+            
             WriteCommandAction.runWriteCommandAction(project) {
                 val document = editor.document
                 
@@ -840,9 +852,6 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 
                 logger.info("Applied method rewrite successfully using ${enhancedDiffResult?.diffStrategy} strategy")
             }
-            
-            // Hide the inline diff
-            inlineDiffRenderer.hide()
             
             // Show success message with language-specific summary
             val message = createSuccessMessage(methodContext, enhancedDiffResult, diffResult)
@@ -895,7 +904,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     fun cancelCurrentRewrite() {
         currentRewriteJob?.cancel()
         ApplicationManager.getApplication().invokeLater {
-            inlineDiffRenderer.hide()
+            methodDiffRenderer.hide()
         }
         // Don't call cleanup() here as it clears activeRewriteId
         // which might be set for a new request
@@ -913,7 +922,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      * Check if a method rewrite operation is currently in progress
      */
     fun isRewriteInProgress(): Boolean {
-        return currentRewriteJob?.isActive == true || inlineDiffRenderer.isActive()
+        return currentRewriteJob?.isActive == true || methodDiffRenderer.isActive()
     }
     
     /**
@@ -967,7 +976,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         activeRewriteId = null
         scope.cancel()
         ApplicationManager.getApplication().invokeLater {
-            inlineDiffRenderer.hide()
+            methodDiffRenderer.hide()
         }
         // Clean up all state
         currentRewriteJob = null

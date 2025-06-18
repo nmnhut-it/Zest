@@ -79,7 +79,7 @@
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
         
         <!-- Status Bar Widget -->
-        <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="after VcsBranchWidget"/>
+        <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
     </extensions>
     <actions>
         <group id="Zest.InlineCompletion" text="Zest Inline Completion">
@@ -319,48 +319,6 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
-        <!-- GDiff Actions -->
-        <action id="Zest.GDiff.CompareFiles"
-                class="com.zps.zest.gdiff.action.CompareFilesAction"
-                text="Compare Files with GDiff"
-                icon="AllIcons.Actions.Diff"
-                description="Compare selected files using GDiff multi-language diff utility">
-            <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="CompareFiles"/>
-            <add-to-group group-id="EditorTabPopupMenu" anchor="after" relative-to-action="CompareFiles"/>
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.StartAgentProxyServer"/>
-        </action>
-        
-        <!-- Test Actions -->
-        <action id="Zest.TestDiffRendering"
-                class="com.zps.zest.completion.actions.TestDiffRenderingAction"
-                text="Test Diff Rendering"
-                icon="AllIcons.Actions.Preview"
-                description="Test the diff rendering fixes for side-by-side view and missing lines">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GDiff.CompareFiles"/>
-        </action>
-        
-        <action id="Zest.TestProgressiveCompletion"
-                class="com.zps.zest.completion.actions.ZestTestProgressiveAction"
-                text="Demo Line-by-Line Completion"
-                icon="AllIcons.Actions.StartDebugger"
-                description="Demonstrate line-by-line completion acceptance">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffRendering"/>
-        </action>
-        
-        <action id="Zest.TestStatusBar"
-                class="com.zps.zest.completion.actions.ZestTestStatusBarAction"
-                text="Test Status Bar Widget"
-                icon="AllIcons.General.InspectionsOK"
-                description="Test the Zest completion status bar widget functionality">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestProgressiveCompletion"/>
-        </action>
-        
-        <action id="Zest.DebugJSFlow"
-                class="com.zps.zest.completion.actions.ZestJavaScriptFlowDiagnosticAction"
-                text="Debug JS Completion Flow"
-                icon="AllIcons.Actions.Find"
-                description="Debug why completion is not working for JavaScript files">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestStatusBar"/>
-        </action>
+
     </actions>
 </idea-plugin>

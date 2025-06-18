@@ -60,7 +60,7 @@ class ZestCompletionProvider(private val project: Project) {
     }
     
     // Configuration
-    var strategy: CompletionStrategy = CompletionStrategy.METHOD_REWRITE
+    var strategy: CompletionStrategy = CompletionStrategy.LEAN
         private set
     
     enum class CompletionStrategy {
@@ -192,11 +192,11 @@ class ZestCompletionProvider(private val project: Project) {
             val totalTime = System.currentTimeMillis() - startTime
             
             // Format the completion text using IntelliJ's code style
-            System.out.println("[ZestCompletionProvider] Formatting completion...")
-            val formattedCompletion = formatCompletionText(editor, cleanedCompletion, context.offset)
+//            System.out.println("[ZestCompletionProvider] Formatting completion...")
+            val formattedCompletion = cleanedCompletion; //formatCompletionText(editor, cleanedCompletion, context.offset)
             System.out.println("[ZestCompletionProvider] Formatted completion:")
-            System.out.println("  - formatted length: ${formattedCompletion.length}")
-            System.out.println("  - formatted preview: '${formattedCompletion.take(50)}...'")
+//            System.out.println("  - formatted length: ${formattedCompletion.length}")
+//            System.out.println("  - formatted preview: '${formattedCompletion.take(50)}...'")
             
             // Create completion item with original response stored for re-processing
             val confidence = calculateConfidence(formattedCompletion)
@@ -306,7 +306,7 @@ class ZestCompletionProvider(private val project: Project) {
             val totalTime = System.currentTimeMillis() - startTime
             
             // Format the completion text using IntelliJ's code style
-            val formattedCompletion = formatCompletionText(editor, reasoningResult.completionText, context.offset)
+            val formattedCompletion = reasoningResult.completionText; // (editor, reasoningResult.completionText, context.offset)
             
             // Create completion item with reasoning metadata
             val item = ZestInlineCompletionItem(

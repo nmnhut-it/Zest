@@ -80,6 +80,23 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private var currentContext: CompletionContext? = null
     private var currentCompletion: ZestInlineCompletionItem? = null
     
+    // Flag to track programmatic edits (e.g., when accepting completions)
+    @Volatile
+    private var isProgrammaticEdit = false
+    
+    // Timestamp of last accepted completion to implement cooldown
+    @Volatile
+    private var lastAcceptedTimestamp = 0L
+    private val ACCEPTANCE_COOLDOWN_MS = 3000L // 3 seconds cooldown after accepting (increased from 2s)
+    
+    // Track the last accepted text to avoid re-suggesting the same completion
+    @Volatile
+    private var lastAcceptedText: String? = null
+    
+    // Flag to completely disable all completion activities during acceptance
+    @Volatile
+    private var isAcceptingCompletion = false
+    
     init {
         System.out.println("[ZestInlineCompletion] Initializing service for project: ${project.name}")
         logger.info("Initializing simplified ZestInlineCompletionService")
@@ -136,6 +153,22 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("  - editor: ${editor.document.text.length} chars")
         System.out.println("  - activeRequestId: $activeRequestId")
         System.out.println("  - currentCompletion: ${currentCompletion != null}")
+        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
+        
+        // Block all completion requests during acceptance
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Currently accepting a completion, blocking all new requests")
+            return
+        }
+        
+        // Check cooldown period unless manually triggered
+        if (!manually) {
+            val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+            if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
+                System.out.println("[ZestInlineCompletion] In cooldown period (${timeSinceAccept}ms < ${ACCEPTANCE_COOLDOWN_MS}ms), ignoring automatic request")
+                return
+            }
+        }
         
         scope.launch {
             val requestId = requestGeneration.incrementAndGet()
@@ -305,6 +338,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("  - currentContext: ${currentContext != null}")
         System.out.println("  - currentCompletion: ${currentCompletion != null}")
         
+        // Prevent multiple simultaneous accepts
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Already accepting a completion, ignoring")
+            return
+        }
+        
         val context = currentContext ?: return
         val completion = currentCompletion ?: return
         
@@ -320,12 +359,16 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("[ZestInlineCompletion] Calculated text to insert: '${textToInsert.take(50)}...'")
         
         if (textToInsert.isNotEmpty()) {
+            // Set accepting flag BEFORE clearing completion or inserting text
+            isAcceptingCompletion = true
+            
+            // Clear the completion BEFORE inserting to prevent overlap handling
+            clearCurrentCompletion()
+            
             ApplicationManager.getApplication().invokeLater {
                 acceptCompletionText(editor, context, completion, textToInsert)
             }
         }
-        
-        clearCurrentCompletion()
     }
     
     /**
@@ -482,28 +525,50 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("  - text: '${textToInsert.take(50)}...'")
         System.out.println("  - range: ${completionItem.replaceRange}")
         
-        WriteCommandAction.runWriteCommandAction(project) {
-            val document = editor.document
-            val startOffset = completionItem.replaceRange.start
-            val endOffset = completionItem.replaceRange.end
-            
-            System.out.println("[ZestInlineCompletion] Replacing text from $startOffset to $endOffset")
-            
-            // Replace the text
-            document.replaceString(startOffset, endOffset, textToInsert)
-            
-            // Move cursor to end of inserted text
-            val newCaretPosition = startOffset + textToInsert.length
-            editor.caretModel.moveToOffset(newCaretPosition)
-            System.out.println("[ZestInlineCompletion] Moved caret to $newCaretPosition")
-            
-            // Format the inserted text using IntelliJ's code style
-            formatInsertedText(editor, startOffset, newCaretPosition)
-            
-            logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
-        }
+        // Set all protection flags
+        isProgrammaticEdit = true
+        lastAcceptedTimestamp = System.currentTimeMillis()
+        lastAcceptedText = textToInsert
+        System.out.println("[ZestInlineCompletion] Set isProgrammaticEdit=true, timestamp=$lastAcceptedTimestamp")
         
-        project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
+        try {
+            WriteCommandAction.runWriteCommandAction(project) {
+                val document = editor.document
+                val startOffset = completionItem.replaceRange.start
+                val endOffset = completionItem.replaceRange.end
+                
+                System.out.println("[ZestInlineCompletion] Replacing text from $startOffset to $endOffset")
+                
+                // Replace the text
+                document.replaceString(startOffset, endOffset, textToInsert)
+                
+                // Move cursor to end of inserted text
+                val newCaretPosition = startOffset + textToInsert.length
+                editor.caretModel.moveToOffset(newCaretPosition)
+                System.out.println("[ZestInlineCompletion] Moved caret to $newCaretPosition")
+                
+                // Format the inserted text to ensure proper indentation
+                formatInsertedText(editor, startOffset, newCaretPosition)
+                
+                logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
+            }
+            
+            project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
+            
+        } finally {
+            // Reset flags after a delay to ensure all document change events are processed
+            scope.launch {
+                // Keep isProgrammaticEdit true for longer
+                delay(1000) // 1 second for programmatic edit flag
+                isProgrammaticEdit = false
+                System.out.println("[ZestInlineCompletion] Reset isProgrammaticEdit=false after 1000ms delay")
+                
+                // Reset accepting flag after full cooldown period
+                delay(ACCEPTANCE_COOLDOWN_MS - 1000) // Remaining cooldown time
+                isAcceptingCompletion = false
+                System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false after full cooldown")
+            }
+        }
     }
     
     private fun calculateAcceptedText(completionText: String, type: AcceptType): String {
@@ -538,6 +603,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         currentContext = null
         currentCompletion = null
         
+        // DO NOT clear activeRequestId here - it's managed by the request lifecycle
+        // activeRequestId = null  // REMOVED - this was causing the bug!
+        
         ApplicationManager.getApplication().invokeLater {
             System.out.println("[ZestInlineCompletion] Hiding renderer in clearCurrentCompletion")
             renderer.hide()
@@ -547,38 +615,25 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private fun setupEventListeners() {
         System.out.println("[ZestInlineCompletion] Setting up event listeners")
         
-        // Document change listener
-        messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
-            override fun documentChanged(document: com.intellij.openapi.editor.Document, editor: Editor, event: DocumentEvent) {
-                if (editorManager.selectedTextEditor == editor) {
-                    System.out.println("[ZestInlineCompletion] Document changed event:")
-                    System.out.println("  - offset: ${event.offset}")
-                    System.out.println("  - oldLength: ${event.oldLength}")
-                    System.out.println("  - newLength: ${event.newLength}")
-                    System.out.println("  - currentCompletion exists: ${currentCompletion != null}")
-                    System.out.println("  - autoTriggerEnabled: $autoTriggerEnabled")
-                    
-                    // SIMPLIFIED: Only handle real-time overlap, disable auto-trigger during active completion
-                    // This prevents conflicting completion requests that cause blinking
-                    if (currentCompletion != null) {
-                        System.out.println("[ZestInlineCompletion] Handling real-time overlap")
-                        // Handle real-time overlap for existing completion
-                        handleRealTimeOverlap(editor, event)
-                    } else if (autoTriggerEnabled) {
-                        System.out.println("[ZestInlineCompletion] Scheduling new completion")
-                        // Only schedule new completion if no completion is active
-                        scheduleNewCompletion(editor)
-                    } else {
-                        System.out.println("[ZestInlineCompletion] No action taken - auto-trigger disabled or completion active")
-                    }
-                }
-            }
-        })
-        
-        // Caret change listener
+        // Caret change listener - this is the only listener we need
         messageBusConnection.subscribe(ZestCaretListener.TOPIC, object : ZestCaretListener {
             override fun caretPositionChanged(editor: Editor, event: CaretEvent) {
                 if (editorManager.selectedTextEditor == editor) {
+                    // Don't process caret changes during acceptance
+                    if (isAcceptingCompletion) {
+                        System.out.println("[ZestInlineCompletion] Caret changed during acceptance, ignoring")
+                        return
+                    }
+                    
+                    // For method rewrite, also check if we're in the post-accept cooldown
+                    if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
+                        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+                        if (timeSinceAccept < 2000L) { // 2 seconds cooldown for method rewrite
+                            System.out.println("[ZestInlineCompletion] Method rewrite cooldown active (${timeSinceAccept}ms < 2000ms), ignoring caret change")
+                            return
+                        }
+                    }
+                    
                     val currentOffset = editor.logicalPositionToOffset(event.newPosition)
                     val context = currentContext
                     
@@ -591,6 +646,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         System.out.println("[ZestInlineCompletion] Caret moved, dismissing completion")
                         logger.debug("Caret moved, dismissing completion")
                         clearCurrentCompletion()
+                    }
+                    
+                    // If auto-trigger is enabled and no completion is active, schedule a new one
+                    if (autoTriggerEnabled && currentCompletion == null && activeRequestId == null) {
+                        System.out.println("[ZestInlineCompletion] Caret moved, scheduling new completion")
+                        scheduleNewCompletion(editor)
                     }
                 }
             }
@@ -613,6 +674,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      */
     private fun handleRealTimeOverlap(editor: Editor, event: DocumentEvent) {
         System.out.println("[ZestInlineCompletion] handleRealTimeOverlap called")
+        
+        // Don't handle overlap during acceptance
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Currently accepting, skipping overlap handling")
+            return
+        }
+        
+        // Don't handle overlap during cooldown period
+        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+        if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
+            System.out.println("[ZestInlineCompletion] In cooldown, skipping overlap handling")
+            return
+        }
         
         val completion = currentCompletion
         val context = currentContext
@@ -757,6 +831,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private fun scheduleNewCompletion(editor: Editor) {
         System.out.println("[ZestInlineCompletion] scheduleNewCompletion called")
         
+        // Don't schedule during acceptance
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Currently accepting, not scheduling")
+            return
+        }
+        
         // Cancel any existing timer
         completionTimer?.let {
             System.out.println("[ZestInlineCompletion] Cancelling existing timer")
@@ -769,6 +849,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             return
         }
         
+        // Don't schedule during cooldown period
+        val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+        if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
+            System.out.println("[ZestInlineCompletion] In cooldown period, not scheduling")
+            return
+        }
+        
         completionTimer = scope.launch {
             System.out.println("[ZestInlineCompletion] Timer started, waiting ${AUTO_TRIGGER_DELAY_MS}ms...")
             delay(AUTO_TRIGGER_DELAY_MS)
@@ -776,6 +863,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             System.out.println("[ZestInlineCompletion] Timer fired, checking conditions...")
             System.out.println("  - currentCompletion: ${currentCompletion != null}")
             System.out.println("  - activeRequestId: $activeRequestId")
+            System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
+            
+            // Check if currently accepting
+            if (isAcceptingCompletion) {
+                System.out.println("[ZestInlineCompletion] Currently accepting after delay, not triggering")
+                return@launch
+            }
+            
+            // Final check for cooldown period
+            val currentTimeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+            if (currentTimeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
+                System.out.println("[ZestInlineCompletion] Still in cooldown after delay, not triggering")
+                return@launch
+            }
             
             // Check again if no completion is active and no request is in progress
             if (currentCompletion == null && activeRequestId == null) {
@@ -803,6 +904,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("[ZestInlineCompletion] updateDisplayedCompletion called:")
         System.out.println("  - offset: $offset")
         System.out.println("  - newText: '${newText.take(50)}...'")
+        
+        // Don't update during acceptance
+        if (isAcceptingCompletion) {
+            System.out.println("[ZestInlineCompletion] Currently accepting, not updating display")
+            return
+        }
         
         // Check if current completion is still valid (not interfered with by IntelliJ)
         val currentRendering = renderer.current
@@ -874,18 +981,28 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     /**
      * Format the inserted completion text using IntelliJ's code style
      * This ensures the accepted completion follows the project's formatting rules
+     * Enhanced for lean & simple mode with better PSI synchronization
      */
     private fun formatInsertedText(editor: Editor, startOffset: Int, endOffset: Int) {
         System.out.println("[ZestInlineCompletion] formatInsertedText called: $startOffset to $endOffset")
         try {
-            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+            val document = editor.document
+            val psiDocumentManager = PsiDocumentManager.getInstance(project)
+            val psiFile = psiDocumentManager.getPsiFile(document)
+            
             if (psiFile != null) {
-                // Commit any pending PSI changes
-                PsiDocumentManager.getInstance(project).commitDocument(editor.document)
+                // Ensure PSI is synchronized with document changes
+                psiDocumentManager.commitDocument(document)
                 
-                // Format the range where we inserted the completion
-                val codeStyleManager = CodeStyleManager.getInstance(project)
-                codeStyleManager.reformatRange(psiFile, startOffset, endOffset)
+                // Wait for PSI to be ready
+                if (psiDocumentManager.isUncommited(document)) {
+                    System.out.println("[ZestInlineCompletion] Waiting for PSI synchronization...")
+                    psiDocumentManager.commitAndRunReadAction {
+                        performFormatting(psiFile, startOffset, endOffset)
+                    }
+                } else {
+                    performFormatting(psiFile, startOffset, endOffset)
+                }
                 
                 System.out.println("[ZestInlineCompletion] Successfully formatted inserted text")
                 logger.debug("Formatted inserted text from offset $startOffset to $endOffset")
@@ -897,6 +1014,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             System.out.println("[ZestInlineCompletion] Failed to format: ${e.message}")
             logger.warn("Failed to format inserted text: ${e.message}")
             // Don't fail the acceptance if formatting fails
+        }
+    }
+    
+    /**
+     * Perform the actual formatting operation
+     */
+    private fun performFormatting(psiFile: com.intellij.psi.PsiFile, startOffset: Int, endOffset: Int) {
+        try {
+            val codeStyleManager = CodeStyleManager.getInstance(project)
+            // Use reformatRange for proper indentation and formatting
+            codeStyleManager.reformatRange(psiFile, startOffset, endOffset)
+        } catch (e: Exception) {
+            System.out.println("[ZestInlineCompletion] Formatting operation failed: ${e.message}")
+            logger.debug("Formatting operation failed", e)
         }
     }
     

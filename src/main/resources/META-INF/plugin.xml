@@ -83,14 +83,12 @@
             <action id="Zest.InlineCompletion.Trigger"
                     class="com.zps.zest.completion.actions.ZestTrigger"
                     text="Trigger Inline Completion">
-                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
-                <keyboard-shortcut first-keystroke="alt SLASH" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.ImmediateTrigger"
-                    class="com.zps.zest.completion.actions.ZestImmediateTrigger"
+                    class="com.zps.zest.completion.actions.ZestTriggerMethodRewriteAction"
                     text="Immediate Inline Completion">
-                <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.TabAccept"
@@ -171,35 +169,35 @@
         </action>
 
 
-        <action id="Zest.TestDiffViewAction"
-                class="com.zps.zest.inlinechat.TestDiffViewAction"
-                text="Test Diff View"
-                description="Test the floating diff view window">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
-        </action>
+<!--        <action id="Zest.TestDiffViewAction"-->
+<!--                class="com.zps.zest.inlinechat.TestDiffViewAction"-->
+<!--                text="Test Diff View"-->
+<!--                description="Test the floating diff view window">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>-->
+<!--        </action>-->
 
 
-        <action id="Zest.TestSimpleJCefAction"
-                class="com.zps.zest.inlinechat.TestSimpleJCefAction"
-                text="Test Simple JCef"
-                description="Test if JCef is working properly">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>
-        </action>
+<!--        <action id="Zest.TestSimpleJCefAction"-->
+<!--                class="com.zps.zest.inlinechat.TestSimpleJCefAction"-->
+<!--                text="Test Simple JCef"-->
+<!--                description="Test if JCef is working properly">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>-->
+<!--        </action>-->
 
 
-        <action id="Zest.JCefDiagnosticAction"
-                class="com.zps.zest.inlinechat.JCefDiagnosticAction"
-                text="JCef Diagnostics"
-                description="Check JCef configuration and troubleshoot issues">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>
-        </action>
+<!--        <action id="Zest.JCefDiagnosticAction"-->
+<!--                class="com.zps.zest.inlinechat.JCefDiagnosticAction"-->
+<!--                text="JCef Diagnostics"-->
+<!--                description="Check JCef configuration and troubleshoot issues">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>-->
+<!--        </action>-->
 
-        <action id="Zest.TestQwenCoderAction"
-                class="com.zps.zest.completion.actions.TestQwenCoderAction"
-                text="Test Qwen 2.5 Coder Integration"
-                description="Test and validate Qwen 2.5 Coder FIM configuration and integration">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.JCefDiagnosticAction"/>
-        </action>
+<!--        <action id="Zest.TestQwenCoderAction"-->
+<!--                class="com.zps.zest.completion.actions.TestQwenCoderAction"-->
+<!--                text="Test Qwen 2.5 Coder Integration"-->
+<!--                description="Test and validate Qwen 2.5 Coder FIM configuration and integration">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.JCefDiagnosticAction"/>-->
+<!--        </action>-->
 
         <!-- New Lean Strategy Actions -->
         <action id="Zest.SwitchCompletionStrategy"
@@ -207,16 +205,9 @@
                 text="Switch Completion Strategy"
                 description="Switch between SIMPLE and LEAN completion strategies for A/B testing">
             <keyboard-shortcut first-keystroke="ctrl alt shift S" keymap="$default"/>
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestQwenCoderAction"/>
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
-        <action id="Zest.TestCompletionStrategies"
-                class="com.zps.zest.completion.actions.ZestTestStrategiesAction"
-                text="Test Completion Strategies"
-                description="Test and compare both SIMPLE and LEAN completion strategies">
-            <keyboard-shortcut first-keystroke="ctrl alt shift T" keymap="$default"/>
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SwitchCompletionStrategy"/>
-        </action>
 
         <action id="Zest.AgentBasedTestWritingAction"
                 class="com.zps.zest.testing.AgentBasedTestWritingAction"

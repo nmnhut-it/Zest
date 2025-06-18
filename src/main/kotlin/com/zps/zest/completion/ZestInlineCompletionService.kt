@@ -109,6 +109,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     @Volatile
     private var isAcceptingCompletion = false
     
+    // Acceptance timeout protection - auto-reset if acceptance takes too long
+    private val ACCEPTANCE_TIMEOUT_MS = 10000L // 10 seconds max acceptance time
+    private var acceptanceTimeoutJob: Job? = null
+    
     // Completion cache for simple & lean mode
     private data class CachedCompletion(
         val fullCompletion: ZestInlineCompletionItem,
@@ -459,6 +463,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     // Set accepting flag
                     isAcceptingCompletion = true
                     
+                    // Start acceptance timeout guard
+                    startAcceptanceTimeoutGuard()
+                    
                     // Clear current completion before inserting
                     clearCurrentCompletion()
                     
@@ -481,6 +488,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             scope.launch {
                                 delay(300) // Small delay to ensure showRemainingLines completes
                                 isAcceptingCompletion = false
+                                cancelAcceptanceTimeoutGuard()
                                 System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false for line-by-line acceptance")
                             }
                         }
@@ -509,6 +517,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             // Set accepting flag BEFORE clearing completion or inserting text
             isAcceptingCompletion = true
             
+            // Start acceptance timeout guard
+            startAcceptanceTimeoutGuard()
+            
             // Clear the completion BEFORE inserting to prevent overlap handling
             clearCurrentCompletion()
             
@@ -516,6 +527,38 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 acceptCompletionText(editor, context, completion, textToInsert)
             }
         }
+    }
+    
+    /**
+     * Start a timeout guard to automatically reset acceptance state if it gets stuck
+     */
+    private fun startAcceptanceTimeoutGuard() {
+        // Cancel any existing timeout guard
+        acceptanceTimeoutJob?.cancel()
+        
+        acceptanceTimeoutJob = scope.launch {
+            delay(ACCEPTANCE_TIMEOUT_MS)
+            
+            if (isAcceptingCompletion) {
+                System.out.println("[ZestInlineCompletion] TIMEOUT: Acceptance took too long, auto-resetting state")
+                logger.warn("Acceptance timeout reached, auto-resetting state")
+                
+                // Force reset all flags and state
+                isAcceptingCompletion = false
+                isProgrammaticEdit = false
+                
+                // Notify status bar of error state
+                project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
+            }
+        }
+    }
+    
+    /**
+     * Cancel the acceptance timeout guard (called when acceptance completes normally)
+     */
+    private fun cancelAcceptanceTimeoutGuard() {
+        acceptanceTimeoutJob?.cancel()
+        acceptanceTimeoutJob = null
     }
     
     /**
@@ -593,6 +636,61 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      */
     fun getCurrentCompletion(): ZestInlineCompletionItem? {
         return currentCompletion
+    }
+    
+    /**
+     * Force refresh/clear all completion state - useful for status bar refresh button
+     */
+    fun forceRefreshState() {
+        System.out.println("[ZestInlineCompletion] Force refresh state requested")
+        logger.info("Force refreshing completion state")
+        
+        scope.launch {
+            completionMutex.withLock {
+                // Cancel all active operations
+                currentCompletionJob?.cancel()
+                completionTimer?.cancel()
+                acceptanceTimeoutJob?.cancel()
+                
+                // Reset all flags
+                isAcceptingCompletion = false
+                isProgrammaticEdit = false
+                activeRequestId = null
+                
+                // Clear all state
+                currentContext = null
+                currentCompletion = null
+                
+                // Clear cache
+                cacheMutex.withLock {
+                    completionCache.clear()
+                }
+                
+                // Hide renderer
+                ApplicationManager.getApplication().invokeLater {
+                    renderer.hide()
+                    
+                    // Notify listeners of reset state
+                    project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
+                }
+                
+                System.out.println("[ZestInlineCompletion] Force refresh completed")
+            }
+        }
+    }
+    
+    /**
+     * Get current completion state for status bar
+     */
+    fun getCompletionStateInfo(): String {
+        return buildString {
+            append("Strategy: ${completionProvider.strategy.name}, ")
+            append("Enabled: $inlineCompletionEnabled, ")
+            append("Auto-trigger: $autoTriggerEnabled, ")
+            append("Has completion: ${currentCompletion != null}, ")
+            append("Active request: ${activeRequestId != null}, ")
+            append("Accepting: $isAcceptingCompletion")
+        }
     }
     
     /**
@@ -753,6 +851,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
             
         } finally {
+            // Cancel timeout guard since acceptance is completing
+            cancelAcceptanceTimeoutGuard()
+            
             // Reset flags after a delay to ensure all document change events are processed
             scope.launch {
                 // Keep isProgrammaticEdit true for longer
@@ -1363,6 +1464,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         logger.info("Disposing simplified ZestInlineCompletionService")
         activeRequestId = null
         completionTimer?.cancel()
+        acceptanceTimeoutJob?.cancel() // Cancel timeout guard
         scope.cancel()
         renderer.hide()
         clearCache() // Clear completion cache

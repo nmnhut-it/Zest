@@ -200,6 +200,8 @@ public final class LLMService {
             if (debugMode) {
                 System.out.println("DEBUG: LLM Request URL: " + apiUrl);
                 System.out.println("DEBUG: LLM Request Body: " + requestBody);
+                System.out.println("DEBUG: LLM prompt: ");
+                System.out.println(params.prompt);
             }
 
             // Send request

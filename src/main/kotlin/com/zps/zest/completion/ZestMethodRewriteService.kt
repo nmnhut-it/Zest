@@ -16,6 +16,7 @@ import com.zps.zest.inlinechat.FloatingCodeWindow
 import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
+import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.gdiff.GDiff
 import com.zps.zest.gdiff.EnhancedGDiff
 import kotlinx.coroutines.*
@@ -158,10 +159,29 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     
                     // Show loading notification on EDT
                     withContext(Dispatchers.Main) {
+                        val notificationTitle = if (methodContext.isCocos2dx) {
+                            "🎮 Cocos2d-x Method Rewrite"
+                        } else {
+                            "Method Rewrite"
+                        }
+                        
+                        val analysisInfo = if (methodContext.isCocos2dx) {
+                            val cocosInfo = buildString {
+                                append("Cocos2d-x ${methodContext.language}")
+                                methodContext.cocosFrameworkVersion?.let { append(" (v$it)") }
+                                methodContext.cocosContextType?.let { 
+                                    append(" - ${it.name.lowercase().replace('_', ' ')}")
+                                }
+                            }
+                            "Analyzing and rewriting method '${methodContext.methodName}' using $cocosInfo patterns..."
+                        } else {
+                            "Analyzing and rewriting method '${methodContext.methodName}' using ${methodContext.language} semantics..."
+                        }
+                        
                         ZestNotifications.showInfo(
                             project,
-                            "Method Rewrite",
-                            "Analyzing and rewriting method '${methodContext.methodName}' using ${methodContext.language} semantics..."
+                            notificationTitle,
+                            analysisInfo
                         )
                     }
                     
@@ -192,6 +212,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             System.out.println("[ZestMethodRewrite] Released rewrite mutex")
         }
     }
+    
+
     
     /**
      * Perform the method rewrite operation with language-specific semantic analysis
@@ -351,6 +373,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
     
+
+    
     /**
      * Calculate language-specific semantic changes using EnhancedGDiff with optimal configuration
      * Strips trailing closing characters to focus diff on method content
@@ -397,6 +421,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         return reconstructedResult
     }
     
+
+    
     /**
      * Show language-aware diff with enhanced rendering and semantic hints
      */
@@ -411,6 +437,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         System.out.println("[ZestMethodRewrite] showLanguageAwareDiff called")
         System.out.println("  - method: ${methodContext.methodName}")
         System.out.println("  - diff strategy: ${enhancedDiffResult.diffStrategy}")
+        System.out.println("  - is Cocos2d-x: ${methodContext.isCocos2dx}")
         
         ApplicationManager.getApplication().assertIsDispatchThread()
         
@@ -448,14 +475,22 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 
                 // Show enhanced notification with semantic analysis
                 System.out.println("[ZestMethodRewrite] Showing notification with diff summary")
+                val title = if (methodContext.isCocos2dx) {
+                    "🎮 Cocos2d-x Method Rewrite Ready - ${methodContext.language.uppercase()}"
+                } else {
+                    "Method Rewrite Ready - ${methodContext.language.uppercase()}"
+                }
+                
                 ZestNotifications.showInfo(
                     project,
-                    "Method Rewrite Ready - ${methodContext.language.uppercase()}",
-                    diffSummary
+                    title,
+                    buildCocos2dxAwareDiffSummary(diffSummary, methodContext)
                 )
             }
         }
     }
+    
+
     
     /**
      * Create language-aware diff summary with semantic hints
@@ -537,6 +572,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
     
+
+    
     /**
      * Get language-specific hints for the diff
      */
@@ -544,6 +581,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         language: String,
         enhancedDiffResult: EnhancedGDiff.EnhancedDiffResult
     ): String {
+        // Check if this is a Cocos2d-x context based on method context
+        val isCocos2dx = currentMethodContext?.isCocos2dx == true
+        
         return when (language.lowercase()) {
             "java" -> {
                 val hints = mutableListOf<String>()
@@ -567,19 +607,54 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             "javascript", "js" -> {
                 val hints = mutableListOf<String>()
                 
-                if (enhancedDiffResult.astDiff?.semanticChanges?.any { 
-                    it.nodeType == "ES6Feature" 
-                } == true) {
-                    hints.add("ES6+ features added/modified")
+                if (isCocos2dx) {
+                    hints.add("🎮 Cocos2d-x: Using old syntax patterns (cc.Node() over cc.Node.create())")
+                    
+                    currentMethodContext?.cocosContextType?.let { contextType ->
+                        when (contextType) {
+                            ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION -> {
+                                hints.add("Node creation patterns applied")
+                            }
+                            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_LIFECYCLE_METHOD -> {
+                                hints.add("Lifecycle method patterns maintained")
+                            }
+                            ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_CREATION -> {
+                                hints.add("Action creation patterns optimized")
+                            }
+                            else -> hints.add("Cocos2d-x patterns preserved")
+                        }
+                    }
+                    
+                    hints.add("💡 Cocos2d-x: Verify .extend() patterns and lifecycle methods")
+                } else {
+                    if (enhancedDiffResult.astDiff?.semanticChanges?.any { 
+                        it.nodeType == "ES6Feature" 
+                    } == true) {
+                        hints.add("ES6+ features added/modified")
+                    }
+                    
+                    if (enhancedDiffResult.astDiff?.semanticChanges?.any { 
+                        it.description.contains("async", true) || it.description.contains("await", true) 
+                    } == true) {
+                        hints.add("Async/await pattern changes")
+                    }
+                    
+                    hints.add("💡 JavaScript: Verify async patterns, ES6 syntax, and closures")
                 }
                 
-                if (enhancedDiffResult.astDiff?.semanticChanges?.any { 
-                    it.description.contains("async", true) || it.description.contains("await", true) 
-                } == true) {
-                    hints.add("Async/await pattern changes")
+                hints.joinToString(" • ")
+            }
+            
+            "typescript", "ts" -> {
+                val hints = mutableListOf<String>()
+                
+                if (isCocos2dx) {
+                    hints.add("🎮 Cocos2d-x: TypeScript with old syntax patterns maintained")
+                    hints.add("💡 TypeScript + Cocos2d-x: Check type safety with framework patterns")
+                } else {
+                    hints.add("💡 TypeScript: Verify type definitions and interfaces")
                 }
                 
-                hints.add("💡 JavaScript: Verify async patterns, ES6 syntax, and closures")
                 hints.joinToString(" • ")
             }
             
@@ -600,6 +675,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
     
+
+    
     /**
      * Determine if whitespace should be ignored for the given language
      */
@@ -610,6 +687,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             else -> true // Use word-level diffing for most languages to focus on semantic changes
         }
     }
+    
+
     
     /**
      * Get optimal context lines for language-specific diffing
@@ -623,6 +702,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
     
+
+    
     /**
      * Determine if AST diffing is preferred for the language
      */
@@ -632,6 +713,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             else -> false // Fall back to text diffing for unsupported languages
         }
     }
+    
+
     
     /**
      * Calculate precise changes using GDiff (legacy method maintained for compatibility)
@@ -668,6 +751,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         )
     }
     
+
+    
     /**
      * Strip trailing closing characters from method code
      * Returns pair of (strippedCode, closingChars)
@@ -697,6 +782,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         
         return Pair(stripped, closingChars.toString())
     }
+    
+
     
     /**
      * Reconstruct EnhancedGDiff result with closing characters added back
@@ -751,6 +838,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         )
     }
     
+
+    
     /**
      * Reconstruct legacy GDiff result with closing characters
      */
@@ -803,6 +892,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             targetFile = strippedResult.targetFile
         )
     }
+    
+
     
     /**
      * Internal method to accept the current method rewrite and apply it using enhanced diffing
@@ -873,6 +964,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
     
+
+    
     /**
      * Create success message with diff summary
      */
@@ -881,7 +974,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         enhancedDiffResult: EnhancedGDiff.EnhancedDiffResult?,
         diffResult: GDiff.DiffResult?
     ): String {
-        return if (enhancedDiffResult != null) {
+        val baseMessage = if (enhancedDiffResult != null) {
             val summary = enhancedDiffResult.getSummary()
             val semanticInfo = if (enhancedDiffResult.astDiff != null) {
                 " with ${summary.semanticChanges} semantic changes"
@@ -896,7 +989,23 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 "Method '${methodContext.methodName}' has been successfully rewritten"
             }
         }
+        
+        return if (methodContext.isCocos2dx) {
+            val cocosInfo = buildString {
+                append(" (🎮 Cocos2d-x")
+                methodContext.cocosFrameworkVersion?.let { append(" $it") }
+                methodContext.cocosContextType?.let { 
+                    append(" - ${it.name.lowercase().replace('_', ' ')}")
+                }
+                append(")")
+            }
+            baseMessage + cocosInfo
+        } else {
+            baseMessage
+        }
     }
+    
+
     
     /**
      * Cancel the current method rewrite operation
@@ -918,12 +1027,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         // be cleared in the finally block of performMethodRewrite
     }
     
+
+    
     /**
      * Check if a method rewrite operation is currently in progress
      */
     fun isRewriteInProgress(): Boolean {
         return currentRewriteJob?.isActive == true || methodDiffRenderer.isActive()
     }
+    
+
     
     /**
      * Accept the method rewrite (public method for tab acceptance)
@@ -934,6 +1047,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             acceptMethodRewriteInternal(editor)
         }
     }
+    
+
     
     /**
      * Get stop sequences for method rewrite operations
@@ -956,6 +1071,45 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             "interface ",
             "enum "
         )
+    }
+    
+    /**
+     * Build Cocos2d-x aware diff summary
+     */
+    private fun buildCocos2dxAwareDiffSummary(
+        baseSummary: String, 
+        methodContext: ZestMethodContextCollector.MethodContext
+    ): String {
+        if (!methodContext.isCocos2dx) return baseSummary
+        
+        return buildString {
+            appendLine("🎮 COCOS2D-X PROJECT DETECTED")
+            appendLine()
+            
+            // Add Cocos2d-x context information
+            methodContext.cocosFrameworkVersion?.let { version ->
+                appendLine("🔧 Framework: Cocos2d-x $version")
+            }
+            
+            methodContext.cocosContextType?.let { contextType ->
+                appendLine("📍 Context: ${contextType.name.lowercase().replace('_', ' ')}")
+            }
+            
+            if (methodContext.cocosCompletionHints.isNotEmpty()) {
+                appendLine()
+                appendLine("✨ Applied Cocos2d-x Patterns:")
+                methodContext.cocosCompletionHints.take(3).forEach { hint ->
+                    val cleanHint = hint.removePrefix("SYNTAX: ").removePrefix("FRAMEWORK: ")
+                    appendLine("• $cleanHint")
+                }
+                if (methodContext.cocosCompletionHints.size > 3) {
+                    appendLine("• ... and ${methodContext.cocosCompletionHints.size - 3} more improvements")
+                }
+            }
+            
+            appendLine()
+            append(baseSummary)
+        }
     }
     
     /**

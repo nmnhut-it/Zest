@@ -16,6 +16,7 @@ import com.intellij.openapi.project.Project
  */
 class ZestMethodContextCollector(private val project: Project) {
     private val logger = Logger.getInstance(ZestMethodContextCollector::class.java)
+    private val cocosContextCollector = ZestCocos2dxContextCollector(project)
     
     data class MethodContext(
         val fileName: String,
@@ -29,7 +30,13 @@ class ZestMethodContextCollector(private val project: Project) {
         val surroundingMethods: List<SurroundingMethod>,
         val classContext: String,
         val fullFileContent: String,
-        val cursorOffset: Int
+        val cursorOffset: Int,
+        // Cocos2d-x specific context
+        val isCocos2dx: Boolean = false,
+        val cocosContextType: ZestCocos2dxContextCollector.Cocos2dxContextType? = null,
+        val cocosSyntaxPreferences: ZestCocos2dxContextCollector.CocosSyntaxPreferences? = null,
+        val cocosCompletionHints: List<String> = emptyList(),
+        val cocosFrameworkVersion: String? = null
     )
     
     data class SurroundingMethod(
@@ -44,6 +51,47 @@ class ZestMethodContextCollector(private val project: Project) {
     }
     
     /**
+     * Data class to hold Cocos2d-x context results
+     */
+    private data class CocosContextResult(
+        val contextType: ZestCocos2dxContextCollector.Cocos2dxContextType?,
+        val syntaxPreferences: ZestCocos2dxContextCollector.CocosSyntaxPreferences?,
+        val completionHints: List<String>,
+        val frameworkVersion: String?
+    )
+    
+    /**
+     * Collect Cocos2d-x specific context using the specialized collector
+     */
+    private fun collectCocos2dxContext(
+        fullFileContent: String,
+        cursorOffset: Int,
+        methodContent: String
+    ): CocosContextResult {
+        return try {
+            // Create a mock editor to use the Cocos2d-x context collector
+            // We'll analyze the method content and surrounding context
+            val beforeCursor = fullFileContent.substring(0, cursorOffset)
+            val afterCursor = fullFileContent.substring(cursorOffset)
+            
+            // Use the Cocos2d-x collector's analysis methods
+            val contextType = detectCocos2dxContextTypeFromMethod(methodContent, beforeCursor)
+            val frameworkVersion = detectCocos2dxVersionFromContent(fullFileContent)
+            val syntaxPreferences = createCocosSyntaxPreferences(frameworkVersion)
+            
+            // Generate completion hints based on context
+            val completionHints = generateCocosCompletionHints(contextType, syntaxPreferences, methodContent)
+            
+            CocosContextResult(contextType, syntaxPreferences, completionHints, frameworkVersion)
+        } catch (e: Exception) {
+            logger.warn("Failed to collect Cocos2d-x context", e)
+            CocosContextResult(null, null, emptyList(), null)
+        }
+    }
+    
+
+    
+    /**
      * Find the method containing the cursor position
      */
     fun findMethodAtCursor(editor: Editor, offset: Int): MethodContext? {
@@ -53,18 +101,23 @@ class ZestMethodContextCollector(private val project: Project) {
         val language = virtualFile?.fileType?.name ?: "text"
         val fullFileContent = document.text
         
+        // Detect if this is a Cocos2d-x project
+        val isCocos2dx = detectCocos2dxProject(fullFileContent, fileName, language)
+        
         // Try PSI-based method detection first
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
         if (psiFile != null) {
             val psiMethod = findMethodWithPsi(psiFile, offset)
             if (psiMethod != null) {
-                return buildMethodContextFromPsi(psiMethod, fileName, language, fullFileContent, offset)
+                return buildMethodContextFromPsi(psiMethod, fileName, language, fullFileContent, offset, isCocos2dx)
             }
         }
         
         // Fallback to textual method detection
-        return findMethodTextually(fullFileContent, offset, fileName, language)
+        return findMethodTextually(fullFileContent, offset, fileName, language, isCocos2dx)
     }
+    
+
     
     /**
      * Use PSI to find the method containing the cursor
@@ -82,6 +135,8 @@ class ZestMethodContextCollector(private val project: Project) {
         }
     }
     
+
+    
     /**
      * Build method context from PSI method
      */
@@ -90,7 +145,8 @@ class ZestMethodContextCollector(private val project: Project) {
         fileName: String,
         language: String,
         fullFileContent: String,
-        cursorOffset: Int
+        cursorOffset: Int,
+        isCocos2dx: Boolean
     ): MethodContext {
         val methodName = psiMethod.name
         val methodContent = psiMethod.text
@@ -115,6 +171,14 @@ class ZestMethodContextCollector(private val project: Project) {
         // Get class context
         val classContext = containingClass?.text ?: ""
         
+        // Collect Cocos2d-x specific context if applicable
+        val (cocosContextType, cocosSyntaxPreferences, cocosCompletionHints, cocosFrameworkVersion) = 
+            if (isCocos2dx) {
+                collectCocos2dxContext(fullFileContent, cursorOffset, methodContent)
+            } else {
+                CocosContextResult(null, null, emptyList(), null)
+            }
+        
         return MethodContext(
             fileName = fileName,
             language = language,
@@ -127,9 +191,16 @@ class ZestMethodContextCollector(private val project: Project) {
             surroundingMethods = surroundingMethods,
             classContext = classContext,
             fullFileContent = fullFileContent,
-            cursorOffset = cursorOffset
+            cursorOffset = cursorOffset,
+            isCocos2dx = isCocos2dx,
+            cocosContextType = cocosContextType,
+            cocosSyntaxPreferences = cocosSyntaxPreferences,
+            cocosCompletionHints = cocosCompletionHints,
+            cocosFrameworkVersion = cocosFrameworkVersion
         )
     }
+    
+
     
     /**
      * Get methods before and after the current method
@@ -172,6 +243,8 @@ class ZestMethodContextCollector(private val project: Project) {
         return surrounding
     }
     
+
+    
     /**
      * Fallback textual method detection when PSI is not available
      */
@@ -179,7 +252,8 @@ class ZestMethodContextCollector(private val project: Project) {
         text: String,
         offset: Int,
         fileName: String,
-        language: String
+        language: String,
+        isCocos2dx: Boolean
     ): MethodContext? {
         val lines = text.lines()
         val cursorLine = text.substring(0, offset).count { it == '\n' }
@@ -226,6 +300,14 @@ class ZestMethodContextCollector(private val project: Project) {
         // Get surrounding context
         val surroundingMethods = findSurroundingMethodsTextually(lines, startLine, endLine, language)
         
+        // Collect Cocos2d-x specific context if applicable
+        val (cocosContextType, cocosSyntaxPreferences, cocosCompletionHints, cocosFrameworkVersion) = 
+            if (isCocos2dx) {
+                collectCocos2dxContext(text, offset, methodContent)
+            } else {
+                CocosContextResult(null, null, emptyList(), null)
+            }
+        
         return MethodContext(
             fileName = fileName,
             language = language,
@@ -238,9 +320,16 @@ class ZestMethodContextCollector(private val project: Project) {
             surroundingMethods = surroundingMethods,
             classContext = extractClassContext(lines, startLine, endLine),
             fullFileContent = text,
-            cursorOffset = offset
+            cursorOffset = offset,
+            isCocos2dx = isCocos2dx,
+            cocosContextType = cocosContextType,
+            cocosSyntaxPreferences = cocosSyntaxPreferences,
+            cocosCompletionHints = cocosCompletionHints,
+            cocosFrameworkVersion = cocosFrameworkVersion
         )
     }
+    
+
     
     /**
      * Find method boundaries using textual patterns
@@ -291,6 +380,8 @@ class ZestMethodContextCollector(private val project: Project) {
         return if (foundOpenBrace) Pair(methodStart, methodEnd) else null
     }
     
+
+    
     /**
      * Check if a line looks like a method declaration
      */
@@ -320,6 +411,8 @@ class ZestMethodContextCollector(private val project: Project) {
         }
     }
     
+
+    
     /**
      * Extract method signature from method content
      */
@@ -333,6 +426,8 @@ class ZestMethodContextCollector(private val project: Project) {
         }
         return lines.firstOrNull()?.trim() ?: ""
     }
+    
+
     
     /**
      * Extract method name from signature
@@ -362,6 +457,8 @@ class ZestMethodContextCollector(private val project: Project) {
             else -> "unknown"
         }
     }
+    
+
     
     /**
      * Find surrounding methods textually
@@ -414,6 +511,28 @@ class ZestMethodContextCollector(private val project: Project) {
     }
     
     /**
+     * Detect if this is a Cocos2d-x project based on file content and context
+     */
+    private fun detectCocos2dxProject(content: String, fileName: String, language: String): Boolean {
+        // Only check JavaScript/TypeScript files
+        if (!language.lowercase().contains("javascript") && !language.lowercase().contains("typescript")) {
+            return false
+        }
+        
+        // Check for Cocos2d-x specific patterns
+        return content.contains(Regex("\\bcc\\.(Node|Scene|Layer|Sprite|Label|Menu)\\b")) ||
+               content.contains("cocos2d") ||
+               content.contains("cc.Class") ||
+               content.contains("cc.extend") ||
+               content.contains("cc.game") ||
+               fileName.contains("cocos", ignoreCase = true) ||
+               // Check for specific Cocos2d-x lifecycle methods
+               content.contains(Regex("\\b(ctor|onEnter|onExit|onEnterTransitionDidFinish)\\s*:")) ||
+               // Check for Cocos2d-x specific patterns in extends
+               content.contains(Regex("\\.(extend|create)\\s*\\("))
+    }
+    
+    /**
      * Find containing class name
      */
     private fun findContainingClass(lines: List<String>, methodStartLine: Int): String? {
@@ -427,6 +546,8 @@ class ZestMethodContextCollector(private val project: Project) {
         return null
     }
     
+
+    
     /**
      * Extract class context around the method
      */
@@ -434,5 +555,207 @@ class ZestMethodContextCollector(private val project: Project) {
         val contextStart = maxOf(0, methodStart - 10)
         val contextEnd = minOf(lines.size - 1, methodEnd + 10)
         return lines.subList(contextStart, contextEnd + 1).joinToString("\n")
+    }
+    
+    /**
+     * Detect Cocos2d-x context type from method content and surrounding context
+     */
+    private fun detectCocos2dxContextTypeFromMethod(
+        methodContent: String,
+        beforeCursor: String
+    ): ZestCocos2dxContextCollector.Cocos2dxContextType? {
+        val lines = methodContent.lines()
+        val previousLines = beforeCursor.lines().takeLast(5)
+        
+        return when {
+            // Scene contexts
+            isInSceneDefinition(previousLines) -> ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_DEFINITION
+            isInLifecycleMethod(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_LIFECYCLE_METHOD
+            methodContent.contains("init:") || methodContent.contains("init ") -> 
+                ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_INIT_METHOD
+
+            // Node creation and management
+            isNodeCreation(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION
+            isNodePropertySetting(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_PROPERTY_SETTING
+            isChildManagement(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CHILD_MANAGEMENT
+
+            // Event handling
+            isEventListenerSetup(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.EVENT_LISTENER_SETUP
+            isTouchEventHandler(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.TOUCH_EVENT_HANDLER
+
+            // Actions and animations
+            isActionCreation(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_CREATION
+            isActionSequence(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_SEQUENCE
+
+            // Resource management
+            isResourceLoading(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.RESOURCE_LOADING
+
+            // Game logic
+            isInUpdateLoop(methodContent) -> ZestCocos2dxContextCollector.Cocos2dxContextType.GAME_UPDATE_LOOP
+
+            // General contexts
+            isInFunctionBody(beforeCursor) -> ZestCocos2dxContextCollector.Cocos2dxContextType.FUNCTION_BODY
+
+            else -> ZestCocos2dxContextCollector.Cocos2dxContextType.UNKNOWN
+        }
+    }
+    
+    /**
+     * Detect Cocos2d-x framework version from content
+     */
+    private fun detectCocos2dxVersionFromContent(content: String): String? {
+        return when {
+            content.contains("cc.Class") -> "3.x"
+            content.contains("cc.Node.extend") -> "2.x"
+            content.contains("cocos2d-js") -> "3.x"
+            content.contains("cc.") -> "2.x" // Default assumption for old syntax
+            else -> null
+        }
+    }
+    
+    /**
+     * Create Cocos2d-x syntax preferences based on framework version
+     */
+    private fun createCocosSyntaxPreferences(frameworkVersion: String?): ZestCocos2dxContextCollector.CocosSyntaxPreferences {
+        return ZestCocos2dxContextCollector.CocosSyntaxPreferences(
+            preferDirectConstructor = true,
+            useOldVersionSyntax = true,
+            preferredPatterns = when (frameworkVersion) {
+                "2.x" -> listOf(
+                    "Use cc.Node() instead of cc.Node.create() - direct constructor preferred",
+                    "Use cc.Sprite() instead of cc.Sprite.create() - direct constructor preferred",
+                    "Use cc.Layer() instead of cc.Layer.create() - direct constructor preferred",
+                    "Use .extend() pattern for class inheritance: var MyLayer = cc.Layer.extend({...})",
+                    "Use old version cocos2d-x-js syntax patterns"
+                )
+                "3.x" -> listOf(
+                    "Use cc.Node() instead of cc.Node.create() - direct constructor preferred",
+                    "Use cc.Class for class definitions when available",
+                    "Use modern event system with cc.EventListener"
+                )
+                else -> listOf(
+                    "Use cc.Node() instead of cc.Node.create()",
+                    "Follow cocos2d-x-js conventions"
+                )
+            }
+        )
+    }
+    
+    /**
+     * Generate completion hints based on Cocos2d-x context
+     */
+    private fun generateCocosCompletionHints(
+        contextType: ZestCocos2dxContextCollector.Cocos2dxContextType?,
+        syntaxPreferences: ZestCocos2dxContextCollector.CocosSyntaxPreferences?,
+        methodContent: String
+    ): List<String> {
+        val hints = mutableListOf<String>()
+        
+        // Add general syntax preferences
+        syntaxPreferences?.preferredPatterns?.let { hints.addAll(it) }
+        
+        // Add context-specific hints
+        when (contextType) {
+            ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION -> {
+                hints.add("SYNTAX: Use cc.Sprite() instead of cc.Sprite.create()")
+                hints.add("SYNTAX: Use cc.Node() instead of cc.Node.create()")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_DEFINITION -> {
+                hints.add("SYNTAX: Use var MyScene = cc.Scene.extend({...}) pattern")
+                hints.add("SYNTAX: Include ctor, onEnter, onExit lifecycle methods")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_CREATION -> {
+                hints.add("SYNTAX: Use cc.MoveTo() instead of cc.MoveTo.create()")
+                hints.add("SYNTAX: Use cc.ScaleTo() instead of cc.ScaleTo.create()")
+            }
+            else -> {
+                hints.add("SYNTAX: Follow cocos2d-x-js old version patterns")
+            }
+        }
+        
+        return hints.distinct()
+    }
+    
+    // Cocos2d-x pattern detection methods
+    private fun isInSceneDefinition(previousLines: List<String>): Boolean {
+        return previousLines.any { line ->
+            line.contains("cc.Scene.extend") ||
+            line.contains("extend(cc.Scene") ||
+            line.contains("new cc.Scene")
+        }
+    }
+    
+    private fun isInLifecycleMethod(content: String): Boolean {
+        val lifecycleMethods = listOf("ctor", "onEnter", "onExit", "onEnterTransitionDidFinish", "update", "init")
+        return lifecycleMethods.any { method ->
+            content.contains("$method:") || content.contains("$method ")
+        }
+    }
+    
+    private fun isNodeCreation(content: String): Boolean {
+        val nodeTypes = listOf("cc.Node", "cc.Scene", "cc.Layer", "cc.Sprite", "cc.Label", "cc.Menu")
+        return nodeTypes.any { nodeType ->
+            content.contains("new $nodeType") || 
+            content.contains("$nodeType(") ||
+            content.contains("$nodeType.create")
+        }
+    }
+    
+    private fun isNodePropertySetting(content: String): Boolean {
+        val nodeProperties = listOf("setPosition", "setScale", "setRotation", "setVisible", "setOpacity")
+        return nodeProperties.any { content.contains(it) } || 
+               content.contains(Regex("\\.(x|y|scale|rotation|visible|opacity)\\s*="))
+    }
+    
+    private fun isChildManagement(content: String): Boolean {
+        return content.contains("addChild") || content.contains("removeChild") ||
+               content.contains("removeFromParent") || content.contains("getChildByTag")
+    }
+    
+    private fun isEventListenerSetup(content: String): Boolean {
+        return content.contains("cc.EventListener") || content.contains("addEventListener")
+    }
+    
+    private fun isTouchEventHandler(content: String): Boolean {
+        return content.contains("onTouchBegan") || content.contains("onTouchMoved") ||
+               content.contains("onTouchEnded") || content.contains("TouchOneByOne")
+    }
+    
+    private fun isActionCreation(content: String): Boolean {
+        return content.contains("cc.MoveTo") || content.contains("cc.MoveBy") ||
+               content.contains("cc.ScaleTo") || content.contains("cc.RotateTo") ||
+               content.contains("cc.FadeIn") || content.contains("cc.FadeOut")
+    }
+    
+    private fun isActionSequence(content: String): Boolean {
+        return content.contains("cc.Sequence") || content.contains("cc.Spawn") ||
+               content.contains("runAction")
+    }
+    
+    private fun isResourceLoading(content: String): Boolean {
+        return content.contains("cc.loader") || content.contains("cc.textureCache") ||
+               content.contains("preload") || content.contains("load(")
+    }
+    
+    private fun isInUpdateLoop(content: String): Boolean {
+        return content.contains("update:") || content.contains("scheduleUpdate") ||
+               content.contains("schedule(")
+    }
+    
+    private fun isInFunctionBody(beforeCursor: String): Boolean {
+        var braceCount = 0
+        var inFunction = false
+
+        beforeCursor.lines().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.contains("function") || trimmed.matches(Regex(".*:\\s*function.*"))) {
+                inFunction = true
+            }
+            braceCount += trimmed.count { it == '{' }
+            braceCount -= trimmed.count { it == '}' }
+            if (braceCount == 0) inFunction = false
+        }
+
+        return inFunction && braceCount > 0
     }
 }

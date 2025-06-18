@@ -1,5 +1,6 @@
 package com.zps.zest.completion.prompt
 
+import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.completion.context.ZestMethodContextCollector
 
 /**
@@ -12,9 +13,12 @@ class ZestMethodPromptBuilder {
      */
     fun buildMethodRewritePrompt(context: ZestMethodContextCollector.MethodContext): String {
         val classInfo = analyzeClassContext(context)
+        val cocosGuidance = buildCocos2dxGuidance(context)
         
         return """
 You are an expert ${context.language} developer. Improve this method while maintaining its core functionality and class design principles.
+
+${cocosGuidance}
 
 **Class Context:**
 ${buildClassContextSection(context, classInfo)}
@@ -61,6 +65,8 @@ ${buildSurroundingMethodsContext(context)}
    - Maintain compatibility with surrounding methods
    - Respect class invariants and contracts
    - Consider the method's role in the overall class design
+
+${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
 Provide ONLY the improved method code without any explanations, markdown formatting, or additional text.
@@ -285,9 +291,12 @@ ${classInfo.classSignature}
         customInstruction: String
     ): String {
         val classInfo = analyzeClassContext(context)
+        val cocosGuidance = buildCocos2dxGuidance(context)
         
         return """
 You are an expert ${context.language} developer. Rewrite this method according to the specific instructions while maintaining class design principles.
+
+${cocosGuidance}
 
 **Class Context:**
 ${buildClassContextSection(context, classInfo)}
@@ -313,6 +322,8 @@ ${customInstruction}
 3. Consider class context and integration with other methods
 4. Follow ${context.language} best practices while meeting custom requirements
 5. Ensure the code remains functional and integrates well with the class
+
+${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
 Provide ONLY the rewritten method code without any explanations or markdown formatting.
@@ -341,6 +352,81 @@ Provide ONLY the rewritten method code without any explanations or markdown form
     }
     
     /**
+     * Build Cocos2d-x specific guidance section
+     */
+    private fun buildCocos2dxGuidance(context: ZestMethodContextCollector.MethodContext): String {
+        if (!context.isCocos2dx) return ""
+        
+        return """
+🎮 **COCOS2D-X JAVASCRIPT PROJECT DETECTED**
+
+**CRITICAL SYNTAX REQUIREMENTS:**
+- Use OLD VERSION cocos2d-x-js syntax patterns
+- PREFER cc.Node() over cc.Node.create() - direct constructor calls preferred
+- PREFER cc.Sprite() over cc.Sprite.create() - direct constructor calls preferred  
+- PREFER cc.Scene() over cc.Scene.create() - direct constructor calls preferred
+- Use .extend() pattern for class inheritance: var MyClass = cc.Layer.extend({...})
+- Use object literal methods: methodName: function() {...}
+- Include lifecycle methods: ctor, onEnter, onExit, init, update when appropriate
+
+**Framework Context:**
+${if (context.cocosFrameworkVersion != null) "- Detected Cocos2d-x version: ${context.cocosFrameworkVersion}" else "- Using legacy Cocos2d-x patterns"}
+${if (context.cocosContextType != null) "- Method context: ${context.cocosContextType}" else ""}
+
+**Cocos2d-x Specific Patterns:**
+${context.cocosCompletionHints.joinToString("\n") { "- $it" }}
+        """.trimIndent()
+    }
+    
+    /**
+     * Build Cocos2d-x specific improvement guidelines
+     */
+    private fun buildCocos2dxSpecificGuidelines(context: ZestMethodContextCollector.MethodContext): String {
+        if (!context.isCocos2dx) return ""
+        
+        val guidelines = StringBuilder()
+        guidelines.appendLine("6. **Cocos2d-x Framework Guidelines:**")
+        
+        when (context.cocosContextType) {
+            ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION -> {
+                guidelines.appendLine("   - Use direct constructors: cc.Sprite(), cc.Node(), cc.Layer()")
+                guidelines.appendLine("   - Avoid .create() methods in favor of direct constructor calls")
+                guidelines.appendLine("   - Set properties using modern syntax: node.x = value")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_DEFINITION -> {
+                guidelines.appendLine("   - Use cc.Scene.extend({...}) pattern for scene inheritance")
+                guidelines.appendLine("   - Include proper lifecycle methods: ctor, onEnter, onExit")
+                guidelines.appendLine("   - Call this._super() in lifecycle methods when appropriate")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_LIFECYCLE_METHOD -> {
+                guidelines.appendLine("   - Follow cocos2d-x lifecycle patterns")
+                guidelines.appendLine("   - Use this._super() to call parent implementation")
+                guidelines.appendLine("   - Handle resource cleanup in onExit methods")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_CREATION -> {
+                guidelines.appendLine("   - Use direct constructors: cc.MoveTo(), cc.ScaleTo(), cc.RotateTo()")
+                guidelines.appendLine("   - Prefer cc.Sequence() and cc.Spawn() for action combinations")
+                guidelines.appendLine("   - Use runAction() to execute actions on nodes")
+            }
+            ZestCocos2dxContextCollector.Cocos2dxContextType.EVENT_LISTENER_SETUP -> {
+                guidelines.appendLine("   - Use cc.EventListener patterns for event handling")
+                guidelines.appendLine("   - Properly register and unregister event listeners")
+                guidelines.appendLine("   - Handle touch and keyboard events with appropriate callbacks")
+            }
+            else -> {
+                guidelines.appendLine("   - Follow cocos2d-x-js old version syntax patterns")
+                guidelines.appendLine("   - Use direct constructor calls over .create() methods")
+                guidelines.appendLine("   - Maintain consistency with cocos2d-x naming conventions")
+            }
+        }
+        
+        guidelines.appendLine("   - Ensure compatibility with cocos2d-x ${context.cocosFrameworkVersion ?: "framework"}")
+        guidelines.appendLine("   - Follow the established patterns in your cocos2d-x project")
+        
+        return guidelines.toString()
+    }
+    
+    /**
      * Build a focused prompt for specific improvement types
      */
     fun buildFocusedImprovementPrompt(
@@ -348,6 +434,7 @@ Provide ONLY the rewritten method code without any explanations or markdown form
         improvementType: ImprovementType
     ): String {
         val classInfo = analyzeClassContext(context)
+        val cocosGuidance = buildCocos2dxGuidance(context)
         val focusedInstructions = when (improvementType) {
             ImprovementType.ERROR_HANDLING -> """
 Focus specifically on improving error handling:
@@ -385,6 +472,8 @@ Focus on making the method more testable:
         return """
 You are an expert ${context.language} developer. ${improvementType.description}
 
+${cocosGuidance}
+
 **Class Context:**
 ${buildClassContextSection(context, classInfo)}
 
@@ -401,6 +490,8 @@ ${focusedInstructions}
 - Maintain the method's core functionality and role in the class
 - Follow ${context.language} best practices
 - Consider integration with other class methods and fields
+
+${buildCocos2dxSpecificGuidelines(context)}
 
 **Improved Method:**
         """.trimIndent()
@@ -430,11 +521,32 @@ Return only the improved method:
         val modernizationHints = when (context.language.lowercase()) {
             "java" -> "Use modern Java features: streams, optional, var keyword, records, pattern matching"
             "kotlin" -> "Use Kotlin idioms: extension functions, data classes, sealed classes, coroutines"
-            "javascript" -> "Use modern JavaScript: const/let, arrow functions, destructuring, async/await"
-            "typescript" -> "Use TypeScript features: strict typing, interfaces, generics, utility types"
+            "javascript" -> if (context.isCocos2dx) {
+                "Modernize while maintaining Cocos2d-x compatibility: use const/let, but keep old syntax patterns (cc.Node() over cc.Node.create())"
+            } else {
+                "Use modern JavaScript: const/let, arrow functions, destructuring, async/await"
+            }
+            "typescript" -> if (context.isCocos2dx) {
+                "Use TypeScript features while maintaining Cocos2d-x patterns: strict typing with old syntax (cc.Sprite() over cc.Sprite.create())"
+            } else {
+                "Use TypeScript features: strict typing, interfaces, generics, utility types"
+            }
             "python" -> "Use modern Python: type hints, f-strings, dataclasses, context managers"
             else -> "Use modern language features and best practices"
         }
+        
+        val cocosModernizationHints = if (context.isCocos2dx) {
+            """
+            
+**Cocos2d-x Modernization Guidelines:**
+- Keep using old version syntax patterns (this is REQUIRED for Cocos2d-x)
+- Use cc.Node() instead of cc.Node.create() (direct constructors preferred)
+- Maintain .extend() inheritance patterns: var MyClass = cc.Layer.extend({...})
+- Keep object literal method syntax: methodName: function() {...}
+- Preserve lifecycle method patterns: ctor, onEnter, onExit
+- Do NOT modernize to ES6 classes if it breaks Cocos2d-x compatibility
+            """.trimIndent()
+        } else ""
         
         return """
 Modernize this ${context.language} method using current language standards:
@@ -444,12 +556,13 @@ ${context.methodContent}
 ```
 
 **Modernization Focus:**
-${modernizationHints}
+${modernizationHints}${cocosModernizationHints}
 
 **Rules:**
 - Keep the same functionality
 - Maintain signature: `${context.methodSignature}`  
 - Use latest ${context.language} best practices
+${if (context.isCocos2dx) "- CRITICAL: Maintain Cocos2d-x compatibility and old syntax patterns" else ""}
 
 **Modernized Method:**
         """.trimIndent()

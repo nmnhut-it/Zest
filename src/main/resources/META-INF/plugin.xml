@@ -1,62 +1,72 @@
-<idea-plugin><id>com.zps.Zest</id>Guidelines:
-    https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+<idea-plugin>
+    <!-- Plugin name displayed in the IDE -->
+    <!-- Read more: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
     <name>Zest</name>
+    
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    <version>1.9.862</version>  <!-- Replace with your actual version -->
+    
+    <!-- Plugin version -->
+    <version>1.9.862</version>
+    
+    <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
+    
+
+    
+    <!-- Plugin description -->
     <description><![CDATA[
    <h2>Zest: Smarter Java Development with AI</h2>
    <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI. Enjoy one-click code reviews, auto-generated commit messages, and smart comments. Boost productivity, ship quality code, and let Zest handle the repetitive stuff so you can focus on building great software. Try Zest and make testing effortless.</p>]]></description>
-    Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    
+    <!-- Compatibility version range -->
+    <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
     <idea-version since-build="223.0" until-build="251.*"/>
+    
     <projectListeners>
-
         <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
 
         <listener class="com.zps.zest.inlinechat.JCefInitializer"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
-<!--    <&#45;&#45; Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html &ndash;&gt;-->
+    
+    <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
-
         <toolWindow id="ZPS Chat"
                     anchor="right"
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
-                    icon="icons/zpsChat.svg"
+                    icon="com.zps.zest.ZestIcons.ZPS_CHAT"
                     canCloseContents="false"/>
-
 
         <toolWindow id="Test Writing Assistant"
                     anchor="bottom"
                     factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
-                    icon="icons/testWriting.svg"
+                    icon="com.zps.zest.ZestIcons.TEST_WRITING"
                     canCloseContents="true"
                     doNotActivateOnStart="false"
                     secondary="false"/>
-
 
         <toolWindow id="Refactoring for Testability"
                     anchor="bottom"
                     factoryClass="com.zps.zest.refactoring.RefactoringToolWindowFactory"
-                    icon="icons/refactoring.svg"
+                    icon="com.zps.zest.ZestIcons.REFACTORING"
                     canCloseContents="true"
                     doNotActivateOnStart="false"
                     secondary="false"/>
+            
         <projectConfigurable
                 instance="com.zps.zest.settings.ZestSettingsConfigurable"
                 displayName="Zest Plugin"
                 id="zest.settings"
                 parentId="tools"
                 nonDefaultProject="true"/>
-
 
         <projectConfigurable
                 instance="com.zps.zest.langchain4j.HybridIndexConfigurable"
@@ -65,9 +75,7 @@
                 parentId="tools"
                 nonDefaultProject="true"/>
 
-
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
-
 
         <intentionAction>
             <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
@@ -75,250 +83,109 @@
             <descriptionDirectoryName>InlineChatIntentionAction</descriptionDirectoryName>
         </intentionAction>
 
-
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
         
         <!-- Status Bar Widget -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
     </extensions>
+    
     <actions>
         <group id="Zest.InlineCompletion" text="Zest Inline Completion">
             <action id="Zest.InlineCompletion.Trigger"
                     class="com.zps.zest.completion.actions.ZestTrigger"
-                    text="Trigger Inline Completion">
+                    text="Trigger Inline Completion"
+                    description="Manually trigger AI-powered code completion at cursor position. Analyzes context to provide intelligent code suggestions, method implementations, and code patterns. | Kích hoạt thủ công tính năng hoàn thành code bằng AI tại vị trí con trỏ. Phân tích ngữ cảnh để đưa ra gợi ý code thông minh, implement method và các pattern code.">
             </action>
 
             <action id="Zest.InlineCompletion.ImmediateTrigger"
                     class="com.zps.zest.completion.actions.ZestTriggerBlockRewriteAction"
-                    text="Immediate Inline Completion">
+                    text="Immediate Inline Completion"
+                    description="Instantly trigger AI completion with block rewrite capability (Ctrl+Space). Provides immediate code generation and transformation suggestions. | Kích hoạt ngay AI completion với khả năng viết lại block code (Ctrl+Space). Cung cấp gợi ý tạo và chuyển đổi code tức thì.">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
-                    text="Accept Completion (Tab)">
+                    text="Accept Completion (Tab)"
+                    description="Accept AI code completion suggestion using Tab key. Applies the suggested code at cursor position. | Chấp nhận gợi ý hoàn thành code bằng phím Tab. Áp dụng code được gợi ý tại vị trí con trỏ.">
                 <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.Accept"
                     class="com.zps.zest.completion.actions.ZestAccept"
-                    text="Accept Completion">
+                    text="Accept Completion"
+                    description="Accept AI code completion suggestion using Ctrl+Tab. Alternative method to apply suggested code. | Chấp nhận gợi ý hoàn thành code bằng Ctrl+Tab. Phương pháp thay thế để áp dụng code được gợi ý.">
                 <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
             </action>
 
-<!--            <action id="Zest.InlineCompletion.AcceptNextLine"-->
-<!--                    class="com.zps.zest.completion.actions.ZestAcceptNextLine"-->
-<!--                    text="Accept Next Line">-->
-<!--                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>-->
-<!--            </action>-->
-
-<!--            <action id="Zest.InlineCompletion.AcceptNextWord"-->
-<!--                    class="com.zps.zest.completion.actions.ZestAcceptNextWord"-->
-<!--                    text="Accept Next Word">-->
-<!--                <keyboard-shortcut first-keystroke="ctrl RIGHT" keymap="$default"/>-->
-<!--            </action>-->
-
             <action id="Zest.InlineCompletion.CycleNext"
                     class="com.zps.zest.completion.actions.ZestCycleNext"
-                    text="Cycle Next Completion">
+                    text="Cycle Next Completion"
+                    description="Navigate to next AI completion suggestion (Alt+Down). Cycles through multiple available completion options. | Chuyển đến gợi ý completion tiếp theo (Alt+Down). Duyệt qua nhiều tùy chọn completion có sẵn.">
                 <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.CyclePrevious"
                     class="com.zps.zest.completion.actions.ZestCyclePrevious"
-                    text="Cycle Previous Completion">
+                    text="Cycle Previous Completion"
+                    description="Navigate to previous AI completion suggestion (Alt+Up). Cycles backward through available completion options. | Chuyển đến gợi ý completion trước đó (Alt+Up). Duyệt ngược qua các tùy chọn completion có sẵn.">
                 <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.Dismiss"
                     class="com.zps.zest.completion.actions.ZestDismiss"
-                    text="Dismiss Completion">
+                    text="Dismiss Completion"
+                    description="Dismiss current AI completion suggestion (Escape). Cancels active completion without applying changes. | Bỏ qua gợi ý completion hiện tại (Escape). Hủy completion đang hoạt động mà không áp dụng thay đổi.">
                 <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
             </action>
         </group>
 
-        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools" popup="true"
-               icon="icons/zest.svg">
+        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools for test generation, code review, commit assistance, and intelligent code completion. | Công cụ phát triển được hỗ trợ bởi AI Zest cho tạo test, review code, hỗ trợ commit và hoàn thành code thông minh." popup="true"
+               icon="com.zps.zest.ZestIcons.ZEST">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
-
-
-<!--        <action id="Zest.InlineChatAction"-->
-<!--                class="com.zps.zest.inlinechat.InlineChatAction"-->
-<!--                text="Inline AI Edit"-->
-<!--                icon="AllIcons.Actions.IntentionBulb"-->
-<!--                description="Open inline AI editor for context-aware editing">-->
-<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true"/>-->
-<!--            <add-to-group group-id="EditorPopupMenu" anchor="first"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.InlineChatAcceptAction"-->
-<!--                class="com.zps.zest.inlinechat.InlineChatAcceptAction"-->
-<!--                text="Accept Inline Edit"-->
-<!--                description="Accept the changes proposed by the inline AI editor"-->
-<!--                keymap="$default"-->
-<!--        />-->
-
-<!--        <action id="Zest.InlineChatDiscardAction"-->
-<!--                class="com.zps.zest.inlinechat.InlineChatDiscardAction"-->
-<!--                text="Discard Inline Edit"-->
-<!--                description="Discard the changes proposed by the inline AI editor"/>-->
-
-<!--        <action id="Zest.InlineChatCancelAction"-->
-<!--                class="com.zps.zest.inlinechat.InlineChatCancelAction"-->
-<!--                text="Cancel Inline Edit"-->
-<!--                description="Cancel the inline AI editing operation">-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.TestDiffViewAction"-->
-<!--                class="com.zps.zest.inlinechat.TestDiffViewAction"-->
-<!--                text="Test Diff View"-->
-<!--                description="Test the floating diff view window">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.TestSimpleJCefAction"-->
-<!--                class="com.zps.zest.inlinechat.TestSimpleJCefAction"-->
-<!--                text="Test Simple JCef"-->
-<!--                description="Test if JCef is working properly">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestDiffViewAction"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.JCefDiagnosticAction"-->
-<!--                class="com.zps.zest.inlinechat.JCefDiagnosticAction"-->
-<!--                text="JCef Diagnostics"-->
-<!--                description="Check JCef configuration and troubleshoot issues">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.TestSimpleJCefAction"/>-->
-<!--        </action>-->
-
-<!--        <action id="Zest.TestQwenCoderAction"-->
-<!--                class="com.zps.zest.completion.actions.TestQwenCoderAction"-->
-<!--                text="Test Qwen 2.5 Coder Integration"-->
-<!--                description="Test and validate Qwen 2.5 Coder FIM configuration and integration">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.JCefDiagnosticAction"/>-->
-<!--        </action>-->
-
-        <!-- New Lean Strategy Actions -->
-<!--        <action id="Zest.SwitchCompletionStrategy"-->
-<!--                class="com.zps.zest.completion.actions.ZestSwitchStrategyAction"-->
-<!--                text="Switch Completion Strategy"-->
-<!--                description="Switch between SIMPLE and LEAN completion strategies for A/B testing">-->
-<!--            <keyboard-shortcut first-keystroke="ctrl alt shift S" keymap="$default"/>-->
-<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.AgentBasedTestWritingAction"-->
-<!--                class="com.zps.zest.testing.AgentBasedTestWritingAction"-->
-<!--                text="Step-by-Step Test Writing (Agent)"-->
-<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
-<!--                description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="com.zps.zest.GenerateTestByLlm"-->
-<!--                class="com.zps.zest.GenerateTestByLlm"-->
-<!--                text="Quick Test Generator (Agent)"-->
-<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
-<!--                description="Automatically generate tests for the current class">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>-->
-<!--        </action>-->
-
 
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
                 text="Test Advisor (Chat)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                description="Get advice on writing tests for this class">
+                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
+                description="Analyze current class and generate comprehensive test writing guidance using AI. Analyzes class structure, dependencies, and complexity to provide step-by-step testing strategies. | Phân tích lớp hiện tại và tạo hướng dẫn viết test toàn diện bằng AI. Phân tích cấu trúc lớp, dependency và độ phức tạp để đưa ra chiến lược testing từng bước.">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
-
-
-<!--        <action id="Zest.AgentBasedRefactoringAction"-->
-<!--                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"-->
-<!--                text="Step-by-Step Refactoring (Agent)"-->
-<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
-<!--                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="Zest.RefactorForTestabilityAction"-->
-<!--                class="com.zps.zest.RefactorForTestabilityAction"-->
-<!--                text="Refactoring Advisor (Chat)"-->
-<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
-<!--                description="Get advice on how to refactor the selected code for testability">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>-->
-<!--        </action>-->
-
 
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="Code Review (Chat)"
-                icon="icons/zpsChat16.svg"
-                description="Get a code review for the current class">
+                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
+                description="Request comprehensive AI code review for current class. Analyzes code quality, best practices, potential bugs, performance issues, and maintainability concerns with actionable recommendations. | Yêu cầu AI review code toàn diện cho lớp hiện tại. Phân tích chất lượng code, best practices, lỗi tiềm ẩn, vấn đề hiệu năng và khả năng bảo trì với các khuyến nghị cụ thể.">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
-
-
-<!--        <action id="Zest.GenerateCodeCommentsAction"-->
-<!--                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"-->
-<!--                text="Add Comments (Agent)"-->
-<!--                description="Generate comments for the selected code">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>-->
-<!--        </action>-->
-
-
-<!--        <action id="com.zps.zest.ImplementTodosAction"-->
-<!--                class="com.zps.zest.ImplementTodosAction"-->
-<!--                text="Implement TODOs"-->
-<!--                description="Implement TODOs in selected code using AI">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>-->
-<!--        </action>-->
-
 
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
                 text="Generate Commit Message (Chat)"
-                icon="icons/zpsChat16.svg"
-                description="Generate a commit message based on git changes">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.ImplementTodosAction"/>
+                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
+                description="Generate intelligent commit messages based on git changes. Analyzes file modifications, additions, and deletions to create meaningful, conventional commit messages following best practices. | Tạo commit message thông minh dựa trên thay đổi git. Phân tích các file đã thay đổi, thêm mới và xóa để tạo commit message có ý nghĩa theo best practices.">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
-
 
         <action id="Zest.QuickCommitAction"
                 class="com.zps.zest.QuickCommitAction"
                 text="Quick Commit &amp; Push"
-                icon="icons/zpsChat16.svg"
-                description="Quick commit and push with auto-generated message">
+                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
+                description="One-click commit and push with AI-generated message. Automatically stages all changes, generates meaningful commit message, commits, and pushes to remote repository. Accessible via Ctrl+Shift+Z, C. | Commit và push một cú nhấp với commit message do AI tạo. Tự động stage tất cả thay đổi, tạo commit message có ý nghĩa, commit và push lên remote repository. Truy cập qua Ctrl+Shift+Z, C.">
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
             <add-to-group group-id="ZestGroup" anchor="after"
                           relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
             <add-to-group group-id="VcsGroups" anchor="last"/>
         </action>
 
-
-<!--        <action id="Zest.StartAgentProxyServer"-->
-<!--                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"-->
-<!--                text="Start Agent Proxy Server"-->
-<!--                icon="AllIcons.Nodes.Services"-->
-<!--                description="Start network proxy server for external access to code exploration agent">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
-<!--        </action>-->
-
-
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                 text="Toggle ZPS Chat Developer Tools"
-                description="Toggle the visibility of developer tools in ZPS Chat">
+                description="Toggle developer tools visibility in ZPS Chat browser panel. Provides debugging capabilities for web interface including console, network monitor, element inspector, and JavaScript debugging. | Bật/tắt developer tools trong panel trình duyệt ZPS Chat. Cung cấp khả năng debug cho giao diện web bao gồm console, network monitor, element inspector và JavaScript debugging.">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-
 
     </actions>
 </idea-plugin>

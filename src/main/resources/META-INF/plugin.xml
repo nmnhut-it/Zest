@@ -89,7 +89,7 @@
             </action>
 
             <action id="Zest.InlineCompletion.ImmediateTrigger"
-                    class="com.zps.zest.completion.actions.ZestTriggerMethodRewriteAction"
+                    class="com.zps.zest.completion.actions.ZestTriggerBlockRewriteAction"
                     text="Immediate Inline Completion">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
             </action>

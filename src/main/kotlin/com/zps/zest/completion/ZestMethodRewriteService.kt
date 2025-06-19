@@ -70,6 +70,92 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private var currentEnhancedDiffResult: EnhancedGDiff.EnhancedDiffResult? = null
     
     /**
+     * Trigger method rewrite with pre-found method context and status callback for dialog updates
+     * Method context is passed in (found on EDT before dialog) to avoid EDT blocking
+     */
+    fun rewriteCurrentMethodWithStatusCallback(
+        editor: Editor, 
+        methodContext: ZestMethodContextCollector.MethodContext,
+        customInstruction: String? = null,
+        dialog: Any? = null,  // Dialog reference to close when LLM responds
+        statusCallback: ((String) -> Unit)? = null
+    ) {
+        System.out.println("[ZestMethodRewrite] rewriteCurrentMethodWithStatusCallback called:")
+        System.out.println("  - methodContext: ${methodContext.methodName}")
+        System.out.println("  - customInstruction: $customInstruction")
+        System.out.println("  - editor: ${editor}")
+        
+        scope.launch {
+            val requestId = rewriteRequestId.incrementAndGet()
+            
+            System.out.println("[ZestMethodRewrite] Starting method rewrite with requestId=$requestId")
+            logger.info("Starting method rewrite for method ${methodContext.methodName}, requestId=$requestId")
+            
+            // Use mutex to ensure only one rewrite is processed at a time
+            System.out.println("[ZestMethodRewrite] Acquiring rewrite mutex...")
+            rewriteMutex.withLock {
+                System.out.println("[ZestMethodRewrite] Mutex acquired for request $requestId")
+                
+                // Check if this is still the latest request
+                if (requestId < (activeRewriteId ?: 0)) {
+                    System.out.println("[ZestMethodRewrite] Request $requestId is outdated (activeRewriteId=$activeRewriteId), skipping")
+                    logger.debug("Request $requestId is outdated, skipping")
+                    return@withLock
+                }
+                
+                activeRewriteId = requestId
+                System.out.println("[ZestMethodRewrite] Set activeRewriteId to $requestId")
+                
+                try {
+                    // Cancel any existing rewrite
+                    System.out.println("[ZestMethodRewrite] Cancelling any existing rewrite...")
+                    cancelCurrentRewrite()
+                    
+                    // CRITICAL FIX: Method context is already found on EDT, so we just use it directly
+                    statusCallback?.invoke("🧠 Preparing method analysis...")
+                    
+                    // Check if this request is still active
+                    if (activeRewriteId != requestId) {
+                        System.out.println("[ZestMethodRewrite] Request $requestId is no longer active")
+                        logger.debug("Request $requestId is no longer active")
+                        return@withLock
+                    }
+                    
+                    currentMethodContext = methodContext
+                    System.out.println("[ZestMethodRewrite] Method context stored")
+                    logger.info("Using pre-found method: ${methodContext.methodName} (${methodContext.language})")
+                    
+                    // Update status instead of showing notification
+                    val methodInfo = if (methodContext.isCocos2dx) {
+                        "🎮 Analyzing Cocos2d-x method '${methodContext.methodName}'"
+                    } else {
+                        "📝 Analyzing method '${methodContext.methodName}'"
+                    }
+                    statusCallback?.invoke(methodInfo)
+                    
+                    // Start method rewrite process in background
+                    System.out.println("[ZestMethodRewrite] Starting performMethodRewrite job...")
+                    currentRewriteJob = scope.launch {
+                        performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, dialog, statusCallback)
+                    }
+                    
+                } catch (e: Exception) {
+                    System.out.println("[ZestMethodRewrite] Failed to trigger method rewrite: ${e.message}")
+                    e.printStackTrace()
+                    logger.error("Failed to trigger method rewrite", e)
+                    statusCallback?.invoke("❌ Failed to start rewrite: ${e.message}")
+                    // Only clear activeRewriteId on error
+                    if (activeRewriteId == requestId) {
+                        System.out.println("[ZestMethodRewrite] Clearing activeRewriteId due to error")
+                        activeRewriteId = null
+                    }
+                }
+            }
+            System.out.println("[ZestMethodRewrite] Released rewrite mutex")
+        }
+    }
+
+    /**
      * Trigger method rewrite at cursor position
      */
     fun rewriteCurrentMethod(editor: Editor, offset: Int, customInstruction: String? = null) {
@@ -184,7 +270,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                             analysisInfo
                         )
                     }
-                    
+
                     // Start method rewrite process in background
                     System.out.println("[ZestMethodRewrite] Starting performMethodRewrite job...")
                     currentRewriteJob = scope.launch {
@@ -363,6 +449,214 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     "Method Rewrite Failed",
                     "Failed to rewrite method: ${e.message}"
                 )
+            }
+        } finally {
+            // Clear activeRewriteId when the rewrite is complete
+            if (activeRewriteId == requestId) {
+                System.out.println("[ZestMethodRewrite] Clearing activeRewriteId after completion")
+                activeRewriteId = null
+            }
+        }
+    }
+
+    /**
+     * Perform the method rewrite operation with status callback instead of notifications
+     */
+    private suspend fun performMethodRewriteWithCallback(
+        editor: Editor,
+        methodContext: ZestMethodContextCollector.MethodContext,
+        customInstruction: String?,
+        requestId: Int,
+        dialog: Any? = null,  // Dialog reference to close when LLM responds
+        statusCallback: ((String) -> Unit)?
+    ) {
+        System.out.println("[ZestMethodRewrite] performMethodRewriteWithCallback started for request $requestId")
+        System.out.println("  - method: ${methodContext.methodName}")
+        System.out.println("  - activeRewriteId: $activeRewriteId")
+        
+        try {
+            logger.info("Performing method rewrite for ${methodContext.methodName} in ${methodContext.language}")
+            
+            // Check if this request is still active
+            if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active (activeRewriteId=$activeRewriteId)")
+                logger.debug("Request $requestId is no longer active")
+                return
+            }
+            
+            // Build the method-specific prompt
+            System.out.println("[ZestMethodRewrite] Building prompt...")
+            statusCallback?.invoke("🧠 Building AI prompt...")
+            
+            val prompt = if (customInstruction != null) {
+                promptBuilder.buildCustomMethodPrompt(methodContext, customInstruction)
+            } else {
+                promptBuilder.buildMethodRewritePrompt(methodContext)
+            }
+            
+            System.out.println("[ZestMethodRewrite] Prompt built, length: ${prompt.length}")
+            logger.debug("Generated method prompt length: ${prompt.length}")
+            
+            // Call LLM service in background thread
+            System.out.println("[ZestMethodRewrite] Calling LLM service...")
+            statusCallback?.invoke("🤖 Querying AI model...")
+            
+            val startTime = System.currentTimeMillis()
+            val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
+                val queryParams = LLMService.LLMQueryParams(prompt)
+                    .useLiteCodeModel() // Use full model for method rewrites
+                    .withMaxTokens(METHOD_REWRITE_MAX_TOKENS)
+                    .withTemperature(0.3) // Slightly creative but focused
+                    .withStopSequences(getMethodRewriteStopSequences())
+                
+                System.out.println("[ZestMethodRewrite] LLM query params:")
+                System.out.println("  - model: local-model-mini")
+                System.out.println("  - maxTokens: $METHOD_REWRITE_MAX_TOKENS")
+                System.out.println("  - temperature: 0.3")
+                
+                llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+            }
+            val responseTime = System.currentTimeMillis() - startTime
+            
+            if (response == null) {
+                System.out.println("[ZestMethodRewrite] LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
+                statusCallback?.invoke("⏰ Request timed out - please try again")
+                
+                // Close dialog on timeout
+                withContext(Dispatchers.Main) {
+                    (dialog as? com.intellij.openapi.ui.DialogWrapper)?.let { dialogWrapper ->
+                        System.out.println("[ZestMethodRewrite] Closing dialog after timeout")
+                        dialogWrapper.close(com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE)
+                    }
+                }
+                throw Exception("LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
+            }
+            
+            System.out.println("[ZestMethodRewrite] LLM response received in ${responseTime}ms")
+            System.out.println("  - response length: ${response.length}")
+            System.out.println("  - response preview: '${response.take(100)}...'")
+            
+            // CRITICAL FIX: Close the dialog immediately when we get LLM response
+            withContext(Dispatchers.Main) {
+                (dialog as? com.intellij.openapi.ui.DialogWrapper)?.let { dialogWrapper ->
+                    System.out.println("[ZestMethodRewrite] Closing dialog after LLM response")
+                    dialogWrapper.close(com.intellij.openapi.ui.DialogWrapper.OK_EXIT_CODE)
+                }
+            }
+            
+            // Check again if this request is still active
+            if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active after LLM response")
+                logger.debug("Request $requestId is no longer active after LLM response")
+                return
+            }
+            
+            logger.info("Received LLM response in ${responseTime}ms")
+            statusCallback?.invoke("⚙️ Parsing AI response...")
+            
+            // Parse the method rewrite response in background
+            System.out.println("[ZestMethodRewrite] Parsing response...")
+            val parseResult = responseParser.parseMethodRewriteResponse(
+                response = response,
+                originalMethod = methodContext.methodContent,
+                methodName = methodContext.methodName,
+                language = methodContext.language
+            )
+            
+            System.out.println("[ZestMethodRewrite] Parse result:")
+            System.out.println("  - isValid: ${parseResult.isValid}")
+            System.out.println("  - confidence: ${parseResult.confidence}")
+            System.out.println("  - issues: ${parseResult.issues}")
+            System.out.println("  - rewritten method length: ${parseResult.rewrittenMethod.length}")
+            
+            if (!parseResult.isValid) {
+                logger.warn("Invalid method rewrite response: ${parseResult.issues}")
+                statusCallback?.invoke("❌ Generated code is invalid: ${parseResult.issues.firstOrNull()}")
+                
+                // Close dialog on invalid response
+                withContext(Dispatchers.Main) {
+                    (dialog as? com.intellij.openapi.ui.DialogWrapper)?.let { dialogWrapper ->
+                        System.out.println("[ZestMethodRewrite] Closing dialog after invalid response")
+                        dialogWrapper.close(com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE)
+                    }
+                }
+                throw Exception("Generated method is invalid: ${parseResult.issues.joinToString(", ")}")
+            }
+            
+            // Perform language-specific semantic analysis in background
+            System.out.println("[ZestMethodRewrite] Calculating language-specific diff...")
+            statusCallback?.invoke("🔍 Analyzing changes...")
+            
+            val enhancedDiffResult = calculateLanguageSpecificDiff(
+                originalCode = methodContext.methodContent,
+                rewrittenCode = parseResult.rewrittenMethod,
+                language = methodContext.language
+            )
+            currentEnhancedDiffResult = enhancedDiffResult
+            
+            // Also maintain legacy diff for compatibility  
+            val diffResult = calculatePreciseChanges(
+                originalCode = methodContext.methodContent,
+                rewrittenCode = parseResult.rewrittenMethod
+            )
+            currentDiffResult = diffResult
+            // Store the complete rewritten method (with any closing characters)
+            currentRewrittenMethod = parseResult.rewrittenMethod
+            
+            // Final check before showing diff
+            if (activeRewriteId != requestId) {
+                System.out.println("[ZestMethodRewrite] Request $requestId is no longer active before showing diff")
+                logger.debug("Request $requestId is no longer active before showing diff")
+                return
+            }
+            
+            // Show diff rendering on EDT
+            System.out.println("[ZestMethodRewrite] Showing language-aware diff...")
+            statusCallback?.invoke("✅ Rewrite complete! Review changes and press TAB to accept")
+            
+            withContext(Dispatchers.Main) {
+                showLanguageAwareDiff(
+                    editor = editor,
+                    methodContext = methodContext,
+                    enhancedDiffResult = enhancedDiffResult,
+                    legacyDiffResult = diffResult,
+                    rewrittenMethod = parseResult.rewrittenMethod,
+                    parseResult = parseResult
+                )
+                
+                // No delay needed since dialog is already closed
+            }
+            
+            System.out.println("[ZestMethodRewrite] Method rewrite completed successfully")
+            logger.info("Method rewrite completed successfully (confidence: ${parseResult.confidence}, language: ${methodContext.language})")
+            
+        } catch (e: CancellationException) {
+            System.out.println("[ZestMethodRewrite] Method rewrite was cancelled")
+            logger.debug("Method rewrite was cancelled")
+            statusCallback?.invoke("❌ Rewrite cancelled")
+            
+            // Close dialog on cancellation
+            withContext(Dispatchers.Main) {
+                (dialog as? com.intellij.openapi.ui.DialogWrapper)?.let { dialogWrapper ->
+                    System.out.println("[ZestMethodRewrite] Closing dialog after cancellation")
+                    dialogWrapper.close(com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE)
+                }
+            }
+            throw e
+        } catch (e: Exception) {
+            System.out.println("[ZestMethodRewrite] Method rewrite failed: ${e.message}")
+            e.printStackTrace()
+            logger.error("Method rewrite failed", e)
+            
+            statusCallback?.invoke("❌ Rewrite failed: ${e.message}")
+            
+            // Close dialog on error  
+            withContext(Dispatchers.Main) {
+                (dialog as? com.intellij.openapi.ui.DialogWrapper)?.let { dialogWrapper ->
+                    System.out.println("[ZestMethodRewrite] Closing dialog after error")
+                    dialogWrapper.close(com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE)
+                }
+                methodDiffRenderer.hide()
             }
         } finally {
             // Clear activeRewriteId when the rewrite is complete

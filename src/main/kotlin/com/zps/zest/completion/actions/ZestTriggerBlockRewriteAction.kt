@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ui.InputValidator
@@ -20,10 +21,10 @@ import java.awt.event.KeyListener
 import javax.swing.*
 
 /**
- * Action to manually trigger method rewrite at cursor position with smart instruction prefilling
+ * Action to manually trigger block rewrite at cursor position with smart instruction prefilling
  */
-class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPriority {
-    private val logger = Logger.getInstance(ZestTriggerMethodRewriteAction::class.java)
+class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPriority {
+    private val logger = Logger.getInstance(ZestTriggerBlockRewriteAction::class.java)
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.getRequiredData(CommonDataKeys.PROJECT)
@@ -47,12 +48,20 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
 
         val offset = editor.caretModel.primaryCaret.offset
 
-        // Smart instruction prefilling based on context
+        // CRITICAL FIX: Find method BEFORE showing dialog (on EDT where we are now)
         val contextCollector = ZestMethodContextCollector(project)
         val methodContext = contextCollector.findMethodAtCursor(editor, offset)
-        val prefilledInstruction = generateSmartInstruction(methodContext, editor, offset)
+        
+        if (methodContext == null) {
+            Messages.showWarningDialog(
+                project,
+                "Could not identify a method at the current cursor position. Place cursor inside a method to rewrite it.",
+                "No Method Found"
+            )
+            return
+        }
 
-        // Show smart 3-option dialog and handle the full workflow
+        // Now show dialog with pre-found method context
         showSmartRewriteDialogWithProgress(project, editor, methodContext, offset, methodRewriteService)
     }
 
@@ -66,27 +75,40 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
         offset: Int,
         methodRewriteService: ZestMethodRewriteService
     ) {
+        // Ensure we have a valid method context
+        if (methodContext == null) {
+            Messages.showWarningDialog(
+                project,
+                "Could not identify a method at the current cursor position. Place cursor inside a method to rewrite it.",
+                "No Method Found"
+            )
+            return
+        }
+        
         var dialogInstance: SmartRewriteDialog? = null
         
         val dialog = SmartRewriteDialog(project, methodContext, "") { instruction ->
             // This callback is triggered when user selects an instruction
-            // The dialog will show processing state automatically
-            logger.info("Triggered method rewrite at offset $offset with instruction: '$instruction'")
-            methodRewriteService.rewriteCurrentMethod(editor, offset, instruction)
-
-            // Close dialog after a short delay (the rewrite service will show its own progress)
-            javax.swing.Timer(1000) {
-                dialogInstance?.completeProcessing()
-            }.apply {
-                isRepeats = false
-                start()
+            logger.info("Triggered method rewrite for method ${methodContext.methodName} with instruction: '$instruction'")
+            
+            // CRITICAL FIX: Pass the dialog instance so service can close it when LLM responds
+            methodRewriteService.rewriteCurrentMethodWithStatusCallback(
+                editor, 
+                methodContext,
+                instruction,
+                dialogInstance  // Pass dialog reference
+            ) { status -> 
+                // Status callback - update dialog UI on EDT
+                ApplicationManager.getApplication().invokeLater {
+                    dialogInstance?.updateStatus(status)
+                }
             }
         }
         
         dialogInstance = dialog
 
-        // Show the dialog - it will handle the entire workflow internally
-        dialog.showAndGetResult()
+        // Use show() instead of showAndGetResult() to avoid blocking EDT
+        dialog.show()
     }
 
     /**
@@ -201,9 +223,11 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
         private var processingStartTime = 0L
         private var progressLabel: JLabel? = null
         private var progressTimer: javax.swing.Timer? = null
+        private var statusLabel: JLabel? = null
+        private var statusHistory = mutableListOf<String>()
 
         init {
-            title = "Method Rewrite"
+            title = "Block Rewrite"
             setOKButtonText("Apply")
             init()
 
@@ -391,6 +415,20 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
         }
 
         /**
+         * Update status in the dialog
+         */
+        fun updateStatus(status: String) {
+            ApplicationManager.getApplication().invokeLater {
+                statusHistory.add("${System.currentTimeMillis()}: $status")
+                statusLabel?.text = status
+                // Refresh dialog to show updated status
+                if (isProcessing) {
+                    refreshDialog()
+                }
+            }
+        }
+
+        /**
          * Start processing the selected instruction
          */
         private fun startProcessing() {
@@ -442,6 +480,29 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
         }
 
         /**
+         * Auto-close dialog when processing is complete
+         */
+        fun autoCloseAfterSuccess() {
+            if (isProcessing) {
+                // Stop the progress timer
+                progressTimer?.stop()
+                progressTimer = null
+                
+                isProcessing = false
+                
+                // Close dialog after brief delay
+                javax.swing.Timer(2000) { // 2 second delay to show success
+                    if (isShowing) {
+                        close(OK_EXIT_CODE)
+                    }
+                }.apply {
+                    isRepeats = false
+                    start()
+                }
+            }
+        }
+
+        /**
          * Refresh the dialog content
          */
         private fun refreshDialog() {
@@ -488,9 +549,9 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
             // Header with current selection info
             val headerPanel = JPanel(BorderLayout())
             val methodInfo = if (methodContext != null) {
-                "Method: ${methodContext.methodName}() | Detected: ${getDetectionDescription()}"
+                "Block: ${methodContext.methodName}() | Detected: ${getDetectionDescription()}"
             } else {
-                "Method rewrite options"
+                "Block rewrite options"
             }
             val headerLabel = JLabel(methodInfo)
             headerLabel.font = headerLabel.font.deriveFont(Font.BOLD)
@@ -526,14 +587,14 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
          */
         private fun createProcessingPanel(): JComponent {
             val panel = JPanel(BorderLayout())
-            panel.preferredSize = Dimension(520, 220)
+            panel.preferredSize = Dimension(520, 280) // Increased height for status
 
             // Header
             val headerPanel = JPanel(BorderLayout())
             val methodInfo = if (methodContext != null) {
-                "Method: ${methodContext.methodName}() | Rewriting in progress..."
+                "Block: ${methodContext.methodName}() | Rewriting in progress..."
             } else {
-                "Method rewrite in progress..."
+                "Block rewrite in progress..."
             }
             val headerLabel = JLabel(methodInfo)
             headerLabel.font = headerLabel.font.deriveFont(Font.BOLD)
@@ -562,7 +623,7 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
             centerPanel.add(instructionTextPanel)
 
             // Add spacer
-            centerPanel.add(Box.createVerticalStrut(20))
+            centerPanel.add(Box.createVerticalStrut(15))
 
             // Progress indicator
             val progressPanel = JPanel(FlowLayout(FlowLayout.CENTER))
@@ -572,12 +633,20 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
             progressPanel.add(progressLabel)
             centerPanel.add(progressPanel)
 
+            // Status updates
+            val statusPanel = JPanel(FlowLayout(FlowLayout.CENTER))
+            statusLabel = JLabel("Initializing...")
+            statusLabel?.font = statusLabel?.font?.deriveFont(Font.ITALIC, 11f)
+            statusLabel?.foreground = Color(0, 100, 200) // Blue color for status
+            statusPanel.add(statusLabel)
+            centerPanel.add(statusPanel)
+
             // Add spacer
             centerPanel.add(Box.createVerticalStrut(10))
 
             // Info text
             val infoPanel = JPanel(FlowLayout(FlowLayout.CENTER))
-            val infoLabel = JLabel("This dialog will close automatically when complete")
+            val infoLabel = JLabel("Status updates will appear above • ESC to cancel")
             infoLabel.font = infoLabel.font.deriveFont(Font.ITALIC, 10f)
             infoLabel.foreground = Color.GRAY
             infoPanel.add(infoLabel)
@@ -666,8 +735,9 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
         }
 
         fun showAndGetResult(): String? {
-            showAndGet() // Just show the dialog, processing is handled internally
-            return null // The callback will handle the result
+            // REMOVE the blocking call - just show the dialog
+            show() // Non-blocking
+            return null // The callback handles the result, not the return value
         }
 
         // Hide the bottom button panel since we're using keyboard-only interaction
@@ -853,12 +923,12 @@ class ZestTriggerMethodRewriteAction : AnAction("Trigger Method Rewrite"), HasPr
 
         // Update description based on service state
         if (methodRewriteService?.isRewriteInProgress() == true) {
-            e.presentation.text = "Method Rewrite (In Progress...)"
-            e.presentation.description = "A method rewrite is currently in progress"
+            e.presentation.text = "Block Rewrite (In Progress...)"
+            e.presentation.description = "A block rewrite is currently in progress"
             e.presentation.isEnabled = false
         } else {
-            e.presentation.text = "Trigger Method Rewrite"
-            e.presentation.description = "Rewrite the current method with AI improvements"
+            e.presentation.text = "Trigger Block Rewrite"
+            e.presentation.description = "Rewrite the current block with AI improvements"
             e.presentation.isEnabled = isAvailable
         }
     }

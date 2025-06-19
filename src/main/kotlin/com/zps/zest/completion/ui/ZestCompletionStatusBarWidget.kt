@@ -55,19 +55,19 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     private var displayText = "Zest"
 
     enum class CompletionState(val displayText: String, val icon: Icon, val tooltip: String) {
-        REQUESTING("Loading...", ICON_REQUESTING, "Zest completion is being requested from AI"),
-        WAITING("Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
-        ACCEPTING("Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
-        IDLE("Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
-        ERROR("Error", ICON_ERROR, "Zest completion has an error or orphaned state")
+        REQUESTING("⏳ Requesting...", ICON_REQUESTING, "Zest completion is being requested from AI"),
+        WAITING("💡 Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
+        ACCEPTING("⚡ Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
+        IDLE("💤 Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
+        ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state")
     }
 
     enum class MethodRewriteState(val displayText: String, val icon: Icon, val tooltip: String) {
-        ANALYZING("Analyzing...", ICON_METHOD_ANALYZING, "Analyzing method structure and context"),
-        AI_QUERYING("AI...", ICON_METHOD_AI_QUERY, "Querying AI model for method improvements"),
-        DIFF_READY("Ready ✓", ICON_METHOD_DIFF_READY, "Method rewrite ready for review - press TAB to accept"),
-        APPLYING("Applying...", ICON_METHOD_APPLYING, "Applying method changes to code"),
-        COMPLETED("Done ✓", ICON_IDLE, "Method rewrite completed successfully")
+        ANALYZING("🧠 Analyzing...", ICON_METHOD_ANALYZING, "Analyzing method structure and context"),
+        AI_QUERYING("🤖 Processing...", ICON_METHOD_AI_QUERY, "Querying AI model for method improvements"),
+        DIFF_READY("✅ Ready", ICON_METHOD_DIFF_READY, "Method rewrite ready for review - press TAB to accept"),
+        APPLYING("🔧 Applying...", ICON_METHOD_APPLYING, "Applying method changes to code"),
+        COMPLETED("🎉 Done", ICON_IDLE, "Method rewrite completed successfully")
     }
 
     override fun ID(): String = WIDGET_ID
@@ -201,11 +201,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             "Zest: ${currentMethodRewriteState!!.displayText}"
         } else {
             when (currentCompletionState) {
-                CompletionState.REQUESTING -> "Zest: Loading..."
-                CompletionState.WAITING -> "Zest: Ready"
-                CompletionState.ACCEPTING -> "Zest: Accepting..."
+                CompletionState.REQUESTING -> "Zest: ⏳ Requesting..."
+                CompletionState.WAITING -> "Zest: 💡 Ready"
+                CompletionState.ACCEPTING -> "Zest: ⚡ Accepting..."
                 CompletionState.IDLE -> "Zest"
-                CompletionState.ERROR -> "Zest: Error"
+                CompletionState.ERROR -> "Zest: ❌ Error"
             }
         }
         

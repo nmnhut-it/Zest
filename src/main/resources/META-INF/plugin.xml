@@ -143,33 +143,33 @@
         </group>
 
 
-        <action id="Zest.InlineChatAction"
-                class="com.zps.zest.inlinechat.InlineChatAction"
-                text="Inline AI Edit"
-                icon="AllIcons.Actions.IntentionBulb"
-                description="Open inline AI editor for context-aware editing">
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-        </action>
+<!--        <action id="Zest.InlineChatAction"-->
+<!--                class="com.zps.zest.inlinechat.InlineChatAction"-->
+<!--                text="Inline AI Edit"-->
+<!--                icon="AllIcons.Actions.IntentionBulb"-->
+<!--                description="Open inline AI editor for context-aware editing">-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift SPACE" replace-all="true"/>-->
+<!--            <add-to-group group-id="EditorPopupMenu" anchor="first"/>-->
+<!--        </action>-->
 
 
-        <action id="Zest.InlineChatAcceptAction"
-                class="com.zps.zest.inlinechat.InlineChatAcceptAction"
-                text="Accept Inline Edit"
-                description="Accept the changes proposed by the inline AI editor"
-                keymap="$default"
-        />
+<!--        <action id="Zest.InlineChatAcceptAction"-->
+<!--                class="com.zps.zest.inlinechat.InlineChatAcceptAction"-->
+<!--                text="Accept Inline Edit"-->
+<!--                description="Accept the changes proposed by the inline AI editor"-->
+<!--                keymap="$default"-->
+<!--        />-->
 
-        <action id="Zest.InlineChatDiscardAction"
-                class="com.zps.zest.inlinechat.InlineChatDiscardAction"
-                text="Discard Inline Edit"
-                description="Discard the changes proposed by the inline AI editor"/>
+<!--        <action id="Zest.InlineChatDiscardAction"-->
+<!--                class="com.zps.zest.inlinechat.InlineChatDiscardAction"-->
+<!--                text="Discard Inline Edit"-->
+<!--                description="Discard the changes proposed by the inline AI editor"/>-->
 
-        <action id="Zest.InlineChatCancelAction"
-                class="com.zps.zest.inlinechat.InlineChatCancelAction"
-                text="Cancel Inline Edit"
-                description="Cancel the inline AI editing operation">
-        </action>
+<!--        <action id="Zest.InlineChatCancelAction"-->
+<!--                class="com.zps.zest.inlinechat.InlineChatCancelAction"-->
+<!--                text="Cancel Inline Edit"-->
+<!--                description="Cancel the inline AI editing operation">-->
+<!--        </action>-->
 
 
 <!--        <action id="Zest.TestDiffViewAction"-->
@@ -203,31 +203,31 @@
 <!--        </action>-->
 
         <!-- New Lean Strategy Actions -->
-        <action id="Zest.SwitchCompletionStrategy"
-                class="com.zps.zest.completion.actions.ZestSwitchStrategyAction"
-                text="Switch Completion Strategy"
-                description="Switch between SIMPLE and LEAN completion strategies for A/B testing">
-            <keyboard-shortcut first-keystroke="ctrl alt shift S" keymap="$default"/>
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
+<!--        <action id="Zest.SwitchCompletionStrategy"-->
+<!--                class="com.zps.zest.completion.actions.ZestSwitchStrategyAction"-->
+<!--                text="Switch Completion Strategy"-->
+<!--                description="Switch between SIMPLE and LEAN completion strategies for A/B testing">-->
+<!--            <keyboard-shortcut first-keystroke="ctrl alt shift S" keymap="$default"/>-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
 
 
-        <action id="Zest.AgentBasedTestWritingAction"
-                class="com.zps.zest.testing.AgentBasedTestWritingAction"
-                text="Step-by-Step Test Writing (Agent)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>
-        </action>
+<!--        <action id="Zest.AgentBasedTestWritingAction"-->
+<!--                class="com.zps.zest.testing.AgentBasedTestWritingAction"-->
+<!--                text="Step-by-Step Test Writing (Agent)"-->
+<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
+<!--                description="Use an AI agent to write comprehensive tests step-by-step, allowing fine-grained human interaction">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.InlineChatAction"/>-->
+<!--        </action>-->
 
 
-        <action id="com.zps.zest.GenerateTestByLlm"
-                class="com.zps.zest.GenerateTestByLlm"
-                text="Quick Test Generator (Agent)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                description="Automatically generate tests for the current class">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>
-        </action>
+<!--        <action id="com.zps.zest.GenerateTestByLlm"-->
+<!--                class="com.zps.zest.GenerateTestByLlm"-->
+<!--                text="Quick Test Generator (Agent)"-->
+<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
+<!--                description="Automatically generate tests for the current class">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedTestWritingAction"/>-->
+<!--        </action>-->
 
 
         <action id="Zest.SendPipelineToChatBox"
@@ -235,26 +235,26 @@
                 text="Test Advisor (Chat)"
                 icon="com.zps.zest.ZestIcons.TEST_WRITING"
                 description="Get advice on writing tests for this class">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="com.zps.zest.GenerateTestByLlm"/>
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
 
-        <action id="Zest.AgentBasedRefactoringAction"
-                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"
-                text="Step-by-Step Refactoring (Agent)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>
-        </action>
+<!--        <action id="Zest.AgentBasedRefactoringAction"-->
+<!--                class="com.zps.zest.refactoring.AgentBasedRefactoringAction"-->
+<!--                text="Step-by-Step Refactoring (Agent)"-->
+<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
+<!--                description="Use an AI agent to implement testability refactoring, allowing fine-grained human interaction">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendPipelineToChatBox"/>-->
+<!--        </action>-->
 
 
-        <action id="Zest.RefactorForTestabilityAction"
-                class="com.zps.zest.RefactorForTestabilityAction"
-                text="Refactoring Advisor (Chat)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                description="Get advice on how to refactor the selected code for testability">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>
-        </action>
+<!--        <action id="Zest.RefactorForTestabilityAction"-->
+<!--                class="com.zps.zest.RefactorForTestabilityAction"-->
+<!--                text="Refactoring Advisor (Chat)"-->
+<!--                icon="com.zps.zest.ZestIcons.TEST_WRITING"-->
+<!--                description="Get advice on how to refactor the selected code for testability">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.AgentBasedRefactoringAction"/>-->
+<!--        </action>-->
 
 
         <action id="Zest.SendCodeReviewToChatBox"
@@ -262,24 +262,24 @@
                 text="Code Review (Chat)"
                 icon="icons/zpsChat16.svg"
                 description="Get a code review for the current class">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.RefactorForTestabilityAction"/>
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
 
-        <action id="Zest.GenerateCodeCommentsAction"
-                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"
-                text="Add Comments (Agent)"
-                description="Generate comments for the selected code">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>
-        </action>
+<!--        <action id="Zest.GenerateCodeCommentsAction"-->
+<!--                class="com.zps.zest.browser.actions.GenerateCodeCommentsAction"-->
+<!--                text="Add Comments (Agent)"-->
+<!--                description="Generate comments for the selected code">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.SendCodeReviewToChatBox"/>-->
+<!--        </action>-->
 
 
-        <action id="com.zps.zest.ImplementTodosAction"
-                class="com.zps.zest.ImplementTodosAction"
-                text="Implement TODOs"
-                description="Implement TODOs in selected code using AI">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>
-        </action>
+<!--        <action id="com.zps.zest.ImplementTodosAction"-->
+<!--                class="com.zps.zest.ImplementTodosAction"-->
+<!--                text="Implement TODOs"-->
+<!--                description="Implement TODOs in selected code using AI">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateCodeCommentsAction"/>-->
+<!--        </action>-->
 
 
         <action id="Zest.GitCommitMessageGeneratorAction"
@@ -303,13 +303,13 @@
         </action>
 
 
-        <action id="Zest.StartAgentProxyServer"
-                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
-                text="Start Agent Proxy Server"
-                icon="AllIcons.Nodes.Services"
-                description="Start network proxy server for external access to code exploration agent">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
+<!--        <action id="Zest.StartAgentProxyServer"-->
+<!--                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"-->
+<!--                text="Start Agent Proxy Server"-->
+<!--                icon="AllIcons.Nodes.Services"-->
+<!--                description="Start network proxy server for external access to code exploration agent">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
 
 
         <action id="Zest.ToggleDevTools"

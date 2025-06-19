@@ -96,8 +96,6 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                 statusCallback = { status ->
                     // All progress updates go to status bar widget
                     statusBarWidget?.updateMethodRewriteStatus(status)
-                    // Also show as popup from status bar icon
-                    statusBarWidget?.showProgressMessage(status)
                 }
             )
         }

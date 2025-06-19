@@ -11,27 +11,21 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopup
-import com.intellij.ui.awt.RelativePoint
 import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestCompletionProvider
 import com.zps.zest.completion.ZestInlineCompletionRenderer
 import java.awt.event.MouseEvent
-import java.awt.Point
 import javax.swing.Icon
-import javax.swing.JLabel
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.ui.popup.Balloon
-import com.intellij.ui.JBColor
-import com.zps.zest.ZestNotifications
 import kotlinx.coroutines.*
-import java.awt.Color
+import java.awt.Component
 
 /**
  * Enhanced status bar widget showing both completion and method rewrite state
  */
-class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project), StatusBarWidget.IconPresentation {
+class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project), StatusBarWidget.TextPresentation {
 
     private val logger = Logger.getInstance(ZestCompletionStatusBarWidget::class.java)
     private val completionService by lazy { project.getService(ZestInlineCompletionService::class.java) }
@@ -58,9 +52,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     private var currentCompletionState = CompletionState.IDLE
     private var currentMethodRewriteState: MethodRewriteState? = null
     private var methodRewriteStatus = ""
+    private var displayText = "Zest"
 
     enum class CompletionState(val displayText: String, val icon: Icon, val tooltip: String) {
-        REQUESTING("Requesting...", ICON_REQUESTING, "Zest completion is being requested from AI"),
+        REQUESTING("Loading...", ICON_REQUESTING, "Zest completion is being requested from AI"),
         WAITING("Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
         ACCEPTING("Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
         IDLE("Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
@@ -69,10 +64,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
     enum class MethodRewriteState(val displayText: String, val icon: Icon, val tooltip: String) {
         ANALYZING("Analyzing...", ICON_METHOD_ANALYZING, "Analyzing method structure and context"),
-        AI_QUERYING("AI Processing...", ICON_METHOD_AI_QUERY, "Querying AI model for method improvements"),
-        DIFF_READY("Review Ready", ICON_METHOD_DIFF_READY, "Method rewrite ready for review - press TAB to accept"),
+        AI_QUERYING("AI...", ICON_METHOD_AI_QUERY, "Querying AI model for method improvements"),
+        DIFF_READY("Ready ✓", ICON_METHOD_DIFF_READY, "Method rewrite ready for review - press TAB to accept"),
         APPLYING("Applying...", ICON_METHOD_APPLYING, "Applying method changes to code"),
-        COMPLETED("Completed", ICON_IDLE, "Method rewrite completed successfully")
+        COMPLETED("Done ✓", ICON_IDLE, "Method rewrite completed successfully")
     }
 
     override fun ID(): String = WIDGET_ID
@@ -97,13 +92,12 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         logger.info("ZestCompletionStatusBarWidget disposed")
     }
 
-    // StatusBarWidget.IconPresentation implementation
+    // StatusBarWidget.TextPresentation implementation
     override fun getPresentation(): StatusBarWidget.WidgetPresentation = this
 
-    override fun getIcon(): Icon {
-        // Priority: Method rewrite state takes precedence over completion state
-        return currentMethodRewriteState?.icon ?: currentCompletionState.icon
-    }
+    override fun getText(): String = displayText
+
+    override fun getAlignment(): Float = Component.CENTER_ALIGNMENT
 
     override fun getTooltipText(): String {
         val primaryState = if (currentMethodRewriteState != null) {
@@ -139,7 +133,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         if (currentCompletionState != newState) {
             logger.debug("Completion state changed: ${currentCompletionState} -> ${newState}")
             currentCompletionState = newState
-            refreshWidget()
+            updateDisplay()
         }
     }
 
@@ -150,28 +144,14 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         logger.info("Method rewrite state: ${newState.displayText} - $status")
         currentMethodRewriteState = newState
         methodRewriteStatus = status
-        refreshWidget()
+        updateDisplay()
 
-        // Show notification for important state changes
-        when (newState) {
-            MethodRewriteState.ANALYZING -> {
-                ZestNotifications.showInfo(project, "Method Rewrite", "Analyzing method structure...")
+        // Auto-clear completed state after some time
+        if (newState == MethodRewriteState.COMPLETED) {
+            scope.launch {
+                delay(3000) // Show for 3 seconds
+                clearMethodRewriteState()
             }
-            MethodRewriteState.AI_QUERYING -> {
-                ZestNotifications.showInfo(project, "Method Rewrite", "Querying AI model for improvements...")
-            }
-            MethodRewriteState.DIFF_READY -> {
-                ZestNotifications.showInfo(project, "Method Rewrite Ready", "Review changes and press TAB to accept, ESC to reject")
-            }
-            MethodRewriteState.COMPLETED -> {
-                ZestNotifications.showInfo(project, "Method Rewrite", "Method rewrite completed successfully!")
-                // Auto-clear after showing completion
-                scope.launch {
-                    delay(3000) // Show for 3 seconds
-                    clearMethodRewriteState()
-                }
-            }
-            else -> { /* No notification needed */ }
         }
     }
 
@@ -180,7 +160,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     fun updateMethodRewriteStatus(status: String) {
         methodRewriteStatus = status
-        refreshWidget()
+        updateDisplay()
 
         // Parse status for state transitions
         when {
@@ -198,7 +178,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             }
             status.contains("failed", ignoreCase = true) || status.contains("error", ignoreCase = true) -> {
                 clearMethodRewriteState()
-                ZestNotifications.showError(project, "Method Rewrite Failed", status)
+                logger.warn("Method rewrite failed: $status")
             }
         }
     }
@@ -209,52 +189,27 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     fun clearMethodRewriteState() {
         currentMethodRewriteState = null
         methodRewriteStatus = ""
-        refreshWidget()
+        updateDisplay()
     }
 
     /**
-     * Show progress message as popup from status bar icon
+     * Update the display text based on current state
      */
-    fun showProgressMessage(message: String) {
-        ApplicationManager.getApplication().invokeLater {
-            // Create a small popup message that appears from the status bar icon
-            try {
-                val component = myStatusBar as? java.awt.Component
-                if (component != null) {
-                    // Show a brief notification balloon from the status bar
-                    val balloonBuilder = JBPopupFactory.getInstance().createBalloonBuilder(JLabel(message))
-                        .setFadeoutTime(2500)
-                        .setFillColor(getProgressMessageColor())
-                        .setBorderColor(Color.GRAY)
-                        .setAnimationCycle(200)
-                        .setHideOnClickOutside(true)
-                        .setHideOnKeyOutside(true)
-                        .setRequestFocus(false)
-                        .setSmallVariant(true)
-
-                    val balloon = balloonBuilder.createBalloon()
-                    balloon.show(
-                        RelativePoint(component, Point(component.width / 2, -10)),
-                        Balloon.Position.above
-                    )
-                }
-            } catch (e: Exception) {
-                logger.debug("Failed to show progress message popup", e)
-                // Fallback to simple notification
-                ZestNotifications.showInfo(project, "Method Rewrite", message)
+    private fun updateDisplay() {
+        // Priority: Method rewrite state takes precedence over completion state
+        displayText = if (currentMethodRewriteState != null) {
+            "Zest: ${currentMethodRewriteState!!.displayText}"
+        } else {
+            when (currentCompletionState) {
+                CompletionState.REQUESTING -> "Zest: Loading..."
+                CompletionState.WAITING -> "Zest: Ready"
+                CompletionState.ACCEPTING -> "Zest: Accepting..."
+                CompletionState.IDLE -> "Zest"
+                CompletionState.ERROR -> "Zest: Error"
             }
         }
-    }
-
-    /**
-     * Get color for progress message balloons
-     */
-    private fun getProgressMessageColor(): Color {
-        return if (JBColor.isBright()) {
-            Color(245, 245, 245, 200) // Light semi-transparent
-        } else {
-            Color(60, 60, 60, 200) // Dark semi-transparent
-        }
+        
+        refreshWidget()
     }
 
     /**
@@ -517,7 +472,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun showQuickInfo(message: String) {
         logger.info("Quick info: $message")
-        // Could show a temporary notification here if needed
+        // Status is already visible in the status bar - no need for additional popup
     }
 
     /**

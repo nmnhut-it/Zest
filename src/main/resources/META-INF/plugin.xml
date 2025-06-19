@@ -87,6 +87,9 @@
         
         <!-- Status Bar Widget -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
+        
+        <!-- VCS Commit Message Generator -->
+<!--        <checkinHandlerFactory implementation="com.zps.zest.vcs.CommitMessageGeneratorExtension" order="first"/>-->
     </extensions>
     
     <actions>
@@ -161,23 +164,33 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
-        <action id="Zest.GitCommitMessageGeneratorAction"
-                class="com.zps.zest.GitCommitMessageGeneratorAction"
-                text="Generate Commit Message (Chat)"
-                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Generate intelligent commit messages based on git changes. Analyzes file modifications, additions, and deletions to create meaningful, conventional commit messages following best practices. | Tạo commit message thông minh dựa trên thay đổi git. Phân tích các file đã thay đổi, thêm mới và xóa để tạo commit message có ý nghĩa theo best practices.">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
+<!--        <action id="Zest.GitCommitMessageGeneratorAction"-->
+<!--                class="com.zps.zest.GitCommitMessageGeneratorAction"-->
+<!--                text="Generate Commit Message (Chat)"-->
+<!--                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"-->
+<!--                description="Generate intelligent commit messages based on git changes. Analyzes file modifications, additions, and deletions to create meaningful, conventional commit messages following best practices. | Tạo commit message thông minh dựa trên thay đổi git. Phân tích các file đã thay đổi, thêm mới và xóa để tạo commit message có ý nghĩa theo best practices.">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="last"/>-->
+<!--        </action>-->
 
-        <action id="Zest.QuickCommitAction"
-                class="com.zps.zest.QuickCommitAction"
-                text="Quick Commit &amp; Push"
+<!--        <action id="Zest.QuickCommitAction"-->
+<!--                class="com.zps.zest.QuickCommitAction"-->
+<!--                text="Quick Commit &amp; Push"-->
+<!--                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"-->
+<!--                description="One-click commit and push with AI-generated message. Automatically stages all changes, generates meaningful commit message, commits, and pushes to remote repository. Accessible via Ctrl+Shift+Z, C. | Commit và push một cú nhấp với commit message do AI tạo. Tự động stage tất cả thay đổi, tạo commit message có ý nghĩa, commit và push lên remote repository. Truy cập qua Ctrl+Shift+Z, C.">-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after"-->
+<!--                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
+<!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
+<!--        </action>-->
+
+        <action id="Zest.GenerateCommitMessageVCS"
+                class="com.zps.zest.vcs.GenerateCommitMessageAction"
+                text="Generate Commit Message (AI)"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="One-click commit and push with AI-generated message. Automatically stages all changes, generates meaningful commit message, commits, and pushes to remote repository. Accessible via Ctrl+Shift+Z, C. | Commit và push một cú nhấp với commit message do AI tạo. Tự động stage tất cả thay đổi, tạo commit message có ý nghĩa, commit và push lên remote repository. Truy cập qua Ctrl+Shift+Z, C.">
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
-            <add-to-group group-id="ZestGroup" anchor="after"
-                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
+                description="Generate AI-powered commit message based on current changes. Analyzes staged/unstaged changes to create meaningful commit messages following conventional commit format. | Tạo commit message bằng AI dựa trên thay đổi hiện tại. Phân tích thay đổi đã stage/chưa stage để tạo commit message có ý nghĩa theo format conventional commit.">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift G"/>
             <add-to-group group-id="VcsGroups" anchor="last"/>
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
         <action id="Zest.ToggleDevTools"
@@ -186,6 +199,13 @@
                 description="Toggle developer tools visibility in ZPS Chat browser panel. Provides debugging capabilities for web interface including console, network monitor, element inspector, and JavaScript debugging. | Bật/tắt developer tools trong panel trình duyệt ZPS Chat. Cung cấp khả năng debug cho giao diện web bao gồm console, network monitor, element inspector và JavaScript debugging.">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+                <action id="Zest.StartAgentProxyServer"
+                        class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
+                        text="Start Agent Proxy Server"
+                        icon="AllIcons.Nodes.Services"
+                        description="Start network proxy server for external access to code exploration agent">
+                    <add-to-group group-id="ZestGroup" anchor="last"/>
+                </action>
 
     </actions>
 </idea-plugin>

@@ -147,7 +147,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 // Show loading notification on EDT
                 withContext(Dispatchers.Main) {
                     val title = if (methodContext.isCocos2dx) "🎮 Cocos2d-x Method Rewrite" else "Method Rewrite"
-//                    ZestNotifications.showInfo(project, title, "Analyzing and rewriting method '${methodContext.methodName}'...")
+                    ZestNotifications.showInfo(project, title, "Analyzing and rewriting method '${methodContext.methodName}'...")
                 }
 
                 // Start method rewrite process
@@ -309,14 +309,6 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
 
-    /**
-     * Accept method rewrite (public method)
-     */
-    fun acceptMethodRewrite(editor: Editor) {
-        ApplicationManager.getApplication().invokeLater {
-            acceptMethodRewriteInternal(editor)
-        }
-    }
 
     /**
      * Calculate language-specific semantic changes using EnhancedGDiff with optimal configuration
@@ -631,6 +623,14 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         return currentRewriteJob?.isActive == true || methodDiffRenderer.isActive()
     }
 
+    /**
+     * Accept method rewrite (public method)
+     */
+    fun acceptMethodRewrite(editor: Editor) {
+        ApplicationManager.getApplication().invokeLater {
+            acceptMethodRewriteInternal(editor)
+        }
+    }
 
     /**
      * Get stop sequences for method rewrite

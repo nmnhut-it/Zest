@@ -11,16 +11,22 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopup
+import com.intellij.ui.awt.RelativePoint
 import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestCompletionProvider
 import com.zps.zest.completion.ZestInlineCompletionRenderer
 import java.awt.event.MouseEvent
+import java.awt.Point
 import javax.swing.Icon
+import javax.swing.JLabel
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ui.popup.Balloon
+import com.intellij.ui.JBColor
 import com.zps.zest.ZestNotifications
 import kotlinx.coroutines.*
+import java.awt.Color
 
 /**
  * Enhanced status bar widget showing both completion and method rewrite state
@@ -200,10 +206,55 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     /**
      * Clear method rewrite state
      */
-    public fun clearMethodRewriteState() {
+    fun clearMethodRewriteState() {
         currentMethodRewriteState = null
         methodRewriteStatus = ""
         refreshWidget()
+    }
+
+    /**
+     * Show progress message as popup from status bar icon
+     */
+    fun showProgressMessage(message: String) {
+        ApplicationManager.getApplication().invokeLater {
+            // Create a small popup message that appears from the status bar icon
+            try {
+                val component = myStatusBar as? java.awt.Component
+                if (component != null) {
+                    // Show a brief notification balloon from the status bar
+                    val balloonBuilder = JBPopupFactory.getInstance().createBalloonBuilder(JLabel(message))
+                        .setFadeoutTime(2500)
+                        .setFillColor(getProgressMessageColor())
+                        .setBorderColor(Color.GRAY)
+                        .setAnimationCycle(200)
+                        .setHideOnClickOutside(true)
+                        .setHideOnKeyOutside(true)
+                        .setRequestFocus(false)
+                        .setSmallVariant(true)
+
+                    val balloon = balloonBuilder.createBalloon()
+                    balloon.show(
+                        RelativePoint(component, Point(component.width / 2, -10)),
+                        Balloon.Position.above
+                    )
+                }
+            } catch (e: Exception) {
+                logger.debug("Failed to show progress message popup", e)
+                // Fallback to simple notification
+                ZestNotifications.showInfo(project, "Method Rewrite", message)
+            }
+        }
+    }
+
+    /**
+     * Get color for progress message balloons
+     */
+    private fun getProgressMessageColor(): Color {
+        return if (JBColor.isBright()) {
+            Color(245, 245, 245, 200) // Light semi-transparent
+        } else {
+            Color(60, 60, 60, 200) // Dark semi-transparent
+        }
     }
 
     /**

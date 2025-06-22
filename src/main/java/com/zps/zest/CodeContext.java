@@ -38,6 +38,15 @@ public class CodeContext {
     private String testClassStructure;
     private String testSubclassStructures;
 
+    // JavaScript/TypeScript specific fields
+    private String language;
+    private String structureType; // "function", "class", "module"
+    private String targetContent; // Content of the target structure
+    private int startOffset;
+    private int endOffset;
+    private String testFramework; // "Jest", "Mocha", "Jasmine", etc.
+    private String frameworkContext; // "React", "Vue.js", "Angular", etc.
+
     // Legacy compatibility fields (deprecated but kept for backward compatibility)
     @Deprecated
     private String junitVersion;
@@ -111,6 +120,46 @@ public class CodeContext {
 
     public String getTestSubclassStructures() { return testSubclassStructures; }
     public void setTestSubclassStructures(String testSubclassStructures) { this.testSubclassStructures = testSubclassStructures; }
+
+    // JavaScript/TypeScript specific getters and setters
+    public String getLanguage() { return language; }
+    public void setLanguage(String language) { this.language = language; }
+
+    public String getStructureType() { return structureType; }
+    public void setStructureType(String structureType) { this.structureType = structureType; }
+
+    public String getTargetContent() { return targetContent; }
+    public void setTargetContent(String targetContent) { this.targetContent = targetContent; }
+
+    public int getStartOffset() { return startOffset; }
+    public void setStartOffset(int startOffset) { this.startOffset = startOffset; }
+
+    public int getEndOffset() { return endOffset; }
+    public void setEndOffset(int endOffset) { this.endOffset = endOffset; }
+
+    public String getTestFramework() { return testFramework; }
+    public void setTestFramework(String testFramework) { this.testFramework = testFramework; }
+
+    public String getFrameworkContext() { return frameworkContext; }
+    public void setFrameworkContext(String frameworkContext) { this.frameworkContext = frameworkContext; }
+
+    // Utility methods for JS/TS detection
+    public boolean isJavaScriptFile() {
+        if (psiFile != null && psiFile.getVirtualFile() != null) {
+            String fileName = psiFile.getVirtualFile().getName();
+            return fileName.endsWith(".js") || fileName.endsWith(".jsx") || 
+                   fileName.endsWith(".ts") || fileName.endsWith(".tsx");
+        }
+        return false;
+    }
+
+    public boolean isTypeScriptFile() {
+        if (psiFile != null && psiFile.getVirtualFile() != null) {
+            String fileName = psiFile.getVirtualFile().getName();
+            return fileName.endsWith(".ts") || fileName.endsWith(".tsx");
+        }
+        return false;
+    }
 
     // Legacy compatibility methods (deprecated - use TestFrameworkUtils instead)
     @Deprecated

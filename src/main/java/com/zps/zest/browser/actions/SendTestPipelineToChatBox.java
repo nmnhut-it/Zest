@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.psi.PsiFile;
 import com.zps.zest.*;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import org.jetbrains.annotations.NotNull;
@@ -51,12 +52,24 @@ public class SendTestPipelineToChatBox extends AnAction {
                 indicator.setIndeterminate(false);
 
                 try {
-                    // Create a partial pipeline ending at prompt creation
+                    // Determine file type and create appropriate pipeline
                     TestGenerationPipeline pipeline = new TestGenerationPipeline()
-                            .addStage(new ConfigurationStage())
-                            .addStage(new TargetClassDetectionStage())
-                            .addStage(new ClassAnalysisStage())
-                            .addStage(new TestPromptCreationStage());
+                            .addStage(new ConfigurationStage());
+                    
+                    // Check if this is a JavaScript/TypeScript file
+                    boolean isJsFile = context.isJavaScriptFile();
+                    
+                    if (isJsFile) {
+                        // Use JS/TS specific pipeline stages
+                        pipeline.addStage(new JsTargetDetectionStage())
+                                .addStage(new JsCodeAnalysisStage())
+                                .addStage(new JsTestPromptCreationStage());
+                    } else {
+                        // Use Java/Kotlin specific pipeline stages
+                        pipeline.addStage(new TargetClassDetectionStage())
+                                .addStage(new ClassAnalysisStage())
+                                .addStage(new TestPromptCreationStage());
+                    }
 
                     // Execute each stage with progress updates
                     int totalStages = pipeline.getStageCount();
@@ -145,12 +158,24 @@ public class SendTestPipelineToChatBox extends AnAction {
 
     @Override
     public void update(@NotNull AnActionEvent e) {
-        // Enable only when a file is open in the editor
+        // Enable when a file is open in the editor (Java, Kotlin, JS, TS)
         Project project = e.getProject();
         boolean hasEditor = e.getData(CommonDataKeys.EDITOR) != null;
         boolean hasPsiFile = e.getData(CommonDataKeys.PSI_FILE) != null;
         
-        e.getPresentation().setEnabled(project != null && hasEditor && hasPsiFile);
+        // Check if file type is supported
+        boolean isSupportedFile = false;
+        if (hasPsiFile) {
+            PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
+            if (psiFile != null && psiFile.getVirtualFile() != null) {
+                String fileName = psiFile.getVirtualFile().getName();
+                isSupportedFile = fileName.endsWith(".java") || fileName.endsWith(".kt") || 
+                                fileName.endsWith(".js") || fileName.endsWith(".jsx") ||
+                                fileName.endsWith(".ts") || fileName.endsWith(".tsx");
+            }
+        }
+        
+        e.getPresentation().setEnabled(project != null && hasEditor && hasPsiFile && isSupportedFile);
     }
 
     @Override

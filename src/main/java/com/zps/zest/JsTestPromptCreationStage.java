@@ -127,6 +127,12 @@ public class JsTestPromptCreationStage implements PipelineStage {
             } else if (frameworkContext.toLowerCase().contains("angular")) {
                 promptBuilder.append("   - Use Angular testing utilities\n");
                 promptBuilder.append("   - TestBed configuration if needed\n");
+            } else if (frameworkContext.toLowerCase().contains("cocos")) {
+                promptBuilder.append("   - Test game logic and scene management\n");
+                promptBuilder.append("   - Mock Cocos2d-x framework dependencies\n");
+                promptBuilder.append("   - Test lifecycle methods (ctor, onEnter, onExit)\n");
+                promptBuilder.append("   - Verify node hierarchy and child management\n");
+                promptBuilder.append("   - Test action sequences and animations\n");
             }
             promptBuilder.append("\n");
         }

@@ -76,7 +76,16 @@ public class JsCodeReviewPromptStage implements PipelineStage {
 
         promptBuilder.append("3. **Performance Considerations**\n");
         promptBuilder.append("   - Inefficient loops or operations\n");
-        promptBuilder.append("   - Unnecessary re-renders (for React)\n");
+        if (frameworkContext != null && frameworkContext.toLowerCase().contains("cocos")) {
+            promptBuilder.append("   - Frame rate optimization (60 FPS target)\n");
+            promptBuilder.append("   - Texture memory usage and sprite batching\n");
+            promptBuilder.append("   - Action performance and object pooling\n");
+            promptBuilder.append("   - Unnecessary node updates or calculations\n");
+        } else if (frameworkContext != null && frameworkContext.toLowerCase().contains("react")) {
+            promptBuilder.append("   - Unnecessary re-renders (for React)\n");
+        } else {
+            promptBuilder.append("   - Memory leaks and resource management\n");
+        }
         promptBuilder.append("   - Bundle size implications\n\n");
 
         promptBuilder.append("4. **Best Practices**\n");
@@ -85,7 +94,16 @@ public class JsCodeReviewPromptStage implements PipelineStage {
         promptBuilder.append("   - Testing patterns and testability\n");
 
         if (frameworkContext != null) {
-            promptBuilder.append("   - Framework-specific best practices\n");
+            if (frameworkContext.toLowerCase().contains("cocos")) {
+                promptBuilder.append("   - Cocos2d-x best practices:\n");
+                promptBuilder.append("     * Proper memory management and cleanup\n");
+                promptBuilder.append("     * Efficient sprite and texture usage\n");
+                promptBuilder.append("     * Appropriate use of object pooling\n");
+                promptBuilder.append("     * Scene transition patterns\n");
+                promptBuilder.append("     * Event listener cleanup in onExit\n");
+            } else {
+                promptBuilder.append("   - Framework-specific best practices\n");
+            }
         }
         promptBuilder.append("\n");
 

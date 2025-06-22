@@ -145,6 +145,7 @@ public class JsCodeAnalysisStage implements PipelineStage {
     private String analyzePatterns(String content) {
         StringBuilder patterns = new StringBuilder();
 
+        // Standard JavaScript patterns
         if (content.contains("async") || content.contains("await")) {
             patterns.append("- Async/Await pattern detected\n");
         }
@@ -164,13 +165,53 @@ public class JsCodeAnalysisStage implements PipelineStage {
             patterns.append("- Arrow function patterns detected\n");
         }
 
+        // Cocos2d-x specific patterns
+        if (content.contains("cc.")) {
+            patterns.append("- Cocos2d-x framework patterns detected\n");
+            
+            if (content.contains("cc.Node") || content.contains("cc.Sprite") || content.contains("cc.Layer")) {
+                patterns.append("- Cocos2d-x node hierarchy patterns\n");
+            }
+            if (content.contains("addChild") || content.contains("removeChild")) {
+                patterns.append("- Cocos2d-x child management patterns\n");
+            }
+            if (content.contains("cc.MoveTo") || content.contains("cc.ScaleTo") || content.contains("runAction")) {
+                patterns.append("- Cocos2d-x action/animation patterns\n");
+            }
+            if (content.contains("ctor:") || content.contains("onEnter:") || content.contains("onExit:")) {
+                patterns.append("- Cocos2d-x lifecycle methods detected\n");
+            }
+            if (content.contains("cc.eventManager") || content.contains("cc.EventListener")) {
+                patterns.append("- Cocos2d-x event system patterns\n");
+            }
+            if (content.contains(".extend(") || content.contains("cc.Class")) {
+                patterns.append("- Cocos2d-x class definition patterns\n");
+            }
+            if (content.contains("cc.director") || content.contains("cc.game")) {
+                patterns.append("- Cocos2d-x director/game management patterns\n");
+            }
+        }
+
         return patterns.toString();
     }
 
     private void detectFrameworks(String content, CodeContext context) {
         StringBuilder frameworks = new StringBuilder();
 
-        // Detect common frameworks
+        // Detect Cocos2d-x first (priority since you specifically mentioned it)
+        if (content.contains("cc.") || content.contains("cocos2d")) {
+            frameworks.append("Cocos2d-x ");
+            context.setTestFramework("Jest"); // Common with game development
+            
+            // Detect Cocos2d-x version
+            if (content.contains("cc.Class")) {
+                frameworks.append("3.x ");
+            } else if (content.contains("cc.Node.extend")) {
+                frameworks.append("2.x ");
+            }
+        }
+
+        // Detect other common frameworks
         if (content.contains("react") || content.contains("React") || content.contains("jsx")) {
             frameworks.append("React ");
             context.setTestFramework("Jest"); // Common with React
@@ -184,9 +225,6 @@ public class JsCodeAnalysisStage implements PipelineStage {
         }
         if (content.contains("express") || content.contains("app.get") || content.contains("app.post")) {
             frameworks.append("Express.js ");
-        }
-        if (content.contains("cc.") || content.contains("cocos2d")) {
-            frameworks.append("Cocos2d-x ");
         }
 
         // Detect testing frameworks

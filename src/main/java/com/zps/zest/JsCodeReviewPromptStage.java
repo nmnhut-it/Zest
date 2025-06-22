@@ -27,12 +27,11 @@ public class JsCodeReviewPromptStage implements PipelineStage {
         StringBuilder promptBuilder = new StringBuilder();
 
         // Add header with clear instructions
-        promptBuilder.append("# CODE REVIEW REQUEST - ").append(language.toUpperCase()).append("\n\n");
-        promptBuilder.append("Please provide a detailed code review for the following ").append(structureType).append(":\n\n");
+        promptBuilder.append("# CODE REVIEW REQUEST - ").append(language.toUpperCase()).append(" FILE\n\n");
+        promptBuilder.append("Please provide a detailed code review for the following ").append(language).append(" file:\n\n");
 
-        // Include structure name and content
-        promptBuilder.append("## ").append(structureType.substring(0, 1).toUpperCase()).append(structureType.substring(1))
-                .append(": ").append(targetName).append("\n\n");
+        // Include file name and content
+        promptBuilder.append("## File: ").append(targetName).append(".").append(language.toLowerCase().substring(0, 2)).append("\n\n");
 
         if (frameworkContext != null && !frameworkContext.isEmpty()) {
             promptBuilder.append("**Framework Context**: ").append(frameworkContext).append("\n\n");
@@ -42,19 +41,10 @@ public class JsCodeReviewPromptStage implements PipelineStage {
         promptBuilder.append(targetContent);
         promptBuilder.append("\n```\n\n");
 
-        // Add imports context if available
-        String imports = context.getImports();
-        if (imports != null && !imports.trim().isEmpty()) {
-            promptBuilder.append("## Imports/Dependencies\n\n");
-            promptBuilder.append("```").append(language.toLowerCase()).append("\n");
-            promptBuilder.append(imports);
-            promptBuilder.append("\n```\n\n");
-        }
-
-        // Add code analysis context
+        // Add code analysis context if available (since we have full file, this provides structure overview)
         String classContext = context.getClassContext();
         if (classContext != null && !classContext.trim().isEmpty()) {
-            promptBuilder.append("## Code Analysis Context\n\n");
+            promptBuilder.append("## File Structure Analysis\n\n");
             promptBuilder.append("```\n");
             promptBuilder.append(classContext);
             promptBuilder.append("\n```\n\n");

@@ -22,18 +22,25 @@ public class JsCodeAnalysisStage implements PipelineStage {
             String content = context.getEditor().getDocument().getText();
             String language = context.getLanguage();
 
+            // For JS/TS files, include the whole file content as additional context
+            context.setTargetContent(content); // Set full file as target content
+
             // Collect imports/requires
             String imports = collectImports(content, language);
             context.setImports(imports);
 
-            // Analyze the target code structure
-            String structureAnalysis = analyzeCodeStructure(context.getTargetContent(), language);
+            // Analyze the entire file structure instead of just target code
+            String structureAnalysis = analyzeEntireFileStructure(content, language);
             context.setClassContext(structureAnalysis);
 
-            // Detect framework dependencies
+            // Detect framework dependencies from entire file
             detectFrameworks(content, context);
 
-            LOG.info("Completed JS/TS code analysis for " + context.getStructureType() + ": " + context.getClassName());
+            // Set file-level information
+            context.setClassName(virtualFile.getNameWithoutExtension());
+            context.setStructureType("file");
+
+            LOG.info("Completed JS/TS full file analysis for: " + context.getClassName());
         });
     }
 
@@ -53,50 +60,242 @@ public class JsCodeAnalysisStage implements PipelineStage {
 
     private boolean isImportStatement(String line) {
         return line.startsWith("import ") ||
-               line.startsWith("const ") && line.contains("require(") ||
-               line.startsWith("let ") && line.contains("require(") ||
-               line.startsWith("var ") && line.contains("require(") ||
-               line.matches("^\\s*from\\s+['\"].*['\"]\\s+import.*");
+                line.startsWith("const ") && line.contains("require(") ||
+                line.startsWith("let ") && line.contains("require(") ||
+                line.startsWith("var ") && line.contains("require(") ||
+                line.matches("^\\s*from\\s+['\"].*['\"]\\s+import.*");
     }
 
-    private String analyzeCodeStructure(String targetContent, String language) {
+    private String analyzeEntireFileStructure(String content, String language) {
         StringBuilder analysis = new StringBuilder();
-        
-        analysis.append("=== CODE STRUCTURE ANALYSIS ===\n");
-        analysis.append("Language: ").append(language).append("\n\n");
 
-        // Analyze functions
-        String functions = extractFunctions(targetContent);
+        analysis.append("=== FULL FILE ANALYSIS ===\n");
+        analysis.append("Language: ").append(language).append("\n");
+        analysis.append("File Size: ").append(content.length()).append(" characters\n");
+        analysis.append("Lines: ").append(content.split("\n").length).append("\n\n");
+
+        // Analyze all functions in the file
+        String functions = extractAllFunctions(content);
         if (!functions.isEmpty()) {
-            analysis.append("Functions found:\n").append(functions).append("\n");
+            analysis.append("=== ALL FUNCTIONS ===\n").append(functions).append("\n");
         }
 
-        // Analyze variables/constants
-        String variables = extractVariables(targetContent);
+        // Analyze all classes/objects in the file
+        String classes = extractAllClasses(content);
+        if (!classes.isEmpty()) {
+            analysis.append("=== CLASSES/OBJECTS ===\n").append(classes).append("\n");
+        }
+
+        // Analyze all variables/constants
+        String variables = extractAllVariables(content);
         if (!variables.isEmpty()) {
-            analysis.append("Variables/Constants:\n").append(variables).append("\n");
+            analysis.append("=== VARIABLES/CONSTANTS ===\n").append(variables).append("\n");
+        }
+
+        // Analyze exports
+        String exports = extractExports(content);
+        if (!exports.isEmpty()) {
+            analysis.append("=== EXPORTS ===\n").append(exports).append("\n");
         }
 
         // Analyze dependencies used within the code
-        String localDependencies = extractLocalDependencies(targetContent);
+        String localDependencies = extractAllDependencies(content);
         if (!localDependencies.isEmpty()) {
-            analysis.append("Local Dependencies:\n").append(localDependencies).append("\n");
+            analysis.append("=== DEPENDENCIES ===\n").append(localDependencies).append("\n");
         }
 
         // Analyze patterns (async/await, promises, etc.)
-        String patterns = analyzePatterns(targetContent);
+        String patterns = analyzePatterns(content);
         if (!patterns.isEmpty()) {
-            analysis.append("Patterns Detected:\n").append(patterns).append("\n");
+            analysis.append("=== PATTERNS DETECTED ===\n").append(patterns).append("\n");
+        }
+
+        // File structure overview
+        String structure = analyzeFileStructure(content);
+        if (!structure.isEmpty()) {
+            analysis.append("=== FILE STRUCTURE ===\n").append(structure).append("\n");
         }
 
         return analysis.toString();
     }
 
+    private String extractAllFunctions(String content) {
+        StringBuilder functions = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (isFunctionLine(line)) {
+                String functionName = extractFunctionNameFromLine(line);
+                functions.append("- Line ").append(i + 1).append(": ").append(functionName).append("\n");
+                functions.append("  ").append(line.length() > 80 ? line.substring(0, 77) + "..." : line).append("\n");
+            }
+        }
+
+        return functions.toString();
+    }
+
+    private String extractAllClasses(String content) {
+        StringBuilder classes = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (isClassLine(line)) {
+                String className = extractClassNameFromLine(line);
+                classes.append("- Line ").append(i + 1).append(": ").append(className).append("\n");
+                classes.append("  ").append(line.length() > 80 ? line.substring(0, 77) + "..." : line).append("\n");
+            }
+        }
+
+        return classes.toString();
+    }
+
+    private String extractAllVariables(String content) {
+        StringBuilder variables = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (isVariableLine(line)) {
+                String varName = extractVariableNameFromLine(line);
+                variables.append("- Line ").append(i + 1).append(": ").append(varName).append("\n");
+            }
+        }
+
+        return variables.toString();
+    }
+
+    private String extractExports(String content) {
+        StringBuilder exports = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("export ") || line.startsWith("module.exports") || line.startsWith("exports.")) {
+                exports.append("- Line ").append(i + 1).append(": ").append(line).append("\n");
+            }
+        }
+
+        return exports.toString();
+    }
+
+    private String extractAllDependencies(String content) {
+        StringBuilder deps = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("import ") || line.contains("require(") || line.contains("from ")) {
+                deps.append("- Line ").append(i + 1).append(": ").append(line).append("\n");
+            }
+        }
+
+        return deps.toString();
+    }
+
+    private String analyzeFileStructure(String content) {
+        StringBuilder structure = new StringBuilder();
+        String[] lines = content.split("\n");
+
+        int functionCount = 0;
+        int classCount = 0;
+        int variableCount = 0;
+        int commentLines = 0;
+        int emptyLines = 0;
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                emptyLines++;
+            } else if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+                commentLines++;
+            } else if (isFunctionLine(trimmed)) {
+                functionCount++;
+            } else if (isClassLine(trimmed)) {
+                classCount++;
+            } else if (isVariableLine(trimmed)) {
+                variableCount++;
+            }
+        }
+
+        structure.append("Functions: ").append(functionCount).append("\n");
+        structure.append("Classes/Objects: ").append(classCount).append("\n");
+        structure.append("Variables/Constants: ").append(variableCount).append("\n");
+        structure.append("Comment Lines: ").append(commentLines).append("\n");
+        structure.append("Empty Lines: ").append(emptyLines).append("\n");
+        structure.append("Code Lines: ").append(lines.length - commentLines - emptyLines).append("\n");
+
+        return structure.toString();
+    }
+
+    private boolean isFunctionLine(String line) {
+        return line.matches("^\\s*(export\\s+)?(async\\s+)?function\\s+\\w+.*") ||
+                line.matches("^\\s*(const|let|var)\\s+\\w+\\s*=\\s*(async\\s+)?(function|\\(.*\\)\\s*=>).*") ||
+                line.matches("^\\s*\\w+\\s*:\\s*(async\\s+)?function.*") ||
+                line.matches("^\\s*\\w+\\s*\\(.*\\)\\s*\\{.*") ||
+                line.matches("^\\s*(ctor|onEnter|onExit|onEnterTransitionDidFinish|init|update)\\s*:.*");
+    }
+
+    private boolean isClassLine(String line) {
+        return line.matches("^\\s*(export\\s+)?class\\s+\\w+.*") ||
+                line.matches("^\\s*var\\s+\\w+\\s*=\\s*cc\\.\\w+\\.extend.*") ||
+                line.matches("^\\s*cc\\.Class\\s*\\(.*");
+    }
+
+    private boolean isVariableLine(String line) {
+        return line.matches("^\\s*(const|let|var)\\s+\\w+.*") &&
+                !line.contains("function") && !line.contains("=>");
+    }
+
+    private String extractFunctionNameFromLine(String line) {
+        if (line.contains("function ")) {
+            String[] parts = line.split("function\\s+");
+            if (parts.length > 1) {
+                return parts[1].split("\\(")[0].trim();
+            }
+        }
+        if (line.matches(".*(const|let|var)\\s+\\w+\\s*=.*")) {
+            String[] parts = line.split("(const|let|var)\\s+");
+            if (parts.length > 1) {
+                return parts[1].split("\\s*=")[0].trim();
+            }
+        }
+        if (line.matches(".*\\w+\\s*:.*")) {
+            return line.split("\\s*:")[0].trim();
+        }
+        return "anonymous";
+    }
+
+    private String extractClassNameFromLine(String line) {
+        if (line.contains("class ")) {
+            String[] parts = line.split("class\\s+");
+            if (parts.length > 1) {
+                return parts[1].split("\\s+")[0].trim();
+            }
+        }
+        if (line.matches(".*var\\s+\\w+\\s*=\\s*cc\\.\\w+\\.extend.*")) {
+            String[] parts = line.split("var\\s+");
+            if (parts.length > 1) {
+                return parts[1].split("\\s*=")[0].trim();
+            }
+        }
+        return "UnknownClass";
+    }
+
+    private String extractVariableNameFromLine(String line) {
+        String[] parts = line.split("(const|let|var)\\s+");
+        if (parts.length > 1) {
+            return parts[1].split("[\\s=:]")[0].trim();
+        }
+        return "UnknownVariable";
+    }
+
     private String extractFunctions(String content) {
         StringBuilder functions = new StringBuilder();
         Pattern functionPattern = Pattern.compile(
-            "(function\\s+\\w+\\s*\\([^)]*\\)|\\w+\\s*:\\s*function\\s*\\([^)]*\\)|\\w+\\s*=\\s*\\([^)]*\\)\\s*=>|async\\s+function\\s+\\w+|\\w+\\s*\\([^)]*\\)\\s*\\{)",
-            Pattern.MULTILINE
+                "(function\\s+\\w+\\s*\\([^)]*\\)|\\w+\\s*:\\s*function\\s*\\([^)]*\\)|\\w+\\s*=\\s*\\([^)]*\\)\\s*=>|async\\s+function\\s+\\w+|\\w+\\s*\\([^)]*\\)\\s*\\{)",
+                Pattern.MULTILINE
         );
 
         Matcher matcher = functionPattern.matcher(content);
@@ -111,8 +310,8 @@ public class JsCodeAnalysisStage implements PipelineStage {
     private String extractVariables(String content) {
         StringBuilder variables = new StringBuilder();
         Pattern varPattern = Pattern.compile(
-            "(const\\s+\\w+|let\\s+\\w+|var\\s+\\w+)\\s*[=:]",
-            Pattern.MULTILINE
+                "(const\\s+\\w+|let\\s+\\w+|var\\s+\\w+)\\s*[=:]",
+                Pattern.MULTILINE
         );
 
         Matcher matcher = varPattern.matcher(content);
@@ -126,11 +325,11 @@ public class JsCodeAnalysisStage implements PipelineStage {
 
     private String extractLocalDependencies(String content) {
         StringBuilder deps = new StringBuilder();
-        
+
         // Look for common patterns like require(), import from local files
         Pattern localDepPattern = Pattern.compile(
-            "(require\\s*\\(\\s*['\"]\\./|import.*from\\s*['\"]\\./|import\\s*['\"]\\./)",
-            Pattern.MULTILINE
+                "(require\\s*\\(\\s*['\"]\\./|import.*from\\s*['\"]\\./|import\\s*['\"]\\./)",
+                Pattern.MULTILINE
         );
 
         Matcher matcher = localDepPattern.matcher(content);
@@ -168,7 +367,7 @@ public class JsCodeAnalysisStage implements PipelineStage {
         // Cocos2d-x specific patterns
         if (content.contains("cc.")) {
             patterns.append("- Cocos2d-x framework patterns detected\n");
-            
+
             if (content.contains("cc.Node") || content.contains("cc.Sprite") || content.contains("cc.Layer")) {
                 patterns.append("- Cocos2d-x node hierarchy patterns\n");
             }
@@ -202,7 +401,7 @@ public class JsCodeAnalysisStage implements PipelineStage {
         if (content.contains("cc.") || content.contains("cocos2d")) {
             frameworks.append("Cocos2d-x ");
             context.setTestFramework("Jest"); // Common with game development
-            
+
             // Detect Cocos2d-x version
             if (content.contains("cc.Class")) {
                 frameworks.append("3.x ");

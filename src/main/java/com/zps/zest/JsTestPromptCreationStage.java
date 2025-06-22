@@ -28,12 +28,11 @@ public class JsTestPromptCreationStage implements PipelineStage {
         StringBuilder promptBuilder = new StringBuilder();
 
         // Add header with clear instructions
-        promptBuilder.append("# TEST GENERATION REQUEST - ").append(language.toUpperCase()).append("\n\n");
-        promptBuilder.append("Please generate comprehensive unit tests for the following ").append(structureType).append(":\n\n");
+        promptBuilder.append("# TEST GENERATION REQUEST - ").append(language.toUpperCase()).append(" FILE\n\n");
+        promptBuilder.append("Please generate comprehensive unit tests for the following ").append(language).append(" file:\n\n");
 
-        // Include structure name and content
-        promptBuilder.append("## ").append(structureType.substring(0, 1).toUpperCase()).append(structureType.substring(1))
-                .append(": ").append(targetName).append("\n\n");
+        // Include file name and content
+        promptBuilder.append("## File: ").append(targetName).append(".").append(language.toLowerCase().substring(0, 2)).append("\n\n");
 
         // Add framework context
         if (frameworkContext != null && !frameworkContext.isEmpty()) {
@@ -47,19 +46,10 @@ public class JsTestPromptCreationStage implements PipelineStage {
         promptBuilder.append(targetContent);
         promptBuilder.append("\n```\n\n");
 
-        // Add imports context if available
-        String imports = context.getImports();
-        if (imports != null && !imports.trim().isEmpty()) {
-            promptBuilder.append("## Imports/Dependencies\n\n");
-            promptBuilder.append("```").append(language.toLowerCase()).append("\n");
-            promptBuilder.append(imports);
-            promptBuilder.append("\n```\n\n");
-        }
-
-        // Add code analysis context
+        // Add code analysis context (since we have full file, this provides structure overview)
         String classContext = context.getClassContext();
         if (classContext != null && !classContext.trim().isEmpty()) {
-            promptBuilder.append("## Code Analysis Context\n\n");
+            promptBuilder.append("## File Structure Analysis\n\n");
             promptBuilder.append("```\n");
             promptBuilder.append(classContext);
             promptBuilder.append("\n```\n\n");
@@ -164,12 +154,7 @@ public class JsTestPromptCreationStage implements PipelineStage {
     }
 
     private String generateTestFileName(CodeContext context, String language) {
-        String baseName = context.getClassName();
-        if (baseName.equals("anonymous")) {
-            String fileName = context.getPsiFile().getVirtualFile().getName();
-            baseName = fileName.substring(0, fileName.lastIndexOf('.'));
-        }
-        
+        String baseName = context.getClassName(); // This is now the filename without extension
         String extension = language.toLowerCase().contains("typescript") ? ".test.ts" : ".test.js";
         return baseName + extension;
     }
@@ -184,32 +169,39 @@ public class JsTestPromptCreationStage implements PipelineStage {
             promptBuilder.append("const { expect } = require('chai');\n");
         }
         
-        promptBuilder.append("import { ").append(targetName).append(" } from './").append(targetName.toLowerCase()).append("';\n\n");
+        // Import from the file being tested
+        promptBuilder.append("import * as ").append(toCamelCase(targetName)).append(" from './").append(targetName).append("';\n");
+        promptBuilder.append("// Import specific functions/classes as needed:\n");
+        promptBuilder.append("// import { functionName, ClassName } from './").append(targetName).append("';\n\n");
 
-        // Test structure
-        promptBuilder.append("describe('").append(targetName).append("', () => {\n");
-        promptBuilder.append("  // Setup and teardown\n");
+        // Test structure for the entire file
+        promptBuilder.append("describe('").append(targetName).append(" module', () => {\n");
+        promptBuilder.append("  // Setup and teardown for the entire file\n");
         promptBuilder.append("  beforeEach(() => {\n");
         promptBuilder.append("    // Initialize test data\n");
         promptBuilder.append("  });\n\n");
 
-        promptBuilder.append("  describe('happy path', () => {\n");
-        promptBuilder.append("    it('should handle normal operation', () => {\n");
-        promptBuilder.append("      // Test normal behavior\n");
+        promptBuilder.append("  describe('exported functions', () => {\n");
+        promptBuilder.append("    it('should test each exported function', () => {\n");
+        promptBuilder.append("      // Test exported functions\n");
         promptBuilder.append("    });\n");
         promptBuilder.append("  });\n\n");
 
-        promptBuilder.append("  describe('edge cases', () => {\n");
-        promptBuilder.append("    it('should handle null/undefined inputs', () => {\n");
-        promptBuilder.append("      // Test edge cases\n");
+        promptBuilder.append("  describe('exported classes', () => {\n");
+        promptBuilder.append("    it('should test class constructors and methods', () => {\n");
+        promptBuilder.append("      // Test class functionality\n");
         promptBuilder.append("    });\n");
         promptBuilder.append("  });\n\n");
 
-        promptBuilder.append("  describe('error handling', () => {\n");
-        promptBuilder.append("    it('should throw appropriate errors', () => {\n");
-        promptBuilder.append("      // Test error scenarios\n");
+        promptBuilder.append("  describe('module behavior', () => {\n");
+        promptBuilder.append("    it('should test overall module integration', () => {\n");
+        promptBuilder.append("      // Test how different parts work together\n");
         promptBuilder.append("    });\n");
         promptBuilder.append("  });\n");
         promptBuilder.append("});");
+    }
+
+    private String toCamelCase(String input) {
+        return input.substring(0, 1).toLowerCase() + input.substring(1);
     }
 }

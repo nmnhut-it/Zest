@@ -80,14 +80,17 @@ public class JsTargetDetectionStage implements PipelineStage {
             LOG.info("Using fallback structure: " + structure.name);
         }
 
-        // Set context information
-        context.setClassName(structure.name);
-        context.setTargetContent(structure.content);
-        context.setStructureType(structure.type);
-        context.setStartOffset(structure.startOffset);
-        context.setEndOffset(structure.endOffset);
+        // For JS/TS files, we want to include the whole file as context
+        // Always set the target content to the entire file for better analysis
+        String fileNameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+        
+        context.setClassName(fileNameWithoutExt);
+        context.setTargetContent(content); // Full file content
+        context.setStructureType("file");
+        context.setStartOffset(0);
+        context.setEndOffset(content.length());
 
-        LOG.info("Detected " + structure.type + ": " + structure.name + " in " + language + " file");
+        LOG.info("Set full file content for " + language + " file: " + fileName + " (" + content.length() + " chars)");
     }
 
     private String detectLanguage(String fileName, String fileType) {

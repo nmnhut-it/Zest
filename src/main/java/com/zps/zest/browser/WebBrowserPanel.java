@@ -192,10 +192,10 @@ public class WebBrowserPanel {
         buttonPanel.add(modeButton);
 
         // Add Quick Commit button
-        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
-        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
-        quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
-        buttonPanel.add(quickCommitBtn);
+//        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
+//        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
+//        quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
+//        buttonPanel.add(quickCommitBtn);
         
         // Add Full Git Commit button
         JButton fullCommitBtn = new JButton("📝 Git Commit");

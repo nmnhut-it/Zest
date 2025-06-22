@@ -107,20 +107,19 @@ public class ChatboxUtilities {
 
         // Implementation actions
         IMPLEMENT_TODOS,              // Implement Your TODOs
-        INLINE_COMPLETION,            // Inline completion
+        INLINE_COMPLETION,              // Inline completion
 
         // Chat-based actions
         CHAT_CODE_REVIEW,             // Chat: Review This Class
         CHAT_REFACTOR_ADVISORY,       // Chat: Refactor Advisory for Testability
         CHAT_WRITE_TESTS,             // Chat: Write Tests for This Class
         CHAT_GIT_COMMIT_MESSAGE,      // Chat: Generate Git Commit Message
-        CHAT_QUICK_COMMIT,            // Chat: Generate Git Commit Message
+        CHAT_QUICK_COMMIT,      // Chat: Generate Git Commit Message
 
-        // VCS Integration
-        VCS_COMMIT_MESSAGE,           // Native IntelliJ VCS commit dialog integration
 
-        EXPLORE_TOOL,                 // Developer tools
-        LLM_SERVICE
+        EXPLORE_TOOL, // Developer tools
+//        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools
+         LLM_SERVICE
     }
     /**
      * Sends text to the chat box and clicks the send button in one operation,

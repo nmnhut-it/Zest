@@ -95,7 +95,7 @@ public class SendTestPipelineToChatBox extends AnAction {
                 } catch (PipelineExecutionException e) {
                     showError(project, e);
                 } catch (Exception e) {
-                    showError(project, new PipelineExecutionException("Unexpected error", e));
+                    showError(project, new PipelineExecutionException(e.getMessage(), e));
                 }
             }
         });

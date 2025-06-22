@@ -172,6 +172,67 @@ const GitUtils = {
             case 'C': return 'Copied';
             default: return 'Unknown';
         }
+    },
+
+    /**
+     * Smart diff truncation to keep prompts within token limits
+     * Preserves diff headers and structure while limiting content size
+     */
+    truncateDiffSmart: function(diff, maxChars) {
+        if (!diff || typeof diff !== 'string') {
+            return { content: '', wasTruncated: false, totalLines: 0, keptLines: 0 };
+        }
+
+        const lines = diff.split('\n');
+        
+        if (diff.length <= maxChars) {
+            return { 
+                content: diff, 
+                wasTruncated: false, 
+                totalLines: lines.length,
+                keptLines: lines.length
+            };
+        }
+        
+        // Keep diff headers (first few lines with file paths, @@ hunks)
+        const headerLines = [];
+        const contentLines = [];
+        let inHeader = true;
+        
+        for (const line of lines) {
+            if (inHeader && (line.startsWith('diff ') || line.startsWith('index ') || 
+                            line.startsWith('--- ') || line.startsWith('+++ ') || 
+                            line.startsWith('@@'))) {
+                headerLines.push(line);
+            } else {
+                inHeader = false;
+                contentLines.push(line);
+            }
+        }
+        
+        // Always keep headers
+        let result = headerLines.join('\n');
+        if (headerLines.length > 0) result += '\n';
+        
+        // Add content lines until we hit the limit
+        let charCount = result.length;
+        let keptContentLines = 0;
+        
+        for (const line of contentLines) {
+            const lineWithNewline = line + '\n';
+            if (charCount + lineWithNewline.length > maxChars) break;
+            
+            result += lineWithNewline;
+            charCount += lineWithNewline.length;
+            keptContentLines++;
+        }
+        
+        return {
+            content: result.trim(),
+            wasTruncated: keptContentLines < contentLines.length,
+            keptLines: headerLines.length + keptContentLines,
+            totalLines: lines.length
+        };
     }
 };
 
@@ -271,17 +332,44 @@ Please provide ONLY the commit message, no additional explanation, no markdown f
             }
         });
         
-        // Build diffs section
+        // Build diffs section with smart token-aware truncation
+        const MAX_DIFF_TOKENS = 30000; // Adjust based on your model
+        const CHARS_PER_TOKEN = 4;
+        const MAX_DIFF_CHARS = MAX_DIFF_TOKENS * CHARS_PER_TOKEN; // ~120K chars
+        
         let diffsSection = '';
-        Object.entries(diffs).forEach(([path, diff]) => {
-            diffsSection += `\n### ${path}\n---diff\n`;
-            const lines = diff.split('\n').slice(0, 75);
-            diffsSection += lines.join('\n');
-            if (diff.split('\n').length > 75) {
-                diffsSection += '\n... (diff truncated for brevity)';
+        let totalChars = 0;
+
+        for (const [path, diff] of Object.entries(diffs)) {
+            // Calculate what this file would add
+            const fileHeader = `\n### ${path}\n---diff\n`;
+            const fileFooter = '\n---\n';
+            const headerFooterChars = fileHeader.length + fileFooter.length;
+            
+            // Check if we have room for at least the header
+            if (totalChars + headerFooterChars > MAX_DIFF_CHARS) {
+                diffsSection += '\n... (remaining files truncated due to token limits)';
+                break;
             }
-            diffsSection += '\n---\n';
-        });
+            
+            // Add header
+            diffsSection += fileHeader;
+            totalChars += fileHeader.length;
+            
+            // Truncate diff content to fit remaining space
+            const remainingSpace = MAX_DIFF_CHARS - totalChars - fileFooter.length;
+            const truncatedDiff = GitUtils.truncateDiffSmart(diff, remainingSpace);
+            
+            diffsSection += truncatedDiff.content;
+            totalChars += truncatedDiff.content.length;
+            
+            if (truncatedDiff.wasTruncated) {
+                diffsSection += `\n... (truncated: ${truncatedDiff.keptLines}/${truncatedDiff.totalLines} lines)`;
+            }
+            
+            diffsSection += fileFooter;
+            totalChars += fileFooter.length;
+        }
         
         // Replace placeholders in template
         let prompt = template

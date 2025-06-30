@@ -64,6 +64,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         WAITING("💡 Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
         ACCEPTING("⚡ Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
         IDLE("💤 Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
+        DISABLED("⏸️ Disabled", ICON_IDLE, "Zest completion is disabled in settings"),
         ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state - Click to reset")
     }
 
@@ -142,8 +143,12 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         super.install(statusBar)
         logger.info("ZestCompletionStatusBarWidget installed")
 
-        // Initial state update
-        updateCompletionState(CompletionState.IDLE)
+        // Initial state update - check if enabled
+        if (!completionService.isEnabled()) {
+            updateCompletionState(CompletionState.DISABLED)
+        } else {
+            updateCompletionState(CompletionState.IDLE)
+        }
 
         // Listen to completion service events
         setupCompletionServiceListener()
@@ -168,6 +173,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun handleLeftClick(mouseEvent: MouseEvent) {
         when {
+            // Disabled state - offer to enable
+            currentCompletionState == CompletionState.DISABLED -> {
+                showBalloon("Inline completion is disabled. Enable it in settings.", MessageType.INFO, mouseEvent)
+            }
             // Error state - click to reset (this is what you remembered!)
             currentCompletionState == CompletionState.ERROR -> {
                 logger.info("Resetting error state on click")
@@ -332,6 +341,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 CompletionState.WAITING -> "Zest: 💡 Ready"
                 CompletionState.ACCEPTING -> "Zest: ⚡ Accepting..."
                 CompletionState.IDLE -> "Zest"
+                CompletionState.DISABLED -> "Zest: ⏸️ Disabled"
                 CompletionState.ERROR -> "Zest: ❌ Error"
             }
         }
@@ -367,6 +377,12 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         connection.subscribe(ZestInlineCompletionService.Listener.TOPIC, object : ZestInlineCompletionService.Listener {
             override fun loadingStateChanged(loading: Boolean) {
                 ApplicationManager.getApplication().invokeLater {
+                    // Check if service is enabled first
+                    if (!completionService.isEnabled()) {
+                        updateCompletionState(CompletionState.DISABLED)
+                        return@invokeLater
+                    }
+                    
                     if (loading) {
                         updateCompletionState(CompletionState.REQUESTING)
                     } else {
@@ -378,19 +394,30 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
             override fun completionDisplayed(context: ZestInlineCompletionRenderer.RenderingContext) {
                 ApplicationManager.getApplication().invokeLater {
-                    updateCompletionState(CompletionState.WAITING)
+                    if (completionService.isEnabled()) {
+                        updateCompletionState(CompletionState.WAITING)
+                    }
                 }
             }
 
             override fun completionAccepted(type: ZestInlineCompletionService.AcceptType) {
                 ApplicationManager.getApplication().invokeLater {
+                    if (!completionService.isEnabled()) {
+                        updateCompletionState(CompletionState.DISABLED)
+                        return@invokeLater
+                    }
+                    
                     updateCompletionState(CompletionState.ACCEPTING)
 
                     scope.launch {
                         delay(500)
                         ApplicationManager.getApplication().invokeLater {
-                            val hasCompletion = completionService.getCurrentCompletion() != null
-                            updateCompletionState(if (hasCompletion) CompletionState.WAITING else CompletionState.IDLE)
+                            if (!completionService.isEnabled()) {
+                                updateCompletionState(CompletionState.DISABLED)
+                            } else {
+                                val hasCompletion = completionService.getCurrentCompletion() != null
+                                updateCompletionState(if (hasCompletion) CompletionState.WAITING else CompletionState.IDLE)
+                            }
                         }
                     }
                 }
@@ -568,6 +595,14 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     fun checkForOrphanedState() {
         ApplicationManager.getApplication().invokeLater {
             try {
+                val isEnabled = completionService.isEnabled()
+                
+                // If completion is disabled, show disabled state and return
+                if (!isEnabled) {
+                    updateCompletionState(CompletionState.DISABLED)
+                    return@invokeLater
+                }
+                
                 val wasStuck = completionService.checkAndFixStuckState()
                 if (wasStuck) {
                     updateCompletionState(CompletionState.ERROR)
@@ -576,13 +611,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 }
 
                 val hasCompletion = completionService.getCurrentCompletion() != null
-                val isEnabled = completionService.isEnabled()
                 val detailedState = completionService.getDetailedState()
 
                 logger.debug("Status bar state check: $detailedState")
 
                 when {
-                    !isEnabled -> updateCompletionState(CompletionState.ERROR)
                     detailedState["isAcceptingCompletion"] == true -> updateCompletionState(CompletionState.ACCEPTING)
                     hasCompletion -> updateCompletionState(CompletionState.WAITING)
                     detailedState["activeRequestId"] != "null" -> updateCompletionState(CompletionState.REQUESTING)

@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -41,8 +42,8 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
         this.dimension = 1536; // Default dimension, or can parse from API response
     }
 
-    public LocalEmbeddingService() {
-        this(ConfigurationManager.getInstance(null)); // Assume project is passed if needed
+    public LocalEmbeddingService(Project project) {
+        this(ConfigurationManager.getInstance(project)); // Assume project is passed if needed
         LOG.info("Initialized API-based LocalEmbeddingService");
     }
 

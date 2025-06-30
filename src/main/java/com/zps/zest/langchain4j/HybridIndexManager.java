@@ -95,7 +95,7 @@ public final class HybridIndexManager {
                     semanticIndex = new DiskBasedSemanticIndex(project);
                 } catch (Exception e) {
                     LOG.error("Failed to initialize disk-based semantic index, falling back to in-memory: " + e.getMessage());
-                    semanticIndex = new SemanticIndex();
+                    semanticIndex = new SemanticIndex(project);
                 }
                 
                 try {
@@ -107,7 +107,7 @@ public final class HybridIndexManager {
             } else {
                 LOG.info("Initializing in-memory indices");
                 nameIndex = new NameIndex();
-                semanticIndex = new SemanticIndex();
+                semanticIndex = new SemanticIndex(project);
                 structuralIndex = new StructuralIndex();
             }
             
@@ -118,7 +118,7 @@ public final class HybridIndexManager {
             }
             if (semanticIndex == null) {
                 LOG.warn("Semantic index is null, creating fallback in-memory index");
-                semanticIndex = new SemanticIndex();
+                semanticIndex = new SemanticIndex(project);
             }
             if (structuralIndex == null) {
                 LOG.warn("Structural index is null, creating fallback in-memory index");
@@ -129,7 +129,7 @@ public final class HybridIndexManager {
             LOG.error("Critical error during index initialization, using fallback in-memory indices: " + e.getMessage(), e);
             // Fallback to in-memory indices to ensure plugin doesn't fail to start
             nameIndex = new NameIndex();
-            semanticIndex = new SemanticIndex();
+            semanticIndex = new SemanticIndex(project);
             structuralIndex = new StructuralIndex();
         }
     }
@@ -652,7 +652,7 @@ public final class HybridIndexManager {
             LOG.error("Failed to re-initialize indices after clearing: " + e.getMessage(), e);
             // Ensure we have fallback indices
             if (nameIndex == null) nameIndex = new NameIndex();
-            if (semanticIndex == null) semanticIndex = new SemanticIndex();
+            if (semanticIndex == null) semanticIndex = new SemanticIndex(project);
             if (structuralIndex == null) structuralIndex = new StructuralIndex();
         }
     }

@@ -1,15 +1,20 @@
 package com.zps.zest.diff;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.JBColor;
 import com.intellij.util.ui.UIUtil;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Generates HTML for diff viewers with syntax highlighting and theme support
  */
 public class DiffHtmlGenerator {
+    private static final Logger LOG = Logger.getInstance(DiffHtmlGenerator.class);
     
     /**
      * Generate HTML for a git diff with syntax highlighting
@@ -75,6 +80,114 @@ public class DiffHtmlGenerator {
         html.append("</body>\n</html>");
         
         return html.toString();
+    }
+    
+    /**
+     * Generate HTML using diff2html library for better performance
+     */
+    public static String generateDiff2Html(String diffText, String filePath, boolean isDarkTheme) {
+        // Load the CSS and JS files as strings
+        String diff2htmlCss = loadResource("js/diff2html.min.css");
+        String diffJs = loadResource("js/diff.min.js");
+        String diff2htmlJs = loadResource("js/diff2html-ui.min.js");
+        
+        String html = "<!DOCTYPE html>\n" +
+            "<html>\n" +
+            "<head>\n" +
+            "    <meta charset=\"UTF-8\">\n" +
+            "    <title>Diff View</title>\n" +
+            "    <style>\n" +
+            "        /* Diff2Html styles */\n" +
+            diff2htmlCss + "\n" +
+            "        \n" +
+            "        /* Custom styles */\n" +
+            "        body {\n" +
+            "            margin: 0;\n" +
+            "            padding: 0;\n" +
+            "            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\n" +
+            "        }\n" +
+            "        #diff-container {\n" +
+            "            height: 100vh;\n" +
+            "            overflow: auto;\n" +
+            "        }\n" +
+            "        \n" +
+            "        /* Hide file header as we show it in the dialog */\n" +
+            "        .d2h-file-header {\n" +
+            "            display: none !important;\n" +
+            "        }\n" +
+            "    </style>\n" +
+            "</head>\n" +
+            "<body>\n" +
+            "    <div id=\"diff-container\"></div>\n" +
+            "    \n" +
+            "    <script>\n" +
+            "        /* jsdiff library */\n" +
+            diffJs + "\n" +
+            "    </script>\n" +
+            "    <script>\n" +
+            "        /* diff2html library */\n" +
+            diff2htmlJs + "\n" +
+            "    </script>\n" +
+            "    <script>\n" +
+            "        // The actual diff content\n" +
+            "        const diffString = " + escapeForJavaScript(diffText) + ";\n" +
+            "        \n" +
+            "        // Configuration for diff2html\n" +
+            "        const configuration = {\n" +
+            "            outputFormat: 'line-by-line',\n" +
+            "            matching: 'lines',\n" +
+            "            drawFileList: false,\n" +
+            "            renderNothingWhenEmpty: false,\n" +
+            "            fileListToggle: false,\n" +
+            "            fileListStartVisible: false,\n" +
+            "            fileContentToggle: false,\n" +
+            "            synchronisedScroll: true,\n" +
+            "            highlight: true,\n" +
+            "            colorScheme: '" + (isDarkTheme ? "dark" : "light") + "'\n" +
+            "        };\n" +
+            "        \n" +
+            "        // Initialize diff2html\n" +
+            "        const targetElement = document.getElementById('diff-container');\n" +
+            "        const diff2htmlUi = new Diff2HtmlUI(targetElement, diffString, configuration);\n" +
+            "        diff2htmlUi.draw();\n" +
+            "        diff2htmlUi.highlightCode();\n" +
+            "        \n" +
+            "        console.log('Diff rendered with diff2html');\n" +
+            "    </script>\n" +
+            "</body>\n" +
+            "</html>";
+        
+        return html;
+    }
+    
+    /**
+     * Load resource file content
+     */
+    private static String loadResource(String path) {
+        try {
+            InputStream is = DiffHtmlGenerator.class.getClassLoader().getResourceAsStream(path);
+            if (is != null) {
+                return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to load resource: " + path, e);
+        }
+        return "";
+    }
+    
+    /**
+     * Escape text for JavaScript string literal
+     */
+    private static String escapeForJavaScript(String text) {
+        if (text == null) return "\"\"";
+        
+        return "\"" + text
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("'", "\\'") + "\"";
     }
     
     /**

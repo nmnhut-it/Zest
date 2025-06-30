@@ -50,7 +50,7 @@ public class SearchDocsTool extends ThreadSafeCodeExplorationTool {
             "includeCodeBlocks (boolean, optional, default false)");
         
         // Initialize with local embedding service
-        LocalEmbeddingService embeddingService = new LocalEmbeddingService();
+        LocalEmbeddingService embeddingService = new LocalEmbeddingService(project);
         this.docIndex = new DocumentationIndex(embeddingService);
         
         // Get docs path from configuration

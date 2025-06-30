@@ -38,7 +38,7 @@ public final class CodeSearchUtility {
         this.config = new SearchConfiguration();
         
         // Create search service with appropriate embedding service
-        EmbeddingService embeddingService = new LocalEmbeddingService();
+        EmbeddingService embeddingService = new LocalEmbeddingService(project);
         this.searchService = new UnifiedSearchService(embeddingService, config);
         
         LOG.info("Initialized CodeSearchUtility for project: " + project.getName());
@@ -179,7 +179,7 @@ public final class CodeSearchUtility {
     public void configure(SearchConfiguration config) {
         this.config = config;
         // Re-create search service with new configuration
-        EmbeddingService embeddingService = new LocalEmbeddingService();
+        EmbeddingService embeddingService = new LocalEmbeddingService(project);
         this.searchService = new UnifiedSearchService(embeddingService, config);
         LOG.info("Updated search configuration: " + config);
     }

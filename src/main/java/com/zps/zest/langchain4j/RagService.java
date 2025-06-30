@@ -37,7 +37,7 @@ public final class RagService {
     
     public RagService(Project project) {
         this.project = project;
-        this.embeddingService = new LocalEmbeddingService();
+        this.embeddingService = new LocalEmbeddingService(project);
         this.vectorStore = new LangChain4jVectorStore(embeddingService);
         this.documentProcessor = new DocumentProcessor();
         this.searchConfig = new SearchConfiguration();

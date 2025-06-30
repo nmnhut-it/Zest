@@ -414,7 +414,8 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
         }
         
         boolean isDarkTheme = UIUtil.isUnderDarcula();
-        String html = DiffHtmlGenerator.generateDiffHtml(diffContent, filePath, isDarkTheme);
+        // Use the new diff2html method for better performance
+        String html = DiffHtmlGenerator.generateDiff2Html(diffContent, filePath, isDarkTheme);
         
         // Load the HTML content
         browser.loadHTML(html);

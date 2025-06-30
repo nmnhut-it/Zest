@@ -61,9 +61,11 @@ public class DiskBasedSemanticIndex extends SemanticIndex {
     // Track positions in embedding file
     private final Map<String, Integer> embeddingPositions = new ConcurrentHashMap<>();
     private int nextPosition = 0;
-    
+
+
     public DiskBasedSemanticIndex(Project project) throws IOException {
-        this.embeddingService = new LocalEmbeddingService();
+        super(project);
+       this.embeddingService = new LocalEmbeddingService(project);
         this.embeddingDimension = embeddingService.getDimension();
         
         // Create index directory

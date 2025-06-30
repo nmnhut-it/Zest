@@ -1,6 +1,7 @@
 package com.zps.zest.langchain4j.index;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.VectorStore;
 import com.zps.zest.langchain4j.EmbeddingService;
 import com.zps.zest.langchain4j.InMemoryVectorStore;
@@ -27,8 +28,8 @@ public class SemanticIndex {
     private static final int DEFAULT_EMBEDDING_DIM = 384;
     private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.5;
     
-    public SemanticIndex() {
-        this.embeddingService = new LocalEmbeddingService();
+    public SemanticIndex(Project project) {
+        this.embeddingService = new LocalEmbeddingService(project);
         this.vectorStore = new InMemoryVectorStore(embeddingService);
         LOG.info("Initialized SemanticIndex with embedding dimension: " + embeddingService.getDimension());
     }

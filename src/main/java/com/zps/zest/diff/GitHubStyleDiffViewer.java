@@ -54,8 +54,8 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
     /**
      * Constructor for creating a diff viewer dialog with async loading
      *
-     * @param project The project context
-     * @param filePath Path to the file being diffed
+     * @param project    The project context
+     * @param filePath   Path to the file being diffed
      * @param fileStatus The status of the file (e.g., "M", "A", "D", "R")
      */
     public GitHubStyleDiffViewer(Project project, String filePath, String fileStatus) {
@@ -109,8 +109,8 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
         mainPanel.add(loadingPanel, "loading");
         mainPanel.add(errorPanel, "error");
 
-        // Set preferred size
-        mainPanel.setPreferredSize(JBUI.size(1000, 700));
+        // Set preferred size - make it larger for better visibility
+        mainPanel.setPreferredSize(JBUI.size(1200, 800));
 
         return mainPanel;
     }
@@ -121,14 +121,14 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
     private JPanel createBrowserPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(UIUtil.getPanelBackground());
-        
+
         try {
             // Get or create shared browser instance
             browser = DiffBrowserManager.getOrCreateGitHubStyleBrowser();
-            
+
             Component browserComponent = browser.getComponent();
-            browserComponent.setPreferredSize(new Dimension(1000, 600));
-            
+            browserComponent.setPreferredSize(new Dimension(1200, 700));
+
             // Add keyboard shortcuts
             browserComponent.addKeyListener(new java.awt.event.KeyAdapter() {
                 @Override
@@ -138,7 +138,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                     }
                 }
             });
-            
+
             // Add context menu
             browserComponent.addMouseListener(new MouseAdapter() {
                 @Override
@@ -147,7 +147,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                         showContextMenu(e);
                     }
                 }
-                
+
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     if (e.isPopupTrigger()) {
@@ -155,16 +155,16 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                     }
                 }
             });
-            
+
             panel.add(browserComponent, BorderLayout.CENTER);
-            
+
         } catch (Exception e) {
             LOG.error("Error creating browser panel", e);
             JLabel errorLabel = new JLabel("Error creating browser: " + e.getMessage());
             errorLabel.setForeground(JBColor.RED);
             panel.add(errorLabel, BorderLayout.CENTER);
         }
-        
+
         return panel;
     }
 
@@ -173,29 +173,29 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
      */
     private void showContextMenu(MouseEvent e) {
         JPopupMenu popup = new JPopupMenu();
-        
+
         JMenuItem devToolsItem = new JMenuItem("Open DevTools");
         devToolsItem.addActionListener(event -> browser.openDevtools());
         popup.add(devToolsItem);
-        
+
         JMenuItem reloadItem = new JMenuItem("Reload");
         reloadItem.addActionListener(event -> browser.getCefBrowser().reload());
         popup.add(reloadItem);
-        
+
         popup.addSeparator();
-        
+
         JMenuItem zoomInItem = new JMenuItem("Zoom In");
         zoomInItem.addActionListener(event -> browser.setZoomLevel(browser.getZoomLevel() + 0.1));
         popup.add(zoomInItem);
-        
+
         JMenuItem zoomOutItem = new JMenuItem("Zoom Out");
         zoomOutItem.addActionListener(event -> browser.setZoomLevel(browser.getZoomLevel() - 0.1));
         popup.add(zoomOutItem);
-        
+
         JMenuItem resetZoomItem = new JMenuItem("Reset Zoom");
         resetZoomItem.addActionListener(event -> browser.setZoomLevel(0.0));
         popup.add(resetZoomItem);
-        
+
         popup.show(e.getComponent(), e.getX(), e.getY());
     }
 
@@ -290,16 +290,16 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                             diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
                         }
                         break;
-                        
+
                     case "D":
                     case "DELETION":
                         // For deleted files, we need to be extra careful with the git commands
                         try {
                             LOG.info("Processing deleted file diff: " + cleanedPath);
-                            
+
                             // First, try to get the staged deletion diff
                             diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
-                            
+
                             // If nothing is staged, try to get the file content from the last commit
                             if (diffContent.trim().isEmpty()) {
                                 try {
@@ -311,7 +311,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                                     }
                                 } catch (Exception e) {
                                     LOG.info("Failed to get content from HEAD, trying git log: " + e.getMessage());
-                                    
+
                                     // If we can't get the content directly, try to find when it was last seen
                                     try {
                                         // List commits that affected this file
@@ -319,7 +319,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                                         if (!history.trim().isEmpty()) {
                                             String commitHash = history.trim();
                                             LOG.info("Found file in commit: " + commitHash);
-                                            
+
                                             // Get the file content from that commit
                                             String content = executeGitCommand(projectPath, "git show " + commitHash + ":\"" + cleanedPath + "\"");
                                             if (!content.trim().isEmpty()) {
@@ -332,7 +332,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                                     }
                                 }
                             }
-                            
+
                             // If all methods failed, provide a simple message
                             if (diffContent.trim().isEmpty()) {
                                 diffContent = "File was deleted: " + cleanedPath + "\n(Content not available)";
@@ -342,7 +342,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                             diffContent = "Deleted file: " + cleanedPath + "\n(Error retrieving content: " + e.getMessage() + ")";
                         }
                         break;
-                        
+
                     case "M":
                     case "MODIFICATION":
                         // For modified files, try unstaged first, then staged
@@ -356,13 +356,13 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
                             diffContent = executeGitCommand(projectPath, "git diff HEAD -- \"" + cleanedPath + "\"");
                         }
                         break;
-                        
+
                     case "R":
                     case "MOVED":
                         // For renamed files
                         diffContent = executeGitCommand(projectPath, "git diff --cached -- \"" + cleanedPath + "\"");
                         break;
-                        
+
                     default:
                         // Default case, try normal diff first
                         try {
@@ -412,25 +412,33 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
             LOG.error("Browser is null, cannot update content");
             return;
         }
-        
+
         boolean isDarkTheme = UIUtil.isUnderDarcula();
-        // Use the new diff2html method for better performance
+
+        // Handle empty or null diff content
+        if (diffContent == null || diffContent.trim().isEmpty()) {
+            String emptyHtml = "<!DOCTYPE html><html><head>" +
+                    "<style>body{background:" + (isDarkTheme ? "#0d1117" : "#fff") +
+                    ";color:" + (isDarkTheme ? "#c9d1d9" : "#24292e") +
+                    ";font-family:sans-serif;padding:40px;text-align:center;}</style></head>" +
+                    "<body><h2>No changes detected</h2><p>File: " + escapeHtml(filePath) + "</p></body></html>";
+            browser.loadHTML(emptyHtml);
+            return;
+        }
+
+        // Use the optimized diff2html method
         String html = DiffHtmlGenerator.generateDiff2Html(diffContent, filePath, isDarkTheme);
-        
+
         // Load the HTML content
         browser.loadHTML(html);
-        
-        // Add JavaScript handler for DevTools button
-        browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
-            @Override
-            public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
-                // Inject JavaScript to handle DevTools button click
-                cefBrowser.executeJavaScript(
-                    "window.openDevTools = function() { console.log('DevTools requested from JS'); };",
-                    frame.getURL(), 0
-                );
-            }
-        }, browser.getCefBrowser());
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**
@@ -499,7 +507,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
         // Add action buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         buttonPanel.setOpaque(false);
-        
+
         JButton devToolsButton = new JButton("DevTools (F12)");
         devToolsButton.addActionListener(e -> {
             if (browser != null) {
@@ -561,14 +569,14 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
         diff.append("index 1234567..0000000\n");
         diff.append("--- a/").append(filePath).append("\n");
         diff.append("+++ /dev/null\n");
-        
+
         String[] lines = content.split("\n");
         diff.append("@@ -1,").append(lines.length).append(" +0,0 @@\n");
-        
+
         for (String line : lines) {
             diff.append("-").append(line).append("\n");
         }
-        
+
         return diff.toString();
     }
 
@@ -577,7 +585,7 @@ public class GitHubStyleDiffViewer extends DialogWrapper {
      */
     private String executeGitCommand(String workingDir, String command) throws Exception {
         LOG.info("Executing git command: " + command);
-        
+
         ProcessBuilder processBuilder = new ProcessBuilder();
         if (System.getProperty("os.name").toLowerCase().contains("windows")) {
             processBuilder.command("cmd.exe", "/c", command);

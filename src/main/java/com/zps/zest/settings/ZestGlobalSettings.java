@@ -31,8 +31,8 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public boolean autoTriggerEnabled = false;
     public boolean backgroundContextEnabled = false;
     
-    // System Prompts
-    public String systemPrompt = "You are an assistant that verifies understanding before solving problems effectively.\n" +
+    // Default system prompts as static constants
+    public static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
             "\n" +
             "CORE APPROACH:\n" +
             "\n" +
@@ -53,7 +53,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "\n" +
             "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n/no_think\n";
     
-    public String codeSystemPrompt = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
+    public static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
             "\n" +
             "    CORE CODING METHODOLOGY:\n" +
             "\n" +
@@ -99,7 +99,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "\n" +
             "    Ask questions to clarify requirements, explain reasoning, and think step-by-step while maintaining system awareness. Provide clear code examples with explanations./no_think";
     
-    public String commitPromptTemplate = "Generate a well-structured git commit message based on the changes below.\n\n" +
+    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = "Generate a well-structured git commit message based on the changes below.\n\n" +
             "## Changed files:\n" +
             "{FILES_LIST}\n\n" +
             "## File changes:\n" +
@@ -125,6 +125,11 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "- Added unit and integration tests\n\n" +
             "BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset\n\n" +
             "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
+    
+    // System Prompts (instance fields initialized with defaults)
+    public String systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    public String codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
+    public String commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
     
     public static ZestGlobalSettings getInstance() {
         return ApplicationManager.getApplication().getService(ZestGlobalSettings.class);

@@ -92,6 +92,9 @@ public class SettingsMigrator {
                     com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
                 if (validation.isValid) {
                     globalSettings.commitPromptTemplate = commitPromptTemplate;
+                } else {
+                    // Use default if invalid
+                    globalSettings.commitPromptTemplate = ZestGlobalSettings.DEFAULT_COMMIT_PROMPT_TEMPLATE;
                 }
             }
             

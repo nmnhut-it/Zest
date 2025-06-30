@@ -29,10 +29,10 @@ public class ConfigurationManager {
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
 
-    // Default system prompts (kept for compatibility)
-    public static final String DEFAULT_SYSTEM_PROMPT = ZestGlobalSettings.getInstance().systemPrompt;
-    public static final String DEFAULT_CODE_SYSTEM_PROMPT = ZestGlobalSettings.getInstance().codeSystemPrompt;
-    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = ZestGlobalSettings.getInstance().commitPromptTemplate;
+    // Default system prompts - reference from ZestGlobalSettings to avoid duplication
+    public static final String DEFAULT_SYSTEM_PROMPT = ZestGlobalSettings.DEFAULT_SYSTEM_PROMPT;
+    public static final String DEFAULT_CODE_SYSTEM_PROMPT = ZestGlobalSettings.DEFAULT_CODE_SYSTEM_PROMPT;
+    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = ZestGlobalSettings.DEFAULT_COMMIT_PROMPT_TEMPLATE;
     
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();

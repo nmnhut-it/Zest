@@ -21,11 +21,12 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
 import kotlinx.coroutines.*
 import java.awt.Component
+import com.intellij.openapi.util.Disposer
 
 /**
  * Enhanced status bar widget showing both completion and method rewrite state
  */
-class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project), StatusBarWidget.TextPresentation {
+class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project), StatusBarWidget.MultipleTextValuesPresentation {
 
     private val logger = Logger.getInstance(ZestCompletionStatusBarWidget::class.java)
     private val completionService by lazy { project.getService(ZestInlineCompletionService::class.java) }
@@ -87,17 +88,22 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     }
 
     override fun dispose() {
-        super.dispose()
         scope.cancel()
+        super.dispose()
         logger.info("ZestCompletionStatusBarWidget disposed")
     }
 
-    // StatusBarWidget.TextPresentation implementation
+    // StatusBarWidget.MultipleTextValuesPresentation implementation
     override fun getPresentation(): StatusBarWidget.WidgetPresentation = this
 
-    override fun getText(): String = displayText
+    override fun getSelectedValue(): String = displayText
 
-    override fun getAlignment(): Float = Component.CENTER_ALIGNMENT
+    override fun getIcon(): Icon? {
+        return when {
+            currentMethodRewriteState != null -> currentMethodRewriteState!!.icon
+            else -> currentCompletionState.icon
+        }
+    }
 
     override fun getTooltipText(): String {
         val primaryState = if (currentMethodRewriteState != null) {
@@ -117,11 +123,22 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
     override fun getClickConsumer(): Consumer<MouseEvent>? {
         return Consumer { mouseEvent ->
-            if (mouseEvent.isPopupTrigger || mouseEvent.button == MouseEvent.BUTTON3) {
-                showPopupMenu(mouseEvent)
-            } else {
-                // Left click - show quick info or actions based on current state
-                showQuickActions(mouseEvent)
+            // Log the click for debugging
+            logger.debug("Widget clicked: button=${mouseEvent.button}, popupTrigger=${mouseEvent.isPopupTrigger}")
+            
+            when {
+                // Right-click or popup trigger
+                mouseEvent.isPopupTrigger || mouseEvent.button == MouseEvent.BUTTON3 -> {
+                    showPopupMenu(mouseEvent)
+                }
+                // Left click
+                mouseEvent.button == MouseEvent.BUTTON1 -> {
+                    showQuickActions(mouseEvent)
+                }
+                // Middle click - could add additional functionality here
+                mouseEvent.button == MouseEvent.BUTTON2 -> {
+                    refreshCompletionState()
+                }
             }
         }
     }
@@ -236,7 +253,8 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      * Setup listener for completion service events
      */
     private fun setupCompletionServiceListener() {
-        project.messageBus.connect().subscribe(ZestInlineCompletionService.Listener.TOPIC, object : ZestInlineCompletionService.Listener {
+        val connection = project.messageBus.connect(this)
+        connection.subscribe(ZestInlineCompletionService.Listener.TOPIC, object : ZestInlineCompletionService.Listener {
             override fun loadingStateChanged(loading: Boolean) {
                 ApplicationManager.getApplication().invokeLater {
                     if (loading) {
@@ -326,11 +344,8 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             false
         )
 
-        if (myStatusBar != null) {
-            popup.showUnderneathOf(myStatusBar as java.awt.Component)
-        } else {
-            popup.showInFocusCenter()
-        }
+        // Show the popup relative to the mouse location
+        popup.show(mouseEvent.component)
     }
 
     /**
@@ -472,7 +487,16 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun showQuickInfo(message: String) {
         logger.info("Quick info: $message")
-        // Status is already visible in the status bar - no need for additional popup
+        
+        // Show a balloon notification
+        val statusBar = myStatusBar
+        if (statusBar != null) {
+            JBPopupFactory.getInstance()
+                .createHtmlTextBalloonBuilder(message, null, null)
+                .setFadeoutTime(3000)
+                .createBalloon()
+                .showInCenterOf(statusBar.component)
+        }
     }
 
     /**
@@ -514,7 +538,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun startPeriodicStateSync() {
         scope.launch {
-            while (true) {
+            while (isActive) {
                 delay(3000) // Check every 3 seconds
                 try {
                     checkForOrphanedState()

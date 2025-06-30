@@ -483,7 +483,7 @@ public final class LLMService {
         public java.util.List<String> getStopSequences() { return stopSequences; }
         boolean isLiteModel = false;
         public LLMQueryParams useLiteCodeModel() {
-            this.model = "local-model";
+            this.model = "local-model-mini";
             this.isLiteModel = true;
             return this;
         }

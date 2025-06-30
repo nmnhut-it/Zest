@@ -1,10 +1,8 @@
 package com.zps.zest.langchain4j;
 
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.Metadata;
-import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 
@@ -13,7 +11,6 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -121,33 +118,7 @@ public class DocumentProcessor {
         
         return markdownSplitter.split(document);
     }
-    
-    /**
-     * Processes arbitrary document types using Apache Tika.
-     * 
-     * @param inputStream Document input stream
-     * @param fileName File name
-     * @param mimeType MIME type if known
-     * @return List of text segments
-     */
-    public List<TextSegment> processDocument(InputStream inputStream, String fileName, String mimeType) {
-        try {
-            DocumentParser parser = new ApacheTikaDocumentParser();
-            Document document = parser.parse(inputStream);
-            
-            // Add filename to metadata
-            document.metadata().add("filename", fileName);
-            if (mimeType != null) {
-                document.metadata().add("mime_type", mimeType);
-            }
-            
-            return defaultSplitter.split(document);
-        } catch (Exception e) {
-            LOG.error("Failed to parse document: " + fileName, e);
-            return new ArrayList<>();
-        }
-    }
-    
+
     /**
      * Creates a single text segment from a string without splitting.
      * Useful for short texts like method signatures.

@@ -757,7 +757,6 @@ public class ConfigurationManager {
     
     public void setContextInjectionEnabled(boolean enabled) {
         this.contextInjectionEnabled = enabled;
-        // Enforce mutual exclusion
         if (enabled && projectIndexEnabled) {
             projectIndexEnabled = false;
         }
@@ -770,7 +769,6 @@ public class ConfigurationManager {
     
     public void setProjectIndexEnabled(boolean enabled) {
         this.projectIndexEnabled = enabled;
-        // Enforce mutual exclusion
         if (enabled && contextInjectionEnabled) {
             contextInjectionEnabled = false;
         }
@@ -782,7 +780,6 @@ public class ConfigurationManager {
     }
     
     public void setCommitPromptTemplate(String commitPromptTemplate) {
-        // Validate before setting
         com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
             com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
         
@@ -821,7 +818,6 @@ public class ConfigurationManager {
         this.inlineCompletionEnabled = enabled;
         saveConfig();
         
-        // Notify inline completion service of configuration change
         try {
             com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
         } catch (Exception e) {
@@ -837,7 +833,6 @@ public class ConfigurationManager {
         this.autoTriggerEnabled = enabled;
         saveConfig();
         
-        // Notify inline completion service of configuration change
         try {
             com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
         } catch (Exception e) {
@@ -853,7 +848,6 @@ public class ConfigurationManager {
         this.backgroundContextEnabled = enabled;
         saveConfig();
         
-        // Notify inline completion service of configuration change
         try {
             com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
         } catch (Exception e) {
@@ -863,7 +857,7 @@ public class ConfigurationManager {
     
     /**
      * Escapes a string for safe storage in Properties file.
-     * Handles newlines and other special characters.
+     * Still used for legacy migration support.
      */
     private String escapeForProperties(String input) {
         if (input == null) return "";
@@ -876,6 +870,7 @@ public class ConfigurationManager {
     
     /**
      * Unescapes a string loaded from Properties file.
+     * Still used for legacy migration support.
      */
     private String unescapeFromProperties(String input) {
         if (input == null) return "";

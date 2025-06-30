@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.862</version>
+    <version>1.9.866</version>
     
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -23,7 +23,7 @@
     <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
-    <idea-version since-build="223.0" until-build="251.*"/>
+    <idea-version since-build="223.0" until-build="259.*"/>
     
     <projectListeners>
         <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
@@ -36,6 +36,7 @@
     <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
@@ -62,10 +63,10 @@
                     secondary="false"/>
             
         <projectConfigurable
+                groupId="tools"
                 instance="com.zps.zest.settings.ZestSettingsConfigurable"
                 displayName="Zest Plugin"
                 id="zest.settings"
-                parentId="tools"
                 nonDefaultProject="true"/>
 
         <projectConfigurable
@@ -187,5 +188,11 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
+        <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
+                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
+                description="Start Tools to be used in chat view">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

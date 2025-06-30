@@ -29,7 +29,7 @@ import java.util.concurrent.CompletionException;
 public final class LLMService {
 
     private static final Logger LOG = Logger.getInstance(LLMService.class);
-    private static final Gson GSON = new Gson();
+    public static final Gson GSON = new Gson();
 
     private final Project project;
     private final ConfigurationManager config;
@@ -474,16 +474,17 @@ public final class LLMService {
         }
 
         // Getters
-        public String getPrompt() { return prompt; }
+        public String getPrompt() { return prompt + (isLiteModel ?"\n/no_think":""); }
         public String getModel() { return model; }
         public int getMaxRetries() { return maxRetries; }
         public long getTimeoutMs() { return timeoutMs; }
         public int getMaxTokens() { return maxTokens; }
         public double getTemperature() { return temperature; }
         public java.util.List<String> getStopSequences() { return stopSequences; }
-
+        boolean isLiteModel = false;
         public LLMQueryParams useLiteCodeModel() {
-            this.model = "local-model-mini";
+            this.model = "local-model";
+            this.isLiteModel = true;
             return this;
         }
     }

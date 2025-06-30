@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.862-SNAPSHOT"
+version = "1.9.865-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -37,16 +37,15 @@ dependencies {
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
     
     // ONNX Runtime - REQUIRED for ONNX models to work
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
+//    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 
     // Optional but recommended for better performance
-    implementation("ai.djl:api:0.28.0")
-    implementation("ai.djl.onnxruntime:onnxruntime-engine:0.28.0")
+//    implementation("ai.djl:api:0.28.0")
+//    implementation("ai.djl.onnxruntime:onnxruntime-engine:0.28.0")
 
     // If you still have issues, try adding:
 //    implementation("com.microsoft.onnxruntime:onnxruntime_gpu:1.19.2")
     // LSP4J for language server protocol support
-    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.1")
     
     // MCP SDK dependencies
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
@@ -57,17 +56,9 @@ dependencies {
     implementation("io.javalin:javalin:5.6.3")
 
     implementation("dev.langchain4j:langchain4j:0.35.0")
-    implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")
-
-    // ONNX embedding models
-    implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
-
-    // Document processing
-    implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")
-
     // Apache Tika
-    implementation("org.apache.tika:tika-core:2.9.2")
-    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
+//    implementation("org.apache.tika:tika-core:2.9.2")
+//    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
     
     // No Lucene dependencies needed - using in-memory index instead
     
@@ -75,7 +66,7 @@ dependencies {
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
     
     // GumTree for AST-based diffing - using only core which is reliably available
-    implementation("com.github.gumtreediff:core:3.0.0")
+//    implementation("com.github.gumtreediff:core:3.0.0")
 }
 
 intellijPlatform {

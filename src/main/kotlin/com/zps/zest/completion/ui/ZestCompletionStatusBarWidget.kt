@@ -21,12 +21,16 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
 import kotlinx.coroutines.*
 import java.awt.Component
+import com.intellij.openapi.ui.MessageType
+import com.intellij.openapi.ui.popup.Balloon
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.awt.RelativePoint
+import java.awt.Point
 
 /**
  * Enhanced status bar widget showing both completion and method rewrite state
  */
-class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project), StatusBarWidget.MultipleTextValuesPresentation {
+class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(project) {
 
     private val logger = Logger.getInstance(ZestCompletionStatusBarWidget::class.java)
     private val completionService by lazy { project.getService(ZestInlineCompletionService::class.java) }
@@ -60,7 +64,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         WAITING("💡 Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
         ACCEPTING("⚡ Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
         IDLE("💤 Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
-        ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state")
+        ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state - Click to reset")
     }
 
     enum class MethodRewriteState(val displayText: String, val icon: Icon, val tooltip: String) {
@@ -72,6 +76,67 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     }
 
     override fun ID(): String = WIDGET_ID
+
+    // Override getPresentation to return our TextPresentation implementation
+    override fun getPresentation(type: StatusBarWidget.PlatformType): StatusBarWidget.WidgetPresentation? {
+        return TextPresentation()
+    }
+    
+    // Inner class implementing TextPresentation
+    private inner class TextPresentation : StatusBarWidget.TextPresentation {
+        override fun getText(): String = displayText
+
+        override fun getAlignment(): Float = Component.CENTER_ALIGNMENT
+
+        override fun getTooltipText(): String? {
+            val primaryState = if (currentMethodRewriteState != null) {
+                "Method Rewrite: ${currentMethodRewriteState!!.tooltip}"
+            } else {
+                "Completion: ${currentCompletionState.tooltip}"
+            }
+
+            val statusInfo = if (methodRewriteStatus.isNotEmpty()) {
+                "\nStatus: $methodRewriteStatus"
+            } else ""
+
+            val strategy = "\nStrategy: ${getStrategyName()}"
+
+            return "$primaryState$statusInfo$strategy\n\nClick for options • Right-click for menu"
+        }
+
+        override fun getClickConsumer(): Consumer<MouseEvent>? {
+            return Consumer { mouseEvent ->
+                try {
+                    logger.info("Widget clicked! Button: ${mouseEvent.button}, Modifiers: ${mouseEvent.modifiersEx}")
+                    
+                    when {
+                        // Right-click or platform-specific popup trigger
+                        mouseEvent.isPopupTrigger -> {
+                            logger.info("Popup trigger detected")
+                            showPopupMenu(mouseEvent)
+                        }
+                        // Explicit right-click check (Button3)
+                        mouseEvent.button == MouseEvent.BUTTON3 -> {
+                            logger.info("Right click detected")
+                            showPopupMenu(mouseEvent)
+                        }
+                        // Left click (Button1)
+                        mouseEvent.button == MouseEvent.BUTTON1 -> {
+                            logger.info("Left click detected")
+                            handleLeftClick(mouseEvent)
+                        }
+                        // Middle click (Button2)
+                        mouseEvent.button == MouseEvent.BUTTON2 -> {
+                            logger.info("Middle click detected")
+                            refreshCompletionState()
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.error("Error handling widget click", e)
+                }
+            }
+        }
+    }
 
     override fun install(statusBar: StatusBar) {
         super.install(statusBar)
@@ -85,6 +150,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
         // Start periodic state synchronization
         startPeriodicStateSync()
+        
+        // Force initial widget update
+        ApplicationManager.getApplication().invokeLater {
+            statusBar.updateWidget(ID())
+        }
     }
 
     override fun dispose() {
@@ -93,54 +163,94 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         logger.info("ZestCompletionStatusBarWidget disposed")
     }
 
-    // StatusBarWidget.MultipleTextValuesPresentation implementation
-    override fun getPresentation(): StatusBarWidget.WidgetPresentation = this
-
-    override fun getSelectedValue(): String = displayText
-
-    override fun getIcon(): Icon? {
-        return when {
-            currentMethodRewriteState != null -> currentMethodRewriteState!!.icon
-            else -> currentCompletionState.icon
-        }
-    }
-
-    override fun getTooltipText(): String {
-        val primaryState = if (currentMethodRewriteState != null) {
-            "Method Rewrite: ${currentMethodRewriteState!!.tooltip}"
-        } else {
-            "Completion: ${currentCompletionState.tooltip}"
-        }
-
-        val statusInfo = if (methodRewriteStatus.isNotEmpty()) {
-            "\nStatus: $methodRewriteStatus"
-        } else ""
-
-        val strategy = "\nStrategy: ${getStrategyName()}"
-
-        return "$primaryState$statusInfo$strategy\n\nClick for options"
-    }
-
-    override fun getClickConsumer(): Consumer<MouseEvent>? {
-        return Consumer { mouseEvent ->
-            // Log the click for debugging
-            logger.debug("Widget clicked: button=${mouseEvent.button}, popupTrigger=${mouseEvent.isPopupTrigger}")
-            
-            when {
-                // Right-click or popup trigger
-                mouseEvent.isPopupTrigger || mouseEvent.button == MouseEvent.BUTTON3 -> {
-                    showPopupMenu(mouseEvent)
-                }
-                // Left click
-                mouseEvent.button == MouseEvent.BUTTON1 -> {
-                    showQuickActions(mouseEvent)
-                }
-                // Middle click - could add additional functionality here
-                mouseEvent.button == MouseEvent.BUTTON2 -> {
-                    refreshCompletionState()
+    /**
+     * Handle left click based on current state
+     */
+    private fun handleLeftClick(mouseEvent: MouseEvent) {
+        when {
+            // Error state - click to reset (this is what you remembered!)
+            currentCompletionState == CompletionState.ERROR -> {
+                logger.info("Resetting error state on click")
+                refreshCompletionState()
+                showBalloon("State reset!", MessageType.INFO, mouseEvent)
+            }
+            // Method rewrite states
+            currentMethodRewriteState != null -> {
+                when (currentMethodRewriteState!!) {
+                    MethodRewriteState.ANALYZING -> showBalloon("Method analysis in progress...", MessageType.INFO, mouseEvent)
+                    MethodRewriteState.AI_QUERYING -> showBalloon("AI processing method improvements...", MessageType.INFO, mouseEvent)
+                    MethodRewriteState.DIFF_READY -> showBalloon("Press TAB to accept, ESC to reject", MessageType.WARNING, mouseEvent)
+                    MethodRewriteState.APPLYING -> showBalloon("Applying method changes...", MessageType.INFO, mouseEvent)
+                    MethodRewriteState.COMPLETED -> showBalloon("Method rewrite completed!", MessageType.INFO, mouseEvent)
                 }
             }
+            // Completion states
+            currentCompletionState == CompletionState.REQUESTING -> {
+                showBalloon("Completion request in progress...", MessageType.INFO, mouseEvent)
+            }
+            currentCompletionState == CompletionState.WAITING -> {
+                showBalloon("Press Tab to accept completion", MessageType.WARNING, mouseEvent)
+            }
+            currentCompletionState == CompletionState.ACCEPTING -> {
+                showBalloon("Accepting completion...", MessageType.INFO, mouseEvent)
+            }
+            else -> {
+                // Default action - show quick menu
+                showQuickMenu(mouseEvent)
+            }
         }
+    }
+
+    /**
+     * Show a balloon notification at the widget location
+     */
+    private fun showBalloon(message: String, messageType: MessageType, mouseEvent: MouseEvent) {
+        val balloon = JBPopupFactory.getInstance()
+            .createHtmlTextBalloonBuilder(message, messageType.defaultIcon, messageType.popupBackground) { _ -> }
+            .setFadeoutTime(2500)
+            .createBalloon()
+        
+        val point = RelativePoint(mouseEvent.component, Point(mouseEvent.x, mouseEvent.y - 30))
+        balloon.show(point, Balloon.Position.above)
+    }
+
+    /**
+     * Show quick menu for left click
+     */
+    private fun showQuickMenu(mouseEvent: MouseEvent) {
+        val group = DefaultActionGroup()
+        
+        group.add(object : AnAction("Switch Strategy (${getStrategyName()})", "Switch between completion strategies", AllIcons.Actions.ChangeView) {
+            override fun actionPerformed(e: AnActionEvent) {
+                switchCompletionStrategy()
+            }
+        })
+        
+        group.add(object : AnAction("Refresh State", "Clear any orphaned state", AllIcons.Actions.Refresh) {
+            override fun actionPerformed(e: AnActionEvent) {
+                refreshCompletionState()
+            }
+        })
+        
+        if (currentMethodRewriteState != null) {
+            group.addSeparator()
+            group.add(object : AnAction("Cancel Method Rewrite", "Cancel current operation", AllIcons.Actions.Cancel) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    cancelMethodRewrite()
+                }
+            })
+        }
+        
+        val dataContext = SimpleDataContext.getProjectContext(project)
+        val popup: ListPopup = JBPopupFactory.getInstance().createActionGroupPopup(
+            "Quick Actions",
+            group,
+            dataContext,
+            JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+            false
+        )
+        
+        popup.show(RelativePoint(mouseEvent))
     }
 
     /**
@@ -289,7 +399,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     }
 
     /**
-     * Show popup menu with options
+     * Show popup menu with options (right-click menu)
      */
     private fun showPopupMenu(mouseEvent: MouseEvent) {
         val group = DefaultActionGroup()
@@ -303,10 +413,9 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             })
 
             if (currentMethodRewriteState == MethodRewriteState.DIFF_READY) {
-                group.add(object : AnAction("Force Accept Changes", "Force accept the method rewrite changes", AllIcons.Actions.Checked) {
+                group.add(object : AnAction("View Changes", "View the proposed changes", AllIcons.Actions.Diff) {
                     override fun actionPerformed(e: AnActionEvent) {
-                        // This would need to be implemented in the service
-                        showQuickInfo("Use TAB key to accept changes")
+                        showBalloon("Use TAB key to accept changes", MessageType.INFO, mouseEvent)
                     }
                 })
             }
@@ -335,6 +444,13 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             }
         })
 
+        group.add(object : AnAction("Open Settings", "Open Zest plugin settings", AllIcons.General.Settings) {
+            override fun actionPerformed(e: AnActionEvent) {
+                // TODO: Implement settings navigation
+                showBalloon("Settings not implemented yet", MessageType.INFO, mouseEvent)
+            }
+        })
+
         val dataContext = SimpleDataContext.getProjectContext(project)
         val popup: ListPopup = JBPopupFactory.getInstance().createActionGroupPopup(
             "Zest Status",
@@ -344,39 +460,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             false
         )
 
-        // Show the popup relative to the mouse location
-        popup.show(mouseEvent.component)
-    }
-
-    /**
-     * Show quick actions (left click)
-     */
-    private fun showQuickActions(mouseEvent: MouseEvent) {
-        when {
-            currentMethodRewriteState != null -> {
-                when (currentMethodRewriteState!!) {
-                    MethodRewriteState.ANALYZING -> showQuickInfo("Method analysis in progress...")
-                    MethodRewriteState.AI_QUERYING -> showQuickInfo("AI processing method improvements...")
-                    MethodRewriteState.DIFF_READY -> showQuickInfo("Method rewrite ready - Press TAB to accept, ESC to reject")
-                    MethodRewriteState.APPLYING -> showQuickInfo("Applying method changes...")
-                    MethodRewriteState.COMPLETED -> showQuickInfo("Method rewrite completed successfully!")
-                }
-            }
-            currentCompletionState == CompletionState.ERROR -> {
-                refreshCompletionState()
-                checkForOrphanedState()
-            }
-            currentCompletionState == CompletionState.REQUESTING -> {
-                showQuickInfo("Completion request in progress...")
-            }
-            currentCompletionState == CompletionState.WAITING -> {
-                showQuickInfo("Completion ready - Press Tab to accept")
-            }
-            else -> {
-                showQuickInfo("Ready for completion or method rewrite")
-                checkForOrphanedState()
-            }
-        }
+        popup.show(RelativePoint(mouseEvent))
     }
 
     /**
@@ -389,11 +473,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             methodRewriteService?.cancelCurrentRewrite()
 
             clearMethodRewriteState()
-            showQuickInfo("Method rewrite cancelled")
+            logger.info("Method rewrite cancelled")
 
         } catch (e: Exception) {
             logger.warn("Failed to cancel method rewrite", e)
-            showQuickInfo("Failed to cancel: ${e.message}")
         }
     }
 
@@ -408,12 +491,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 completionService.forceRefreshState()
                 updateCompletionState(CompletionState.IDLE)
                 clearMethodRewriteState() // Also clear method rewrite state
-                showQuickInfo("State refreshed!")
+                logger.info("State refreshed successfully")
 
             } catch (e: Exception) {
                 logger.warn("Failed to refresh completion state", e)
                 updateCompletionState(CompletionState.ERROR)
-                showQuickInfo("Failed to refresh: ${e.message}")
             }
         }
     }
@@ -435,11 +517,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 }
 
                 completionService.setCompletionStrategy(newStrategy)
-                showQuickInfo("Switched to ${newStrategy.name} strategy")
+                logger.info("Switched to ${newStrategy.name} strategy")
+                refreshWidget()
 
             } catch (e: Exception) {
                 logger.warn("Failed to switch strategy", e)
-                showQuickInfo("Failed to switch strategy: ${e.message}")
             }
         }
     }
@@ -474,28 +556,9 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             }
 
             logger.info(info)
-            showQuickInfo("Debug info logged to console")
 
         } catch (e: Exception) {
             logger.warn("Failed to get debug info", e)
-            showQuickInfo("Failed to get debug info: ${e.message}")
-        }
-    }
-
-    /**
-     * Show quick info message
-     */
-    private fun showQuickInfo(message: String) {
-        logger.info("Quick info: $message")
-        
-        // Show a balloon notification
-        val statusBar = myStatusBar
-        if (statusBar != null) {
-            JBPopupFactory.getInstance()
-                .createHtmlTextBalloonBuilder(message, null, null)
-                .setFadeoutTime(3000)
-                .createBalloon()
-                .showInCenterOf(statusBar.component)
         }
     }
 
@@ -508,7 +571,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 val wasStuck = completionService.checkAndFixStuckState()
                 if (wasStuck) {
                     updateCompletionState(CompletionState.ERROR)
-                    showQuickInfo("Fixed stuck acceptance state!")
+                    logger.info("Fixed stuck acceptance state!")
                     return@invokeLater
                 }
 

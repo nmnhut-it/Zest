@@ -4,30 +4,19 @@ import com.intellij.openapi.diagnostic.Logger
 import java.io.File
 
 /**
- * Enhanced AST-based diffing service using GumTree for semantic code comparison.
+ * Enhanced AST-based diffing service for semantic code comparison.
  * 
  * This service provides Abstract Syntax Tree level diffing that understands
  * the structure and semantics of code, going beyond simple text-based comparison.
  * 
- * Note: This implementation focuses on core functionality and gracefully falls back
- * to text-based diffing when AST parsing is not available or fails.
+ * Note: This implementation uses pattern-based analysis instead of full AST parsing,
+ * providing semantic insights through code pattern recognition.
  */
 class ASTDiffService {
     private val logger = Logger.getInstance(ASTDiffService::class.java)
     
-    // Flag to track if GumTree is available and initialized
-    private var gumTreeAvailable = false
-    
     init {
-        try {
-            // Try to initialize GumTree - this may fail if generators aren't available
-            Class.forName("com.github.gumtreediff.client.Run")
-            gumTreeAvailable = true
-            logger.info("GumTree core library detected and available")
-        } catch (e: Exception) {
-            logger.warn("GumTree core library not available, falling back to text diffing", e)
-            gumTreeAvailable = false
-        }
+        logger.info("ASTDiffService initialized with pattern-based analysis")
     }
     
     /**
@@ -100,7 +89,7 @@ class ASTDiffService {
     }
     
     /**
-     * Perform semantic AST-based diffing for supported languages
+     * Perform semantic pattern-based diffing for supported languages
      */
     fun diffWithAST(
         originalCode: String,
@@ -109,25 +98,20 @@ class ASTDiffService {
         fallbackToDiff: Boolean = true
     ): ASTDiffResult {
         try {
-            logger.info("Attempting AST diff for language: $language")
+            logger.info("Performing pattern-based analysis for language: $language")
             
-            if (!gumTreeAvailable) {
-                logger.warn("GumTree not available, using fallback for $language")
-                return createFallbackResult(originalCode, rewrittenCode, language, fallbackToDiff, false)
-            }
-            
-            // For now, we'll focus on languages where we can implement simple AST analysis
+            // Use pattern-based analysis for all languages
             when (language.lowercase()) {
                 "java" -> return analyzeJavaSemantics(originalCode, rewrittenCode)
                 "javascript", "js" -> return analyzeJavaScriptSemantics(originalCode, rewrittenCode)
                 "kotlin" -> return analyzeKotlinSemantics(originalCode, rewrittenCode)
                 else -> {
-                    logger.info("Language $language not supported for AST diffing, using fallback")
+                    logger.info("Language $language not supported for semantic analysis, using fallback")
                     return createFallbackResult(originalCode, rewrittenCode, language, fallbackToDiff, true)
                 }
             }
         } catch (e: Exception) {
-            logger.error("AST diffing failed for $language", e)
+            logger.error("Pattern-based analysis failed for $language", e)
             return createFallbackResult(originalCode, rewrittenCode, language, fallbackToDiff, true)
         }
     }

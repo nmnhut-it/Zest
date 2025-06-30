@@ -1,102 +1,63 @@
 package com.zps.zest.langchain4j;
 
-import dev.langchain4j.data.embedding.Embedding;
-import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.Disposable;
+import com.zps.zest.ConfigurationManager;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
- * Local embedding service using LangChain4j with ONNX models.
- * Provides fast, private embedding generation without external API calls.
+ * Embedding service that uses an API endpoint instead of local ONNX models.
+ * Compatible with OpenAI-style /api/embeddings endpoints.
  */
 @Service(Service.Level.PROJECT)
 public final class LocalEmbeddingService implements EmbeddingService, Disposable {
+
     private static final Logger LOG = Logger.getInstance(LocalEmbeddingService.class);
 
-    private final EmbeddingModel embeddingModel;
+    private final ConfigurationManager config;
+    private final ExecutorService executorService;
     private final String modelName;
     private final int dimension;
-    private final ExecutorService executorService;
-    private final ClassLoader pluginClassLoader;
 
-    /**
-     * Creates a LocalEmbeddingService with the default model (all-MiniLM-L6-v2).
-     */
-    public LocalEmbeddingService() {
-        this(ModelType.ALL_MINILM_L6_V2);
-    }
-
-    /**
-     * Creates a LocalEmbeddingService with the specified model type.
-     *
-     * @param modelType The type of embedding model to use
-     */
-    public LocalEmbeddingService(ModelType modelType) {
+    public LocalEmbeddingService(@NotNull ConfigurationManager config) {
+        this.config = config;
         this.executorService = Executors.newFixedThreadPool(
                 Math.min(4, Runtime.getRuntime().availableProcessors())
         );
+        this.modelName = "api-embedding-model"; // Can be overridden by config
+        this.dimension = 1536; // Default dimension, or can parse from API response
+    }
 
-        // Store the plugin classloader for later use
-        this.pluginClassLoader = this.getClass().getClassLoader();
-
-        // Initialize the model with proper classloader context
-        Thread currentThread = Thread.currentThread();
-        ClassLoader originalClassLoader = currentThread.getContextClassLoader();
-
-        try {
-            // Set the context classloader to the plugin's classloader
-            currentThread.setContextClassLoader(pluginClassLoader);
-
-            switch (modelType) {
-
-                case ALL_MINILM_L6_V2:
-                default:
-                    this.embeddingModel = new AllMiniLmL6V2EmbeddingModel();
-                    this.modelName = "all-MiniLM-L6-v2";
-                    this.dimension = 384;
-                    break;
-            }
-
-            LOG.info("Initialized LocalEmbeddingService with model: " + modelName);
-
-        } catch (Exception e) {
-            LOG.error("Failed to initialize embedding model: " + modelType, e);
-            throw new RuntimeException("Failed to initialize embedding model", e);
-        } finally {
-            // Always restore the original classloader
-            currentThread.setContextClassLoader(originalClassLoader);
-        }
+    public LocalEmbeddingService() {
+        this(ConfigurationManager.getInstance(null)); // Assume project is passed if needed
+        LOG.info("Initialized API-based LocalEmbeddingService");
     }
 
     @Override
     public float[] embed(String text) {
-        if (text == null || text.trim().isEmpty()) {
+        if (text == null || text.isEmpty()) {
             return new float[dimension];
         }
 
-        // Wrap embedding call with proper classloader context
-        Thread currentThread = Thread.currentThread();
-        ClassLoader originalClassLoader = currentThread.getContextClassLoader();
-
         try {
-            currentThread.setContextClassLoader(pluginClassLoader);
-            Embedding embedding = embeddingModel.embed(text).content();
-            return embedding.vector();
+            String response = sendEmbeddingRequest(Collections.singletonList(text));
+            return parseEmbeddingFromResponse(response).get(0);
         } catch (Exception e) {
-            LOG.error("Failed to generate embedding for text", e);
+            LOG.error("Failed to embed text via API", e);
             return new float[dimension];
-        } finally {
-            currentThread.setContextClassLoader(originalClassLoader);
         }
     }
 
@@ -106,7 +67,6 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
             return new ArrayList<>();
         }
 
-        // Process in parallel for better performance
         List<CompletableFuture<float[]>> futures = texts.stream()
                 .map(text -> CompletableFuture.supplyAsync(
                         () -> embed(text),
@@ -125,33 +85,18 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
             return new ArrayList<>();
         }
 
-        // Wrap embedAll call with proper classloader context
-        Thread currentThread = Thread.currentThread();
-        ClassLoader originalClassLoader = currentThread.getContextClassLoader();
+        List<String> texts = segments.stream()
+                .map(s -> s.text())
+                .collect(Collectors.toList());
 
-        try {
-            currentThread.setContextClassLoader(pluginClassLoader);
-            // LangChain4j can handle batch embedding efficiently
-            return embeddingModel.embedAll(segments).content();
-        } catch (Exception e) {
-            LOG.error("Failed to embed text segments", e);
-            // Fallback to individual embedding
-            return segments.stream()
-                    .map(segment -> {
-                        try {
-                            currentThread.setContextClassLoader(pluginClassLoader);
-                            return embeddingModel.embed(segment).content();
-                        } catch (Exception ex) {
-                            LOG.warn("Failed to embed segment: " + segment.text(), ex);
-                            return new Embedding(new float[dimension]);
-                        } finally {
-                            currentThread.setContextClassLoader(originalClassLoader);
-                        }
-                    })
-                    .collect(Collectors.toList());
-        } finally {
-            currentThread.setContextClassLoader(originalClassLoader);
+        List<float[]> embeddings = embedBatch(texts);
+
+        List<Embedding> result = new ArrayList<>();
+        for (float[] embedding : embeddings) {
+            result.add(new Embedding(embedding));
         }
+
+        return result;
     }
 
     @Override
@@ -167,10 +112,8 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
     @Override
     public double cosineSimilarity(float[] embedding1, float[] embedding2) {
         if (embedding1.length != embedding2.length) {
-            throw new IllegalArgumentException(
-                    "Embeddings must have the same dimension. Got " +
-                            embedding1.length + " and " + embedding2.length
-            );
+            throw new IllegalArgumentException("Embeddings must have the same dimension. Got " +
+                    embedding1.length + " and " + embedding2.length);
         }
 
         double dotProduct = 0.0;
@@ -186,17 +129,104 @@ public final class LocalEmbeddingService implements EmbeddingService, Disposable
         return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
     }
 
+    private String sendEmbeddingRequest(List<String> texts) throws IOException {
+        String apiUrl = config.getApiUrl();
+        String authToken = config.getAuthToken();
+
+        if (apiUrl == null || apiUrl.isEmpty()) {
+            throw new IllegalStateException("API URL not configured for embeddings.");
+        }
+
+        URL url = new URL(apiUrl + "/api/embeddings");
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        try {
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            if (authToken != null && !authToken.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + authToken);
+            }
+            connection.setConnectTimeout(30_000);
+            connection.setReadTimeout(120_000);
+            connection.setDoOutput(true);
+
+            String jsonBody = buildRequestJson(texts);
+            try (OutputStream os = connection.getOutputStream()) {
+                byte[] input = jsonBody.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                String error = readErrorResponse(connection);
+                throw new IOException("API returned error: " + responseCode + " - " + error);
+            }
+
+            return readResponse(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private String buildRequestJson(List<String> texts) {
+        JsonObject root = new JsonObject();
+        root.addProperty("model", modelName);
+        root.add("input", com.zps.zest.langchain4j.util.LLMService.GSON.toJsonTree(texts));
+        return root.toString();
+    }
+
+    private List<float[]> parseEmbeddingFromResponse(String jsonResponse) {
+        JsonObject response = com.google.gson.JsonParser.parseString(jsonResponse).getAsJsonObject();
+
+        if (!response.has("data")) {
+            throw new RuntimeException("No embedding found in API response: " + jsonResponse);
+        }
+
+        JsonArray dataArray = response.getAsJsonArray("data");
+
+        List<float[]> embeddings = new ArrayList<>();
+        for (int i = 0; i < dataArray.size(); i++) {
+            JsonArray embeddingArray = dataArray.get(i).getAsJsonObject().getAsJsonArray("embedding");
+            float[] vector = new float[embeddingArray.size()];
+            for (int j = 0; j < embeddingArray.size(); j++) {
+                vector[j] = embeddingArray.get(j).getAsFloat();
+            }
+            embeddings.add(vector);
+        }
+
+        return embeddings;
+    }
+
+    private String readResponse(HttpURLConnection connection) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            return response.toString();
+        }
+    }
+
+    private String readErrorResponse(HttpURLConnection connection) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {
+            StringBuilder error = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                error.append(line);
+            }
+            return error.toString();
+        } catch (IOException e) {
+            return "Unable to read error response: " + e.getMessage();
+        }
+    }
+
     @Override
     public void dispose() {
         executorService.shutdown();
-        LOG.info("LocalEmbeddingService disposed");
+        LOG.info("API-based LocalEmbeddingService disposed");
     }
 
-    /**
-     * Supported embedding model types.
-     */
     public enum ModelType {
-        ALL_MINILM_L6_V2,     // Balanced performance and quality
-        BGE_SMALL_EN_V15      // Slightly better quality, similar size
+        API_MODEL
     }
 }

@@ -452,9 +452,6 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setDocsPath(docsPathField.getText().trim());
         config.setDocsSearchEnabled(docsSearchEnabledCheckbox.isSelected());
         
-        // Save to file
-        config.saveConfig();
-        
         Messages.showInfoMessage(project, 
             "Settings saved successfully", 
             "Settings Saved");

@@ -35,6 +35,11 @@
     
     <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level service for global settings -->
+        <applicationService serviceImplementation="com.zps.zest.settings.ZestGlobalSettings"/>
+        
+        <!-- Project-level service for project-specific settings -->
+        <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>

@@ -1,9 +1,14 @@
 package com.zps.zest.codehealth
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.*
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiMethod
@@ -16,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Service that tracks modified methods throughout the day.
@@ -33,6 +39,7 @@ class CodeHealthTracker(private val project: Project) :
     companion object {
         const val MAX_METHODS_TO_TRACK = 500
         private const val CLEANUP_AFTER_HOURS = 24
+        private const val DEBOUNCE_DELAY_MS = 300L
         
         fun getInstance(project: Project): CodeHealthTracker =
             project.getService(CodeHealthTracker::class.java)
@@ -41,6 +48,10 @@ class CodeHealthTracker(private val project: Project) :
     private var state = State()
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     private val methodModifications = ConcurrentHashMap<String, ModifiedMethod>()
+    
+    // Async processing
+    private val documentProcessingQueue = SimpleTaskQueue(delayMs = DEBOUNCE_DELAY_MS)
+    val isAnalysisRunning = AtomicBoolean(false)
 
     /**
      * Data class representing a modified method
@@ -108,24 +119,39 @@ class CodeHealthTracker(private val project: Project) :
     override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
         if (!state.enabled) return
         
-        // Extract method FQN at cursor position
-        extractMethodFQN(document, editor.caretModel.offset)?.let { fqn ->
-            trackMethodModification(fqn)
+        // Queue document processing to avoid blocking EDT
+        documentProcessingQueue.submit {
+            ReadAction.nonBlocking<String?> {
+                extractMethodFQN(document, editor.caretModel.offset)
+            }
+            .inSmartMode(project)
+            .executeSynchronously()
+            ?.let { fqn ->
+                trackMethodModification(fqn)
+            }
         }
     }
 
     private fun extractMethodFQN(document: Document, offset: Int): String? {
-        return PsiDocumentManager.getInstance(project).getPsiFile(document)?.let { psiFile ->
-            psiFile.findElementAt(offset)?.let { element ->
-                PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)?.let { method ->
-                    val containingClass = method.containingClass
-                    if (containingClass != null) {
-                        "${containingClass.qualifiedName}.${method.name}"
-                    } else {
-                        null
+        if (project.isDisposed) return null
+        
+        return try {
+            PsiDocumentManager.getInstance(project).getPsiFile(document)?.let { psiFile ->
+                if (!psiFile.isValid) return null
+                
+                psiFile.findElementAt(offset)?.let { element ->
+                    PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)?.let { method ->
+                        val containingClass = method.containingClass
+                        if (containingClass != null) {
+                            "${containingClass.qualifiedName}.${method.name}"
+                        } else {
+                            null
+                        }
                     }
                 }
             }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -144,6 +170,21 @@ class CodeHealthTracker(private val project: Project) :
                 lastModified = System.currentTimeMillis()
             } ?: ModifiedMethod(fqn)
         }
+        
+        // Persist state periodically
+        persistStateAsync()
+    }
+    
+    private fun persistStateAsync() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            state.modifiedMethods.clear()
+            state.modifiedMethods.addAll(
+                methodModifications.values
+                    .sortedByDescending { it.modificationCount }
+                    .take(MAX_METHODS_TO_TRACK)
+                    .map { it.toSerializable() }
+            )
+        }
     }
 
     fun getModifiedMethods(): Set<String> = methodModifications.keys.toSet()
@@ -158,27 +199,69 @@ class CodeHealthTracker(private val project: Project) :
 
     private fun cleanupOldEntries() {
         clearOldEntries()
+        persistStateAsync()
     }
 
     fun checkAndNotify() {
         if (!state.enabled || methodModifications.isEmpty()) return
         
-        // Trigger analysis
-        val analyzer = CodeHealthAnalyzer.getInstance(project)
-        val results = analyzer.analyzeAllMethods(getModifiedMethodDetails())
-        
-        if (results.isNotEmpty()) {
-            // Show notification
-            CodeHealthNotification.showHealthReport(project, results)
+        // Prevent concurrent analyses
+        if (!isAnalysisRunning.compareAndSet(false, true)) {
+            return
         }
         
-        // Update last check time
-        state.lastCheckTime = System.currentTimeMillis()
+        // Run analysis in background with progress
+        ProgressManager.getInstance().run(object : Task.Backgroundable(
+            project,
+            "Analyzing Code Health",
+            true
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    indicator.isIndeterminate = false
+                    
+                    val methods = getModifiedMethodDetails()
+                    if (methods.isEmpty()) return
+                    
+                    // Limit methods to analyze
+                    val methodsToAnalyze = methods.take(50)
+                    
+                    indicator.text = "Analyzing ${methodsToAnalyze.size} modified methods..."
+                    
+                    // Trigger async analysis
+                    val analyzer = CodeHealthAnalyzer.getInstance(project)
+                    val results = analyzer.analyzeAllMethodsAsync(methodsToAnalyze, indicator)
+                    
+                    if (results.isNotEmpty() && !indicator.isCanceled) {
+                        ApplicationManager.getApplication().invokeLater {
+                            if (!project.isDisposed) {
+                                CodeHealthNotification.showHealthReport(project, results)
+                            }
+                        }
+                    }
+                    
+                    // Update last check time
+                    state.lastCheckTime = System.currentTimeMillis()
+                    
+                } finally {
+                    isAnalysisRunning.set(false)
+                }
+            }
+            
+            override fun onCancel() {
+                isAnalysisRunning.set(false)
+            }
+        })
     }
 
     private fun scheduleNextCheck() {
         val now = LocalDateTime.now()
-        val checkTime = LocalTime.parse(state.checkTime)
+        val checkTime = try {
+            LocalTime.parse(state.checkTime)
+        } catch (e: Exception) {
+            LocalTime.of(13, 0)
+        }
+        
         var nextCheck = LocalDateTime.of(LocalDate.now(), checkTime)
         
         // If the time has already passed today, schedule for tomorrow
@@ -190,8 +273,10 @@ class CodeHealthTracker(private val project: Project) :
         
         scheduler.schedule(
             {
-                checkAndNotify()
-                scheduleNextCheck() // Schedule next day's check
+                if (!project.isDisposed) {
+                    checkAndNotify()
+                    scheduleNextCheck() // Schedule next day's check
+                }
             },
             delayMillis,
             TimeUnit.MILLISECONDS
@@ -199,6 +284,36 @@ class CodeHealthTracker(private val project: Project) :
     }
 
     fun dispose() {
+        documentProcessingQueue.shutdown()
         scheduler.shutdown()
+        try {
+            scheduler.awaitTermination(5, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            scheduler.shutdownNow()
+        }
+    }
+}
+
+/**
+ * Simple task queue for async processing
+ */
+class SimpleTaskQueue(private val delayMs: Long = 100L) {
+    private val executor = Executors.newSingleThreadExecutor()
+    
+    fun submit(task: () -> Unit) {
+        executor.submit {
+            try {
+                Thread.sleep(delayMs)
+                task()
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (e: Exception) {
+                // Log error but continue processing
+            }
+        }
+    }
+    
+    fun shutdown() {
+        executor.shutdown()
     }
 }

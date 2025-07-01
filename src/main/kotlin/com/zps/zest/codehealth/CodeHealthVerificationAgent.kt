@@ -1,5 +1,7 @@
 package com.zps.zest.codehealth
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -8,6 +10,7 @@ import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent
 import com.zps.zest.langchain4j.util.LLMService
 import kotlinx.coroutines.*
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executors
 
 /**
  * Verification agent that uses autonomous code exploration to verify detected issues.
@@ -23,11 +26,85 @@ class CodeHealthVerificationAgent(private val project: Project) {
     
     private val llmService: LLMService = project.service()
     private val autonomousAgent = ImprovedToolCallingAutonomousAgent(project)
+    private val verificationExecutor = Executors.newFixedThreadPool(2)
     
     /**
      * Verify a batch of issues using autonomous exploration
      */
     fun verifyIssuesWithExploration(
+        methodResult: CodeHealthAnalyzer.MethodHealthResult
+    ): CompletableFuture<CodeHealthAnalyzer.MethodHealthResult> {
+        
+        if (methodResult.issues.isEmpty()) {
+            return CompletableFuture.completedFuture(methodResult)
+        }
+        
+        // Run verification in background
+        return CompletableFuture.supplyAsync({
+            try {
+                // For performance, we'll use simple verification for now
+                // The full autonomous exploration can be enabled for critical methods only
+                verifyWithSimpleLLM(methodResult)
+            } catch (e: Exception) {
+                // Fallback: return issues as verified if verification fails
+                methodResult.copy(
+                    issues = methodResult.issues.map { 
+                        it.copy(
+                            verified = true,
+                            verificationReason = "Verification skipped: ${e.message}"
+                        )
+                    }
+                )
+            }
+        }, verificationExecutor)
+    }
+    
+    /**
+     * Simple LLM verification without full exploration (faster)
+     */
+    private fun verifyWithSimpleLLM(
+        methodResult: CodeHealthAnalyzer.MethodHealthResult
+    ): CodeHealthAnalyzer.MethodHealthResult {
+        
+        val verificationPrompt = buildSimpleVerificationPrompt(methodResult)
+        
+        return try {
+            val response = llmService.query(
+                verificationPrompt,
+                "local-model-mini",
+                com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH
+            )
+            
+            if (response != null) {
+                parseVerificationResponse(methodResult, response)
+            } else {
+                // Default to verified if LLM fails
+                methodResult.copy(
+                    issues = methodResult.issues.map { 
+                        it.copy(
+                            verified = true,
+                            verificationReason = "Verification service unavailable"
+                        )
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            methodResult.copy(
+                issues = methodResult.issues.map { 
+                    it.copy(
+                        verified = true,
+                        verificationReason = "Verification error: ${e.message}"
+                    )
+                }
+            )
+        }
+    }
+    
+    /**
+     * Full exploration-based verification (slower but more accurate)
+     * Only use this for critical methods or when explicitly requested
+     */
+    fun verifyWithFullExploration(
         methodResult: CodeHealthAnalyzer.MethodHealthResult
     ): CompletableFuture<CodeHealthAnalyzer.MethodHealthResult> {
         
@@ -46,14 +123,7 @@ class CodeHealthVerificationAgent(private val project: Project) {
             }
             .exceptionally { throwable ->
                 // Fallback to simple verification if exploration fails
-                methodResult.copy(
-                    issues = methodResult.issues.map { 
-                        it.copy(
-                            verified = true,
-                            verificationReason = "Could not perform deep verification: ${throwable.message}"
-                        )
-                    }
-                )
+                verifyWithSimpleLLM(methodResult)
             }
     }
     
@@ -76,6 +146,42 @@ class CodeHealthVerificationAgent(private val project: Project) {
             3. What error handling or defensive programming is already in place
             4. Whether these issues are real problems or intentional design choices
             5. The broader context of the class and related components
+        """.trimIndent()
+    }
+    
+    private fun buildSimpleVerificationPrompt(methodResult: CodeHealthAnalyzer.MethodHealthResult): String {
+        return """
+            You are a verification agent. Quickly verify if these detected issues are REAL problems or FALSE POSITIVES.
+            
+            Method: ${methodResult.fqn}
+            Modified: ${methodResult.modificationCount} times
+            
+            Code Context:
+            ```java
+            ${methodResult.codeContext}
+            ```
+            
+            Issues to verify:
+            ${methodResult.issues.mapIndexed { index, issue ->
+                """
+                ${index}. [${issue.issueCategory}] ${issue.title}
+                   Severity: ${issue.severity}/5
+                   Description: ${issue.description}
+                """.trimIndent()
+            }.joinToString("\n\n")}
+            
+            For each issue, determine if it's REAL (true) or FALSE POSITIVE (false).
+            
+            Return JSON:
+            {
+                "verifications": [
+                    {
+                        "issueIndex": 0,
+                        "verified": true,
+                        "verificationReason": "Reason for decision"
+                    }
+                ]
+            }
         """.trimIndent()
     }
     
@@ -189,6 +295,53 @@ class CodeHealthVerificationAgent(private val project: Project) {
         """.trimIndent()
     }
     
+    private fun parseVerificationResponse(
+        result: CodeHealthAnalyzer.MethodHealthResult,
+        llmResponse: String
+    ): CodeHealthAnalyzer.MethodHealthResult {
+        try {
+            val jsonStart = llmResponse.indexOf("{")
+            val jsonEnd = llmResponse.lastIndexOf("}")
+            if (jsonStart == -1 || jsonEnd == -1) {
+                return result
+            }
+            
+            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
+            
+            // Parse verifications
+            val verificationPattern = Regex(
+                """"issueIndex"\s*:\s*(\d+)[^}]*"verified"\s*:\s*(true|false)[^}]*"verificationReason"\s*:\s*"([^"]+)"""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            
+            val verifiedIssues = result.issues.toMutableList()
+            
+            verificationPattern.findAll(jsonContent).forEach { match ->
+                val (indexStr, verifiedStr, reason) = match.destructured
+                val index = indexStr.toIntOrNull() ?: return@forEach
+                
+                if (index in verifiedIssues.indices) {
+                    verifiedIssues[index] = verifiedIssues[index].copy(
+                        verified = verifiedStr.toBoolean(),
+                        verificationReason = reason,
+                        falsePositive = !verifiedStr.toBoolean()
+                    )
+                }
+            }
+            
+            // Recalculate health score based on verified issues
+            val verifiedRealIssues = verifiedIssues.filter { it.verified && !it.falsePositive }
+            val newHealthScore = calculateHealthScore(verifiedRealIssues, result.modificationCount, result.impactedCallers.size)
+            
+            return result.copy(
+                issues = verifiedIssues,
+                healthScore = newHealthScore
+            )
+        } catch (e: Exception) {
+            return result
+        }
+    }
+    
     private fun parseEnhancedVerificationResponse(
         result: CodeHealthAnalyzer.MethodHealthResult,
         llmResponse: String
@@ -253,6 +406,38 @@ class CodeHealthVerificationAgent(private val project: Project) {
         }
     }
     
+    private fun calculateHealthScore(
+        issues: List<CodeHealthAnalyzer.HealthIssue>,
+        modificationCount: Int,
+        callerCount: Int
+    ): Int {
+        var score = 100
+        
+        // Deduct points based on issue severity
+        issues.forEach { issue ->
+            val deduction = when (issue.severity) {
+                5 -> 20
+                4 -> 15
+                3 -> 10
+                2 -> 5
+                else -> 2
+            }
+            score -= deduction
+        }
+        
+        // Factor in modification frequency
+        score -= minOf(modificationCount * 2, 20)
+        
+        // Factor in impact
+        score -= when {
+            callerCount > 10 -> 10
+            callerCount > 5 -> 5
+            else -> 0
+        }
+        
+        return score.coerceIn(0, 100)
+    }
+    
     private fun calculateEnhancedHealthScore(
         issues: List<CodeHealthAnalyzer.HealthIssue>,
         modificationCount: Int,
@@ -311,5 +496,9 @@ class CodeHealthVerificationAgent(private val project: Project) {
             .thenApply {
                 futures.map { it.get() }
             }
+    }
+    
+    fun dispose() {
+        verificationExecutor.shutdown()
     }
 }

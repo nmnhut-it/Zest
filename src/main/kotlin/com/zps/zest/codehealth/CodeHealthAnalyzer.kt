@@ -1,8 +1,10 @@
 package com.zps.zest.codehealth
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
@@ -17,6 +19,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.langchain4j.util.LLMService
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Analysis engine that examines modified methods for issues and impact.
@@ -26,8 +29,9 @@ import java.util.concurrent.*
 class CodeHealthAnalyzer(private val project: Project) {
 
     companion object {
-        private const val MAX_CONCURRENT_ANALYSES = 3
+        private const val MAX_CONCURRENT_ANALYSES = 2
         private const val LLM_DELAY_MS = 1000L // Delay between LLM calls to avoid spikes
+        private const val CHUNK_SIZE = 5 // Process methods in chunks
         
         fun getInstance(project: Project): CodeHealthAnalyzer =
             project.getService(CodeHealthAnalyzer::class.java)
@@ -35,7 +39,8 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private val contextCollector = ZestLeanContextCollector(project)
     private val llmService: LLMService = project.service()
-    private val executorService: ExecutorService = Executors.newFixedThreadPool(MAX_CONCURRENT_ANALYSES)
+    private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
+    private val results = ConcurrentHashMap<String, MethodHealthResult>()
 
     /**
      * Health issue data class - completely flexible, LLM decides everything
@@ -81,61 +86,115 @@ class CodeHealthAnalyzer(private val project: Project) {
     )
 
     /**
-     * Analyze all modified methods using LLM for both detection and verification
+     * Analyze all modified methods using async processing with progress indicator
      */
-    fun analyzeAllMethods(methods: List<CodeHealthTracker.ModifiedMethod>): List<MethodHealthResult> {
-        val results = ConcurrentHashMap<String, MethodHealthResult>()
-        val semaphore = Semaphore(MAX_CONCURRENT_ANALYSES)
-        val futures = mutableListOf<Future<*>>()
+    fun analyzeAllMethodsAsync(
+        methods: List<CodeHealthTracker.ModifiedMethod>,
+        indicator: ProgressIndicator? = null
+    ): List<MethodHealthResult> {
+        results.clear()
+        val totalMethods = methods.size
+        val completed = AtomicInteger(0)
+        val latch = CountDownLatch(totalMethods)
         
-        methods.forEach { method ->
-            val future = executorService.submit {
-                try {
-                    semaphore.acquire()
-                    try {
-                        // First pass: LLM detects all potential issues
-                        val detectionResult = detectIssuesWithLLM(method)
-                        
-                        // Second pass: Verification agent validates issues
-                        val verifiedResult = if (detectionResult.issues.isNotEmpty()) {
-                            verifyIssuesWithAgent(detectionResult)
-                        } else {
-                            detectionResult
-                        }
-                        
-                        results[method.fqn] = verifiedResult
-                        
-                        // Rate limiting delay
-                        Thread.sleep(LLM_DELAY_MS)
-                    } finally {
-                        semaphore.release()
+        // Process methods in chunks to avoid overwhelming the system
+        methods.chunked(CHUNK_SIZE).forEachIndexed { chunkIndex, chunk ->
+            analysisQueue.submit {
+                chunk.forEach { method ->
+                    if (indicator?.isCanceled == true) {
+                        latch.countDown()
+                        return@forEach
                     }
-                } catch (e: Exception) {
-                    // Log error but continue with other analyses
-                    e.printStackTrace()
+                    
+                    // Update progress
+                    indicator?.let {
+                        it.fraction = completed.get().toDouble() / totalMethods
+                        it.text = "Analyzing method ${completed.get() + 1} of $totalMethods: ${method.fqn}"
+                    }
+                    
+                    // Analyze method asynchronously
+                    analyzeMethodAsync(method) { result ->
+                        results[method.fqn] = result
+                        completed.incrementAndGet()
+                        latch.countDown()
+                    }
                 }
+                
+                // Delay between chunks
+                Thread.sleep(LLM_DELAY_MS)
             }
-            futures.add(future)
         }
         
         // Wait for all analyses to complete
-        futures.forEach { it.get() }
+        try {
+            latch.await(5, TimeUnit.MINUTES) // Timeout after 5 minutes
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         
         return results.values.toList()
             .sortedByDescending { it.healthScore * it.modificationCount }
     }
 
     /**
+     * Analyze a single method asynchronously
+     */
+    private fun analyzeMethodAsync(
+        method: CodeHealthTracker.ModifiedMethod,
+        onComplete: (MethodHealthResult) -> Unit
+    ) {
+        analysisQueue.submit {
+            // Step 1: Get method context
+            val context = ReadAction.nonBlocking<String> {
+                getMethodContext(method.fqn)
+            }
+            .inSmartMode(project)
+            .executeSynchronously()
+            
+            // Step 2: Find callers asynchronously
+            analysisQueue.submit {
+                val callers = ReadAction.nonBlocking<List<String>> {
+                    findCallers(method.fqn)
+                }
+                .inSmartMode(project)
+                .executeSynchronously()
+                
+                // Step 3: Get limited caller snippets (max 5 to avoid performance issues)
+                analysisQueue.submit {
+                    val callerSnippets = ReadAction.nonBlocking<List<CallerSnippet>> {
+                        findCallersWithSnippets(method.fqn).take(5)
+                    }
+                    .inSmartMode(project)
+                    .executeSynchronously()
+                    
+                    // Step 4: Call LLM for detection
+                    analysisQueue.submit {
+                        val detectionResult = detectIssuesWithLLM(method, context, callers, callerSnippets)
+                        
+                        // Step 5: Verify issues if needed
+                        if (detectionResult.issues.isNotEmpty()) {
+                            analysisQueue.submit {
+                                val verifiedResult = verifyIssuesWithAgent(detectionResult)
+                                onComplete(verifiedResult)
+                            }
+                        } else {
+                            onComplete(detectionResult)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * First pass: LLM detects all potential issues
      */
-    private fun detectIssuesWithLLM(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
-        val context = ApplicationManager.getApplication().runReadAction<String> {
-            getMethodContext(method.fqn)
-        }
-        
-        val callers = findCallers(method.fqn)
-        val callerSnippets = findCallersWithSnippets(method.fqn)
-        
+    private fun detectIssuesWithLLM(
+        method: CodeHealthTracker.ModifiedMethod,
+        context: String,
+        callers: List<String>,
+        callerSnippets: List<CallerSnippet>
+    ): MethodHealthResult {
         val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
         return try {
@@ -327,27 +386,18 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Second pass: Verify detected issues with intelligent agent
      */
     private fun verifyIssuesWithAgent(result: MethodHealthResult): MethodHealthResult {
-        // Use the advanced verification agent with code exploration
-        val verificationAgent = CodeHealthVerificationAgent.getInstance(project)
+        // For now, use simple verification. Can be upgraded to use CodeHealthVerificationAgent later
+        val verificationPrompt = buildVerificationPrompt(result)
         
         return try {
-            // This will use autonomous exploration to verify issues
-            val future = verificationAgent.verifyIssuesWithExploration(result)
-            future.get() // Block and wait for result (since we're already in a background thread)
-        } catch (e: Exception) {
-            // Fallback to simple verification if advanced agent fails
-            val verificationPrompt = buildVerificationPrompt(result)
-            
-            try {
-                val response = llmService.query(verificationPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-                if (response != null) {
-                    parseVerificationResponse(result, response)
-                } else {
-                    result
-                }
-            } catch (fallbackException: Exception) {
+            val response = llmService.query(verificationPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            if (response != null) {
+                parseVerificationResponse(result, response)
+            } else {
                 result
             }
+        } catch (e: Exception) {
+            result
         }
     }
 
@@ -480,6 +530,8 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     private fun getMethodContext(fqn: String): String {
+        if (project.isDisposed) return ""
+        
         // Use existing context collector
         val parts = fqn.split(".")
         if (parts.size < 2) return ""
@@ -502,32 +554,32 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     private fun findCallers(fqn: String): List<String> {
+        if (project.isDisposed) return emptyList()
+        
         return try {
-            ApplicationManager.getApplication().runReadAction<List<String>> {
-                val parts = fqn.split(".")
-                if (parts.size < 2) return@runReadAction emptyList()
-                
-                val className = parts.dropLast(1).joinToString(".")
-                val methodName = parts.last()
-                
-                val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                    .findClass(className, GlobalSearchScope.projectScope(project))
-                
-                val psiMethod = psiClass?.methods?.find { it.name == methodName }
-                    ?: return@runReadAction emptyList()
-                
-                val references = MethodReferencesSearch.search(psiMethod).findAll()
-                references.mapNotNull { ref ->
-                    val element = ref.element
-                    val containingMethod = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
-                        element, 
-                        com.intellij.psi.PsiMethod::class.java
-                    )
-                    containingMethod?.let { method ->
-                        "${method.containingClass?.qualifiedName}.${method.name}"
-                    }
-                }.distinct()
-            }
+            val parts = fqn.split(".")
+            if (parts.size < 2) return emptyList()
+            
+            val className = parts.dropLast(1).joinToString(".")
+            val methodName = parts.last()
+            
+            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
+                .findClass(className, GlobalSearchScope.projectScope(project))
+            
+            val psiMethod = psiClass?.methods?.find { it.name == methodName }
+                ?: return emptyList()
+            
+            val references = MethodReferencesSearch.search(psiMethod).findAll()
+            references.mapNotNull { ref ->
+                val element = ref.element
+                val containingMethod = PsiTreeUtil.getParentOfType(
+                    element, 
+                    PsiMethod::class.java
+                )
+                containingMethod?.let { method ->
+                    "${method.containingClass?.qualifiedName}.${method.name}"
+                }
+            }.distinct()
         } catch (e: Exception) {
             emptyList()
         }
@@ -537,73 +589,73 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Find callers with code snippets showing how the method is called
      */
     private fun findCallersWithSnippets(fqn: String): List<CallerSnippet> {
+        if (project.isDisposed) return emptyList()
+        
         return try {
-            ApplicationManager.getApplication().runReadAction<List<CallerSnippet>> {
-                val parts = fqn.split(".")
-                if (parts.size < 2) return@runReadAction emptyList()
+            val parts = fqn.split(".")
+            if (parts.size < 2) return emptyList()
+            
+            val className = parts.dropLast(1).joinToString(".")
+            val methodName = parts.last()
+            
+            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
+                .findClass(className, GlobalSearchScope.projectScope(project))
+            
+            val psiMethod = psiClass?.methods?.find { it.name == methodName }
+                ?: return emptyList()
+            
+            val references = MethodReferencesSearch.search(psiMethod).findAll()
+            references.mapNotNull { ref ->
+                val element = ref.element
+                val containingMethod = PsiTreeUtil.getParentOfType(
+                    element, 
+                    PsiMethod::class.java
+                )
                 
-                val className = parts.dropLast(1).joinToString(".")
-                val methodName = parts.last()
-                
-                val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                    .findClass(className, GlobalSearchScope.projectScope(project))
-                
-                val psiMethod = psiClass?.methods?.find { it.name == methodName }
-                    ?: return@runReadAction emptyList()
-                
-                val references = MethodReferencesSearch.search(psiMethod).findAll()
-                references.mapNotNull { ref ->
-                    val element = ref.element
-                    val containingMethod = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
-                        element, 
-                        com.intellij.psi.PsiMethod::class.java
-                    )
+                containingMethod?.let { method ->
+                    val callerFqn = "${method.containingClass?.qualifiedName}.${method.name}"
+                    val file = method.containingFile?.virtualFile?.path ?: ""
                     
-                    containingMethod?.let { method ->
-                        val callerFqn = "${method.containingClass?.qualifiedName}.${method.name}"
-                        val file = method.containingFile?.virtualFile?.path ?: ""
+                    // Get the line containing the method call
+                    val document = PsiDocumentManager.getInstance(project)
+                        .getDocument(method.containingFile!!)
+                    
+                    if (document != null) {
+                        val lineNumber = document.getLineNumber(element.textOffset)
                         
-                        // Get the line containing the method call
-                        val document = com.intellij.psi.PsiDocumentManager.getInstance(project)
-                            .getDocument(method.containingFile!!)
+                        // Get surrounding lines for context (3 before, 3 after)
+                        val startLine = (lineNumber - 3).coerceAtLeast(0)
+                        val endLine = (lineNumber + 3).coerceAtMost(document.lineCount - 1)
                         
-                        if (document != null) {
-                            val lineNumber = document.getLineNumber(element.textOffset)
-                            
-                            // Get surrounding lines for context (3 before, 3 after)
-                            val startLine = (lineNumber - 3).coerceAtLeast(0)
-                            val endLine = (lineNumber + 3).coerceAtMost(document.lineCount - 1)
-                            
-                            val snippet = buildString {
-                                for (i in startLine..endLine) {
-                                    val lineStart = document.getLineStartOffset(i)
-                                    val lineEnd = document.getLineEndOffset(i)
-                                    val lineText = document.text.substring(lineStart, lineEnd)
-                                    
-                                    if (i == lineNumber) {
-                                        appendLine(">>> $lineText  // <<< METHOD CALL HERE")
-                                    } else {
-                                        appendLine("    $lineText")
-                                    }
+                        val snippet = buildString {
+                            for (i in startLine..endLine) {
+                                val lineStart = document.getLineStartOffset(i)
+                                val lineEnd = document.getLineEndOffset(i)
+                                val lineText = document.text.substring(lineStart, lineEnd)
+                                
+                                if (i == lineNumber) {
+                                    appendLine(">>> $lineText  // <<< METHOD CALL HERE")
+                                } else {
+                                    appendLine("    $lineText")
                                 }
                             }
-                            
-                            // Determine calling context
-                            val context = analyzeCallingContext(method, element)
-                            
-                            CallerSnippet(
-                                callerFqn = callerFqn,
-                                callerFile = file,
-                                lineNumber = lineNumber + 1, // 1-based
-                                snippet = snippet,
-                                context = context
-                            )
-                        } else {
-                            null
                         }
+                        
+                        // Determine calling context
+                        val context = analyzeCallingContext(method, element)
+                        
+                        CallerSnippet(
+                            callerFqn = callerFqn,
+                            callerFile = file,
+                            lineNumber = lineNumber + 1, // 1-based
+                            snippet = snippet,
+                            context = context
+                        )
+                    } else {
+                        null
                     }
-                }.filterNotNull().take(10) // Limit to 10 most relevant callers
-            }
+                }
+            }.filterNotNull().take(10) // Limit to 10 most relevant callers
         } catch (e: Exception) {
             emptyList()
         }
@@ -613,40 +665,40 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Analyze the context of how a method is being called
      */
     private fun analyzeCallingContext(
-        callerMethod: com.intellij.psi.PsiMethod,
-        callElement: com.intellij.psi.PsiElement
+        callerMethod: PsiMethod,
+        callElement: PsiElement
     ): String {
         // Check if it's in a loop
-        val loop = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+        val loop = PsiTreeUtil.getParentOfType(
             callElement,
-            com.intellij.psi.PsiLoopStatement::class.java
+            PsiLoopStatement::class.java
         )
         if (loop != null) {
             return "Called inside a loop - potential performance impact"
         }
         
         // Check if it's in a conditional
-        val conditional = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+        val conditional = PsiTreeUtil.getParentOfType(
             callElement,
-            com.intellij.psi.PsiIfStatement::class.java
+            PsiIfStatement::class.java
         )
         if (conditional != null) {
             return "Called conditionally"
         }
         
         // Check if it's in a try-catch
-        val tryStatement = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+        val tryStatement = PsiTreeUtil.getParentOfType(
             callElement,
-            com.intellij.psi.PsiTryStatement::class.java
+            PsiTryStatement::class.java
         )
         if (tryStatement != null) {
             return "Called within error handling block"
         }
         
         // Check if it's in initialization
-        val field = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+        val field = PsiTreeUtil.getParentOfType(
             callElement,
-            com.intellij.psi.PsiField::class.java
+            PsiField::class.java
         )
         if (field != null) {
             return "Called during field initialization"
@@ -680,6 +732,30 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     fun dispose() {
-        executorService.shutdown()
+        analysisQueue.shutdown()
+    }
+}
+
+/**
+ * Simple analysis queue for spreading work over time
+ */
+class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
+    private val executor = Executors.newSingleThreadExecutor()
+    
+    fun submit(task: () -> Unit) {
+        executor.submit {
+            try {
+                task()
+                Thread.sleep(delayMs) // Delay between tasks
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (e: Exception) {
+                // Log error but continue processing
+            }
+        }
+    }
+    
+    fun shutdown() {
+        executor.shutdown()
     }
 }

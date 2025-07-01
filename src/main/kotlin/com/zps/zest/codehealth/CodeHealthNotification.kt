@@ -4,9 +4,11 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -62,8 +64,15 @@ object CodeHealthNotification {
     }
 
     private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        val dialog = HealthReportDialog(project, results)
-        dialog.show()
+        // Generate report in background to avoid EDT blocking
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val dialog = HealthReportDialog(project, results)
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) {
+                    dialog.show()
+                }
+            }
+        }
     }
 
     /**
@@ -82,41 +91,57 @@ object CodeHealthNotification {
         override fun createCenterPanel(): JComponent {
             val panel = JPanel(BorderLayout())
             
-            // Create HTML content
-            val htmlContent = generateHtmlReport()
+            // Show loading initially
+            val loadingLabel = JBLabel("Generating report...")
+            loadingLabel.horizontalAlignment = SwingConstants.CENTER
+            panel.add(loadingLabel, BorderLayout.CENTER)
             
-            // Use JEditorPane for HTML rendering
-            val editorPane = JEditorPane().apply {
-                contentType = "text/html"
-                text = htmlContent
-                isEditable = false
-                caretPosition = 0
-            }
-            
-            val scrollPane = JBScrollPane(editorPane).apply {
-                preferredSize = Dimension(900, 700)
-            }
-            
-            panel.add(scrollPane, BorderLayout.CENTER)
-            
-            // Add action buttons at bottom
-            val buttonPanel = JPanel().apply {
-                add(JButton("Copy Report as Text").apply {
-                    addActionListener {
-                        val textReport = generateTextReport()
-                        CopyPasteManager.getInstance().setContents(StringSelection(textReport))
-                        showCopiedNotification()
+            // Generate HTML content in background
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val htmlContent = generateHtmlReport()
+                
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) {
+                        panel.remove(loadingLabel)
+                        
+                        // Use JEditorPane for HTML rendering
+                        val editorPane = JEditorPane().apply {
+                            contentType = "text/html"
+                            text = htmlContent
+                            isEditable = false
+                            caretPosition = 0
+                        }
+                        
+                        val scrollPane = JBScrollPane(editorPane).apply {
+                            preferredSize = Dimension(900, 700)
+                        }
+                        
+                        panel.add(scrollPane, BorderLayout.CENTER)
+                        
+                        // Add action buttons at bottom
+                        val buttonPanel = JPanel().apply {
+                            add(JButton("Copy Report as Text").apply {
+                                addActionListener {
+                                    val textReport = generateTextReport()
+                                    CopyPasteManager.getInstance().setContents(StringSelection(textReport))
+                                    showCopiedNotification()
+                                }
+                            })
+                            add(JButton("Copy as Markdown").apply {
+                                addActionListener {
+                                    val markdownReport = generateMarkdownReport()
+                                    CopyPasteManager.getInstance().setContents(StringSelection(markdownReport))
+                                    showCopiedNotification()
+                                }
+                            })
+                        }
+                        panel.add(buttonPanel, BorderLayout.SOUTH)
+                        
+                        panel.revalidate()
+                        panel.repaint()
                     }
-                })
-                add(JButton("Copy as Markdown").apply {
-                    addActionListener {
-                        val markdownReport = generateMarkdownReport()
-                        CopyPasteManager.getInstance().setContents(StringSelection(markdownReport))
-                        showCopiedNotification()
-                    }
-                })
+                }
             }
-            panel.add(buttonPanel, BorderLayout.SOUTH)
             
             return panel
         }

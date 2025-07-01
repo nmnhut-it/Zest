@@ -6,6 +6,8 @@ package com.zps.zest.completion.parser
  */
 class ZestMethodResponseParser {
     
+    private val overlapDetector = ZestCompletionOverlapDetector()
+    
     data class MethodRewriteResult(
         val rewrittenMethod: String,
         val isValid: Boolean,
@@ -29,11 +31,14 @@ class ZestMethodResponseParser {
         }
         
         // Clean and extract the method code
-        val cleanedMethod = extractMethodFromResponse(response, language)
+        var cleanedMethod = extractMethodFromResponse(response, language)
         
         if (cleanedMethod.isBlank()) {
             return MethodRewriteResult("", false, 0.0f, listOf("No method found in response"))
         }
+        
+        // Apply overlap detection to handle prefix/suffix duplicates
+        cleanedMethod = removeOverlappingPrefixSuffix(cleanedMethod, originalMethod)
         
         // Validate the rewritten method
         val validationResult = validateRewrittenMethod(cleanedMethod, originalMethod, methodName, language)
@@ -55,6 +60,100 @@ class ZestMethodResponseParser {
             improvements = improvements,
             hasSignificantChanges = hasSignificantChanges
         )
+    }
+    
+    /**
+     * Remove overlapping prefix and suffix between generated and original method
+     */
+    private fun removeOverlappingPrefixSuffix(generatedMethod: String, originalMethod: String): String {
+        var cleaned = generatedMethod
+        
+        // Find common prefix
+        val commonPrefixLength = findCommonPrefixLength(originalMethod, generatedMethod)
+        if (commonPrefixLength > 0) {
+            // Check if the common prefix is a complete syntactic unit (like method signature)
+            val commonPrefix = originalMethod.take(commonPrefixLength)
+            if (isSyntacticUnit(commonPrefix)) {
+                cleaned = generatedMethod.substring(commonPrefixLength).trimStart()
+            }
+        }
+        
+        // Find common suffix
+        val commonSuffixLength = findCommonSuffixLength(originalMethod, cleaned)
+        if (commonSuffixLength > 0) {
+            // Check if the common suffix is a complete syntactic unit (like closing braces)
+            val commonSuffix = originalMethod.takeLast(commonSuffixLength)
+            if (isSyntacticUnit(commonSuffix)) {
+                cleaned = cleaned.substring(0, cleaned.length - commonSuffixLength).trimEnd()
+            }
+        }
+        
+        // If we removed too much, return original
+        if (cleaned.length < generatedMethod.length / 3) {
+            return generatedMethod
+        }
+        
+        return cleaned
+    }
+    
+    /**
+     * Find the length of common prefix between two strings
+     */
+    private fun findCommonPrefixLength(str1: String, str2: String): Int {
+        var commonLength = 0
+        val minLength = minOf(str1.length, str2.length)
+        
+        for (i in 0 until minLength) {
+            if (str1[i] == str2[i]) {
+                commonLength++
+            } else {
+                break
+            }
+        }
+        
+        return commonLength
+    }
+    
+    /**
+     * Find the length of common suffix between two strings
+     */
+    private fun findCommonSuffixLength(str1: String, str2: String): Int {
+        var commonLength = 0
+        val minLength = minOf(str1.length, str2.length)
+        
+        for (i in 1..minLength) {
+            if (str1[str1.length - i] == str2[str2.length - i]) {
+                commonLength++
+            } else {
+                break
+            }
+        }
+        
+        return commonLength
+    }
+    
+    /**
+     * Check if a string fragment represents a complete syntactic unit
+     */
+    private fun isSyntacticUnit(fragment: String): Boolean {
+        val trimmed = fragment.trim()
+        
+        // Complete method signatures
+        if (trimmed.matches(Regex(".*\\)\\s*\\{?$"))) return true
+        
+        // Complete closing blocks
+        if (trimmed.matches(Regex("^\\s*}+\\s*$"))) return true
+        
+        // Complete statements
+        if (trimmed.endsWith(";")) return true
+        
+        // Complete annotations
+        if (trimmed.matches(Regex("^@\\w+.*$"))) return true
+        
+        // Access modifiers or keywords on their own line
+        if (trimmed.matches(Regex("^(public|private|protected|static|final|abstract|override)\\s*$"))) return true
+        
+        return false
     }
     
     /**

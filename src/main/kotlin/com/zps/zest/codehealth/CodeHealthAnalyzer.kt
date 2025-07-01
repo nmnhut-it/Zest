@@ -21,6 +21,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.langchain4j.util.LLMService
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -34,6 +35,9 @@ class CodeHealthAnalyzer(private val project: Project) {
         private const val MAX_CONCURRENT_ANALYSES = 2
         private const val LLM_DELAY_MS = 1000L // Delay between LLM calls to avoid spikes
         private const val CHUNK_SIZE = 5 // Process methods in chunks
+        
+        // Feature flags
+        var SKIP_VERIFICATION = true // Skip verification step for faster analysis
         
         fun getInstance(project: Project): CodeHealthAnalyzer =
             project.getService(CodeHealthAnalyzer::class.java)
@@ -103,48 +107,42 @@ class CodeHealthAnalyzer(private val project: Project) {
         val completed = AtomicInteger(0)
         val latch = CountDownLatch(totalMethods)
         
-        // Process methods in chunks to avoid overwhelming the system
-        methods.chunked(CHUNK_SIZE).forEachIndexed { chunkIndex, chunk ->
-            println("[CodeHealthAnalyzer] Processing chunk ${chunkIndex + 1} with ${chunk.size} methods")
+        // Process methods
+        methods.forEach { method ->
+            if (indicator?.isCanceled == true) {
+                println("[CodeHealthAnalyzer] Analysis cancelled")
+                latch.countDown()
+                return@forEach
+            }
             
-            // Schedule chunk processing with delay between chunks
-            analysisQueue.submit {
-                chunk.forEach { method ->
-                    if (indicator?.isCanceled == true) {
-                        println("[CodeHealthAnalyzer] Analysis cancelled at method ${method.fqn}")
-                        latch.countDown()
-                        return@forEach
-                    }
-                    
-                    val currentCount = completed.get() + 1
-                    
-                    // Update progress
-                    indicator?.let {
-                        it.fraction = currentCount.toDouble() / totalMethods
-                        it.text = "Analyzing method $currentCount of $totalMethods: ${method.fqn}"
-                        it.text2 = "Modified ${method.modificationCount} times"
-                    }
-                    
-                    println("[CodeHealthAnalyzer] Analyzing method $currentCount/$totalMethods: ${method.fqn}")
-                    
-                    // Analyze method asynchronously
-                    analyzeMethodAsync(method) { result ->
-                        val issueCount = result.issues.size
-                        val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
-                        println("[CodeHealthAnalyzer] Completed ${method.fqn}: ${issueCount} issues found, $verifiedCount verified")
-                        
-                        results[method.fqn] = result
-                        val completedCount = completed.incrementAndGet()
-                        
-                        // Update progress after completion
-                        indicator?.let {
-                            it.fraction = completedCount.toDouble() / totalMethods
-                            it.text = "Completed $completedCount of $totalMethods methods"
-                        }
-                        
-                        latch.countDown()
-                    }
+            val currentCount = completed.get() + 1
+            
+            // Update progress
+            indicator?.let {
+                it.fraction = currentCount.toDouble() / totalMethods
+                it.text = "Analyzing method $currentCount of $totalMethods: ${method.fqn}"
+                it.text2 = "Modified ${method.modificationCount} times"
+            }
+            
+            println("[CodeHealthAnalyzer] Queuing analysis for method $currentCount/$totalMethods: ${method.fqn}")
+            
+            // Analyze method asynchronously
+            analyzeMethodAsync(method) { result ->
+                val issueCount = result.issues.size
+                val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
+                println("[CodeHealthAnalyzer] Method analysis complete for ${method.fqn}: $issueCount issues found, $verifiedCount verified")
+                
+                results[method.fqn] = result
+                val completedCount = completed.incrementAndGet()
+                
+                // Update progress after completion
+                indicator?.let {
+                    it.fraction = completedCount.toDouble() / totalMethods
+                    it.text = "Completed $completedCount of $totalMethods methods"
                 }
+                
+                latch.countDown()
+                println("[CodeHealthAnalyzer] Progress: $completedCount/$totalMethods completed, ${latch.count} remaining")
             }
         }
         
@@ -156,6 +154,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             val warningFuture = CompletableFuture.runAsync({
                 Thread.sleep(30000) // 30 seconds
                 if (latch.count > 0) {
+                    println("[CodeHealthAnalyzer] WARNING: Analysis taking longer than expected. ${latch.count} methods remaining")
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Health")
@@ -173,7 +172,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             warningFuture.cancel(true) // Cancel warning if completed
             
             if (!completed) {
-                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 5 minutes")
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 5 minutes. Latch count: ${latch.count}")
                 ApplicationManager.getApplication().invokeLater {
                     NotificationGroupManager.getInstance()
                         .getNotificationGroup("Zest Code Health")
@@ -213,23 +212,24 @@ class CodeHealthAnalyzer(private val project: Project) {
         val startTime = System.currentTimeMillis()
         println("[CodeHealthAnalyzer] Starting async analysis of ${method.fqn}")
         
-        analysisQueue.submit {
-            // Step 1: Get method context
-            println("[CodeHealthAnalyzer] Step 1: Getting context for ${method.fqn}")
-            val context = ReadAction.nonBlocking<String> {
-                getMethodContext(method.fqn)
-            }
-            .inSmartMode(project)
-            .executeSynchronously()
-            
-            if (context.isEmpty() || context.contains("Method not found")) {
-                println("[CodeHealthAnalyzer] WARNING: No context found for ${method.fqn}")
-                onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount))
-                return@submit
-            }
-            
-            // Step 2: Find callers asynchronously
-            analysisQueue.submit {
+        // Run the entire analysis in a single background thread
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // Step 1: Get method context
+                println("[CodeHealthAnalyzer] Step 1: Getting context for ${method.fqn}")
+                val context = ReadAction.nonBlocking<String> {
+                    getMethodContext(method.fqn)
+                }
+                .inSmartMode(project)
+                .executeSynchronously()
+                
+                if (context.isEmpty() || context.contains("Method not found")) {
+                    println("[CodeHealthAnalyzer] WARNING: No context found for ${method.fqn}")
+                    onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount))
+                    return@executeOnPooledThread
+                }
+                
+                // Step 2: Find callers
                 println("[CodeHealthAnalyzer] Step 2: Finding callers for ${method.fqn}")
                 val callers = ReadAction.nonBlocking<List<String>> {
                     findCallers(method.fqn)
@@ -239,43 +239,53 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 println("[CodeHealthAnalyzer] Found ${callers.size} callers for ${method.fqn}")
                 
-                // Step 3: Get limited caller snippets (max 5 to avoid performance issues)
-                analysisQueue.submit {
-                    println("[CodeHealthAnalyzer] Step 3: Getting caller snippets for ${method.fqn}")
-                    val callerSnippets = ReadAction.nonBlocking<List<CallerSnippet>> {
-                        findCallersWithSnippets(method.fqn).take(5)
-                    }
-                    .inSmartMode(project)
-                    .executeSynchronously()
-                    
-                    println("[CodeHealthAnalyzer] Got ${callerSnippets.size} caller snippets for ${method.fqn}")
-                    
-                    // Step 4: Call LLM for detection
-                    analysisQueue.submit {
-                        println("[CodeHealthAnalyzer] Step 4: LLM detection for ${method.fqn}")
-                        val detectionResult = detectIssuesWithLLM(method, context, callers, callerSnippets)
-                        
-                        println("[CodeHealthAnalyzer] LLM detected ${detectionResult.issues.size} issues for ${method.fqn}")
-                        
-                        // Step 5: Verify issues if needed
-                        if (detectionResult.issues.isNotEmpty()) {
-                            analysisQueue.submit {
-                                println("[CodeHealthAnalyzer] Step 5: Verifying issues for ${method.fqn}")
-                                val verifiedResult = verifyIssuesWithAgent(detectionResult)
-                                
-                                val elapsed = System.currentTimeMillis() - startTime
-                                val verifiedCount = verifiedResult.issues.count { it.verified && !it.falsePositive }
-                                println("[CodeHealthAnalyzer] Completed ${method.fqn} in ${elapsed}ms. Verified $verifiedCount/${verifiedResult.issues.size} issues")
-                                
-                                onComplete(verifiedResult)
+                // Step 3: Get limited caller snippets
+                println("[CodeHealthAnalyzer] Step 3: Getting caller snippets for ${method.fqn}")
+                val callerSnippets = ReadAction.nonBlocking<List<CallerSnippet>> {
+                    findCallersWithSnippets(method.fqn).take(5)
+                }
+                .inSmartMode(project)
+                .executeSynchronously()
+                
+                println("[CodeHealthAnalyzer] Got ${callerSnippets.size} caller snippets for ${method.fqn}")
+                
+                // Step 4: Call LLM for detection
+                println("[CodeHealthAnalyzer] Step 4: LLM detection for ${method.fqn}")
+                val detectionResult = detectIssuesWithLLM(method, context, callers, callerSnippets)
+                
+                println("[CodeHealthAnalyzer] LLM detected ${detectionResult.issues.size} issues for ${method.fqn}")
+                
+                // Step 5: Verify issues if needed (skip if flag is set)
+                val finalResult = if (detectionResult.issues.isNotEmpty() && !SKIP_VERIFICATION) {
+                    println("[CodeHealthAnalyzer] Step 5: Verifying issues for ${method.fqn}")
+                    verifyIssuesWithAgent(detectionResult)
+                } else {
+                    if (SKIP_VERIFICATION && detectionResult.issues.isNotEmpty()) {
+                        println("[CodeHealthAnalyzer] Skipping verification (SKIP_VERIFICATION=true)")
+                        // Mark all issues as verified when skipping verification
+                        detectionResult.copy(
+                            issues = detectionResult.issues.map { issue ->
+                                issue.copy(
+                                    verified = true,
+                                    verificationReason = "Verification skipped"
+                                )
                             }
-                        } else {
-                            val elapsed = System.currentTimeMillis() - startTime
-                            println("[CodeHealthAnalyzer] Completed ${method.fqn} in ${elapsed}ms. No issues found")
-                            onComplete(detectionResult)
-                        }
+                        )
+                    } else {
+                        detectionResult
                     }
                 }
+                
+                val elapsed = System.currentTimeMillis() - startTime
+                val verifiedCount = finalResult.issues.count { it.verified && !it.falsePositive }
+                println("[CodeHealthAnalyzer] Completed ${method.fqn} in ${elapsed}ms. Verified $verifiedCount/${finalResult.issues.size} issues")
+                
+                onComplete(finalResult)
+                
+            } catch (e: Exception) {
+                println("[CodeHealthAnalyzer] ERROR analyzing ${method.fqn}: ${e.message}")
+                e.printStackTrace()
+                onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
             }
         }
     }
@@ -818,8 +828,8 @@ class CodeHealthAnalyzer(private val project: Project) {
  */
 class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
-    private val semaphore = Semaphore(1)
     private val taskCount = AtomicInteger(0)
+    private val isProcessing = AtomicBoolean(false)
     
     fun submit(task: () -> Unit) {
         val taskId = taskCount.incrementAndGet()
@@ -827,18 +837,21 @@ class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
         
         scheduler.execute {
             try {
-                semaphore.acquire()
                 println("[SimpleAnalysisQueue] Executing task #$taskId")
                 task()
-                // Schedule next task after delay
-                scheduler.schedule({ 
-                    semaphore.release()
-                    println("[SimpleAnalysisQueue] Released semaphore after task #$taskId")
-                }, delayMs, TimeUnit.MILLISECONDS)
+                println("[SimpleAnalysisQueue] Completed task #$taskId")
+                
+                // Add delay before next task
+                if (delayMs > 0) {
+                    try {
+                        Thread.sleep(delayMs)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                }
             } catch (e: Exception) {
                 println("[SimpleAnalysisQueue] ERROR in task #$taskId: ${e.message}")
-                semaphore.release()
-                // Log error but continue processing
+                e.printStackTrace()
             }
         }
     }

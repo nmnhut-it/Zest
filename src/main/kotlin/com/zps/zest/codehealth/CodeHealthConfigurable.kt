@@ -18,6 +18,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     private val enabledCheckBox = JBCheckBox("Enable daily health check")
     private val checkTimeField = JBTextField(10)
     private val maxMethodsField = JBTextField(10)
+    private val skipVerificationCheckBox = JBCheckBox("Skip verification step (faster analysis)")
     
     override fun getDisplayName(): String = "Code Health"
     
@@ -29,6 +30,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         enabledCheckBox.isSelected = state.enabled
         checkTimeField.text = state.checkTime
         maxMethodsField.text = CodeHealthTracker.MAX_METHODS_TO_TRACK.toString()
+        skipVerificationCheckBox.isSelected = CodeHealthAnalyzer.SKIP_VERIFICATION
         
         return FormBuilder.createFormBuilder()
             .addComponent(JBLabel("Code Health monitors methods you modify throughout the day and analyzes them for potential issues."))
@@ -36,6 +38,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
             .addComponent(enabledCheckBox)
             .addLabeledComponent("Check time (HH:MM):", checkTimeField)
             .addLabeledComponent("Max methods to track:", maxMethodsField)
+            .addComponent(skipVerificationCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel.apply {
                 border = JBUI.Borders.empty(5)
@@ -47,7 +50,8 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         val state = tracker.state
         
         return enabledCheckBox.isSelected != state.enabled ||
-                checkTimeField.text != state.checkTime
+                checkTimeField.text != state.checkTime ||
+                skipVerificationCheckBox.isSelected != CodeHealthAnalyzer.SKIP_VERIFICATION
     }
     
     override fun apply() {
@@ -56,6 +60,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         
         state.enabled = enabledCheckBox.isSelected
         state.checkTime = checkTimeField.text
+        CodeHealthAnalyzer.SKIP_VERIFICATION = skipVerificationCheckBox.isSelected
         
         // Validate time format
         try {
@@ -72,5 +77,6 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         
         enabledCheckBox.isSelected = state.enabled
         checkTimeField.text = state.checkTime
+        skipVerificationCheckBox.isSelected = CodeHealthAnalyzer.SKIP_VERIFICATION
     }
 }

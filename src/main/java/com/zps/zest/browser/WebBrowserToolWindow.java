@@ -8,6 +8,8 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
+import com.intellij.ui.content.ContentManager;
+import com.intellij.openapi.application.ApplicationManager;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
@@ -32,10 +34,25 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
         // Initialize DevTools registry settings
         DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
 
-        DumbService.getInstance(project).smartInvokeLater(() -> {
+        // Check if ContentManager is ready, if not delay the initialization
+        if (toolWindow.getContentManager() == null) {
+            LOG.warn("ContentManager not ready, deferring tool window content creation");
+            ApplicationManager.getApplication().invokeLater(() -> createToolWindowContent(project, toolWindow));
+            return;
+        }
+
+        // Use invokeLater to ensure proper initialization order
+        ApplicationManager.getApplication().invokeLater(() -> {
             LOG.info("Creating web browser tool window for project: " + project.getName());
 
             try {
+                // Double-check ContentManager is available
+                ContentManager contentManager = toolWindow.getContentManager();
+                if (contentManager == null) {
+                    LOG.error("ContentManager is null after invokeLater");
+                    return;
+                }
+
                 // Create the browser panel
                 WebBrowserPanel browserPanel = new WebBrowserPanel(project);
                 
@@ -45,7 +62,7 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
                 // Create content and add it to the tool window using modern API
                 ContentFactory contentFactory = ContentFactory.getInstance();
                 Content content = contentFactory.createContent(browserPanel.getComponent(), "", false);
-                toolWindow.getContentManager().addContent(content);
+                contentManager.addContent(content);
 
                 // Register the panel with the service
                 WebBrowserService.getInstance(project).registerPanel(browserPanel);

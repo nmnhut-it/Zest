@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalTime;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -483,7 +484,21 @@ public final class LLMService {
         public java.util.List<String> getStopSequences() { return stopSequences; }
         boolean isLiteModel = false;
         public LLMQueryParams useLiteCodeModel() {
-            this.model = "local-model-mini";
+            // Get current time in local timezone
+            java.time.LocalTime currentTime = java.time.LocalTime.now();
+            java.time.LocalTime officeStart = java.time.LocalTime.of(8, 30); // 8:30 AM
+            java.time.LocalTime officeEnd = java.time.LocalTime.of(17, 30); // 5:30 PM
+            
+            // During office hours (8:30 AM - 5:30 PM), use local-model if available
+            if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
+                this.model = "local-model";
+                LOG.info("Within office hours (" + currentTime + "), using local-model for lite mode");
+            } else {
+                // Outside office hours, use mini model
+                this.model = "local-model-mini";
+                LOG.info("Outside office hours (" + currentTime + "), using local-model-mini for lite mode");
+            }
+            
             this.isLiteModel = true;
             return this;
         }

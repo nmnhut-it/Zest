@@ -218,6 +218,9 @@ public class JavaScriptBridgeActions {
 
                 case "getFileDiff":
                     return gitService.getFileDiff(data);
+                    
+                case "getBatchFileDiffs":
+                    return gitService.getBatchFileDiffs(data);
 
                 case "openFileDiffInIDE":
                     return gitService.openFileDiffInIDE(data);

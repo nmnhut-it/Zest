@@ -30,6 +30,11 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+import java.util.HashMap;
+import java.time.Instant;
+import java.time.Duration;
+import java.util.stream.Collectors;
 
 public class GitService {
 
@@ -39,8 +44,46 @@ public class GitService {
 
     private static final ConcurrentHashMap<String, GitCommitContext> GLOBAL_CONTEXTS = new ConcurrentHashMap<>();
     
+    // Diff caching with TTL
+    private static final ConcurrentHashMap<String, CachedDiff> DIFF_CACHE = new ConcurrentHashMap<>();
+    private static final Duration CACHE_TTL = Duration.ofMinutes(5); // 5 minute cache
+    
+    /**
+     * Cached diff entry with timestamp
+     */
+    private static class CachedDiff {
+        final String diff;
+        final Instant timestamp;
+        final long fileModTime;
+        
+        CachedDiff(String diff, long fileModTime) {
+            this.diff = diff;
+            this.timestamp = Instant.now();
+            this.fileModTime = fileModTime;
+        }
+        
+        boolean isExpired() {
+            return Duration.between(timestamp, Instant.now()).compareTo(CACHE_TTL) > 0;
+        }
+    }
+    
     public GitService(@NotNull Project project) {
         this.project = project;
+    }
+    
+    /**
+     * Invalidate cache for specific files
+     */
+    public void invalidateCacheForFiles(List<String> filePaths) {
+        String projectPath = project.getBasePath();
+        if (projectPath == null) return;
+        
+        for (String filePath : filePaths) {
+            // Remove all cache entries for this file (all statuses)
+            DIFF_CACHE.entrySet().removeIf(entry -> 
+                entry.getKey().startsWith(projectPath + ":" + filePath + ":"));
+        }
+        LOG.info("Invalidated cache for " + filePaths.size() + " files");
     }
     
     /**
@@ -156,6 +199,12 @@ public class GitService {
 
                         String result = executeGitCommand(projectPath, commitCommand.toString());
                         LOG.info("Commit executed successfully: " + result);
+                        
+                        // Invalidate cache for committed files
+                        List<String> committedPaths = selectedFiles.stream()
+                            .map(file -> cleanFilePath(file.getPath(), project.getName()))
+                            .collect(java.util.stream.Collectors.toList());
+                        invalidateCacheForFiles(committedPaths);
                         
                         // Show success message and notify UI
                         showStatusMessage(project, "Commit completed successfully!");
@@ -959,10 +1008,304 @@ public String handleGitPush() {
     }
     
     /**
+     * Gets diffs for multiple files in a single batch operation.
+     * This dramatically improves performance by reducing git process spawns.
+     */
+    public String getBatchFileDiffs(JsonObject data) {
+        LOG.info("Getting batch file diffs");
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            JsonArray filesArray = data.getAsJsonArray("files");
+            String projectPath = project.getBasePath();
+            
+            if (projectPath == null) {
+                return createErrorResponse("Project path not found");
+            }
+            
+            // Prepare response
+            JsonObject response = new JsonObject();
+            JsonArray diffsArray = new JsonArray();
+            
+            // Performance tracking
+            int totalFiles = filesArray.size();
+            int cachedFiles = 0;
+            int gitCalls = 0;
+            long cacheTime = 0;
+            long gitTime = 0;
+            
+            // Build list of files to process
+            Map<String, String> filesToProcess = new HashMap<>();
+            
+            for (int i = 0; i < filesArray.size(); i++) {
+                JsonObject fileObj = filesArray.get(i).getAsJsonObject();
+                String filePath = fileObj.get("filePath").getAsString();
+                String status = fileObj.get("status").getAsString();
+                String cleanedPath = cleanFilePath(filePath, project.getName());
+                
+                // Check cache first
+                long cacheStart = System.currentTimeMillis();
+                String cacheKey = projectPath + ":" + cleanedPath + ":" + status;
+                CachedDiff cached = getCachedDiff(cacheKey, projectPath, cleanedPath);
+                cacheTime += (System.currentTimeMillis() - cacheStart);
+                
+                if (cached != null) {
+                    cachedFiles++;
+                    LOG.debug("Using cached diff for: " + cleanedPath);
+                    JsonObject diffResult = new JsonObject();
+                    diffResult.addProperty("filePath", filePath);
+                    diffResult.addProperty("diff", cached.diff);
+                    diffResult.addProperty("cached", true);
+                    diffsArray.add(diffResult);
+                } else {
+                    filesToProcess.put(cleanedPath, status);
+                }
+            }
+            
+            // Process uncached files in batch
+            if (!filesToProcess.isEmpty()) {
+                long gitStart = System.currentTimeMillis();
+                Map<String, String> batchDiffs = getBatchDiffsFromGit(projectPath, filesToProcess);
+                gitTime = System.currentTimeMillis() - gitStart;
+                gitCalls = 1; // Single batch call
+                
+                for (Map.Entry<String, String> entry : batchDiffs.entrySet()) {
+                    String filePath = entry.getKey();
+                    String diff = entry.getValue();
+                    String status = filesToProcess.get(filePath);
+                    
+                    // Cache the diff
+                    String cacheKey = projectPath + ":" + filePath + ":" + status;
+                    cacheDiff(cacheKey, diff, projectPath, filePath);
+                    
+                    // Add to response
+                    JsonObject diffResult = new JsonObject();
+                    diffResult.addProperty("filePath", filePath);
+                    diffResult.addProperty("diff", diff);
+                    diffResult.addProperty("cached", false);
+                    diffsArray.add(diffResult);
+                }
+            }
+            
+            // Log performance metrics
+            long totalTime = System.currentTimeMillis() - startTime;
+            LOG.info(String.format(
+                "Batch diff performance: %d files, %d cached (%.1f%%), %d git calls, " +
+                "cache time: %dms, git time: %dms, total time: %dms, " +
+                "avg per file: %.1fms, speedup: %.1fx",
+                totalFiles, cachedFiles, (cachedFiles * 100.0 / totalFiles), gitCalls,
+                cacheTime, gitTime, totalTime,
+                (double) totalTime / totalFiles,
+                totalFiles > 0 ? (double) (totalFiles * 50) / totalTime : 0 // Assuming 50ms per file with old method
+            ));
+            
+            response.addProperty("success", true);
+            response.add("diffs", diffsArray);
+            response.addProperty("performance", String.format(
+                "Retrieved %d diffs in %dms (%d cached, %.1fms avg)",
+                totalFiles, totalTime, cachedFiles, (double) totalTime / totalFiles
+            ));
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error getting batch file diffs", e);
+            return createErrorResponse("Failed to get batch diffs: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Gets diffs for multiple files using a single git command.
+     * This is much more efficient than calling git multiple times.
+     */
+    private Map<String, String> getBatchDiffsFromGit(String projectPath, Map<String, String> files) throws Exception {
+        Map<String, String> diffs = new HashMap<>();
+        
+        // Group files by status for efficient processing
+        Map<String, List<String>> filesByStatus = new HashMap<>();
+        for (Map.Entry<String, String> entry : files.entrySet()) {
+            filesByStatus.computeIfAbsent(entry.getValue(), k -> new ArrayList<>()).add(entry.getKey());
+        }
+        
+        // Process each status group
+        for (Map.Entry<String, List<String>> statusGroup : filesByStatus.entrySet()) {
+            String status = statusGroup.getKey();
+            List<String> filePaths = statusGroup.getValue();
+            
+            switch (status) {
+                case "M": // Modified files - get all diffs in one command
+                    String modifiedDiffs = getModifiedFilesDiffs(projectPath, filePaths);
+                    parseBatchDiffOutput(modifiedDiffs, diffs);
+                    break;
+                    
+                case "A": // Added files
+                    for (String filePath : filePaths) {
+                        if (isNewFile(projectPath, filePath)) {
+                            diffs.put(filePath, getNewFileContent(projectPath, filePath));
+                        } else {
+                            String diff = executeGitCommand(projectPath, "git diff --cached -- \"" + filePath + "\"");
+                            diffs.put(filePath, diff);
+                        }
+                    }
+                    break;
+                    
+                case "D": // Deleted files
+                    for (String filePath : filePaths) {
+                        diffs.put(filePath, getDeletedFileDiff(projectPath, filePath));
+                    }
+                    break;
+                    
+                default:
+                    // Handle other statuses individually
+                    for (String filePath : filePaths) {
+                        String diff = executeGitCommand(projectPath, "git diff -- \"" + filePath + "\"");
+                        diffs.put(filePath, diff);
+                    }
+            }
+        }
+        
+        return diffs;
+    }
+    
+    /**
+     * Gets diffs for all modified files in a single git command.
+     */
+    private String getModifiedFilesDiffs(String projectPath, List<String> filePaths) throws Exception {
+        if (filePaths.isEmpty()) return "";
+        
+        // Build command with all file paths
+        StringBuilder command = new StringBuilder("git diff");
+        for (String filePath : filePaths) {
+            command.append(" -- \"").append(filePath).append("\"");
+        }
+        
+        return executeGitCommand(projectPath, command.toString());
+    }
+    
+    /**
+     * Parses the output of a batch git diff command.
+     */
+    private void parseBatchDiffOutput(String batchOutput, Map<String, String> diffs) {
+        if (batchOutput == null || batchOutput.isEmpty()) return;
+        
+        String[] lines = batchOutput.split("\n");
+        StringBuilder currentDiff = new StringBuilder();
+        String currentFile = null;
+        
+        for (String line : lines) {
+            if (line.startsWith("diff --git")) {
+                // Save previous diff if exists
+                if (currentFile != null && currentDiff.length() > 0) {
+                    diffs.put(currentFile, currentDiff.toString());
+                }
+                
+                // Start new diff
+                currentDiff = new StringBuilder();
+                currentDiff.append(line).append("\n");
+                
+                // Extract file path from diff header
+                String[] parts = line.split(" ");
+                if (parts.length >= 3) {
+                    String filePath = parts[2].substring(2); // Remove "a/" prefix
+                    currentFile = filePath;
+                }
+            } else if (currentFile != null) {
+                currentDiff.append(line).append("\n");
+            }
+        }
+        
+        // Save last diff
+        if (currentFile != null && currentDiff.length() > 0) {
+            diffs.put(currentFile, currentDiff.toString());
+        }
+    }
+    
+    /**
+     * Gets a cached diff if available and not expired.
+     */
+    private CachedDiff getCachedDiff(String cacheKey, String projectPath, String filePath) {
+        CachedDiff cached = DIFF_CACHE.get(cacheKey);
+        if (cached == null || cached.isExpired()) {
+            return null;
+        }
+        
+        // Check if file has been modified since cache
+        try {
+            java.io.File file = new java.io.File(projectPath, filePath);
+            if (file.exists() && file.lastModified() > cached.fileModTime) {
+                DIFF_CACHE.remove(cacheKey);
+                return null;
+            }
+        } catch (Exception e) {
+            LOG.warn("Error checking file modification time: " + e.getMessage());
+        }
+        
+        return cached;
+    }
+    
+    /**
+     * Caches a diff with file modification time.
+     */
+    private void cacheDiff(String cacheKey, String diff, String projectPath, String filePath) {
+        try {
+            java.io.File file = new java.io.File(projectPath, filePath);
+            long modTime = file.exists() ? file.lastModified() : 0;
+            DIFF_CACHE.put(cacheKey, new CachedDiff(diff, modTime));
+            
+            // Clean up expired entries periodically
+            if (DIFF_CACHE.size() > 100) {
+                cleanExpiredCacheEntries();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error caching diff: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Cleans up expired cache entries.
+     */
+    private void cleanExpiredCacheEntries() {
+        DIFF_CACHE.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+    
+    /**
+     * Gets the diff for a deleted file more efficiently.
+     */
+    private String getDeletedFileDiff(String projectPath, String filePath) {
+        try {
+            // Try staged diff first
+            String diff = executeGitCommand(projectPath, "git diff --cached -- \"" + filePath + "\"");
+            if (!diff.trim().isEmpty()) {
+                return diff;
+            }
+            
+            // Get from HEAD
+            String content = executeGitCommand(projectPath, "git show HEAD:\"" + filePath + "\"");
+            if (!content.trim().isEmpty()) {
+                return formatDeletedFileDiff(filePath, content);
+            }
+        } catch (Exception e) {
+            LOG.warn("Error getting deleted file diff: " + e.getMessage());
+        }
+        
+        return "File was deleted: " + filePath + "\n(Content not available)";
+    }
+    
+    /**
+     * Clear diff cache for a specific project.
+     */
+    public void clearDiffCache() {
+        String projectPath = project.getBasePath();
+        if (projectPath != null) {
+            DIFF_CACHE.entrySet().removeIf(entry -> entry.getKey().startsWith(projectPath + ":"));
+        }
+    }
+    
+    /**
      * Disposes of any resources and clears active contexts.
      */
     public void dispose() {
         LOG.info("Disposing GitService for project: " + project.getName());
+        clearDiffCache();
         // Don't clear all contexts, just log
         LOG.info("Active contexts remaining: " + GLOBAL_CONTEXTS.size());
     }

@@ -717,9 +717,70 @@ Please provide ONLY the commit message, no additional explanation, no markdown f
    },
 
     /**
-     * Get diffs for selected files
+     * Get diffs for selected files using batch API for better performance
      */
     getFileDiffs: async function(selectedFiles) {
+        // Prepare batch request
+        const filesArray = selectedFiles.map(file => ({
+            filePath: file.path,
+            status: file.status
+        }));
+        
+        try {
+            console.log(`Getting batch diffs for ${filesArray.length} files`);
+            const startTime = performance.now();
+            
+            const response = await window.intellijBridge.callIDE('getBatchFileDiffs', {
+                files: filesArray
+            });
+            
+            const endTime = performance.now();
+            const totalTime = (endTime - startTime).toFixed(2);
+            console.log(`Batch diff request completed in ${totalTime}ms`);
+            
+            if (response && response.success && response.diffs) {
+                // Convert array response to object format expected by caller
+                const diffs = {};
+                let cachedCount = 0;
+                
+                response.diffs.forEach(diffResult => {
+                    diffs[diffResult.filePath] = diffResult.diff;
+                    if (diffResult.cached) cachedCount++;
+                });
+                
+                const avgTime = (totalTime / filesArray.length).toFixed(2);
+                console.log(`Retrieved ${response.diffs.length} diffs (${cachedCount} from cache)`);
+                console.log(`Average time per file: ${avgTime}ms`);
+                
+                // Show performance info if available
+                if (response.performance) {
+                    console.log(`Server performance: ${response.performance}`);
+                }
+                
+                // Calculate estimated time savings
+                const oldMethodEstimate = filesArray.length * 50; // Assuming 50ms per file with old method
+                const timeSaved = Math.max(0, oldMethodEstimate - totalTime);
+                const speedup = (oldMethodEstimate / totalTime).toFixed(1);
+                console.log(`Estimated time saved: ${timeSaved.toFixed(0)}ms (${speedup}x faster)`);
+                
+                return diffs;
+            } else {
+                console.error('Failed to get batch diffs:', response);
+                // Fallback to individual requests if batch fails
+                return this.getFileDiffsFallback(selectedFiles);
+            }
+        } catch (error) {
+            console.error('Error getting batch diffs:', error);
+            // Fallback to individual requests
+            return this.getFileDiffsFallback(selectedFiles);
+        }
+    },
+    
+    /**
+     * Fallback method - get diffs one by one (original implementation)
+     */
+    getFileDiffsFallback: async function(selectedFiles) {
+        console.warn('Using fallback method for diff retrieval');
         const diffs = {};
 
         for (const file of selectedFiles) {

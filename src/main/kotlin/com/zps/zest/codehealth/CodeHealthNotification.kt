@@ -92,57 +92,47 @@ object CodeHealthNotification {
         override fun createCenterPanel(): JComponent {
             val panel = JPanel(BorderLayout())
             
-            // Show loading initially
-            val loadingLabel = JBLabel("Generating report...")
-            loadingLabel.horizontalAlignment = SwingConstants.CENTER
-            panel.add(loadingLabel, BorderLayout.CENTER)
-            
-            // Generate HTML content in background
-            ApplicationManager.getApplication().executeOnPooledThread {
-                val htmlContent = generateHtmlReport()
-                
-                ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) {
-                        panel.remove(loadingLabel)
-                        
-                        // Use JEditorPane for HTML rendering
-                        val editorPane = JEditorPane().apply {
-                            contentType = "text/html"
-                            text = htmlContent
-                            isEditable = false
-                            caretPosition = 0
-                        }
-                        
-                        val scrollPane = JBScrollPane(editorPane).apply {
-                            preferredSize = Dimension(900, 700)
-                        }
-                        
-                        panel.add(scrollPane, BorderLayout.CENTER)
-                        
-                        // Add action buttons at bottom
-                        val buttonPanel = JPanel().apply {
-                            add(JButton("Copy Report as Text").apply {
-                                addActionListener {
-                                    val textReport = generateTextReport()
-                                    CopyPasteManager.getInstance().setContents(StringSelection(textReport))
-                                    showCopiedNotification()
-                                }
-                            })
-                            add(JButton("Copy as Markdown").apply {
-                                addActionListener {
-                                    val markdownReport = generateMarkdownReport()
-                                    CopyPasteManager.getInstance().setContents(StringSelection(markdownReport))
-                                    showCopiedNotification()
-                                }
-                            })
-                        }
-                        panel.add(buttonPanel, BorderLayout.SOUTH)
-                        
-                        panel.revalidate()
-                        panel.repaint()
-                    }
-                }
+            // Generate HTML content directly (synchronously)
+            val htmlContent = try {
+                generateHtmlReport()
+            } catch (e: Exception) {
+                println("[CodeHealthNotification] Error generating HTML: ${e.message}")
+                e.printStackTrace()
+                "<html><body><h1>Error generating report</h1><p>${e.message}</p></body></html>"
             }
+            
+            // Use JEditorPane for HTML rendering
+            val editorPane = JEditorPane().apply {
+                contentType = "text/html"
+                text = htmlContent
+                isEditable = false
+                caretPosition = 0
+            }
+            
+            val scrollPane = JBScrollPane(editorPane).apply {
+                preferredSize = Dimension(900, 700)
+            }
+            
+            panel.add(scrollPane, BorderLayout.CENTER)
+            
+            // Add action buttons at bottom
+            val buttonPanel = JPanel().apply {
+                add(JButton("Copy Report as Text").apply {
+                    addActionListener {
+                        val textReport = generateTextReport()
+                        CopyPasteManager.getInstance().setContents(StringSelection(textReport))
+                        showCopiedNotification()
+                    }
+                })
+                add(JButton("Copy as Markdown").apply {
+                    addActionListener {
+                        val markdownReport = generateMarkdownReport()
+                        CopyPasteManager.getInstance().setContents(StringSelection(markdownReport))
+                        showCopiedNotification()
+                    }
+                })
+            }
+            panel.add(buttonPanel, BorderLayout.SOUTH)
             
             return panel
         }
@@ -151,7 +141,7 @@ object CodeHealthNotification {
             val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
             val falsePositives = results.flatMap { it.issues }.filter { it.falsePositive }
             val totalMethods = results.size
-            val averageScore = results.map { it.healthScore }.average().toInt()
+            val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
             
             // Group issues by category
             val issuesByCategory = realIssues.groupBy { it.issueCategory }
@@ -159,30 +149,18 @@ object CodeHealthNotification {
                 .sortedByDescending { (_, issues) -> issues.sumOf { it.severity } }
 
             return """
-                <!DOCTYPE html>
                 <html>
                 <head>
                 <style>
                     body {
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        line-height: 1.6;
+                        font-family: Arial, sans-serif;
                         color: #333;
                         background: #f5f5f5;
-                        margin: 0;
-                        padding: 20px;
-                    }
-                    
-                    .container {
-                        max-width: 100%;
-                        background: white;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        padding: 30px;
+                        margin: 20px;
                     }
                     
                     h1 {
                         color: #2c3e50;
-                        margin-bottom: 30px;
                         border-bottom: 3px solid #3498db;
                         padding-bottom: 10px;
                     }
@@ -190,53 +168,34 @@ object CodeHealthNotification {
                     h2 {
                         color: #34495e;
                         margin-top: 30px;
-                        margin-bottom: 20px;
                     }
                     
                     h3 {
                         color: #7f8c8d;
-                        margin-top: 20px;
-                        margin-bottom: 15px;
-                    }
-                    
-                    .summary-grid {
-                        display: grid;
-                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                        gap: 20px;
-                        margin-bottom: 30px;
+                        margin: 10px 0;
                     }
                     
                     .summary-card {
                         background: #f8f9fa;
                         padding: 20px;
-                        border-radius: 8px;
-                        text-align: center;
                         border: 1px solid #e9ecef;
-                    }
-                    
-                    .summary-card h3 {
-                        margin: 0 0 10px 0;
-                        font-size: 14px;
-                        text-transform: uppercase;
-                        letter-spacing: 1px;
+                        margin: 10px;
+                        text-align: center;
+                        width: 150px;
+                        float: left;
                     }
                     
                     .summary-value {
                         font-size: 36px;
                         font-weight: bold;
-                        margin: 0;
+                        margin: 10px 0;
                     }
                     
                     .health-score {
-                        display: inline-block;
-                        width: 80px;
-                        height: 80px;
-                        border-radius: 50%;
-                        line-height: 80px;
-                        text-align: center;
                         font-size: 24px;
                         font-weight: bold;
                         color: white;
+                        padding: 20px;
                         margin: 10px 0;
                     }
                     
@@ -247,32 +206,22 @@ object CodeHealthNotification {
                     .issue-card {
                         background: #fff;
                         border: 1px solid #e0e0e0;
-                        border-radius: 8px;
                         padding: 20px;
                         margin-bottom: 20px;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                    }
-                    
-                    .issue-header {
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-bottom: 15px;
                     }
                     
                     .issue-title {
                         font-size: 18px;
-                        font-weight: 600;
-                        margin: 0;
+                        font-weight: bold;
+                        margin: 0 0 10px 0;
                     }
                     
                     .severity-badge {
-                        display: inline-block;
+                        background: #e0e0e0;
                         padding: 4px 12px;
-                        border-radius: 20px;
                         font-size: 12px;
-                        font-weight: 600;
-                        text-transform: uppercase;
+                        font-weight: bold;
+                        float: right;
                     }
                     
                     .severity-1 { background: #e3f2fd; color: #1976d2; }
@@ -289,21 +238,10 @@ object CodeHealthNotification {
                     }
                     
                     .method-name {
-                        font-family: 'Consolas', 'Monaco', monospace;
+                        font-family: monospace;
                         font-size: 16px;
                         color: #2c3e50;
                         margin-bottom: 10px;
-                    }
-                    
-                    .code-snippet {
-                        background: #282c34;
-                        color: #abb2bf;
-                        padding: 15px;
-                        border-radius: 5px;
-                        font-family: 'Consolas', 'Monaco', monospace;
-                        font-size: 14px;
-                        overflow-x: auto;
-                        margin: 10px 0;
                     }
                     
                     .impact-box {
@@ -320,86 +258,74 @@ object CodeHealthNotification {
                         margin: 15px 0;
                     }
                     
-                    .confidence-bar {
-                        display: inline-block;
-                        width: 100px;
-                        height: 8px;
-                        background: #e0e0e0;
-                        border-radius: 4px;
-                        overflow: hidden;
-                        margin-left: 10px;
-                    }
-                    
-                    .confidence-fill {
-                        height: 100%;
-                        background: #3498db;
-                        transition: width 0.3s ease;
-                    }
-                    
-                    .false-positive {
-                        opacity: 0.5;
-                        border-color: #ccc;
-                    }
-                    
-                    .false-positive .issue-title {
-                        text-decoration: line-through;
-                    }
-                    
-                    .category-section {
-                        margin-bottom: 40px;
-                    }
-                    
-                    .category-header {
-                        background: #ecf0f1;
-                        padding: 15px 20px;
-                        border-radius: 8px 8px 0 0;
-                        margin-bottom: 0;
-                    }
-                    
-                    .stats-inline {
-                        display: flex;
-                        gap: 20px;
-                        margin-top: 10px;
-                        font-size: 14px;
-                        color: #666;
-                    }
+                    .clear { clear: both; }
                 </style>
                 </head>
                 <body>
-                <div class="container">
-                    <h1>🏥 Code Health Report</h1>
+                    <h1>Code Health Report</h1>
                     
-                    <div class="summary-grid">
+                    <div>
                         <div class="summary-card">
                             <h3>Health Score</h3>
                             <div class="health-score ${getHealthClass(averageScore)}">$averageScore</div>
                         </div>
                         <div class="summary-card">
-                            <h3>Methods Analyzed</h3>
-                            <p class="summary-value">$totalMethods</p>
+                            <h3>Methods</h3>
+                            <div class="summary-value">$totalMethods</div>
                         </div>
                         <div class="summary-card">
-                            <h3>Verified Issues</h3>
-                            <p class="summary-value">${realIssues.size}</p>
+                            <h3>Issues</h3>
+                            <div class="summary-value">${realIssues.size}</div>
                         </div>
-                        <div class="summary-card">
-                            <h3>False Positives</h3>
-                            <p class="summary-value">${falsePositives.size}</p>
-                        </div>
+                        <div class="clear"></div>
                     </div>
                     
-                    <h2>📊 Issues by Category</h2>
-                    ${generateCategorySummary(issuesByCategory)}
-                    
-                    <h2>📋 Detailed Analysis by Method</h2>
-                    ${generateMethodDetails()}
-                    
-                    ${if (falsePositives.isNotEmpty()) """
-                        <h2>❌ False Positives (Filtered Out)</h2>
-                        <p style="color: #666;">These issues were initially detected but verified as false positives:</p>
-                        ${generateFalsePositives(falsePositives)}
+                    ${if (issuesByCategory.isNotEmpty()) """
+                        <h2>Issues by Category</h2>
+                        <ul>
+                        ${issuesByCategory.joinToString("") { (category, issues) ->
+                            "<li><strong>$category</strong>: ${issues.size} issues</li>"
+                        }}
+                        </ul>
                     """ else ""}
-                </div>
+                    
+                    <h2>Detailed Analysis</h2>
+                    ${results.filter { it.issues.any { issue -> issue.verified && !issue.falsePositive } }
+                        .sortedBy { it.healthScore }
+                        .joinToString("") { result ->
+                            val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                            
+                            """
+                            <div class="method-section">
+                                <div class="method-name">${escapeHtml(result.fqn)}</div>
+                                <p>
+                                    Health Score: <strong>${result.healthScore}/100</strong> | 
+                                    Modified: <strong>${result.modificationCount}</strong> times | 
+                                    Called by: <strong>${result.impactedCallers.size}</strong> methods
+                                </p>
+                                
+                                ${verifiedIssues.joinToString("") { issue ->
+                                    """
+                                    <div class="issue-card">
+                                        <span class="severity-badge severity-${issue.severity}">Severity ${issue.severity}/5</span>
+                                        <h4 class="issue-title">${escapeHtml(issue.title)}</h4>
+                                        
+                                        <p><strong>Category:</strong> ${escapeHtml(issue.issueCategory)}</p>
+                                        <p>${escapeHtml(issue.description)}</p>
+                                        
+                                        <div class="impact-box">
+                                            <strong>Impact:</strong> ${escapeHtml(issue.impact)}
+                                        </div>
+                                        
+                                        <div class="fix-box">
+                                            <strong>Suggested Fix:</strong> ${escapeHtml(issue.suggestedFix)}
+                                        </div>
+                                    </div>
+                                    """.trimIndent()
+                                }}
+                            </div>
+                            """.trimIndent()
+                        }}
                 </body>
                 </html>
             """.trimIndent()
@@ -410,116 +336,6 @@ object CodeHealthNotification {
                 score >= 80 -> "health-good"
                 score >= 60 -> "health-warning"
                 else -> "health-critical"
-            }
-        }
-
-        private fun generateCategorySummary(issuesByCategory: List<Pair<String, List<CodeHealthAnalyzer.HealthIssue>>>): String {
-            return issuesByCategory.joinToString("") { (category, issues) ->
-                val avgSeverity = issues.map { it.severity }.average()
-                val criticalCount = issues.count { it.severity >= 4 }
-                
-                """
-                <div class="category-section">
-                    <div class="category-header">
-                        <h3 style="margin: 0;">$category</h3>
-                        <div class="stats-inline">
-                            <span><strong>${issues.size}</strong> issues</span>
-                            <span>Avg severity: <strong>${String.format("%.1f", avgSeverity)}/5</strong></span>
-                            ${if (criticalCount > 0) "<span style='color: #e74c3c;'><strong>$criticalCount</strong> critical</span>" else ""}
-                        </div>
-                    </div>
-                </div>
-                """.trimIndent()
-            }
-        }
-
-        private fun generateMethodDetails(): String {
-            return results.filter { it.issues.any { issue -> issue.verified && !issue.falsePositive } }
-                .sortedBy { it.healthScore }
-                .joinToString("") { result ->
-                    val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
-                    
-                    """
-                    <div class="method-section">
-                        <div class="method-name">📄 ${result.fqn}</div>
-                        <div class="stats-inline">
-                            <span>Health Score: <strong>${result.healthScore}/100</strong></span>
-                            <span>Modified: <strong>${result.modificationCount}</strong> times</span>
-                            <span>Called by: <strong>${result.impactedCallers.size}</strong> methods</span>
-                        </div>
-                        
-                        ${if (result.summary.isNotBlank()) "<p style='margin-top: 15px;'><em>${result.summary}</em></p>" else ""}
-                        
-                        ${verifiedIssues.joinToString("") { issue ->
-                            """
-                            <div class="issue-card">
-                                <div class="issue-header">
-                                    <h4 class="issue-title">${issue.title}</h4>
-                                    <span class="severity-badge severity-${issue.severity}">Severity ${issue.severity}/5</span>
-                                </div>
-                                
-                                <p><strong>Category:</strong> ${issue.issueCategory}</p>
-                                <p>${issue.description}</p>
-                                
-                                ${if (issue.codeSnippet != null) """
-                                    <div class="code-snippet">${escapeHtml(issue.codeSnippet)}</div>
-                                """ else ""}
-                                
-                                ${if (issue.callerSnippets.isNotEmpty()) """
-                                    <div style="margin-top: 15px;">
-                                        <strong>Usage Examples:</strong>
-                                        ${issue.callerSnippets.joinToString("") { snippet ->
-                                            """
-                                            <div style="margin-top: 10px; background: #f5f5f5; padding: 10px; border-radius: 5px;">
-                                                <div style="font-weight: bold; font-size: 12px; color: #666;">
-                                                    Called by: ${snippet.callerFqn} (${snippet.context})
-                                                </div>
-                                                <div class="code-snippet" style="margin-top: 5px; font-size: 12px;">
-                                                    ${escapeHtml(snippet.snippet)}
-                                                </div>
-                                            </div>
-                                            """.trimIndent()
-                                        }}
-                                    </div>
-                                """ else ""}
-                                
-                                <div class="impact-box">
-                                    <strong>Impact:</strong> ${issue.impact}
-                                </div>
-                                
-                                <div class="fix-box">
-                                    <strong>Suggested Fix:</strong> ${issue.suggestedFix}
-                                </div>
-                                
-                                <div style="margin-top: 10px;">
-                                    <small>Confidence: ${(issue.confidence * 100).toInt()}%</small>
-                                    <div class="confidence-bar">
-                                        <div class="confidence-fill" style="width: ${(issue.confidence * 100).toInt()}%"></div>
-                                    </div>
-                                </div>
-                                
-                                ${if (issue.verificationReason != null) """
-                                    <p style="margin-top: 10px; font-size: 14px; color: #666;">
-                                        <strong>Verification:</strong> ${issue.verificationReason}
-                                    </p>
-                                """ else ""}
-                            </div>
-                            """.trimIndent()
-                        }}
-                    </div>
-                    """.trimIndent()
-                }
-        }
-
-        private fun generateFalsePositives(falsePositives: List<CodeHealthAnalyzer.HealthIssue>): String {
-            return falsePositives.joinToString("") { issue ->
-                """
-                <div class="issue-card false-positive">
-                    <h4 class="issue-title">${issue.title}</h4>
-                    <p>${issue.description}</p>
-                    <p style="color: #666;"><strong>Reason for false positive:</strong> ${issue.verificationReason ?: "Verified as not a real issue"}</p>
-                </div>
-                """.trimIndent()
             }
         }
 
@@ -534,35 +350,80 @@ object CodeHealthNotification {
 
         private fun generateTextReport(): String {
             val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+            val totalMethods = results.size
+            val totalIssues = realIssues.size
+            val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
             
             return buildString {
                 appendLine("CODE HEALTH REPORT")
-                appendLine("=".repeat(50))
+                appendLine("=".repeat(80))
                 appendLine()
-                appendLine("Summary:")
-                appendLine("- Methods Analyzed: ${results.size}")
-                appendLine("- Total Verified Issues: ${realIssues.size}")
-                appendLine("- Average Health Score: ${results.map { it.healthScore }.average().toInt()}/100")
+                appendLine("SUMMARY")
+                appendLine("-".repeat(80))
+                appendLine("Methods Analyzed:    $totalMethods")
+                appendLine("Total Issues Found:  $totalIssues")
+                appendLine("Average Health:      $averageScore/100")
                 appendLine()
+                
+                if (realIssues.isNotEmpty()) {
+                    appendLine("ISSUES BY CATEGORY")
+                    appendLine("-".repeat(80))
+                    val issuesByCategory = realIssues.groupBy { it.issueCategory }
+                    issuesByCategory.forEach { (category, issues) ->
+                        appendLine("$category: ${issues.size} issues")
+                    }
+                    appendLine()
+                }
+                
+                appendLine("DETAILED ANALYSIS")
+                appendLine("=".repeat(80))
                 
                 results.forEach { result ->
                     val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
-                    if (verifiedIssues.isNotEmpty()) {
-                        appendLine("-".repeat(50))
-                        appendLine("Method: ${result.fqn}")
-                        appendLine("Health Score: ${result.healthScore}/100 | Modified: ${result.modificationCount}x")
-                        appendLine()
-                        
-                        verifiedIssues.forEach { issue ->
-                            appendLine("  [${issue.issueCategory}] ${issue.title}")
-                            appendLine("  Severity: ${issue.severity}/5 | Confidence: ${(issue.confidence * 100).toInt()}%")
-                            appendLine("  ${issue.description}")
-                            appendLine("  Impact: ${issue.impact}")
-                            appendLine("  Fix: ${issue.suggestedFix}")
+                    
+                    appendLine()
+                    appendLine("METHOD: ${result.fqn}")
+                    appendLine("-".repeat(80))
+                    appendLine("Health Score:        ${result.healthScore}/100")
+                    appendLine("Times Modified:      ${result.modificationCount}")
+                    appendLine("Callers:            ${result.impactedCallers.size}")
+                    if (result.summary.isNotBlank()) {
+                        appendLine("Summary:            ${result.summary}")
+                    }
+                    appendLine()
+                    
+                    if (verifiedIssues.isEmpty()) {
+                        appendLine("  ✓ No issues found")
+                    } else {
+                        appendLine("  ISSUES (${verifiedIssues.size}):")
+                        verifiedIssues.forEachIndexed { index, issue ->
                             appendLine()
+                            appendLine("  ${index + 1}. [${issue.issueCategory}] ${issue.title}")
+                            appendLine("     Severity:    ${getSeverityText(issue.severity)}")
+                            appendLine("     Description: ${issue.description}")
+                            appendLine("     Impact:      ${issue.impact}")
+                            appendLine("     Fix:         ${issue.suggestedFix}")
+                            if (issue.confidence < 1.0) {
+                                appendLine("     Confidence:  ${(issue.confidence * 100).toInt()}%")
+                            }
                         }
                     }
+                    appendLine()
                 }
+                
+                appendLine("-".repeat(80))
+                appendLine("Report generated at: ${java.time.LocalDateTime.now()}")
+            }
+        }
+        
+        private fun getSeverityText(severity: Int): String {
+            return when (severity) {
+                5 -> "CRITICAL (5/5)"
+                4 -> "HIGH (4/5)"
+                3 -> "MEDIUM (3/5)"
+                2 -> "LOW (2/5)"
+                1 -> "MINOR (1/5)"
+                else -> "UNKNOWN"
             }
         }
 

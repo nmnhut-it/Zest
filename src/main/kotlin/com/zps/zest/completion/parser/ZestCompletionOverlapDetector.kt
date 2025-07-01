@@ -47,20 +47,31 @@ class ZestCompletionOverlapDetector {
         System.out.println("Context after cursor: '${contextAfterCursor.take(50)}'")
         System.out.println("Completion: '${completionText.take(50)}...'")
         
-        // Check for prefix overlap with larger context
-        val prefixOverlap = findLongestPrefixOverlap(contextBeforeCursor, completionText)
+        var adjustedCompletion = completionText
+        var totalOverlap = 0
+        
+        // First, handle prefix overlap
+        val prefixOverlap = findLongestPrefixOverlap(contextBeforeCursor, adjustedCompletion)
         if (prefixOverlap > 0) {
-            val adjustedCompletion = completionText.substring(prefixOverlap)
-            System.out.println("Found prefix overlap of $prefixOverlap chars")
-            return OverlapResult(adjustedCompletion, prefixOverlap, OverlapType.EXACT_PREFIX)
+            adjustedCompletion = adjustedCompletion.substring(prefixOverlap)
+            totalOverlap += prefixOverlap
+            System.out.println("Found prefix overlap of $prefixOverlap chars, adjusted: '$adjustedCompletion'")
         }
         
-        // Check for suffix overlap - if completion ends with what's already after cursor
-        val suffixOverlap = findLongestSuffixOverlap(completionText, contextAfterCursor)
+        // Then, handle suffix overlap on the adjusted completion
+        val suffixOverlap = findLongestSuffixOverlap(adjustedCompletion, contextAfterCursor)
         if (suffixOverlap > 0) {
-            val adjustedCompletion = completionText.substring(0, completionText.length - suffixOverlap)
-            System.out.println("Found suffix overlap of $suffixOverlap chars")
-            return OverlapResult(adjustedCompletion, suffixOverlap, OverlapType.EXACT_PREFIX)
+            adjustedCompletion = adjustedCompletion.substring(0, adjustedCompletion.length - suffixOverlap)
+            totalOverlap += suffixOverlap
+            System.out.println("Found suffix overlap of $suffixOverlap chars, adjusted: '$adjustedCompletion'")
+        }
+        
+        // Apply postfix pattern handling for insertions between existing code
+        adjustedCompletion = handlePostfixPatterns(adjustedCompletion, contextBeforeCursor, contextAfterCursor)
+        
+        // If we found both prefix and suffix overlap, return the adjusted result
+        if (totalOverlap > 0) {
+            return OverlapResult(adjustedCompletion, totalOverlap, OverlapType.EXACT_PREFIX)
         }
         
         // Use passed parameter with fallback to extraction if empty
@@ -73,6 +84,15 @@ class ZestCompletionOverlapDetector {
             // Check exact match with whitespace consideration
             if (completionText.startsWith(recentUserInput)) {
                 val remainingCompletion = completionText.substring(recentUserInput.length)
+                
+                // Also check if remaining completion overlaps with context after cursor
+                val remainingSuffixOverlap = findLongestSuffixOverlap(remainingCompletion, contextAfterCursor)
+                if (remainingSuffixOverlap > 0) {
+                    val finalCompletion = remainingCompletion.substring(0, remainingCompletion.length - remainingSuffixOverlap)
+                    System.out.println("Found combined prefix and suffix overlap, final: '$finalCompletion'")
+                    return OverlapResult(finalCompletion, recentUserInput.length + remainingSuffixOverlap, OverlapType.EXACT_PREFIX)
+                }
+                
                 System.out.println("Exact prefix match found (including whitespace). Remaining: '$remainingCompletion'")
                 if (remainingCompletion.isBlank()) {
                     System.out.println("User typed the entire completion, returning empty")
@@ -108,6 +128,14 @@ class ZestCompletionOverlapDetector {
         for (strategy in strategies) {
             val result = strategy(recentUserInput, completionText)
             if (result.overlapType != OverlapType.NONE) {
+                // After applying strategy, check for suffix overlap
+                val suffixCheck = findLongestSuffixOverlap(result.adjustedCompletion, contextAfterCursor)
+                if (suffixCheck > 0) {
+                    val finalAdjusted = result.adjustedCompletion.substring(0, result.adjustedCompletion.length - suffixCheck)
+                    System.out.println("Strategy ${strategy.javaClass.simpleName} + suffix overlap: '$finalAdjusted'")
+                    return OverlapResult(finalAdjusted, result.overlapLength + suffixCheck, result.overlapType)
+                }
+                
                 System.out.println("Strategy ${strategy.javaClass.simpleName} detected overlap: type=${result.overlapType}, length=${result.overlapLength}")
                 System.out.println("Adjusted result: '${result.adjustedCompletion}'")
                 return result
@@ -197,12 +225,16 @@ class ZestCompletionOverlapDetector {
     
     /**
      * Find the longest suffix overlap between completion and context after cursor
-     * Enhanced to handle whitespace intelligently
+     * Enhanced to handle whitespace intelligently and common code patterns
      */
     private fun findLongestSuffixOverlap(completion: String, contextAfter: String): Int {
         if (completion.isEmpty() || contextAfter.isEmpty()) return 0
         
-        // Try exact match first
+        // First, try intelligent pattern-based suffix detection
+        val patternOverlap = findPatternBasedSuffixOverlap(completion, contextAfter)
+        if (patternOverlap > 0) return patternOverlap
+        
+        // Try exact match
         for (length in minOf(completion.length, contextAfter.length) downTo 1) {
             val prefix = contextAfter.take(length)
             if (completion.endsWith(prefix)) {
@@ -224,6 +256,117 @@ class ZestCompletionOverlapDetector {
         
         return 0
     }
+    
+    /**
+     * Find pattern-based suffix overlaps for common code structures
+     */
+    private fun findPatternBasedSuffixOverlap(completion: String, contextAfter: String): Int {
+        // Common code patterns where suffix overlap is likely
+        val patterns = listOf(
+            // Closing braces/brackets/parens
+            PatternPair("}", "}"),
+            PatternPair(")", ")"),
+            PatternPair("]", "]"),
+            PatternPair("};", "};"),
+            PatternPair(");", ");"),
+            PatternPair("});", "});"),
+            PatternPair("})", "})"),
+            PatternPair("}]", "}]"),
+            PatternPair("})", "})"),
+            PatternPair(">", ">"),
+            
+            // Method/function endings
+            PatternPair("}\n}", "}\n}"),
+            PatternPair("}\r\n}", "}\r\n}"),
+            PatternPair("}\n\n}", "}\n\n}"),
+            PatternPair("    }", "    }"),
+            PatternPair("\t}", "\t}"),
+            
+            // Statement endings
+            PatternPair(";\n", ";\n"),
+            PatternPair(";\r\n", ";\r\n"),
+            PatternPair(";", ";"),
+            
+            // Comments
+            PatternPair("*/", "*/"),
+            PatternPair("-->", "-->"),
+            
+            // String/char endings
+            PatternPair("\"", "\""),
+            PatternPair("'", "'"),
+            PatternPair("`", "`"),
+            
+            // Common endings with whitespace
+            PatternPair(" }", " }"),
+            PatternPair(" );", " );"),
+            PatternPair(" ]);", " ]);"),
+            PatternPair("\n}", "\n}"),
+            PatternPair("\n);", "\n);"),
+            PatternPair("\n]);", "\n]);")
+        )
+        
+        for (pattern in patterns) {
+            if (completion.endsWith(pattern.completionEnd) && contextAfter.startsWith(pattern.contextStart)) {
+                // Check if there's more overlap beyond just the pattern
+                val baseOverlap = pattern.contextStart.length
+                
+                // Try to extend the overlap
+                var extendedOverlap = baseOverlap
+                val maxExtension = minOf(completion.length, contextAfter.length)
+                
+                while (extendedOverlap < maxExtension) {
+                    val compIndex = completion.length - extendedOverlap - 1
+                    val contextIndex = extendedOverlap
+                    
+                    if (compIndex >= 0 && contextIndex < contextAfter.length &&
+                        completion[compIndex] == contextAfter[contextIndex]) {
+                        extendedOverlap++
+                    } else {
+                        break
+                    }
+                }
+                
+                return extendedOverlap
+            }
+        }
+        
+        // Check for common multi-character sequences
+        val multiCharPatterns = listOf(
+            // Indented closing braces
+            Regex("\\s+}"),
+            // Method chains
+            Regex("\\.\\w+\\("),
+            // Array/object access
+            Regex("\\[\\w+\\]"),
+            // Generic types
+            Regex("<[\\w\\s,]+>"),
+            // Comments
+            Regex("//.*"),
+            Regex("/\\*.*\\*/")
+        )
+        
+        for (pattern in multiCharPatterns) {
+            val completionMatch = pattern.find(completion)
+            val contextMatch = pattern.find(contextAfter)
+            
+            if (completionMatch != null && contextMatch != null) {
+                // Check if completion ends with start of context match
+                if (completion.endsWith(contextMatch.value.take(minOf(completionMatch.value.length, contextMatch.value.length)))) {
+                    return minOf(completionMatch.value.length, contextMatch.value.length)
+                }
+            }
+        }
+        
+        return 0
+    }
+    
+    /**
+     * Data class for pattern matching
+     */
+    private data class PatternPair(
+        val completionEnd: String,
+        val contextStart: String
+    )
     
     /**
      * Normalize whitespace for comparison
@@ -668,6 +811,116 @@ class ZestCompletionOverlapDetector {
         
         return adjusted
     }
+    
+    /**
+     * Handle postfix-specific patterns where completion might be inserting between existing code
+     */
+    fun handlePostfixPatterns(
+        completionText: String,
+        contextBeforeCursor: String,
+        contextAfterCursor: String
+    ): String {
+        var adjusted = completionText
+        
+        // Common insertion patterns
+        val insertionPatterns = listOf(
+            // Inserting between parentheses: "method(|)" where | is cursor
+            InsertionPattern(
+                beforeEnds = "(",
+                afterStarts = ")",
+                trimStart = false,
+                trimEnd = false
+            ),
+            // Inserting between brackets: "array[|]"
+            InsertionPattern(
+                beforeEnds = "[",
+                afterStarts = "]",
+                trimStart = false,
+                trimEnd = false
+            ),
+            // Inserting between braces: "{ | }"
+            InsertionPattern(
+                beforeEnds = "{",
+                afterStarts = "}",
+                trimStart = true,
+                trimEnd = true
+            ),
+            // Inserting in empty string: ""|""
+            InsertionPattern(
+                beforeEnds = "\"",
+                afterStarts = "\"",
+                trimStart = false,
+                trimEnd = false
+            ),
+            // Inserting in empty char: "'|'"
+            InsertionPattern(
+                beforeEnds = "'",
+                afterStarts = "'",
+                trimStart = false,
+                trimEnd = false
+            ),
+            // Inserting after opening and before closing on new lines
+            InsertionPattern(
+                beforeEnds = "{\n",
+                afterStarts = "\n}",
+                trimStart = false,
+                trimEnd = false
+            )
+        )
+        
+        for (pattern in insertionPatterns) {
+            if (contextBeforeCursor.endsWith(pattern.beforeEnds) && 
+                contextAfterCursor.startsWith(pattern.afterStarts)) {
+                
+                // Remove the closing part if completion includes it
+                if (adjusted.endsWith(pattern.afterStarts)) {
+                    adjusted = adjusted.substring(0, adjusted.length - pattern.afterStarts.length)
+                    if (pattern.trimEnd) {
+                        adjusted = adjusted.trimEnd()
+                    }
+                }
+                
+                // Remove the opening part if completion includes it
+                if (adjusted.startsWith(pattern.beforeEnds)) {
+                    adjusted = adjusted.substring(pattern.beforeEnds.length)
+                    if (pattern.trimStart) {
+                        adjusted = adjusted.trimStart()
+                    }
+                }
+            }
+        }
+        
+        // Handle method completion between parentheses
+        if (contextBeforeCursor.matches(Regex(".*\\w+\\($")) && contextAfterCursor.startsWith(")")) {
+            // User typed "method(" and cursor is before ")"
+            // If completion includes closing paren, remove it
+            if (adjusted.endsWith(")")) {
+                adjusted = adjusted.substring(0, adjusted.length - 1)
+            }
+        }
+        
+        // Handle property/method chains
+        if (contextBeforeCursor.endsWith(".") && contextAfterCursor.matches(Regex("^\\w+.*"))) {
+            // User is inserting in middle of chain like "obj.|existingMethod()"
+            // If completion duplicates the existing method, handle it
+            val existingMethod = contextAfterCursor.takeWhile { it.isLetterOrDigit() || it == '_' }
+            if (adjusted.startsWith(existingMethod)) {
+                adjusted = adjusted.substring(existingMethod.length)
+            }
+        }
+        
+        return adjusted
+    }
+    
+    /**
+     * Data class for insertion patterns
+     */
+    private data class InsertionPattern(
+        val beforeEnds: String,
+        val afterStarts: String,
+        val trimStart: Boolean = false,
+        val trimEnd: Boolean = false
+    )
     
     companion object {
         private const val MAX_OVERLAP_DETECTION_LENGTH = 50

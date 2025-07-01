@@ -125,7 +125,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 var enhancedMethodContext: ZestMethodContextCollector.MethodContext? = null
                 val contextReady = CompletableDeferred<Boolean>()
                 
-                withContext(Dispatchers.Main) {
+                ApplicationManager.getApplication().invokeLater {
                     methodContextCollector.findMethodWithAsyncAnalysis(editor, offset) { context ->
                         enhancedMethodContext = context
                         if (!contextReady.isCompleted) {
@@ -159,7 +159,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 currentMethodContext = methodContext
 
                 // Show loading notification on EDT
-                withContext(Dispatchers.Main) {
+                ApplicationManager.getApplication().invokeLater {
                     val title = if (methodContext.isCocos2dx) "🎮 Cocos2d-x Method Rewrite" else "Method Rewrite"
                     val subtitle = if (methodContext.relatedClasses.isNotEmpty()) {
                         "Analyzing '${methodContext.methodName}' with ${methodContext.relatedClasses.size} related classes..."
@@ -179,7 +179,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
 
             } catch (e: Exception) {
                 logger.error("Failed to trigger method rewrite", e)
-                withContext(Dispatchers.Main) {
+                ApplicationManager.getApplication().invokeLater {
                     ZestNotifications.showError(project, "Method Rewrite Error", "Failed to start method rewrite: ${e.message}")
                 }
                 if (activeRewriteId == requestId) {
@@ -291,7 +291,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             // Show diff - this will update status bar to "Review Ready"
             statusCallback?.invoke("✅ Rewrite complete! Review changes and press TAB to accept, ESC to reject")
 
-            withContext(Dispatchers.Main) {
+            ApplicationManager.getApplication().invokeLater {
                 showLanguageAwareDiff(
                     editor = editor,
                     methodContext = methodContext,
@@ -316,7 +316,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
 
             statusCallback?.invoke("❌ Rewrite failed: ${e.message}")
 
-            withContext(Dispatchers.Main) {
+            ApplicationManager.getApplication().invokeLater {
                 methodDiffRenderer.hide()
             }
         } finally {

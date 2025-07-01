@@ -32,6 +32,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 /**
@@ -197,6 +199,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         System.out.println("  - currentCompletion: ${currentCompletion != null}")
         System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
         
+        // Check if project is ready
+        if (project.isDisposed || !project.isInitialized) {
+            System.out.println("[ZestInlineCompletion] Project not ready - disposed: ${project.isDisposed}, initialized: ${project.isInitialized}")
+            logger.debug("Project not ready, ignoring completion request")
+            return
+        }
+        
+        // Check if editor is still valid
+        if (editor.isDisposed) {
+            System.out.println("[ZestInlineCompletion] Editor is disposed, ignoring request")
+            return
+        }
+        
         // Block all completion requests during acceptance
         if (isAcceptingCompletion) {
             System.out.println("[ZestInlineCompletion] Currently accepting a completion, blocking all new requests")
@@ -265,8 +280,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     System.out.println("[ZestInlineCompletion] Starting completion job for request $requestId")
                     
                     // Generate a new completion ID for metrics tracking
-                    val completionId = UUID.randomUUID().toString()
-                    currentCompletionId = completionId
+                val completionId = UUID.randomUUID().toString()
+                currentCompletionId = completionId
                     
                     try {
                         System.out.println("[ZestInlineCompletion] Building completion context...")
@@ -815,22 +830,44 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     private suspend fun buildCompletionContext(editor: Editor, offset: Int, manually: Boolean): CompletionContext? {
         System.out.println("[ZestInlineCompletion] Building completion context on thread: ${Thread.currentThread().name}")
+        
+        // Check if the project is fully initialized before attempting to build context
+        if (project.isDisposed || !project.isInitialized) {
+            System.out.println("[ZestInlineCompletion] Project not ready - disposed: ${project.isDisposed}, initialized: ${project.isInitialized}")
+            return null
+        }
+        
         return try {
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                System.out.println("[ZestInlineCompletion] Switched to EDT: ${ApplicationManager.getApplication().isDispatchThread}")
+            // Use ApplicationManager.invokeLater with a CompletableFuture instead of Dispatchers.Main
+            // to avoid the Main dispatcher initialization issue
+            val future = java.util.concurrent.CompletableFuture<CompletionContext?>()
+            
+            ApplicationManager.getApplication().invokeLater {
                 try {
-                    // Try to access editor to check if it's still valid
+                    // Check if editor is still valid
+                    if (editor.isDisposed) {
+                        System.out.println("[ZestInlineCompletion] Editor is disposed")
+                        future.complete(null)
+                        return@invokeLater
+                    }
+                    
                     val caretOffset = editor.caretModel.offset
                     System.out.println("[ZestInlineCompletion] Editor valid, caret at: $caretOffset, requested: $offset")
                     val context = CompletionContext.from(editor, offset, manually)
                     System.out.println("[ZestInlineCompletion] Context created: ${context != null}")
-                    context
+                    future.complete(context)
                 } catch (e: Exception) {
                     System.out.println("[ZestInlineCompletion] Editor access failed: ${e.message}")
-                    // Editor is likely disposed or invalid
-                    null
+                    future.complete(null)
                 }
             }
+            
+            // Wait for the result with a timeout
+            future.get(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            System.out.println("[ZestInlineCompletion] Timeout waiting for context build")
+            logger.warn("Timeout building completion context")
+            null
         } catch (e: Exception) {
             System.out.println("[ZestInlineCompletion] Failed to build context: ${e.message}")
             logger.warn("Failed to build completion context", e)
@@ -1292,13 +1329,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 // LONGER delay to reduce frequency and blinking
                 delay(150) // Increased from 50ms to 150ms
                 
-                val currentOffset = withContext(Dispatchers.Main) { 
-                    try {
-                        editor.caretModel.offset
-                    } catch (e: Exception) {
-                        System.out.println("[ZestInlineCompletion] Failed to get caret offset: ${e.message}")
-                        -1 // Editor is disposed or invalid
+                val currentOffset = try {
+                    val offsetFuture = java.util.concurrent.CompletableFuture<Int>()
+                    ApplicationManager.getApplication().invokeLater {
+                        try {
+                            offsetFuture.complete(editor.caretModel.offset)
+                        } catch (e: Exception) {
+                            offsetFuture.complete(-1)
+                        }
                     }
+                    offsetFuture.get(1, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    System.out.println("[ZestInlineCompletion] Failed to get caret offset: ${e.message}")
+                    -1
                 }
                 
                 System.out.println("[ZestInlineCompletion] Current offset after delay: $currentOffset")
@@ -1314,13 +1357,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     return@launch
                 }
                 
-                val documentText = withContext(Dispatchers.Main) { 
-                    try {
-                        editor.document.text
-                    } catch (e: Exception) {
-                        System.out.println("[ZestInlineCompletion] Failed to get document text: ${e.message}")
-                        "" // Editor is disposed or invalid
+                val documentText = try {
+                    val textFuture = java.util.concurrent.CompletableFuture<String>()
+                    ApplicationManager.getApplication().invokeLater {
+                        try {
+                            textFuture.complete(editor.document.text)
+                        } catch (e: Exception) {
+                            textFuture.complete("")
+                        }
                     }
+                    textFuture.get(1, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    System.out.println("[ZestInlineCompletion] Failed to get document text: ${e.message}")
+                    ""
                 }
                 
                 if (documentText.isEmpty()) {
@@ -1344,7 +1393,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 )
                 System.out.println("[ZestInlineCompletion] Adjusted completion: '${adjustedCompletion.take(50)}...'")
                 
-                withContext(Dispatchers.Main) {
+                // Use invokeLater instead of withContext to avoid dispatcher issues
+                ApplicationManager.getApplication().invokeLater {
                     // Check if we're still the active completion (not replaced by IntelliJ)
                     if (currentCompletion == completion) {
                         try {
@@ -1395,7 +1445,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 System.out.println("[ZestInlineCompletion] Error in overlap handling: ${e.message}")
                 logger.debug("Error in real-time overlap handling", e)
                 // On error, clear completion to be safe
-                withContext(Dispatchers.Main) {
+                ApplicationManager.getApplication().invokeLater {
                     clearCurrentCompletion()
                 }
             }

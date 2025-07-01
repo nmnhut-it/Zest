@@ -25,6 +25,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Completion provider with multiple strategies (A/B testing)
@@ -104,16 +106,28 @@ class ZestCompletionProvider(private val project: Project) {
             
             // Get current editor and document text on EDT
             System.out.println("[ZestCompletionProvider] Getting editor on EDT...")
-            val (editor, documentText) = withContext(Dispatchers.Main) {
-                val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                System.out.println("[ZestCompletionProvider] Editor found: ${ed != null}")
-                if (ed != null) {
-                    val text = ed.document.text
-                    System.out.println("[ZestCompletionProvider] Document length: ${text.length}")
-                    Pair(ed, text)
-                } else {
-                    Pair(null, "")
+            val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                    System.out.println("[ZestCompletionProvider] Editor found: ${ed != null}")
+                    if (ed != null) {
+                        val text = ed.document.text
+                        System.out.println("[ZestCompletionProvider] Document length: ${text.length}")
+                        editorFuture.complete(Pair(ed, text))
+                    } else {
+                        editorFuture.complete(Pair(null, ""))
+                    }
+                } catch (e: Exception) {
+                    editorFuture.complete(Pair(null, ""))
                 }
+            }
+            
+            val (editor, documentText) = try {
+                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                System.out.println("[ZestCompletionProvider] Failed to get editor: ${e.message}")
+                Pair(null, "")
             }
             
             if (editor == null) {
@@ -252,13 +266,24 @@ class ZestCompletionProvider(private val project: Project) {
             val startTime = System.currentTimeMillis()
             
             // Get current editor and full document text on EDT
-            val (editor, documentText) = withContext(Dispatchers.Main) {
-                val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                if (ed != null) {
-                    Pair(ed, ed.document.text)
-                } else {
-                    Pair(null, "")
+            val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                    if (ed != null) {
+                        editorFuture.complete(Pair(ed, ed.document.text))
+                    } else {
+                        editorFuture.complete(Pair(null, ""))
+                    }
+                } catch (e: Exception) {
+                    editorFuture.complete(Pair(null, ""))
                 }
+            }
+            
+            val (editor, documentText) = try {
+                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                Pair(null, "")
             }
             
             if (editor == null) {
@@ -271,7 +296,7 @@ class ZestCompletionProvider(private val project: Project) {
             val collectionComplete = kotlinx.coroutines.CompletableDeferred<Boolean>()
             
             // Start async collection - this handles EDT properly internally
-            withContext(Dispatchers.Main) {
+            ApplicationManager.getApplication().invokeLater {
                 leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { context ->
                     enhancedContext = context
                     if (!collectionComplete.isCompleted) {
@@ -286,8 +311,24 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             // Use whatever context we have - get immediate context if async failed
-            val leanContext = enhancedContext ?: withContext(Dispatchers.Main) {
-                leanContextCollector.collectFullFileContext(editor, context.offset)
+            val leanContext = if (enhancedContext != null) {
+                enhancedContext!!
+            } else {
+                val contextFuture = java.util.concurrent.CompletableFuture<ZestLeanContextCollector.LeanContext>()
+                ApplicationManager.getApplication().invokeLater {
+                    try {
+                        val ctx = leanContextCollector.collectFullFileContext(editor, context.offset)
+                        contextFuture.complete(ctx)
+                    } catch (e: Exception) {
+                        contextFuture.completeExceptionally(e)
+                    }
+                }
+                try {
+                    contextFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    logger.warn("Failed to collect lean context", e)
+                    return null
+                }
             }
             
             // Build reasoning prompt
@@ -361,9 +402,15 @@ class ZestCompletionProvider(private val project: Project) {
     
     private suspend fun getCurrentEditor(): Editor? {
         return try {
-            withContext(Dispatchers.Main) {
-                FileEditorManager.getInstance(project).selectedTextEditor
+            val editorFuture = java.util.concurrent.CompletableFuture<Editor?>()
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    editorFuture.complete(FileEditorManager.getInstance(project).selectedTextEditor)
+                } catch (e: Exception) {
+                    editorFuture.complete(null)
+                }
             }
+            editorFuture.get(1, java.util.concurrent.TimeUnit.SECONDS)
         } catch (e: Exception) {
             logger.warn("Failed to get current editor", e)
             null
@@ -508,10 +555,22 @@ class ZestCompletionProvider(private val project: Project) {
             
             // Get current editor on EDT
             System.out.println("[ZestCompletionProvider] Getting editor on EDT for method rewrite...")
-            val editor = withContext(Dispatchers.Main) {
-                val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                System.out.println("[ZestCompletionProvider] Editor found for method rewrite: ${ed != null}")
-                ed
+            val editorFuture = java.util.concurrent.CompletableFuture<Editor?>()
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                    System.out.println("[ZestCompletionProvider] Editor found for method rewrite: ${ed != null}")
+                    editorFuture.complete(ed)
+                } catch (e: Exception) {
+                    editorFuture.complete(null)
+                }
+            }
+            
+            val editor = try {
+                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                System.out.println("[ZestCompletionProvider] Failed to get editor for method rewrite: ${e.message}")
+                null
             }
             
             if (editor == null) {
@@ -524,7 +583,7 @@ class ZestCompletionProvider(private val project: Project) {
             System.out.println("[ZestCompletionProvider] Triggering method rewrite service...")
             
             // Make sure to trigger on EDT and don't wait for result
-            withContext(Dispatchers.Main) {
+            ApplicationManager.getApplication().invokeLater {
                 System.out.println("[ZestCompletionProvider] On EDT, calling methodRewriteService.rewriteCurrentMethod")
                 try {
                     methodRewriteService.rewriteCurrentMethod(editor, context.offset)

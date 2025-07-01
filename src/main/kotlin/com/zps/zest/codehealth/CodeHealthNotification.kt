@@ -8,7 +8,9 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.datatransfer.StringSelection
@@ -16,7 +18,7 @@ import java.awt.event.ActionEvent
 import javax.swing.*
 
 /**
- * UI component that shows balloon notifications and detailed health reports
+ * Alternative implementation using simpler UI components to avoid HTML parsing issues
  */
 object CodeHealthNotification {
 
@@ -59,7 +61,7 @@ object CodeHealthNotification {
     }
 
     /**
-     * Dialog showing detailed health report
+     * Dialog showing detailed health report using simpler components
      */
     private class HealthReportDialog(
         private val project: Project,
@@ -73,225 +75,183 @@ object CodeHealthNotification {
 
         override fun createCenterPanel(): JComponent {
             val panel = JPanel(BorderLayout())
-
-            // Create HTML content
-            val htmlContent = buildHtmlReport()
-
-            // Create HTML editor pane
-            val editorPane = JEditorPane("text/html", htmlContent).apply {
-                isEditable = false
-                addHyperlinkListener { event ->
-                    if (event.eventType == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED) {
-                        handleHyperlinkClick(event.description)
-                    }
-                }
-            }
-
-            // Wrap in scroll pane
-            val scrollPane = JBScrollPane(editorPane).apply {
-                preferredSize = Dimension(800, 600)
-                border = JBUI.Borders.empty()
-            }
-
-            panel.add(scrollPane, BorderLayout.CENTER)
-
+            
+            // Create tabbed pane
+            val tabbedPane = JTabbedPane()
+            
+            // Summary tab
+            tabbedPane.addTab("Summary", createSummaryPanel())
+            
+            // Issues tab
+            tabbedPane.addTab("Issues by Method", createIssuesPanel())
+            
+            // Actions tab
+            tabbedPane.addTab("Suggested Actions", createActionsPanel())
+            
+            panel.add(tabbedPane, BorderLayout.CENTER)
+            panel.preferredSize = Dimension(800, 600)
+            
             return panel
         }
 
-        private fun buildHtmlReport(): String {
-            return buildString {
-                append(
-                    """
-                    <html>
-                    <head>
-                        <style>
-                            body { 
-                                font-family: ${UIManager.getFont("Label.font").family}; 
-                                font-size: 13px;
-                                padding: 10px;
-                            }
-                            h1 { color: #2B65EC; margin-bottom: 10px; }
-                            h2 { color: #333; margin-top: 20px; margin-bottom: 10px; }
-                            .method { 
-                                background: #f5f5f5; 
-                                border: 1px solid #ddd;
-                                border-radius: 4px;
-                                padding: 10px;
-                                margin-bottom: 15px;
-                            }
-                            .method-header {
-                                font-weight: bold;
-                                margin-bottom: 5px;
-                            }
-                            .health-score {
-                                float: right;
-                                padding: 2px 8px;
-                                border-radius: 3px;
-                                font-weight: bold;
-                            }
-                            .score-good { background: #4CAF50; color: white; }
-                            .score-warning { background: #FF9800; color: white; }
-                            .score-critical { background: #F44336; color: white; }
-                            .issue {
-                                margin: 5px 0;
-                                padding: 5px;
-                                background: #fff;
-                                border-left: 3px solid #ddd;
-                            }
-                            .issue-critical { border-left-color: #F44336; }
-                            .issue-warning { border-left-color: #FF9800; }
-                            .issue-minor { border-left-color: #2196F3; }
-                            .prompt-button {
-                                background: #2196F3;
-                                color: white;
-                                text-decoration: none;
-                                padding: 2px 6px;
-                                border-radius: 3px;
-                                font-size: 11px;
-                                margin-left: 10px;
-                            }
-                            .impact {
-                                margin-top: 5px;
-                                font-size: 12px;
-                                color: #666;
-                            }
-                            .summary {
-                                background: #e3f2fd;
-                                padding: 10px;
-                                border-radius: 4px;
-                                margin-bottom: 20px;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                """.trimIndent()
-                )
-
-                // Summary section
-                val totalIssues = results.sumOf { it.issues.size }
-                val criticalCount = results.sumOf { r -> r.issues.count { it.type.severity >= 3 } }
-                val avgScore = results.map { it.healthScore }.average().toInt()
-
-                append(
-                    """
-                    <h1>Code Health Report</h1>
-                    <div class="summary">
-                        <strong>Summary:</strong> ${results.size} methods analyzed<br>
-                        <strong>Total Issues:</strong> $totalIssues 
-                        (Critical: $criticalCount, 
-                         Warning: ${results.sumOf { r -> r.issues.count { it.type.severity == 2 } }},
-                         Minor: ${results.sumOf { r -> r.issues.count { it.type.severity == 1 } }})<br>
-                        <strong>Average Health Score:</strong> $avgScore/100
-                    </div>
-                """.trimIndent()
-                )
-
-                // Methods with issues
-                append("<h2>Methods Requiring Attention</h2>")
-
-                results.sortedByDescending { it.healthScore * it.modificationCount }.forEach { result ->
-                    val scoreClass = when {
-                        result.healthScore >= 70 -> "score-good"
-                        result.healthScore >= 40 -> "score-warning"
-                        else -> "score-critical"
-                    }
-
-                    append(
-                        """
-                        <div class="method">
-                            <div class="method-header">
-                                ${result.fqn}
-                                <span class="health-score $scoreClass">${result.healthScore}/100</span>
-                            </div>
-                            <div style="font-size: 12px; color: #666;">
-                                Modified ${result.modificationCount} times today
-                            </div>
-                    """.trimIndent()
-                    )
-
-                    // Issues
-                    if (result.issues.isNotEmpty()) {
-                        result.issues.forEach { issue ->
-                            val issueClass = when (issue.type.severity) {
-                                3 -> "issue-critical"
-                                2 -> "issue-warning"
-                                else -> "issue-minor"
-                            }
-
-                            append(
-                                """
-                                <div class="issue $issueClass">
-                                    <strong>${issue.type.displayName}:</strong> ${issue.description}
-                                    <a href="copy:${issue.suggestedPrompt}" class="prompt-button">Copy Fix Prompt</a>
-                                </div>
-                            """.trimIndent()
-                            )
-                        }
-                    }
-
-                    // Impact
-                    if (result.impactedCallers.isNotEmpty()) {
-                        append(
-                            """
-                            <div class="impact">
-                                <strong>Impact:</strong> Called by ${result.impactedCallers.size} methods
-                                ${
-                                if (result.impactedCallers.size <= 5) {
-                                    "(${result.impactedCallers.joinToString(", ")})"
-                                } else {
-                                    "(${
-                                        result.impactedCallers.take(3).joinToString(", ")
-                                    } and ${result.impactedCallers.size - 3} more)"
-                                }
-                            }
-                            </div>
-                        """.trimIndent()
-                        )
-                    }
-
-                    append("</div>")
-                }
-
-                // Actionable prompts section
-                append("<h2>Suggested Actions</h2>")
-                append("<div class='summary'>")
-
-                // Group issues by type
-                val issuesByType = results.flatMap { it.issues }
-                    .groupBy { it.type }
-                    .toList()
-                    .sortedByDescending { (type, issues) -> type.severity * issues.size }
-
-                issuesByType.forEach { (type, issues) ->
-                    val combinedPrompt = "Fix ${issues.size} ${type.displayName} issues in modified methods:\n" +
-                            issues.take(5).joinToString("\n") { "- ${it.description}" }
-
-                    append(
-                        """
-                        <div style="margin: 5px 0;">
-                            <strong>${type.displayName} (${issues.size} occurrences)</strong>
-                            <a href="copy:$combinedPrompt" class="prompt-button">Copy Batch Fix Prompt</a>
-                        </div>
-                    """.trimIndent()
-                    )
-                }
-
-                append("</div>")
-                append("</body></html>")
+        private fun createSummaryPanel(): JComponent {
+            val panel = JPanel(BorderLayout())
+            
+            val totalIssues = results.sumOf { it.issues.size }
+            val criticalCount = results.sumOf { r -> r.issues.count { it.type.severity >= 3 } }
+            val warningCount = results.sumOf { r -> r.issues.count { it.type.severity == 2 } }
+            val minorCount = results.sumOf { r -> r.issues.count { it.type.severity == 1 } }
+            val avgScore = results.map { it.healthScore }.average().toInt()
+            
+            val summaryText = """
+                CODE HEALTH REPORT SUMMARY
+                ==========================
+                
+                Methods Analyzed: ${results.size}
+                Total Issues Found: $totalIssues
+                
+                Issue Breakdown:
+                • Critical Issues: $criticalCount
+                • Warnings: $warningCount  
+                • Minor Issues: $minorCount
+                
+                Average Health Score: $avgScore/100
+                
+                Top 5 Most Problematic Methods:
+                ${results.sortedBy { it.healthScore }.take(5).joinToString("\n") { 
+                    "• ${it.fqn} (Score: ${it.healthScore}/100, Modified: ${it.modificationCount}x)"
+                }}
+            """.trimIndent()
+            
+            val textArea = JBTextArea(summaryText).apply {
+                isEditable = false
+                font = UIUtil.getLabelFont()
+                border = JBUI.Borders.empty(10)
             }
+            
+            panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
+            return panel
         }
 
-        private fun handleHyperlinkClick(description: String) {
-            if (description.startsWith("copy:")) {
-                val textToCopy = description.substring(5)
-                CopyPasteManager.getInstance().setContents(StringSelection(textToCopy))
-
-                // Show feedback
-                NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification("Copied to clipboard", NotificationType.INFORMATION)
-                    .notify(project)
+        private fun createIssuesPanel(): JComponent {
+            val panel = JPanel(BorderLayout())
+            
+            val issuesText = buildString {
+                results.sortedByDescending { it.healthScore * it.modificationCount }.forEach { result ->
+                    appendLine("═".repeat(60))
+                    appendLine("METHOD: ${result.fqn}")
+                    appendLine("Health Score: ${result.healthScore}/100 | Modified: ${result.modificationCount} times")
+                    
+                    if (result.issues.isNotEmpty()) {
+                        appendLine("\nISSUES:")
+                        result.issues.forEach { issue ->
+                            val severity = when (issue.type.severity) {
+                                3 -> "[CRITICAL]"
+                                2 -> "[WARNING]"
+                                else -> "[MINOR]"
+                            }
+                            appendLine("  $severity ${issue.type.displayName}")
+                            appendLine("    ${issue.description}")
+                            appendLine("    Fix: ${issue.suggestedPrompt}")
+                            appendLine()
+                        }
+                    }
+                    
+                    if (result.impactedCallers.isNotEmpty()) {
+                        appendLine("IMPACT: Called by ${result.impactedCallers.size} methods")
+                        if (result.impactedCallers.size <= 10) {
+                            result.impactedCallers.forEach {
+                                appendLine("  • $it")
+                            }
+                        } else {
+                            result.impactedCallers.take(5).forEach {
+                                appendLine("  • $it")
+                            }
+                            appendLine("  ... and ${result.impactedCallers.size - 5} more")
+                        }
+                    }
+                    appendLine()
+                }
             }
+            
+            val textArea = JBTextArea(issuesText).apply {
+                isEditable = false
+                font = UIUtil.getLabelFont(UIUtil.FontSize.SMALL)
+                border = JBUI.Borders.empty(10)
+            }
+            
+            panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
+            
+            // Add copy button panel
+            val buttonPanel = JPanel().apply {
+                add(JButton("Copy Report").apply {
+                    addActionListener {
+                        CopyPasteManager.getInstance().setContents(StringSelection(issuesText))
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                            .createNotification("Report copied to clipboard", NotificationType.INFORMATION)
+                            .notify(project)
+                    }
+                })
+            }
+            panel.add(buttonPanel, BorderLayout.SOUTH)
+            
+            return panel
+        }
+
+        private fun createActionsPanel(): JComponent {
+            val panel = JPanel(BorderLayout())
+            
+            val actionsPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                border = JBUI.Borders.empty(10)
+            }
+            
+            // Group issues by type
+            val issuesByType = results.flatMap { it.issues }
+                .groupBy { it.type }
+                .toList()
+                .sortedByDescending { (type, issues) -> type.severity * issues.size }
+            
+            issuesByType.forEach { (type, issues) ->
+                val actionPanel = JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(5)
+                    background = UIUtil.getPanelBackground()
+                }
+                
+                val label = JLabel("${type.displayName} (${issues.size} occurrences)").apply {
+                    font = font.deriveFont(font.style or java.awt.Font.BOLD)
+                }
+                actionPanel.add(label, BorderLayout.WEST)
+                
+                val combinedPrompt = buildString {
+                    appendLine("Fix ${issues.size} ${type.displayName} issues in modified methods:")
+                    issues.take(10).forEach { issue ->
+                        appendLine("- ${issue.description}")
+                        appendLine("  Suggested fix: ${issue.suggestedPrompt}")
+                    }
+                    if (issues.size > 10) {
+                        appendLine("... and ${issues.size - 10} more similar issues")
+                    }
+                }
+                
+                val copyButton = JButton("Copy Fix Prompt").apply {
+                    addActionListener {
+                        CopyPasteManager.getInstance().setContents(StringSelection(combinedPrompt))
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                            .createNotification("Fix prompt copied to clipboard", NotificationType.INFORMATION)
+                            .notify(project)
+                    }
+                }
+                actionPanel.add(copyButton, BorderLayout.EAST)
+                
+                actionsPanel.add(actionPanel)
+                actionsPanel.add(Box.createVerticalStrut(5))
+            }
+            
+            panel.add(JBScrollPane(actionsPanel), BorderLayout.CENTER)
+            return panel
         }
 
         override fun createActions(): Array<Action> {

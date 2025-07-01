@@ -34,7 +34,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
     private val logger = Logger.getInstance(ZestCompletionStatusBarWidget::class.java)
     private val completionService by lazy { project.getService(ZestInlineCompletionService::class.java) }
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     companion object {
         const val WIDGET_ID = "ZestCompletionStatus"
@@ -82,7 +82,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     override fun getPresentation(type: StatusBarWidget.PlatformType): StatusBarWidget.WidgetPresentation? {
         return TextPresentation()
     }
-    
+
     // Inner class implementing TextPresentation
     private inner class TextPresentation : StatusBarWidget.TextPresentation {
         override fun getText(): String = displayText
@@ -109,7 +109,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             return Consumer { mouseEvent ->
                 try {
                     logger.info("Widget clicked! Button: ${mouseEvent.button}, Modifiers: ${mouseEvent.modifiersEx}")
-                    
+
                     when {
                         // Right-click or platform-specific popup trigger
                         mouseEvent.isPopupTrigger -> {
@@ -155,7 +155,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
         // Start periodic state synchronization
         startPeriodicStateSync()
-        
+
         // Force initial widget update
         ApplicationManager.getApplication().invokeLater {
             statusBar.updateWidget(ID())
@@ -186,23 +186,50 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             // Method rewrite states
             currentMethodRewriteState != null -> {
                 when (currentMethodRewriteState!!) {
-                    MethodRewriteState.ANALYZING -> showBalloon("Method analysis in progress...", MessageType.INFO, mouseEvent)
-                    MethodRewriteState.AI_QUERYING -> showBalloon("AI processing method improvements...", MessageType.INFO, mouseEvent)
-                    MethodRewriteState.DIFF_READY -> showBalloon("Press TAB to accept, ESC to reject", MessageType.WARNING, mouseEvent)
-                    MethodRewriteState.APPLYING -> showBalloon("Applying method changes...", MessageType.INFO, mouseEvent)
-                    MethodRewriteState.COMPLETED -> showBalloon("Method rewrite completed!", MessageType.INFO, mouseEvent)
+                    MethodRewriteState.ANALYZING -> showBalloon(
+                        "Method analysis in progress...",
+                        MessageType.INFO,
+                        mouseEvent
+                    )
+
+                    MethodRewriteState.AI_QUERYING -> showBalloon(
+                        "AI processing method improvements...",
+                        MessageType.INFO,
+                        mouseEvent
+                    )
+
+                    MethodRewriteState.DIFF_READY -> showBalloon(
+                        "Press TAB to accept, ESC to reject",
+                        MessageType.WARNING,
+                        mouseEvent
+                    )
+
+                    MethodRewriteState.APPLYING -> showBalloon(
+                        "Applying method changes...",
+                        MessageType.INFO,
+                        mouseEvent
+                    )
+
+                    MethodRewriteState.COMPLETED -> showBalloon(
+                        "Method rewrite completed!",
+                        MessageType.INFO,
+                        mouseEvent
+                    )
                 }
             }
             // Completion states
             currentCompletionState == CompletionState.REQUESTING -> {
                 showBalloon("Completion request in progress...", MessageType.INFO, mouseEvent)
             }
+
             currentCompletionState == CompletionState.WAITING -> {
                 showBalloon("Press Tab to accept completion", MessageType.WARNING, mouseEvent)
             }
+
             currentCompletionState == CompletionState.ACCEPTING -> {
                 showBalloon("Accepting completion...", MessageType.INFO, mouseEvent)
             }
+
             else -> {
                 // Default action - show quick menu
                 showQuickMenu(mouseEvent)
@@ -218,7 +245,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             .createHtmlTextBalloonBuilder(message, messageType.defaultIcon, messageType.popupBackground) { _ -> }
             .setFadeoutTime(2500)
             .createBalloon()
-        
+
         val point = RelativePoint(mouseEvent.component, Point(mouseEvent.x, mouseEvent.y - 30))
         balloon.show(point, Balloon.Position.above)
     }
@@ -228,19 +255,23 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
      */
     private fun showQuickMenu(mouseEvent: MouseEvent) {
         val group = DefaultActionGroup()
-        
-        group.add(object : AnAction("Switch Strategy (${getStrategyName()})", "Switch between completion strategies", AllIcons.Actions.ChangeView) {
+
+        group.add(object : AnAction(
+            "Switch Strategy (${getStrategyName()})",
+            "Switch between completion strategies",
+            AllIcons.Actions.ChangeView
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
                 switchCompletionStrategy()
             }
         })
-        
+
         group.add(object : AnAction("Refresh State", "Clear any orphaned state", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
                 refreshCompletionState()
             }
         })
-        
+
         if (currentMethodRewriteState != null) {
             group.addSeparator()
             group.add(object : AnAction("Cancel Method Rewrite", "Cancel current operation", AllIcons.Actions.Cancel) {
@@ -249,7 +280,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 }
             })
         }
-        
+
         val dataContext = SimpleDataContext.getProjectContext(project)
         val popup: ListPopup = JBPopupFactory.getInstance().createActionGroupPopup(
             "Quick Actions",
@@ -258,7 +289,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
             false
         )
-        
+
         popup.show(RelativePoint(mouseEvent))
     }
 
@@ -303,15 +334,19 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             status.contains("Analyzing", ignoreCase = true) -> {
                 updateMethodRewriteState(MethodRewriteState.ANALYZING, status)
             }
+
             status.contains("AI", ignoreCase = true) || status.contains("Querying", ignoreCase = true) -> {
                 updateMethodRewriteState(MethodRewriteState.AI_QUERYING, status)
             }
+
             status.contains("complete", ignoreCase = true) && status.contains("TAB", ignoreCase = true) -> {
                 updateMethodRewriteState(MethodRewriteState.DIFF_READY, status)
             }
+
             status.contains("Applying", ignoreCase = true) -> {
                 updateMethodRewriteState(MethodRewriteState.APPLYING, status)
             }
+
             status.contains("failed", ignoreCase = true) || status.contains("error", ignoreCase = true) -> {
                 clearMethodRewriteState()
                 logger.warn("Method rewrite failed: $status")
@@ -345,7 +380,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 CompletionState.ERROR -> "Zest: ❌ Error"
             }
         }
-        
+
         refreshWidget()
     }
 
@@ -382,7 +417,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                         updateCompletionState(CompletionState.DISABLED)
                         return@invokeLater
                     }
-                    
+
                     if (loading) {
                         updateCompletionState(CompletionState.REQUESTING)
                     } else {
@@ -406,7 +441,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                         updateCompletionState(CompletionState.DISABLED)
                         return@invokeLater
                     }
-                    
+
                     updateCompletionState(CompletionState.ACCEPTING)
 
                     scope.launch {
@@ -433,7 +468,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
         // Method rewrite actions
         if (currentMethodRewriteState != null) {
-            group.add(object : AnAction("Cancel Method Rewrite", "Cancel the current method rewrite operation", AllIcons.Actions.Cancel) {
+            group.add(object : AnAction(
+                "Cancel Method Rewrite",
+                "Cancel the current method rewrite operation",
+                AllIcons.Actions.Cancel
+            ) {
                 override fun actionPerformed(e: AnActionEvent) {
                     cancelMethodRewrite()
                 }
@@ -451,13 +490,18 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         }
 
         // Standard completion actions
-        group.add(object : AnAction("Refresh & Clear State", "Clear any orphaned completion state and refresh", AllIcons.Actions.Refresh) {
+        group.add(object : AnAction(
+            "Refresh & Clear State",
+            "Clear any orphaned completion state and refresh",
+            AllIcons.Actions.Refresh
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
                 refreshCompletionState()
             }
         })
 
-        group.add(object : AnAction("Switch Strategy", "Switch between completion strategies", AllIcons.Actions.ToggleVisibility) {
+        group.add(object :
+            AnAction("Switch Strategy", "Switch between completion strategies", AllIcons.Actions.ToggleVisibility) {
             override fun actionPerformed(e: AnActionEvent) {
                 switchCompletionStrategy()
             }
@@ -537,8 +581,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 val newStrategy = when (currentStrategy) {
                     ZestCompletionProvider.CompletionStrategy.SIMPLE ->
                         ZestCompletionProvider.CompletionStrategy.LEAN
+
                     ZestCompletionProvider.CompletionStrategy.LEAN ->
                         ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
+
                     ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE ->
                         ZestCompletionProvider.CompletionStrategy.SIMPLE
                 }
@@ -596,13 +642,13 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         ApplicationManager.getApplication().invokeLater {
             try {
                 val isEnabled = completionService.isEnabled()
-                
+
                 // If completion is disabled, show disabled state and return
                 if (!isEnabled) {
                     updateCompletionState(CompletionState.DISABLED)
                     return@invokeLater
                 }
-                
+
                 val wasStuck = completionService.checkAndFixStuckState()
                 if (wasStuck) {
                     updateCompletionState(CompletionState.ERROR)

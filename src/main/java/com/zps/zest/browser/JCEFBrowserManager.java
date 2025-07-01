@@ -7,17 +7,21 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.jcef.JCEFInitializer;
+import com.zps.zest.browser.jcef.JCEFResourceManager;
 import org.cef.CefApp;
 import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
 
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Disposer;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.lang.management.ManagementFactory;
 
 import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 
@@ -25,7 +29,7 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  * Manages the JCEF browser instance and provides a simplified API for browser interactions.
  */
 @SuppressWarnings("removal")
-public class JCEFBrowserManager {
+public class JCEFBrowserManager implements Disposable {
     // Static initializer to ensure CEF is configured before any usage
     static {
         JCEFInitializer.initialize();
@@ -73,6 +77,9 @@ public class JCEFBrowserManager {
         browserBuilder.setUrl(initialUrl);
         
         browser = browserBuilder.build();
+        
+        // Register browser with resource manager for proper tracking and disposal
+        JCEFResourceManager.getInstance().registerBrowser(browser, project);
         
         // Force enable cookies and local storage at the browser level
         browser.getCefBrowser().executeJavaScript(
@@ -549,10 +556,42 @@ public class JCEFBrowserManager {
 
         // Dispose JavaScript query
         if (jsQuery != null) {
-            Disposer.dispose(jsQuery);
+            try {
+                Disposer.dispose(jsQuery);
+            } catch (Exception e) {
+                LOG.warn("Error disposing jsQuery", e);
+            }
+            jsQuery = null;
         }
 
+        // Close dev tools if open
         closeDevTools();
+        
+        // Dispose the browser properly using IntelliJ's disposal mechanism
+        if (browser != null) {
+            try {
+                // First, navigate to about:blank to stop any running JavaScript
+                browser.getCefBrowser().loadURL("about:blank");
+                
+                // Give it a moment to stop
+                Thread.sleep(100);
+                
+                // Properly close the browser
+                browser.getCefBrowser().close(true);
+                
+                // Wait a bit for the close to complete
+                Thread.sleep(200);
+                
+                // Dispose the browser using IntelliJ's Disposer
+                Disposer.dispose(browser);
+                
+                // Force garbage collection to help clean up native resources
+                System.gc();
+                
+            } catch (Exception e) {
+                LOG.warn("Error disposing browser", e);
+            }
+        }
 
         LOG.info("JCEFBrowserManager disposed");
     }

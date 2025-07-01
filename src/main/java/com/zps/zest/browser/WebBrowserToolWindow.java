@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.content.Content;
@@ -29,6 +30,9 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
     protected static final ConcurrentMap<String, Boolean> pageLoadedState = new ConcurrentHashMap<>();
     protected static final ConcurrentMap<String, CompletableFuture<Boolean>> pageLoadedFutures = new ConcurrentHashMap<>();
 
+    private static final int MAX_CONTENT_MANAGER_RETRIES = 5;
+    private int contentManagerRetryCount = 0;
+    
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         // Initialize DevTools registry settings
@@ -36,10 +40,19 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
 
         // Check if ContentManager is ready, if not delay the initialization
         if (toolWindow.getContentManager() == null) {
-            LOG.warn("ContentManager not ready, deferring tool window content creation");
-            ApplicationManager.getApplication().invokeLater(() -> createToolWindowContent(project, toolWindow));
+            contentManagerRetryCount++;
+            if (contentManagerRetryCount > MAX_CONTENT_MANAGER_RETRIES) {
+                LOG.error("Failed to initialize tool window after " + MAX_CONTENT_MANAGER_RETRIES + " attempts - ContentManager is null");
+                contentManagerRetryCount = 0; // Reset for potential future attempts
+                return;
+            }
+            LOG.warn("ContentManager not ready (attempt " + contentManagerRetryCount + " of " + MAX_CONTENT_MANAGER_RETRIES + "), deferring tool window content creation");
+            ApplicationManager.getApplication().invokeLater(() -> createToolWindowContent(project, toolWindow), project.getDisposed());
             return;
         }
+
+        // Reset retry count on success
+        contentManagerRetryCount = 0;
 
         // Use invokeLater to ensure proper initialization order
         ApplicationManager.getApplication().invokeLater(() -> {
@@ -55,6 +68,9 @@ public class WebBrowserToolWindow implements ToolWindowFactory, DumbAware {
 
                 // Create the browser panel
                 WebBrowserPanel browserPanel = new WebBrowserPanel(project);
+                
+                // Register the panel for disposal when the tool window is closed
+                Disposer.register(toolWindow.getDisposable(), browserPanel);
                 
                 // Add load state listener to track when pages finish loading
                 setupLoadStateListener(browserPanel, project);

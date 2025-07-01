@@ -10,6 +10,8 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
@@ -30,7 +32,7 @@ import java.util.function.Function;
 /**
  * Panel containing the web browser and navigation controls.
  */
-public class WebBrowserPanel {
+public class WebBrowserPanel implements Disposable {
     private static final Logger LOG = Logger.getInstance(WebBrowserPanel.class);
     private BrowserMode agentMode;
 
@@ -86,8 +88,9 @@ public class WebBrowserPanel {
         this.project = project;
         this.mainPanel = new JPanel(new BorderLayout());
 
-        // Create browser manager
+        // Create browser manager and register it as a child disposable
         this.browserManager = new JCEFBrowserManager(project);
+        Disposer.register(this, browserManager);
 
         // Initialize browser modes
         initBrowserModes();
@@ -381,5 +384,20 @@ public class WebBrowserPanel {
         JMenuItem modeItem = new JMenuItem(newMode.getName(), newMode.getIcon());
         modeItem.addActionListener(e -> setMode(newMode));
         modeMenu.add(modeItem);
+    }
+    
+    @Override
+    public void dispose() {
+        LOG.info("Disposing WebBrowserPanel");
+        
+        // Browser manager will be disposed automatically as it's registered as a child
+        // but we can do additional cleanup here if needed
+        
+        // Clear references
+        browserModes.clear();
+        currentMode = null;
+        agentMode = null;
+        
+        LOG.info("WebBrowserPanel disposed");
     }
 }

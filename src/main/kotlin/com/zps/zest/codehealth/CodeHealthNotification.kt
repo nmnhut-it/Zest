@@ -64,15 +64,9 @@ object CodeHealthNotification {
     }
 
     private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        // Generate report in background to avoid EDT blocking
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val dialog = HealthReportDialog(project, results)
-            ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) {
-                    dialog.show()
-                }
-            }
-        }
+        // Create and show dialog on EDT
+        val dialog = HealthReportDialog(project, results)
+        dialog.show()
     }
 
     /**

@@ -266,12 +266,33 @@ class ZestCompletionProvider(private val project: Project) {
                 return null
             }
             
-            // Collect lean context (full file with cursor marker)
-            val leanContext = leanContextCollector.collectFullFileContext(editor, context.offset)
+            // Use async collection with timeout
+            var enhancedContext: ZestLeanContextCollector.LeanContext? = null
+            val collectionComplete = kotlinx.coroutines.CompletableDeferred<Boolean>()
+            
+            // Start async collection - this handles EDT properly internally
+            withContext(Dispatchers.Main) {
+                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { context ->
+                    enhancedContext = context
+                    if (!collectionComplete.isCompleted) {
+                        collectionComplete.complete(true)
+                    }
+                }
+            }
+            
+            // Wait for initial context or timeout
+            withTimeoutOrNull(300) {
+                collectionComplete.await()
+            }
+            
+            // Use whatever context we have - get immediate context if async failed
+            val leanContext = enhancedContext ?: withContext(Dispatchers.Main) {
+                leanContextCollector.collectFullFileContext(editor, context.offset)
+            }
             
             // Build reasoning prompt
             val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-            logger.debug("Lean prompt built, length: ${prompt.length}")
+            logger.debug("Lean prompt built, length: ${prompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
             
             // Query LLM with higher timeout for reasoning
             val llmStartTime = System.currentTimeMillis()

@@ -1,8 +1,14 @@
 package com.zps.zest.completion.context
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.psi.*
+import com.intellij.psi.util.PsiTreeUtil
+import com.zps.zest.ClassAnalyzer
+import com.zps.zest.completion.async.AsyncClassAnalyzer
+import com.zps.zest.completion.async.SimpleTaskQueue
 
 /**
  * Lean context collector that captures full file content with cursor position
@@ -17,6 +23,8 @@ class ZestLeanContextCollector(private val project: Project) {
         private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
     }
 
+    private val asyncAnalyzer = AsyncClassAnalyzer(project)
+
     data class LeanContext(
         val fileName: String,
         val language: String,
@@ -25,7 +33,9 @@ class ZestLeanContextCollector(private val project: Project) {
         val cursorOffset: Int,
         val cursorLine: Int,
         val contextType: CursorContextType,
-        val isTruncated: Boolean = false
+        val isTruncated: Boolean = false,
+        val preservedMethods: Set<String> = emptySet(),
+        val preservedFields: Set<String> = emptySet()
     )
 
     enum class CursorContextType {
@@ -89,6 +99,78 @@ class ZestLeanContextCollector(private val project: Project) {
             contextType = contextType,
             isTruncated = isTruncated
         )
+    }
+    
+    /**
+     * Collect context with async dependency analysis for better method preservation
+     */
+    fun collectWithDependencyAnalysis(
+        editor: Editor,
+        offset: Int,
+        onComplete: (LeanContext) -> Unit
+    ) {
+        // First, get immediate context - this needs to be on EDT for editor access
+        val immediateContext: LeanContext = if (ApplicationManager.getApplication().isDispatchThread) {
+            collectFullFileContext(editor, offset)
+        } else {
+            ApplicationManager.getApplication().runReadAction<LeanContext> {
+                collectFullFileContext(editor, offset)
+            }
+        }
+        
+        // Invoke callback on EDT
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            onComplete(immediateContext)
+        } else {
+            ApplicationManager.getApplication().invokeLater {
+                onComplete(immediateContext)
+            }
+        }
+        
+        // Only do async analysis for Java files
+        if (immediateContext.language != "java") {
+            return
+        }
+        
+        // Analyze dependencies asynchronously - must get PSI elements in read action
+        ApplicationManager.getApplication().executeOnPooledThread {
+            ApplicationManager.getApplication().runReadAction {
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+                if (psiFile is PsiJavaFile) {
+                    val element = psiFile.findElementAt(offset)
+                    val containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
+                    val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
+                    
+                    if (containingMethod != null && containingClass != null) {
+                        asyncAnalyzer.analyzeDependenciesForContext(
+                            containingClass,
+                            containingMethod
+                        ) { methodsToPreserve, fieldsToPreserve ->
+                            // Re-process with dependency information
+                            val enhancedMarkedContent = collapseMethodBodiesWithDependencies(
+                                immediateContext.markedContent,
+                                if (immediateContext.language == "java") METHOD_BODY_PLACEHOLDER else FUNCTION_BODY_PLACEHOLDER,
+                                immediateContext.language,
+                                methodsToPreserve,
+                                fieldsToPreserve
+                            )
+                            
+                            val enhancedContext = immediateContext.copy(
+                                markedContent = enhancedMarkedContent,
+                                fullContent = enhancedMarkedContent.replace("[CURSOR]", ""),
+                                preservedMethods = methodsToPreserve,
+                                preservedFields = fieldsToPreserve
+                            )
+                            
+                            // Always invoke callback on EDT
+                            ApplicationManager.getApplication().invokeLater {
+                                onComplete(enhancedContext)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun detectLanguage(fileName: String, content: String): String {
@@ -334,6 +416,119 @@ class ZestLeanContextCollector(private val project: Project) {
         }
 
         return result.joinToString("\n")
+    }
+    
+    /**
+     * Enhanced collapsing that preserves methods and fields based on dependencies
+     */
+    private fun collapseMethodBodiesWithDependencies(
+        content: String,
+        placeholder: String,
+        language: String,
+        preserveMethods: Set<String>,
+        preserveFields: Set<String>
+    ): String {
+        val lines = content.lines().toMutableList()
+        val result = mutableListOf<String>()
+        
+        // Find cursor position
+        val cursorLine = findCursorLine(lines)
+        
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i]
+            
+            // Check if this is a field that should be preserved/hidden
+            if (language == "java" && isFieldDeclaration(line)) {
+                val fieldName = extractFieldName(line)
+                if (fieldName != null && fieldName !in preserveFields) {
+                    result.add("    // field hidden: $fieldName")
+                    i++
+                    continue
+                }
+            }
+            
+            val methodMatch = when (language) {
+                "java" -> findJavaMethodStart(line, i, lines)
+                "javascript" -> findJavaScriptFunctionStart(line, i, lines)
+                else -> null
+            }
+
+            if (methodMatch != null) {
+                val methodName = extractMethodName(lines[i])
+                val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
+                val containsCursor = cursorLine in i..methodEnd
+                val shouldPreserve = containsCursor || (methodName != null && methodName in preserveMethods)
+                
+                // Add the method signature line(s)
+                result.addAll(methodMatch.signatureLines)
+
+                // Find the opening brace
+                val braceLineIndex = methodMatch.braceLineIndex
+                if (braceLineIndex != -1) {
+                    if (shouldPreserve) {
+                        // Preserve the entire method body
+                        for (bodyLineIndex in braceLineIndex until methodEnd + 1) {
+                            if (bodyLineIndex < lines.size) {
+                                result.add(lines[bodyLineIndex])
+                            }
+                        }
+                    } else {
+                        // Collapse the method body
+                        val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
+                        result.add(collapsedBody)
+                    }
+                    
+                    // Skip to after the method body
+                    i = methodEnd + 1
+                } else {
+                    // No opening brace found, just add the line and continue
+                    i++
+                }
+            } else {
+                result.add(line)
+                i++
+            }
+        }
+
+        return result.joinToString("\n")
+    }
+    
+    /**
+     * Extract method name from a line
+     */
+    private fun extractMethodName(line: String): String? {
+        // Java patterns
+        var match = Regex("""(?:public|private|protected|static|final)*\s*(?:\w+\s+)?(\w+)\s*\(""").find(line)
+        if (match != null) return match.groupValues[1]
+        
+        // JavaScript patterns
+        match = Regex("""function\s+(\w+)""").find(line)
+        if (match != null) return match.groupValues[1]
+        
+        match = Regex("""(\w+)\s*:\s*function""").find(line)
+        if (match != null) return match.groupValues[1]
+        
+        match = Regex("""(?:const|let|var)\s+(\w+)\s*=""").find(line)
+        if (match != null) return match.groupValues[1]
+        
+        return null
+    }
+    
+    /**
+     * Extract field name from a field declaration line
+     */
+    private fun extractFieldName(line: String): String? {
+        val match = Regex("""(?:private|protected|public|static|final)*\s+\w+\s+(\w+)\s*[;=]""").find(line)
+        return match?.groupValues?.getOrNull(1)
+    }
+    
+    /**
+     * Check if a line is a field declaration
+     */
+    private fun isFieldDeclaration(line: String): Boolean {
+        return line.matches(Regex(""".*(?:private|protected|public|static|final).*\w+\s+\w+\s*[;=].*""")) &&
+               !line.contains("(")
     }
     
     /**

@@ -1,5 +1,6 @@
 package com.zps.zest.completion.context
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.psi.PsiDocumentManager
@@ -9,6 +10,9 @@ import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiClass
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiJavaFile
+import com.zps.zest.ClassAnalyzer
+import com.zps.zest.completion.async.AsyncClassAnalyzer
 
 /**
  * Collects context specifically for method rewrites
@@ -17,6 +21,7 @@ import com.intellij.openapi.project.Project
 class ZestMethodContextCollector(private val project: Project) {
     private val logger = Logger.getInstance(ZestMethodContextCollector::class.java)
     private val cocosContextCollector = ZestCocos2dxContextCollector(project)
+    private val asyncAnalyzer = AsyncClassAnalyzer(project)
     
     data class MethodContext(
         val fileName: String,
@@ -36,7 +41,9 @@ class ZestMethodContextCollector(private val project: Project) {
         val cocosContextType: ZestCocos2dxContextCollector.Cocos2dxContextType? = null,
         val cocosSyntaxPreferences: ZestCocos2dxContextCollector.CocosSyntaxPreferences? = null,
         val cocosCompletionHints: List<String> = emptyList(),
-        val cocosFrameworkVersion: String? = null
+        val cocosFrameworkVersion: String? = null,
+        // Related classes from async analysis
+        val relatedClasses: Map<String, String> = emptyMap()
     )
     
     data class SurroundingMethod(
@@ -115,6 +122,101 @@ class ZestMethodContextCollector(private val project: Project) {
         
         // Fallback to textual method detection
         return findMethodTextually(fullFileContent, offset, fileName, language, isCocos2dx)
+    }
+    
+    /**
+     * Find method with async analysis for related classes
+     */
+    fun findMethodWithAsyncAnalysis(
+        editor: Editor, 
+        offset: Int,
+        onComplete: (MethodContext) -> Unit
+    ) {
+        // Get immediate context first - handle EDT properly
+        val immediateContext: MethodContext? = if (ApplicationManager.getApplication().isDispatchThread) {
+            findMethodAtCursor(editor, offset)
+        } else {
+            ApplicationManager.getApplication().runReadAction<MethodContext> {
+                findMethodAtCursor(editor, offset)
+            }
+        }
+        
+        if (immediateContext == null) {
+            return
+        }
+        
+        // Invoke callback on EDT
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            onComplete(immediateContext)
+        } else {
+            ApplicationManager.getApplication().invokeLater {
+                onComplete(immediateContext)
+            }
+        }
+        
+        // Only do async analysis for Java
+        if (immediateContext.language.lowercase() != "java") {
+            return
+        }
+        
+        // Analyze related classes asynchronously
+        ApplicationManager.getApplication().executeOnPooledThread {
+            ApplicationManager.getApplication().runReadAction {
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+                if (psiFile is PsiJavaFile) {
+                    val element = psiFile.findElementAt(offset)
+                    val psiMethod = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
+                    
+                    if (psiMethod != null) {
+                        asyncAnalyzer.analyzeMethodAsync(
+                            psiMethod,
+                            onProgress = { result ->
+                                // Create enhanced context with related classes
+                                val enhancedContext = immediateContext.copy(
+                                    relatedClasses = result.relatedClassContents,
+                                    classContext = if (result.relatedClassContents.isNotEmpty()) {
+                                        buildEnhancedClassContext(
+                                            immediateContext.classContext,
+                                            result.relatedClassContents
+                                        )
+                                    } else {
+                                        immediateContext.classContext
+                                    }
+                                )
+                                
+                                // Always invoke callback on EDT
+                                ApplicationManager.getApplication().invokeLater {
+                                    onComplete(enhancedContext)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Build enhanced class context with related classes
+     */
+    private fun buildEnhancedClassContext(
+        originalContext: String,
+        relatedClasses: Map<String, String>
+    ): String {
+        if (relatedClasses.isEmpty()) {
+            return originalContext
+        }
+        
+        return buildString {
+            append(originalContext)
+            append("\n\n// ===== Related Classes Used =====\n")
+            
+            relatedClasses.forEach { (className, classStructure) ->
+                append("\n// $className:\n")
+                append(classStructure)
+                append("\n")
+            }
+        }
     }
     
 

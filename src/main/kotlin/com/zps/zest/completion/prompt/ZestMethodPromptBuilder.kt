@@ -23,6 +23,8 @@ ${cocosGuidance}
 **Class Context:**
 ${buildClassContextSection(context, classInfo)}
 
+${if (context.relatedClasses.isNotEmpty()) buildRelatedClassesSection(context.relatedClasses) else ""}
+
 **Target Method to Improve:**
 ```${context.language.lowercase()}
 ${context.methodContent}
@@ -44,6 +46,7 @@ ${buildSurroundingMethodsContext(context)}
    - Consider interactions with other class methods
    - Follow established patterns in the class
    - Maintain consistency with class design principles
+   ${if (context.relatedClasses.isNotEmpty()) "- Use the related classes shown above correctly" else ""}
 
 3. **Code Quality Improvements:**
    - Add comprehensive error handling and validation
@@ -73,6 +76,20 @@ Provide ONLY the improved method code without any explanations, markdown formatt
 
 **Improved Method:**
         """.trimIndent()
+    }
+    
+    /**
+     * Build related classes section
+     */
+    private fun buildRelatedClassesSection(relatedClasses: Map<String, String>): String {
+        return buildString {
+            appendLine("**Related Classes Used in Method:**")
+            relatedClasses.forEach { (className, _) ->
+                appendLine("- $className")
+            }
+            appendLine()
+            appendLine("The structures of these classes are included in the class context above.")
+        }
     }
     
     /**

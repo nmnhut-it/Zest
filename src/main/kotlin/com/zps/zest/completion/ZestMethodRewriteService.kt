@@ -121,11 +121,25 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             activeRewriteId = requestId
 
             try {
-                // Find the method containing the cursor - must be done on EDT
-                val methodContext = withContext(Dispatchers.Main) {
-                    methodContextCollector.findMethodAtCursor(editor, offset)
+                // Find the method containing the cursor with async analysis
+                var enhancedMethodContext: ZestMethodContextCollector.MethodContext? = null
+                val contextReady = CompletableDeferred<Boolean>()
+                
+                withContext(Dispatchers.Main) {
+                    methodContextCollector.findMethodWithAsyncAnalysis(editor, offset) { context ->
+                        enhancedMethodContext = context
+                        if (!contextReady.isCompleted) {
+                            contextReady.complete(true)
+                        }
+                    }
                 }
-
+                
+                // Wait for initial context (immediate) or timeout
+                withTimeoutOrNull(100) {
+                    contextReady.await()
+                }
+                
+                val methodContext = enhancedMethodContext
                 if (methodContext == null) {
                     withContext(Dispatchers.Main) {
                         ZestNotifications.showWarning(
@@ -147,7 +161,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 // Show loading notification on EDT
                 withContext(Dispatchers.Main) {
                     val title = if (methodContext.isCocos2dx) "🎮 Cocos2d-x Method Rewrite" else "Method Rewrite"
-                    ZestNotifications.showInfo(project, title, "Analyzing and rewriting method '${methodContext.methodName}'...")
+                    val subtitle = if (methodContext.relatedClasses.isNotEmpty()) {
+                        "Analyzing '${methodContext.methodName}' with ${methodContext.relatedClasses.size} related classes..."
+                    } else {
+                        "Analyzing and rewriting method '${methodContext.methodName}'..."
+                    }
+                    ZestNotifications.showInfo(project, title, subtitle)
                 }
 
                 // Start method rewrite process

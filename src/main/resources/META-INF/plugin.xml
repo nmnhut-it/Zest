@@ -104,6 +104,7 @@
         <!-- Code Health Services -->
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthVerificationAgent"/>
         
         <!-- Code Health Notification Group -->
         <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>

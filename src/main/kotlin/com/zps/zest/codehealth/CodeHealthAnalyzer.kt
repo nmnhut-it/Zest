@@ -4,8 +4,16 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiField
+import com.intellij.psi.PsiIfStatement
+import com.intellij.psi.PsiLoopStatement
+import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiTryStatement
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.MethodReferencesSearch
+import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.langchain4j.util.LLMService
 import java.util.concurrent.*
@@ -30,29 +38,33 @@ class CodeHealthAnalyzer(private val project: Project) {
     private val executorService: ExecutorService = Executors.newFixedThreadPool(MAX_CONCURRENT_ANALYSES)
 
     /**
-     * Health issue types
-     */
-    enum class IssueType(val severity: Int, val displayName: String) {
-        NPE_RISK(3, "Null Pointer Risk"),
-        LOGIC_ERROR(3, "Logic Error"),
-        PERFORMANCE_ISSUE(2, "Performance Issue"),
-        SECURITY_VULNERABILITY(3, "Security Risk"),
-        CODE_SMELL(1, "Code Smell"),
-        MISSING_VALIDATION(2, "Missing Validation"),
-        RESOURCE_LEAK(3, "Resource Leak"),
-        CONCURRENCY_ISSUE(3, "Concurrency Issue"),
-        API_BREAKING_CHANGE(3, "API Breaking Change"),
-        TEST_COVERAGE_GAP(1, "Test Coverage Gap")
-    }
-
-    /**
-     * Health issue data class
+     * Health issue data class - completely flexible, LLM decides everything
      */
     data class HealthIssue(
-        val type: IssueType,
-        val description: String,
-        val suggestedPrompt: String,
-        val lineNumber: Int? = null
+        val issueCategory: String,  // LLM decides: "Null Safety", "Performance", etc.
+        val severity: Int,          // LLM decides: 1-5 scale
+        val title: String,          // LLM decides: concise issue title
+        val description: String,    // LLM decides: detailed description
+        val impact: String,         // LLM decides: what could go wrong
+        val suggestedFix: String,   // LLM decides: how to fix it
+        val lineNumbers: List<Int> = emptyList(),
+        val confidence: Double = 1.0,  // LLM confidence in this issue
+        val verified: Boolean = false,
+        val verificationReason: String? = null,
+        val falsePositive: Boolean = false,
+        val codeSnippet: String? = null,  // Relevant code snippet
+        val callerSnippets: List<CallerSnippet> = emptyList()  // How this method is called
+    )
+    
+    /**
+     * Represents a code snippet showing how a method is called
+     */
+    data class CallerSnippet(
+        val callerFqn: String,
+        val callerFile: String,
+        val lineNumber: Int,
+        val snippet: String,
+        val context: String  // Brief description of calling context
     )
 
     /**
@@ -63,11 +75,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         val issues: List<HealthIssue>,
         val impactedCallers: List<String>,
         val healthScore: Int,
-        val modificationCount: Int
+        val modificationCount: Int,
+        val codeContext: String = "",
+        val summary: String = ""  // Overall method health summary
     )
 
     /**
-     * Analyze all modified methods with rate limiting
+     * Analyze all modified methods using LLM for both detection and verification
      */
     fun analyzeAllMethods(methods: List<CodeHealthTracker.ModifiedMethod>): List<MethodHealthResult> {
         val results = ConcurrentHashMap<String, MethodHealthResult>()
@@ -79,8 +93,17 @@ class CodeHealthAnalyzer(private val project: Project) {
                 try {
                     semaphore.acquire()
                     try {
-                        val result = analyzeMethod(method)
-                        results[method.fqn] = result
+                        // First pass: LLM detects all potential issues
+                        val detectionResult = detectIssuesWithLLM(method)
+                        
+                        // Second pass: Verification agent validates issues
+                        val verifiedResult = if (detectionResult.issues.isNotEmpty()) {
+                            verifyIssuesWithAgent(detectionResult)
+                        } else {
+                            detectionResult
+                        }
+                        
+                        results[method.fqn] = verifiedResult
                         
                         // Rate limiting delay
                         Thread.sleep(LLM_DELAY_MS)
@@ -103,29 +126,356 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     /**
-     * Analyze a single method for issues and impact
+     * First pass: LLM detects all potential issues
      */
-    private fun analyzeMethod(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
-        // Get method context
+    private fun detectIssuesWithLLM(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
         val context = ApplicationManager.getApplication().runReadAction<String> {
             getMethodContext(method.fqn)
         }
         
-        // Find callers
         val callers = findCallers(method.fqn)
+        val callerSnippets = findCallersWithSnippets(method.fqn)
         
-        // Perform LLM analysis
-        val issues = performLLMAnalysis(method.fqn, context, callers)
+        val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
-        // Calculate health score
-        val healthScore = calculateHealthScore(issues, method.modificationCount, callers.size)
+        return try {
+            val response = llmService.query(detectionPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            if (response != null) {
+                parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response)
+            } else {
+                // Return empty result if LLM fails
+                MethodHealthResult(
+                    fqn = method.fqn,
+                    issues = emptyList(),
+                    impactedCallers = callers,
+                    healthScore = 100,
+                    modificationCount = method.modificationCount,
+                    codeContext = context,
+                    summary = "Failed to analyze method"
+                )
+            }
+        } catch (e: Exception) {
+            MethodHealthResult(
+                fqn = method.fqn,
+                issues = emptyList(),
+                impactedCallers = callers,
+                healthScore = 100,
+                modificationCount = method.modificationCount,
+                codeContext = context,
+                summary = "Analysis error: ${e.message}"
+            )
+        }
+    }
+
+    private fun buildDetectionPrompt(fqn: String, context: String, callers: List<String>, callerSnippets: List<CallerSnippet>): String {
+        return """
+            You are an expert code analyzer. Examine this Java method for ANY potential issues, no matter how minor.
+            Be creative and thorough - think of edge cases, potential misuse, performance concerns, maintainability, etc.
+            
+            Method: $fqn
+            Modified: Multiple times (frequently edited - higher risk)
+            Called by ${callers.size} methods: ${callers.take(5).joinToString(", ")}${if (callers.size > 5) " and ${callers.size - 5} more" else ""}
+            
+            Code:
+            ```java
+            $context
+            ```
+            
+            HOW THIS METHOD IS CALLED (Real usage examples):
+            ${callerSnippets.joinToString("\n\n") { snippet ->
+                """
+                Caller: ${snippet.callerFqn}
+                Context: ${snippet.context}
+                Code:
+                ```java
+                ${snippet.snippet}
+                ```
+                """.trimIndent()
+            }}
+            
+            Based on the actual usage patterns above, analyze for ALL possible issues including:
+            - Null pointer risks (especially check how parameters are passed by callers)
+            - Resource leaks (connections, streams, etc.)
+            - Concurrency problems (race conditions, deadlocks)
+            - Performance bottlenecks (especially if called in loops)
+            - Security vulnerabilities
+            - Error handling gaps
+            - Code smells and anti-patterns
+            - Maintainability concerns
+            - Testing difficulties
+            - Design principle violations
+            - Magic numbers/hardcoded values
+            - Naming issues
+            - Documentation gaps
+            - Potential future problems
+            - Integration risks
+            - Edge cases not handled
+            - Issues specific to how the method is actually used
+            
+            Return JSON format:
+            {
+                "summary": "Brief overall assessment of method health",
+                "healthScore": 85,  // 0-100, where 100 is perfect
+                "issues": [
+                    {
+                        "category": "Null Safety",  // You decide the category
+                        "severity": 3,  // 1-5, where 5 is critical
+                        "title": "Unchecked null parameter",
+                        "description": "Parameter 'user' is not validated for null before being dereferenced, and callers pass it directly from external sources",
+                        "impact": "Will throw NullPointerException if null is passed, crashing the application",
+                        "suggestedFix": "Add null check: if (user == null) throw new IllegalArgumentException(\"User cannot be null\");",
+                        "lineNumbers": [15, 16],
+                        "confidence": 0.95,  // 0.0-1.0, your confidence in this issue
+                        "codeSnippet": "user.getName() // line 15",
+                        "callerEvidence": "UserController passes request.getUser() directly without validation"
+                    }
+                ]
+            }
+            
+            Be comprehensive but realistic. Pay special attention to how callers use this method.
+            Consider the calling context (loops, conditionals, error handling) when assessing severity.
+        """.trimIndent()
+    }
+
+    private fun parseDetectionResponse(
+        fqn: String,
+        context: String,
+        callers: List<String>,
+        callerSnippets: List<CallerSnippet>,
+        modificationCount: Int,
+        llmResponse: String
+    ): MethodHealthResult {
+        return try {
+            // Extract JSON content
+            val jsonStart = llmResponse.indexOf("{")
+            val jsonEnd = llmResponse.lastIndexOf("}")
+            if (jsonStart == -1 || jsonEnd == -1) {
+                return createFallbackResult(fqn, context, callers, modificationCount)
+            }
+            
+            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
+            
+            // Parse summary and health score
+            val summaryMatch = Regex(""""summary"\s*:\s*"([^"]+)"""").find(jsonContent)
+            val summary = summaryMatch?.groupValues?.get(1) ?: "Analysis completed"
+            
+            val scoreMatch = Regex(""""healthScore"\s*:\s*(\d+)""").find(jsonContent)
+            val healthScore = scoreMatch?.groupValues?.get(1)?.toIntOrNull() ?: 85
+            
+            // Parse issues
+            val issues = mutableListOf<HealthIssue>()
+            val issuePattern = Regex(
+                """"category"\s*:\s*"([^"]+)"[^}]*"severity"\s*:\s*(\d+)[^}]*"title"\s*:\s*"([^"]+)"[^}]*"description"\s*:\s*"([^"]+)"[^}]*"impact"\s*:\s*"([^"]+)"[^}]*"suggestedFix"\s*:\s*"([^"]+)"[^}]*"confidence"\s*:\s*([\d.]+)(?:[^}]*"callerEvidence"\s*:\s*"([^"]+)")?""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            
+            issuePattern.findAll(jsonContent).forEach { match ->
+                val groups = match.groupValues
+                val category = groups[1]
+                val severityStr = groups[2]
+                val title = groups[3]
+                val description = groups[4]
+                val impact = groups[5]
+                val suggestedFix = groups[6]
+                val confidenceStr = groups[7]
+                val callerEvidence = groups.getOrNull(8)
+                
+                // Extract code snippet if present
+                val snippetMatch = Regex(""""codeSnippet"\s*:\s*"([^"]+)"""").find(jsonContent)
+                val codeSnippet = snippetMatch?.groupValues?.get(1)
+                
+                // If caller evidence is mentioned, try to match it with actual caller snippets
+                val relevantCallerSnippets = if (callerEvidence != null) {
+                    callerSnippets.filter { snippet ->
+                        callerEvidence.contains(snippet.callerFqn.substringAfterLast('.')) ||
+                        snippet.context.contains("loop") && callerEvidence.contains("loop") ||
+                        snippet.context.contains("conditional") && callerEvidence.contains("condition")
+                    }
+                } else {
+                    emptyList()
+                }
+                
+                issues.add(HealthIssue(
+                    issueCategory = category,
+                    severity = severityStr.toIntOrNull() ?: 1,
+                    title = title,
+                    description = description,
+                    impact = impact,
+                    suggestedFix = suggestedFix,
+                    confidence = confidenceStr.toDoubleOrNull() ?: 0.8,
+                    verified = false,  // Will be verified in second pass
+                    codeSnippet = codeSnippet,
+                    callerSnippets = relevantCallerSnippets
+                ))
+            }
+            
+            MethodHealthResult(
+                fqn = fqn,
+                issues = issues,
+                impactedCallers = callers,
+                healthScore = healthScore,
+                modificationCount = modificationCount,
+                codeContext = context,
+                summary = summary
+            )
+        } catch (e: Exception) {
+            createFallbackResult(fqn, context, callers, modificationCount)
+        }
+    }
+
+    /**
+     * Second pass: Verify detected issues with intelligent agent
+     */
+    private fun verifyIssuesWithAgent(result: MethodHealthResult): MethodHealthResult {
+        // Use the advanced verification agent with code exploration
+        val verificationAgent = CodeHealthVerificationAgent.getInstance(project)
         
+        return try {
+            // This will use autonomous exploration to verify issues
+            val future = verificationAgent.verifyIssuesWithExploration(result)
+            future.get() // Block and wait for result (since we're already in a background thread)
+        } catch (e: Exception) {
+            // Fallback to simple verification if advanced agent fails
+            val verificationPrompt = buildVerificationPrompt(result)
+            
+            try {
+                val response = llmService.query(verificationPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+                if (response != null) {
+                    parseVerificationResponse(result, response)
+                } else {
+                    result
+                }
+            } catch (fallbackException: Exception) {
+                result
+            }
+        }
+    }
+
+    private fun buildVerificationPrompt(result: MethodHealthResult): String {
+        return """
+            You are a verification agent. Your job is to verify if detected issues are REAL problems or FALSE POSITIVES.
+            Be skeptical - many "issues" might be intentional design choices or already handled properly.
+            
+            Method: ${result.fqn}
+            Context: Method has been modified ${result.modificationCount} times
+            Callers: ${result.impactedCallers.size} other methods depend on this
+            
+            Full Code:
+            ```java
+            ${result.codeContext}
+            ```
+            
+            Detected Issues to Verify:
+            ${result.issues.mapIndexed { index, issue ->
+                """
+                ${index + 1}. [${issue.issueCategory}] ${issue.title}
+                   Severity: ${issue.severity}/5
+                   Description: ${issue.description}
+                   Impact: ${issue.impact}
+                   Confidence: ${issue.confidence}
+                   
+                   ${if (issue.callerSnippets.isNotEmpty()) {
+                       """
+                       HOW IT'S CALLED:
+                       ${issue.callerSnippets.joinToString("\n") { snippet ->
+                           """
+                           Caller: ${snippet.callerFqn} (${snippet.context})
+                           ```java
+                           ${snippet.snippet}
+                           ```
+                           """.trimIndent()
+                       }}
+                       """.trimIndent()
+                   } else ""}
+                """.trimIndent()
+            }.joinToString("\n\n")}
+            
+            For each issue, determine:
+            1. Is this a REAL issue that could cause problems in production?
+            2. Is it a FALSE POSITIVE (handled elsewhere, intentional, or misconception)?
+            
+            Consider:
+            - The full method context and its purpose
+            - How callers use this method (see code snippets above)
+            - Whether defensive programming already handles the issue
+            - If the "issue" might be intentional design
+            - Whether the impact is realistic given the actual usage
+            
+            Return JSON:
+            {
+                "verifications": [
+                    {
+                        "issueIndex": 0,  // 0-based index matching the issue order above
+                        "verified": true,  // true if REAL issue, false if FALSE POSITIVE
+                        "verificationReason": "The null check is indeed missing and callers pass unchecked parameters from user input",
+                        "adjustedSeverity": 3,  // You can adjust severity based on context
+                        "adjustedConfidence": 0.9  // Your confidence after verification
+                    }
+                ]
+            }
+        """.trimIndent()
+    }
+
+    private fun parseVerificationResponse(result: MethodHealthResult, llmResponse: String): MethodHealthResult {
+        try {
+            val jsonStart = llmResponse.indexOf("{")
+            val jsonEnd = llmResponse.lastIndexOf("}")
+            if (jsonStart == -1 || jsonEnd == -1) {
+                return result
+            }
+            
+            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
+            
+            // Parse verifications
+            val verificationPattern = Regex(
+                """"issueIndex"\s*:\s*(\d+)[^}]*"verified"\s*:\s*(true|false)[^}]*"verificationReason"\s*:\s*"([^"]+)"[^}]*"adjustedSeverity"\s*:\s*(\d+)[^}]*"adjustedConfidence"\s*:\s*([\d.]+)""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            
+            val verifiedIssues = result.issues.toMutableList()
+            
+            verificationPattern.findAll(jsonContent).forEach { match ->
+                val (indexStr, verifiedStr, reason, severityStr, confidenceStr) = match.destructured
+                val index = indexStr.toIntOrNull() ?: return@forEach
+                
+                if (index in verifiedIssues.indices) {
+                    verifiedIssues[index] = verifiedIssues[index].copy(
+                        verified = verifiedStr.toBoolean(),
+                        verificationReason = reason,
+                        falsePositive = !verifiedStr.toBoolean(),
+                        severity = severityStr.toIntOrNull() ?: verifiedIssues[index].severity,
+                        confidence = confidenceStr.toDoubleOrNull() ?: verifiedIssues[index].confidence
+                    )
+                }
+            }
+            
+            // Recalculate health score based on verified issues
+            val verifiedRealIssues = verifiedIssues.filter { it.verified && !it.falsePositive }
+            val newHealthScore = calculateHealthScore(verifiedRealIssues, result.modificationCount, result.impactedCallers.size)
+            
+            return result.copy(
+                issues = verifiedIssues,
+                healthScore = newHealthScore
+            )
+        } catch (e: Exception) {
+            return result
+        }
+    }
+
+    private fun createFallbackResult(
+        fqn: String,
+        context: String,
+        callers: List<String>,
+        modificationCount: Int
+    ): MethodHealthResult {
         return MethodHealthResult(
-            fqn = method.fqn,
-            issues = issues,
+            fqn = fqn,
+            issues = emptyList(),
             impactedCallers = callers,
-            healthScore = healthScore,
-            modificationCount = method.modificationCount
+            healthScore = 85,
+            modificationCount = modificationCount,
+            codeContext = context,
+            summary = "Unable to perform detailed analysis"
         )
     }
 
@@ -143,10 +493,10 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         return psiClass?.methods?.find { it.name == methodName }?.let { psiMethod ->
             buildString {
-                appendLine("Method: $fqn")
-                appendLine("Signature: ${psiMethod.text.lines().first()}")
-                appendLine("\nMethod body:")
-                append(psiMethod.body?.text ?: "// No body found")
+                appendLine("// File: ${psiMethod.containingFile?.virtualFile?.path}")
+                appendLine("// Class: ${psiClass.qualifiedName}")
+                appendLine()
+                append(psiMethod.text)
             }
         } ?: "// Method not found: $fqn"
     }
@@ -182,142 +532,127 @@ class CodeHealthAnalyzer(private val project: Project) {
             emptyList()
         }
     }
-
-    private fun performLLMAnalysis(
-        fqn: String, 
-        context: String, 
-        callers: List<String>
-    ): List<HealthIssue> {
-        val prompt = buildAnalysisPrompt(fqn, context, callers)
-        
+    
+    /**
+     * Find callers with code snippets showing how the method is called
+     */
+    private fun findCallersWithSnippets(fqn: String): List<CallerSnippet> {
         return try {
-            val response = llmService.query(prompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-            if (response != null) {
-                parseHealthIssues(response)
-            } else {
-                performBasicAnalysis(context)
-            }
-        } catch (e: Exception) {
-            // Fallback to basic analysis if LLM fails
-            performBasicAnalysis(context)
-        }
-    }
-
-    private fun buildAnalysisPrompt(fqn: String, context: String, callers: List<String>): String {
-        return """
-            Analyze this Java method for potential issues. Return a structured JSON response.
-            
-            Method: $fqn
-            Called by ${callers.size} methods: ${callers.take(5).joinToString(", ")}${if (callers.size > 5) " and ${callers.size - 5} more" else ""}
-            
-            Code:
-            ```java
-            $context
-            ```
-            
-            Analyze for:
-            1. Null pointer exceptions (NPE_RISK)
-            2. Logic errors (LOGIC_ERROR)
-            3. Performance issues (PERFORMANCE_ISSUE)
-            4. Security vulnerabilities (SECURITY_VULNERABILITY)
-            5. Resource leaks (RESOURCE_LEAK)
-            6. Concurrency issues (CONCURRENCY_ISSUE)
-            7. Missing validation (MISSING_VALIDATION)
-            
-            Return JSON format:
-            {
-                "issues": [
-                    {
-                        "type": "NPE_RISK",
-                        "description": "Parameter 'user' not checked for null before access",
-                        "line": 15,
-                        "fix": "Add null check: if (user == null) throw new IllegalArgumentException(\"User cannot be null\");"
-                    }
-                ]
-            }
-            
-            Only include actual issues found. Be concise and specific.
-        """.trimIndent()
-    }
-
-    private fun parseHealthIssues(llmResponse: String): List<HealthIssue> {
-        return try {
-            // Simple JSON parsing - in production, use proper JSON library
-            val issues = mutableListOf<HealthIssue>()
-            
-            // Extract JSON content
-            val jsonStart = llmResponse.indexOf("{")
-            val jsonEnd = llmResponse.lastIndexOf("}")
-            if (jsonStart == -1 || jsonEnd == -1) {
-                return performBasicAnalysis(llmResponse)
-            }
-            
-            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
-            
-            // Parse issues (simplified - use proper JSON parser in production)
-            val issueMatches = Regex(""""type"\s*:\s*"([^"]+)"[^}]*"description"\s*:\s*"([^"]+)"[^}]*"fix"\s*:\s*"([^"]+)"""")
-                .findAll(jsonContent)
-            
-            issueMatches.forEach { match ->
-                val (typeStr, description, fix) = match.destructured
-                val issueType = try {
-                    IssueType.valueOf(typeStr)
-                } catch (e: Exception) {
-                    IssueType.CODE_SMELL
-                }
+            ApplicationManager.getApplication().runReadAction<List<CallerSnippet>> {
+                val parts = fqn.split(".")
+                if (parts.size < 2) return@runReadAction emptyList()
                 
-                issues.add(HealthIssue(
-                    type = issueType,
-                    description = description,
-                    suggestedPrompt = "Fix ${issueType.displayName}: $fix"
-                ))
+                val className = parts.dropLast(1).joinToString(".")
+                val methodName = parts.last()
+                
+                val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
+                    .findClass(className, GlobalSearchScope.projectScope(project))
+                
+                val psiMethod = psiClass?.methods?.find { it.name == methodName }
+                    ?: return@runReadAction emptyList()
+                
+                val references = MethodReferencesSearch.search(psiMethod).findAll()
+                references.mapNotNull { ref ->
+                    val element = ref.element
+                    val containingMethod = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+                        element, 
+                        com.intellij.psi.PsiMethod::class.java
+                    )
+                    
+                    containingMethod?.let { method ->
+                        val callerFqn = "${method.containingClass?.qualifiedName}.${method.name}"
+                        val file = method.containingFile?.virtualFile?.path ?: ""
+                        
+                        // Get the line containing the method call
+                        val document = com.intellij.psi.PsiDocumentManager.getInstance(project)
+                            .getDocument(method.containingFile!!)
+                        
+                        if (document != null) {
+                            val lineNumber = document.getLineNumber(element.textOffset)
+                            
+                            // Get surrounding lines for context (3 before, 3 after)
+                            val startLine = (lineNumber - 3).coerceAtLeast(0)
+                            val endLine = (lineNumber + 3).coerceAtMost(document.lineCount - 1)
+                            
+                            val snippet = buildString {
+                                for (i in startLine..endLine) {
+                                    val lineStart = document.getLineStartOffset(i)
+                                    val lineEnd = document.getLineEndOffset(i)
+                                    val lineText = document.text.substring(lineStart, lineEnd)
+                                    
+                                    if (i == lineNumber) {
+                                        appendLine(">>> $lineText  // <<< METHOD CALL HERE")
+                                    } else {
+                                        appendLine("    $lineText")
+                                    }
+                                }
+                            }
+                            
+                            // Determine calling context
+                            val context = analyzeCallingContext(method, element)
+                            
+                            CallerSnippet(
+                                callerFqn = callerFqn,
+                                callerFile = file,
+                                lineNumber = lineNumber + 1, // 1-based
+                                snippet = snippet,
+                                context = context
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                }.filterNotNull().take(10) // Limit to 10 most relevant callers
             }
-            
-            issues
         } catch (e: Exception) {
-            performBasicAnalysis(llmResponse)
+            emptyList()
         }
     }
-
-    private fun performBasicAnalysis(context: String): List<HealthIssue> {
-        val issues = mutableListOf<HealthIssue>()
-        
-        // Basic pattern matching for common issues
-        if (context.contains("null") && !context.contains("!= null") && !context.contains("== null")) {
-            issues.add(HealthIssue(
-                type = IssueType.NPE_RISK,
-                description = "Potential null reference without explicit null check",
-                suggestedPrompt = "Add null safety checks to prevent NullPointerException"
-            ))
+    
+    /**
+     * Analyze the context of how a method is being called
+     */
+    private fun analyzeCallingContext(
+        callerMethod: com.intellij.psi.PsiMethod,
+        callElement: com.intellij.psi.PsiElement
+    ): String {
+        // Check if it's in a loop
+        val loop = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+            callElement,
+            com.intellij.psi.PsiLoopStatement::class.java
+        )
+        if (loop != null) {
+            return "Called inside a loop - potential performance impact"
         }
         
-        if (context.contains("while (true)") || context.contains("for (;;)")) {
-            issues.add(HealthIssue(
-                type = IssueType.LOGIC_ERROR,
-                description = "Infinite loop detected",
-                suggestedPrompt = "Add proper loop termination condition"
-            ))
+        // Check if it's in a conditional
+        val conditional = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+            callElement,
+            com.intellij.psi.PsiIfStatement::class.java
+        )
+        if (conditional != null) {
+            return "Called conditionally"
         }
         
-        if (context.contains("synchronized") && context.contains("wait(") && !context.contains("notifyAll")) {
-            issues.add(HealthIssue(
-                type = IssueType.CONCURRENCY_ISSUE,
-                description = "wait() without corresponding notify/notifyAll",
-                suggestedPrompt = "Ensure proper thread notification in synchronized blocks"
-            ))
+        // Check if it's in a try-catch
+        val tryStatement = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+            callElement,
+            com.intellij.psi.PsiTryStatement::class.java
+        )
+        if (tryStatement != null) {
+            return "Called within error handling block"
         }
         
-        if (context.contains("Connection") || context.contains("Stream")) {
-            if (!context.contains("close()") && !context.contains("try-with-resources")) {
-                issues.add(HealthIssue(
-                    type = IssueType.RESOURCE_LEAK,
-                    description = "Resource may not be properly closed",
-                    suggestedPrompt = "Use try-with-resources or ensure resource is closed in finally block"
-                ))
-            }
+        // Check if it's in initialization
+        val field = com.intellij.psi.util.PsiTreeUtil.getParentOfType(
+            callElement,
+            com.intellij.psi.PsiField::class.java
+        )
+        if (field != null) {
+            return "Called during field initialization"
         }
         
-        return issues
+        return "Standard method call"
     }
 
     private fun calculateHealthScore(
@@ -328,9 +663,10 @@ class CodeHealthAnalyzer(private val project: Project) {
         // Base score starts at 100
         var score = 100
         
-        // Deduct points for issues based on severity
+        // Deduct points based on issue severity and confidence
         issues.forEach { issue ->
-            score -= issue.type.severity * 10
+            val deduction = (issue.severity * 5 * issue.confidence).toInt()
+            score -= deduction
         }
         
         // Factor in modification frequency (more changes = more risk)

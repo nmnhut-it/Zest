@@ -1,0 +1,118 @@
+package com.zps.zest.completion.metrics
+
+/**
+ * Sealed class representing different types of metric events for inline completion
+ */
+sealed class MetricEvent {
+    abstract val completionId: String
+    abstract val elapsed: Long
+    abstract val eventType: String
+    abstract val metadata: Map<String, Any>
+    
+    /**
+     * Convert the event to an API request format
+     */
+    fun toApiRequest(): Map<String, Any> {
+        val baseRequest = mutableMapOf<String, Any>(
+            "model" to "local-model-mini",
+            "stream" to false,
+            "custom_tool" to "Zest|INLINE_COMPLETION_LOGGING|$eventType",
+            "completion_id" to completionId,
+            "elapsed" to elapsed
+        )
+        
+        // Add event-specific fields
+        when (this) {
+            is Completed -> baseRequest["completion_content"] = completionContent
+            else -> { /* No additional fields for other events */ }
+        }
+        
+        // Add metadata if present
+        if (metadata.isNotEmpty()) {
+            baseRequest["metadata"] = metadata
+        }
+        
+        return baseRequest
+    }
+    
+    /**
+     * Completion request initiated
+     */
+    data class Complete(
+        override val completionId: String,
+        override val elapsed: Long = 0,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "complete"
+    }
+    
+    /**
+     * Completion displayed to user
+     */
+    data class View(
+        override val completionId: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "view"
+    }
+    
+    /**
+     * Completion selected/highlighted
+     */
+    data class Select(
+        override val completionId: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "select"
+    }
+    
+    /**
+     * Completion dismissed by user
+     */
+    data class Dismiss(
+        override val completionId: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "dismiss"
+    }
+    
+    /**
+     * Completion declined (user typed something different)
+     */
+    data class Decline(
+        override val completionId: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "decline"
+    }
+    
+    /**
+     * Completion accepted and inserted
+     */
+    data class Completed(
+        override val completionId: String,
+        val completionContent: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "completed"
+    }
+}
+
+/**
+ * Represents an active completion session for tracking
+ */
+data class CompletionSession(
+    val completionId: String,
+    val startTime: Long,
+    val strategy: String,
+    val fileType: String,
+    val contextInfo: Map<String, Any> = emptyMap(),
+    var viewedAt: Long? = null,
+    var completionLength: Int? = null,
+    var confidence: Float? = null
+)

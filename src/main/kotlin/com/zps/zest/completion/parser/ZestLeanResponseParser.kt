@@ -48,13 +48,13 @@ class ZestLeanResponseParser {
             
             // Debug logging for lean strategy overlap detection
             if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
-                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
-                System.out.println("User input: '$recentUserInput'")
-                System.out.println("Original completion: '$cleanedCompletion'")
-                System.out.println("Overlap type: ${overlapResult.overlapType}")
-                System.out.println("Overlap length: ${overlapResult.overlapLength}")
-                System.out.println("Final completion: '$finalCompletion'")
-                System.out.println("=== END LEAN DEBUG ===")
+//                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
+//                System.out.println("User input: '$recentUserInput'")
+//                System.out.println("Original completion: '$cleanedCompletion'")
+//                System.out.println("Overlap type: ${overlapResult.overlapType}")
+//                System.out.println("Overlap length: ${overlapResult.overlapLength}")
+//                System.out.println("Final completion: '$finalCompletion'")
+//                System.out.println("=== END LEAN DEBUG ===")
             }
             
             finalCompletion

@@ -1,5 +1,7 @@
 package com.zps.zest.codehealth
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
@@ -41,6 +43,9 @@ class CodeHealthAnalyzer(private val project: Project) {
     private val llmService: LLMService = project.service()
     private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
     private val results = ConcurrentHashMap<String, MethodHealthResult>()
+    
+    // Rate limiter for LLM calls
+    private val llmRateLimiter = RateLimiter(LLM_DELAY_MS)
 
     /**
      * Health issue data class - completely flexible, LLM decides everything
@@ -92,6 +97,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         methods: List<CodeHealthTracker.ModifiedMethod>,
         indicator: ProgressIndicator? = null
     ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Starting analysis of ${methods.size} methods")
         results.clear()
         val totalMethods = methods.size
         val completed = AtomicInteger(0)
@@ -99,41 +105,96 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         // Process methods in chunks to avoid overwhelming the system
         methods.chunked(CHUNK_SIZE).forEachIndexed { chunkIndex, chunk ->
+            println("[CodeHealthAnalyzer] Processing chunk ${chunkIndex + 1} with ${chunk.size} methods")
+            
+            // Schedule chunk processing with delay between chunks
             analysisQueue.submit {
                 chunk.forEach { method ->
                     if (indicator?.isCanceled == true) {
+                        println("[CodeHealthAnalyzer] Analysis cancelled at method ${method.fqn}")
                         latch.countDown()
                         return@forEach
                     }
                     
+                    val currentCount = completed.get() + 1
+                    
                     // Update progress
                     indicator?.let {
-                        it.fraction = completed.get().toDouble() / totalMethods
-                        it.text = "Analyzing method ${completed.get() + 1} of $totalMethods: ${method.fqn}"
+                        it.fraction = currentCount.toDouble() / totalMethods
+                        it.text = "Analyzing method $currentCount of $totalMethods: ${method.fqn}"
+                        it.text2 = "Modified ${method.modificationCount} times"
                     }
+                    
+                    println("[CodeHealthAnalyzer] Analyzing method $currentCount/$totalMethods: ${method.fqn}")
                     
                     // Analyze method asynchronously
                     analyzeMethodAsync(method) { result ->
+                        val issueCount = result.issues.size
+                        val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
+                        println("[CodeHealthAnalyzer] Completed ${method.fqn}: ${issueCount} issues found, $verifiedCount verified")
+                        
                         results[method.fqn] = result
-                        completed.incrementAndGet()
+                        val completedCount = completed.incrementAndGet()
+                        
+                        // Update progress after completion
+                        indicator?.let {
+                            it.fraction = completedCount.toDouble() / totalMethods
+                            it.text = "Completed $completedCount of $totalMethods methods"
+                        }
+                        
                         latch.countDown()
                     }
                 }
-                
-                // Delay between chunks
-                Thread.sleep(LLM_DELAY_MS)
             }
         }
         
         // Wait for all analyses to complete
         try {
-            latch.await(5, TimeUnit.MINUTES) // Timeout after 5 minutes
+            println("[CodeHealthAnalyzer] Waiting for all analyses to complete...")
+            
+            // Show warning if taking too long
+            val warningFuture = CompletableFuture.runAsync({
+                Thread.sleep(30000) // 30 seconds
+                if (latch.count > 0) {
+                    ApplicationManager.getApplication().invokeLater {
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup("Zest Code Health")
+                            .createNotification(
+                                "Code Health Analysis Running",
+                                "Analysis is taking longer than expected. ${latch.count} methods remaining...",
+                                NotificationType.WARNING
+                            )
+                            .notify(project)
+                    }
+                }
+            })
+            
+            val completed = latch.await(5, TimeUnit.MINUTES) // Timeout after 5 minutes
+            warningFuture.cancel(true) // Cancel warning if completed
+            
+            if (!completed) {
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 5 minutes")
+                ApplicationManager.getApplication().invokeLater {
+                    NotificationGroupManager.getInstance()
+                        .getNotificationGroup("Zest Code Health")
+                        .createNotification(
+                            "Code Health Analysis Timeout",
+                            "Analysis timed out after 5 minutes. Returning partial results.",
+                            NotificationType.ERROR
+                        )
+                        .notify(project)
+                }
+            }
         } catch (e: InterruptedException) {
+            println("[CodeHealthAnalyzer] Analysis interrupted")
             Thread.currentThread().interrupt()
         }
         
-        return results.values.toList()
+        val resultsList = results.values.toList()
             .sortedByDescending { it.healthScore * it.modificationCount }
+        
+        println("[CodeHealthAnalyzer] Analysis complete. Returning ${resultsList.size} results")
+        return resultsList
     }
 
     /**
@@ -143,41 +204,74 @@ class CodeHealthAnalyzer(private val project: Project) {
         method: CodeHealthTracker.ModifiedMethod,
         onComplete: (MethodHealthResult) -> Unit
     ) {
+        if (method.fqn.isBlank()) {
+            println("[CodeHealthAnalyzer] WARNING: Skipping method with empty FQN")
+            onComplete(createFallbackResult("", "", emptyList(), method.modificationCount))
+            return
+        }
+        
+        val startTime = System.currentTimeMillis()
+        println("[CodeHealthAnalyzer] Starting async analysis of ${method.fqn}")
+        
         analysisQueue.submit {
             // Step 1: Get method context
+            println("[CodeHealthAnalyzer] Step 1: Getting context for ${method.fqn}")
             val context = ReadAction.nonBlocking<String> {
                 getMethodContext(method.fqn)
             }
             .inSmartMode(project)
             .executeSynchronously()
             
+            if (context.isEmpty() || context.contains("Method not found")) {
+                println("[CodeHealthAnalyzer] WARNING: No context found for ${method.fqn}")
+                onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount))
+                return@submit
+            }
+            
             // Step 2: Find callers asynchronously
             analysisQueue.submit {
+                println("[CodeHealthAnalyzer] Step 2: Finding callers for ${method.fqn}")
                 val callers = ReadAction.nonBlocking<List<String>> {
                     findCallers(method.fqn)
                 }
                 .inSmartMode(project)
                 .executeSynchronously()
                 
+                println("[CodeHealthAnalyzer] Found ${callers.size} callers for ${method.fqn}")
+                
                 // Step 3: Get limited caller snippets (max 5 to avoid performance issues)
                 analysisQueue.submit {
+                    println("[CodeHealthAnalyzer] Step 3: Getting caller snippets for ${method.fqn}")
                     val callerSnippets = ReadAction.nonBlocking<List<CallerSnippet>> {
                         findCallersWithSnippets(method.fqn).take(5)
                     }
                     .inSmartMode(project)
                     .executeSynchronously()
                     
+                    println("[CodeHealthAnalyzer] Got ${callerSnippets.size} caller snippets for ${method.fqn}")
+                    
                     // Step 4: Call LLM for detection
                     analysisQueue.submit {
+                        println("[CodeHealthAnalyzer] Step 4: LLM detection for ${method.fqn}")
                         val detectionResult = detectIssuesWithLLM(method, context, callers, callerSnippets)
+                        
+                        println("[CodeHealthAnalyzer] LLM detected ${detectionResult.issues.size} issues for ${method.fqn}")
                         
                         // Step 5: Verify issues if needed
                         if (detectionResult.issues.isNotEmpty()) {
                             analysisQueue.submit {
+                                println("[CodeHealthAnalyzer] Step 5: Verifying issues for ${method.fqn}")
                                 val verifiedResult = verifyIssuesWithAgent(detectionResult)
+                                
+                                val elapsed = System.currentTimeMillis() - startTime
+                                val verifiedCount = verifiedResult.issues.count { it.verified && !it.falsePositive }
+                                println("[CodeHealthAnalyzer] Completed ${method.fqn} in ${elapsed}ms. Verified $verifiedCount/${verifiedResult.issues.size} issues")
+                                
                                 onComplete(verifiedResult)
                             }
                         } else {
+                            val elapsed = System.currentTimeMillis() - startTime
+                            println("[CodeHealthAnalyzer] Completed ${method.fqn} in ${elapsed}ms. No issues found")
                             onComplete(detectionResult)
                         }
                     }
@@ -198,10 +292,27 @@ class CodeHealthAnalyzer(private val project: Project) {
         val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
         return try {
-            val response = llmService.query(detectionPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            println("[CodeHealthAnalyzer] Calling LLM for detection of ${method.fqn} (prompt length: ${detectionPrompt.length})")
+            
+            // Rate limit LLM calls
+            llmRateLimiter.acquire()
+            
+            val startTime = System.currentTimeMillis()
+            
+            // Use lite code model for better performance
+            val params = LLMService.LLMQueryParams(detectionPrompt)
+                .useLiteCodeModel()
+                .withMaxTokens(4096)
+                .withTemperature(0.3)
+            
+            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            val elapsed = System.currentTimeMillis() - startTime
+            
             if (response != null) {
+                println("[CodeHealthAnalyzer] LLM responded in ${elapsed}ms for ${method.fqn} (response length: ${response.length})")
                 parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response)
             } else {
+                println("[CodeHealthAnalyzer] LLM returned null response for ${method.fqn} after ${elapsed}ms")
                 // Return empty result if LLM fails
                 MethodHealthResult(
                     fqn = method.fqn,
@@ -214,6 +325,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 )
             }
         } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR calling LLM for ${method.fqn}: ${e.message}")
             MethodHealthResult(
                 fqn = method.fqn,
                 issues = emptyList(),
@@ -228,71 +340,50 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun buildDetectionPrompt(fqn: String, context: String, callers: List<String>, callerSnippets: List<CallerSnippet>): String {
         return """
-            You are an expert code analyzer. Examine this Java method for ANY potential issues, no matter how minor.
-            Be creative and thorough - think of edge cases, potential misuse, performance concerns, maintainability, etc.
+            Analyze this Java method for potential issues. Be concise but thorough.
             
             Method: $fqn
-            Modified: Multiple times (frequently edited - higher risk)
-            Called by ${callers.size} methods: ${callers.take(5).joinToString(", ")}${if (callers.size > 5) " and ${callers.size - 5} more" else ""}
+            Modified: ${if (callers.size > 5) "Many times" else "Recently"}
+            Callers: ${callers.size} methods
             
             Code:
             ```java
             $context
             ```
             
-            HOW THIS METHOD IS CALLED (Real usage examples):
-            ${callerSnippets.joinToString("\n\n") { snippet ->
-                """
-                Caller: ${snippet.callerFqn}
-                Context: ${snippet.context}
-                Code:
-                ```java
-                ${snippet.snippet}
-                ```
-                """.trimIndent()
+            ${if (callerSnippets.isNotEmpty()) """
+            Usage Examples:
+            ${callerSnippets.take(3).joinToString("\n") { snippet ->
+                "- ${snippet.callerFqn}: ${snippet.context}"
             }}
+            """ else ""}
             
-            Based on the actual usage patterns above, analyze for ALL possible issues including:
-            - Null pointer risks (especially check how parameters are passed by callers)
-            - Resource leaks (connections, streams, etc.)
-            - Concurrency problems (race conditions, deadlocks)
-            - Performance bottlenecks (especially if called in loops)
-            - Security vulnerabilities
+            Find issues in these categories:
+            - Null safety risks
+            - Resource leaks
+            - Performance problems
             - Error handling gaps
-            - Code smells and anti-patterns
-            - Maintainability concerns
-            - Testing difficulties
-            - Design principle violations
-            - Magic numbers/hardcoded values
-            - Naming issues
-            - Documentation gaps
-            - Potential future problems
-            - Integration risks
-            - Edge cases not handled
-            - Issues specific to how the method is actually used
+            - Security vulnerabilities
+            - Code quality issues
             
-            Return JSON format:
+            Return ONLY valid JSON:
             {
-                "summary": "Brief overall assessment of method health",
-                "healthScore": 85,  // 0-100, where 100 is perfect
+                "summary": "1-line method assessment",
+                "healthScore": 85,
                 "issues": [
                     {
-                        "category": "Null Safety",  // You decide the category
-                        "severity": 3,  // 1-5, where 5 is critical
-                        "title": "Unchecked null parameter",
-                        "description": "Parameter 'user' is not validated for null before being dereferenced, and callers pass it directly from external sources",
-                        "impact": "Will throw NullPointerException if null is passed, crashing the application",
-                        "suggestedFix": "Add null check: if (user == null) throw new IllegalArgumentException(\"User cannot be null\");",
-                        "lineNumbers": [15, 16],
-                        "confidence": 0.95,  // 0.0-1.0, your confidence in this issue
-                        "codeSnippet": "user.getName() // line 15",
-                        "callerEvidence": "UserController passes request.getUser() directly without validation"
+                        "category": "Category Name",
+                        "severity": 3,
+                        "title": "Brief issue title",
+                        "description": "What's wrong",
+                        "impact": "What could happen",
+                        "suggestedFix": "How to fix",
+                        "confidence": 0.9
                     }
                 ]
             }
             
-            Be comprehensive but realistic. Pay special attention to how callers use this method.
-            Consider the calling context (loops, conditionals, error handling) when assessing severity.
+            Be realistic. Focus on actual problems, not style preferences.
         """.trimIndent()
     }
 
@@ -386,80 +477,65 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Second pass: Verify detected issues with intelligent agent
      */
     private fun verifyIssuesWithAgent(result: MethodHealthResult): MethodHealthResult {
+        println("[CodeHealthAnalyzer] Verifying ${result.issues.size} issues for ${result.fqn}")
+        
+        // Rate limit verification calls
+        llmRateLimiter.acquire()
+        
         // For now, use simple verification. Can be upgraded to use CodeHealthVerificationAgent later
         val verificationPrompt = buildVerificationPrompt(result)
         
         return try {
-            val response = llmService.query(verificationPrompt, "local-model-mini", com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            val startTime = System.currentTimeMillis()
+            
+            // Use lite code model for verification too
+            val params = LLMService.LLMQueryParams(verificationPrompt)
+                .useLiteCodeModel()
+                .withMaxTokens(2048)
+                .withTemperature(0.1) // Lower temperature for more consistent verification
+            
+            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            val elapsed = System.currentTimeMillis() - startTime
+            
             if (response != null) {
-                parseVerificationResponse(result, response)
+                println("[CodeHealthAnalyzer] Verification completed in ${elapsed}ms for ${result.fqn}")
+                val verifiedResult = parseVerificationResponse(result, response)
+                val verifiedCount = verifiedResult.issues.count { it.verified && !it.falsePositive }
+                println("[CodeHealthAnalyzer] Verified $verifiedCount/${verifiedResult.issues.size} issues as real for ${result.fqn}")
+                verifiedResult
             } else {
+                println("[CodeHealthAnalyzer] Verification failed for ${result.fqn} after ${elapsed}ms")
                 result
             }
         } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR during verification for ${result.fqn}: ${e.message}")
             result
         }
     }
 
     private fun buildVerificationPrompt(result: MethodHealthResult): String {
         return """
-            You are a verification agent. Your job is to verify if detected issues are REAL problems or FALSE POSITIVES.
-            Be skeptical - many "issues" might be intentional design choices or already handled properly.
+            Verify if these issues are REAL problems or FALSE POSITIVES. Be skeptical.
             
             Method: ${result.fqn}
-            Context: Method has been modified ${result.modificationCount} times
-            Callers: ${result.impactedCallers.size} other methods depend on this
             
-            Full Code:
+            Code:
             ```java
-            ${result.codeContext}
+            ${result.codeContext.take(1000)}${if (result.codeContext.length > 1000) "..." else ""}
             ```
             
-            Detected Issues to Verify:
-            ${result.issues.mapIndexed { index, issue ->
-                """
-                ${index + 1}. [${issue.issueCategory}] ${issue.title}
-                   Severity: ${issue.severity}/5
-                   Description: ${issue.description}
-                   Impact: ${issue.impact}
-                   Confidence: ${issue.confidence}
-                   
-                   ${if (issue.callerSnippets.isNotEmpty()) {
-                       """
-                       HOW IT'S CALLED:
-                       ${issue.callerSnippets.joinToString("\n") { snippet ->
-                           """
-                           Caller: ${snippet.callerFqn} (${snippet.context})
-                           ```java
-                           ${snippet.snippet}
-                           ```
-                           """.trimIndent()
-                       }}
-                       """.trimIndent()
-                   } else ""}
-                """.trimIndent()
-            }.joinToString("\n\n")}
+            Issues to verify:
+            ${result.issues.take(5).mapIndexed { index, issue ->
+                "$index. [${issue.issueCategory}] ${issue.title} - ${issue.description}"
+            }.joinToString("\n")}
             
-            For each issue, determine:
-            1. Is this a REAL issue that could cause problems in production?
-            2. Is it a FALSE POSITIVE (handled elsewhere, intentional, or misconception)?
-            
-            Consider:
-            - The full method context and its purpose
-            - How callers use this method (see code snippets above)
-            - Whether defensive programming already handles the issue
-            - If the "issue" might be intentional design
-            - Whether the impact is realistic given the actual usage
-            
-            Return JSON:
+            Return ONLY valid JSON:
             {
                 "verifications": [
                     {
-                        "issueIndex": 0,  // 0-based index matching the issue order above
-                        "verified": true,  // true if REAL issue, false if FALSE POSITIVE
-                        "verificationReason": "The null check is indeed missing and callers pass unchecked parameters from user input",
-                        "adjustedSeverity": 3,  // You can adjust severity based on context
-                        "adjustedConfidence": 0.9  // Your confidence after verification
+                        "issueIndex": 0,
+                        "verified": true,
+                        "verificationReason": "Why real or false positive"
                     }
                 ]
             }
@@ -733,6 +809,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     fun dispose() {
         analysisQueue.shutdown()
+        llmRateLimiter.shutdown()
     }
 }
 
@@ -740,22 +817,53 @@ class CodeHealthAnalyzer(private val project: Project) {
  * Simple analysis queue for spreading work over time
  */
 class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
-    private val executor = Executors.newSingleThreadExecutor()
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val semaphore = Semaphore(1)
+    private val taskCount = AtomicInteger(0)
     
     fun submit(task: () -> Unit) {
-        executor.submit {
+        val taskId = taskCount.incrementAndGet()
+        println("[SimpleAnalysisQueue] Submitting task #$taskId")
+        
+        scheduler.execute {
             try {
+                semaphore.acquire()
+                println("[SimpleAnalysisQueue] Executing task #$taskId")
                 task()
-                Thread.sleep(delayMs) // Delay between tasks
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
+                // Schedule next task after delay
+                scheduler.schedule({ 
+                    semaphore.release()
+                    println("[SimpleAnalysisQueue] Released semaphore after task #$taskId")
+                }, delayMs, TimeUnit.MILLISECONDS)
             } catch (e: Exception) {
+                println("[SimpleAnalysisQueue] ERROR in task #$taskId: ${e.message}")
+                semaphore.release()
                 // Log error but continue processing
             }
         }
     }
     
     fun shutdown() {
-        executor.shutdown()
+        println("[SimpleAnalysisQueue] Shutting down queue")
+        scheduler.shutdown()
+    }
+}
+
+/**
+ * Rate limiter for controlling LLM calls
+ */
+class RateLimiter(private val delayMs: Long) {
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val semaphore = Semaphore(1)
+    
+    fun acquire() {
+        semaphore.acquire()
+        scheduler.schedule({
+            semaphore.release()
+        }, delayMs, TimeUnit.MILLISECONDS)
+    }
+    
+    fun shutdown() {
+        scheduler.shutdown()
     }
 }

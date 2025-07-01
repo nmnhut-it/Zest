@@ -107,17 +107,26 @@ class CodeHealthTracker(private val project: Project) :
     override fun getState(): State = state
     
     override fun loadState(state: State) {
+        println("[CodeHealthTracker] Loading state with ${state.modifiedMethods.size} persisted methods")
         this.state = state
         // Load persisted data into memory
         methodModifications.clear()
         state.modifiedMethods.forEach { serializable ->
             val method = serializable.toModifiedMethod()
-            methodModifications[method.fqn] = method
+            if (method.fqn.isNotBlank()) {
+                println("[CodeHealthTracker] Loaded method: ${method.fqn} (count: ${method.modificationCount})")
+                methodModifications[method.fqn] = method
+            } else {
+                println("[CodeHealthTracker] WARNING: Skipping method with empty FQN")
+            }
         }
+        println("[CodeHealthTracker] State loaded. Total methods in memory: ${methodModifications.size}")
     }
 
     override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
         if (!state.enabled) return
+        
+        println("[CodeHealthTracker] Document changed event received")
         
         // Queue document processing to avoid blocking EDT
         documentProcessingQueue.submit {
@@ -127,49 +136,102 @@ class CodeHealthTracker(private val project: Project) :
             .inSmartMode(project)
             .executeSynchronously()
             ?.let { fqn ->
+                println("[CodeHealthTracker] Extracted FQN: $fqn")
                 trackMethodModification(fqn)
-            }
+            } ?: println("[CodeHealthTracker] No FQN extracted from document change")
         }
     }
 
     private fun extractMethodFQN(document: Document, offset: Int): String? {
-        if (project.isDisposed) return null
+        if (project.isDisposed) {
+            println("[CodeHealthTracker] Project is disposed")
+            return null
+        }
         
         return try {
-            PsiDocumentManager.getInstance(project).getPsiFile(document)?.let { psiFile ->
-                if (!psiFile.isValid) return null
-                
-                psiFile.findElementAt(offset)?.let { element ->
-                    PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)?.let { method ->
-                        val containingClass = method.containingClass
-                        if (containingClass != null) {
-                            "${containingClass.qualifiedName}.${method.name}"
-                        } else {
-                            null
-                        }
-                    }
-                }
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+            if (psiFile == null) {
+                println("[CodeHealthTracker] PSI file is null")
+                return null
             }
+            
+            if (!psiFile.isValid) {
+                println("[CodeHealthTracker] PSI file is invalid")
+                return null
+            }
+            
+            println("[CodeHealthTracker] Looking for method at offset $offset in file ${psiFile.name}")
+            
+            val element = psiFile.findElementAt(offset)
+            if (element == null) {
+                println("[CodeHealthTracker] No element found at offset $offset")
+                return null
+            }
+            
+            println("[CodeHealthTracker] Found element: ${element.text} (${element.javaClass.simpleName})")
+            
+            val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
+            if (method == null) {
+                println("[CodeHealthTracker] No method found at cursor position")
+                return null
+            }
+            
+            println("[CodeHealthTracker] Found method: ${method.name}")
+            
+            val containingClass = method.containingClass
+            if (containingClass == null) {
+                println("[CodeHealthTracker] Method has no containing class")
+                return null
+            }
+            
+            val className = containingClass.qualifiedName
+            if (className == null) {
+                println("[CodeHealthTracker] Class has no qualified name")
+                return null
+            }
+            
+            val fqn = "$className.${method.name}"
+            println("[CodeHealthTracker] Extracted FQN: $fqn")
+            fqn
         } catch (e: Exception) {
+            println("[CodeHealthTracker] Error extracting method FQN: ${e.message}")
+            e.printStackTrace()
             null
         }
     }
 
     private fun trackMethodModification(fqn: String) {
+        if (fqn.isBlank()) {
+            println("[CodeHealthTracker] WARNING: Attempting to track empty FQN")
+            return
+        }
+        
+        println("[CodeHealthTracker] Tracking modification for: $fqn")
+        
         // Limit the number of tracked methods
         if (methodModifications.size >= MAX_METHODS_TO_TRACK && !methodModifications.containsKey(fqn)) {
             // Remove oldest entry
             methodModifications.entries
                 .minByOrNull { it.value.lastModified }
-                ?.let { methodModifications.remove(it.key) }
+                ?.let { 
+                    println("[CodeHealthTracker] Removing oldest method: ${it.key}")
+                    methodModifications.remove(it.key) 
+                }
         }
 
         methodModifications.compute(fqn) { _, existing ->
-            existing?.apply {
-                modificationCount++
-                lastModified = System.currentTimeMillis()
-            } ?: ModifiedMethod(fqn)
+            if (existing != null) {
+                existing.modificationCount++
+                existing.lastModified = System.currentTimeMillis()
+                println("[CodeHealthTracker] Updated method $fqn: count=${existing.modificationCount}")
+                existing
+            } else {
+                println("[CodeHealthTracker] New method tracked: $fqn")
+                ModifiedMethod(fqn)
+            }
         }
+        
+        println("[CodeHealthTracker] Total tracked methods: ${methodModifications.size}")
         
         // Persist state periodically
         persistStateAsync()
@@ -189,12 +251,33 @@ class CodeHealthTracker(private val project: Project) :
 
     fun getModifiedMethods(): Set<String> = methodModifications.keys.toSet()
 
-    fun getModifiedMethodDetails(): List<ModifiedMethod> = 
-        methodModifications.values.sortedByDescending { it.modificationCount }
+    fun getModifiedMethodDetails(): List<ModifiedMethod> {
+        val methods = methodModifications.values.sortedByDescending { it.modificationCount }
+        println("[CodeHealthTracker] getModifiedMethodDetails() returning ${methods.size} methods:")
+        methods.forEach { method ->
+            println("[CodeHealthTracker]   - ${method.fqn} (count: ${method.modificationCount}, last: ${method.lastModified})")
+        }
+        return methods
+    }
 
     fun clearOldEntries() {
         val cutoffTime = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(CLEANUP_AFTER_HOURS.toLong())
         methodModifications.entries.removeIf { it.value.lastModified < cutoffTime }
+        // Also remove any entries with empty FQN
+        methodModifications.entries.removeIf { it.key.isBlank() }
+    }
+    
+    fun clearAllTrackedMethods() {
+        println("[CodeHealthTracker] Clearing all tracked methods")
+        methodModifications.clear()
+        state.modifiedMethods.clear()
+        persistStateAsync()
+    }
+    
+    fun addTestMethod() {
+        println("[CodeHealthTracker] Adding test method for debugging")
+        val testFqn = "com.example.TestClass.testMethod"
+        trackMethodModification(testFqn)
     }
 
     private fun cleanupOldEntries() {
@@ -210,6 +293,8 @@ class CodeHealthTracker(private val project: Project) :
             return
         }
         
+        println("[CodeHealth] Starting code health analysis...")
+        
         // Run analysis in background with progress
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
@@ -221,18 +306,36 @@ class CodeHealthTracker(private val project: Project) :
                     indicator.isIndeterminate = false
                     
                     val methods = getModifiedMethodDetails()
-                    if (methods.isEmpty()) return
+                        .filter { it.fqn.isNotBlank() } // Filter out empty FQNs
+                    
+                    if (methods.isEmpty()) {
+                        println("[CodeHealth] No valid modified methods to analyze")
+                        return
+                    }
                     
                     // Limit methods to analyze
                     val methodsToAnalyze = methods.take(50)
+                    println("[CodeHealth] Found ${methods.size} modified methods, analyzing top ${methodsToAnalyze.size}")
                     
                     indicator.text = "Analyzing ${methodsToAnalyze.size} modified methods..."
+                    indicator.fraction = 0.0
                     
                     // Trigger async analysis
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
+                    val startTime = System.currentTimeMillis()
+                    
                     val results = analyzer.analyzeAllMethodsAsync(methodsToAnalyze, indicator)
                     
+                    val analysisTime = System.currentTimeMillis() - startTime
+                    println("[CodeHealth] Analysis completed in ${analysisTime}ms. Found ${results.size} results")
+                    
                     if (results.isNotEmpty() && !indicator.isCanceled) {
+                        val totalIssues = results.sumOf { it.issues.size }
+                        val verifiedIssues = results.sumOf { result -> 
+                            result.issues.count { it.verified && !it.falsePositive } 
+                        }
+                        println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
+                        
                         ApplicationManager.getApplication().invokeLater {
                             if (!project.isDisposed) {
                                 CodeHealthNotification.showHealthReport(project, results)
@@ -243,13 +346,24 @@ class CodeHealthTracker(private val project: Project) :
                     // Update last check time
                     state.lastCheckTime = System.currentTimeMillis()
                     
+                } catch (e: Exception) {
+                    println("[CodeHealth] ERROR during analysis: ${e.message}")
+                    e.printStackTrace()
                 } finally {
                     isAnalysisRunning.set(false)
+                    println("[CodeHealth] Analysis finished")
                 }
             }
             
             override fun onCancel() {
+                println("[CodeHealth] Analysis cancelled by user")
                 isAnalysisRunning.set(false)
+            }
+            
+            override fun onThrowable(error: Throwable) {
+                println("[CodeHealth] Analysis failed with error: ${error.message}")
+                error.printStackTrace()
+                super.onThrowable(error)
             }
         })
     }
@@ -295,25 +409,22 @@ class CodeHealthTracker(private val project: Project) :
 }
 
 /**
- * Simple task queue for async processing
+ * Simple task queue for async processing with proper scheduling
  */
 class SimpleTaskQueue(private val delayMs: Long = 100L) {
-    private val executor = Executors.newSingleThreadExecutor()
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
     
     fun submit(task: () -> Unit) {
-        executor.submit {
+        scheduler.schedule({
             try {
-                Thread.sleep(delayMs)
                 task()
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
             } catch (e: Exception) {
                 // Log error but continue processing
             }
-        }
+        }, delayMs, TimeUnit.MILLISECONDS)
     }
     
     fun shutdown() {
-        executor.shutdown()
+        scheduler.shutdown()
     }
 }

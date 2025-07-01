@@ -43,7 +43,7 @@ public final class LLMService {
     private static final int DEFAULT_MAX_TOKENS = 8148;
 
     // Debug flag
-    private boolean debugMode = true;
+    private boolean debugMode = false;
 
     public LLMService(@NotNull Project project) {
         this.project = project;

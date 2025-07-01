@@ -44,14 +44,14 @@ class ZestEditorFactoryListener : com.intellij.openapi.editor.event.EditorFactor
     private fun setupEditorListeners(editor: Editor, project: Project) {
         val caretListener = object : com.intellij.openapi.editor.event.CaretListener {
             override fun caretPositionChanged(event: CaretEvent) {
-                System.out.println("CaretListener: caretPositionChanged $editor $event")
+//                System.out.println("CaretListener: caretPositionChanged $editor $event")
                 project.safeSyncPublisher(ZestCaretListener.TOPIC)?.caretPositionChanged(editor, event)
             }
         }
         
         val documentListener = object : com.intellij.openapi.editor.event.DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
-                System.out.println("DocumentListener: documentChanged $editor $event")
+//                System.out.println("DocumentListener: documentChanged $editor $event")
                 project.safeSyncPublisher(ZestDocumentListener.TOPIC)?.documentChanged(editor.document, editor, event)
             }
         }

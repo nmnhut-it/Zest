@@ -25,7 +25,10 @@ object CodeHealthNotification {
     private const val NOTIFICATION_GROUP_ID = "Zest Code Health"
 
     fun showHealthReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        if (results.isEmpty()) return
+        if (results.isEmpty()) {
+            println("[CodeHealthNotification] No results to show")
+            return
+        }
 
         val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
         val totalIssues = realIssues.size
@@ -33,8 +36,11 @@ object CodeHealthNotification {
         val highIssues = realIssues.count { it.severity == 3 }
         val averageScore = results.map { it.healthScore }.average().toInt()
 
+        println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
+
         val title = "Code Health Check Complete"
         val content = buildString {
+            append("Analyzed ${results.size} methods • ")
             append("Found $totalIssues verified issues")
             if (criticalIssues > 0) {
                 append(" ($criticalIssues critical, $highIssues high)")
@@ -48,6 +54,7 @@ object CodeHealthNotification {
             .createNotification(title, content, getNotificationType(averageScore))
             .addAction(object : AnAction("View Details") {
                 override fun actionPerformed(e: AnActionEvent) {
+                    println("[CodeHealthNotification] User clicked View Details")
                     showDetailedReport(project, results)
                 }
             })

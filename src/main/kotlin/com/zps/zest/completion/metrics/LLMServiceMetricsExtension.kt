@@ -1,13 +1,16 @@
 package com.zps.zest.completion.metrics
 
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.ConfigurationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStreamWriter
+import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -34,14 +37,24 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         
         val apiUrl = configStatus.apiUrl ?: return@withContext false
         val authToken = ConfigurationManager.getInstance(project).authToken
-        
+        val dummyMsg = JsonParser.parseString(
+            """
+                [
+        {
+          "role": "user",
+          "content": "dummy"
+        }
+      ]
+            """.trimIndent()
+        )
+
         // Build minimal request body
         val requestBody = JsonObject().apply {
             addProperty("model", "local-model-mini")
             addProperty("stream", false)
             addProperty("custom_tool", "Zest|INLINE_COMPLETION_LOGGING|$eventType")
             addProperty("completion_id", completionId)
-            addProperty("messages", completionId)
+            add("messages", dummyMsg)
             addProperty("elapsed", elapsed)
             
             // Add optional fields
@@ -97,11 +110,30 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                 writer.flush()
             }
             
-            // Check response code (we don't need to read the response body)
+            // Check response code and read response body
             val responseCode = connection.responseCode
             val success = responseCode in 200..299
             
             println("[ZestMetrics] Response code: $responseCode (success: $success)")
+            
+            // Read response body - use errorStream for non-2xx codes
+            val responseBody = try {
+                val inputStream = if (success) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+                
+                inputStream?.bufferedReader()?.use { reader ->
+                    reader.readText()
+                } ?: "No response body"
+            } catch (e: Exception) {
+                "Error reading response: ${e.message}"
+            }
+            
+            println("[ZestMetrics] Response body:")
+            println(responseBody)
+            println()
             
             success
         } finally {

@@ -139,14 +139,29 @@ object CodeHealthNotification {
 
         private fun generateHtmlReport(): String {
             val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
-            val falsePositives = results.flatMap { it.issues }.filter { it.falsePositive }
             val totalMethods = results.size
             val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
             
-            // Group issues by category
-            val issuesByCategory = realIssues.groupBy { it.issueCategory }
-                .toList()
-                .sortedByDescending { (_, issues) -> issues.sumOf { it.severity } }
+            // Group issues by severity for summary
+            val criticalCount = realIssues.count { it.severity >= 4 }
+            val mediumCount = realIssues.count { it.severity == 3 }
+            val lowCount = realIssues.count { it.severity <= 2 }
+            
+            // Determine if dark theme
+            val isDarkTheme = UIUtil.isUnderDarcula()
+            val bgColor = if (isDarkTheme) "#2b2b2b" else "#ffffff"
+            val textColor = if (isDarkTheme) "#bbbbbb" else "#333333"
+            val borderColor = if (isDarkTheme) "#3c3f41" else "#d0d0d0"
+            val sectionBg = if (isDarkTheme) "#3c3f41" else "#f5f5f5"
+            val codeBg = if (isDarkTheme) "#1e1e1e" else "#f8f8f8"
+            val linkColor = if (isDarkTheme) "#6897bb" else "#2470b3"
+            
+            // Score colors
+            val scoreColor = when {
+                averageScore >= 80 -> "#4caf50"
+                averageScore >= 60 -> "#ff9800"
+                else -> "#f44336"
+            }
 
             return """
                 <html>
@@ -154,178 +169,215 @@ object CodeHealthNotification {
                 <style>
                     body {
                         font-family: Arial, sans-serif;
-                        color: #333;
-                        background: #f5f5f5;
-                        margin: 20px;
+                        font-size: 14px;
+                        color: $textColor;
+                        background-color: $bgColor;
+                        margin: 0;
+                        padding: 20px;
                     }
                     
                     h1 {
-                        color: #2c3e50;
-                        border-bottom: 3px solid #3498db;
+                        font-size: 24px;
+                        font-weight: normal;
+                        margin: 0 0 20px 0;
                         padding-bottom: 10px;
+                        border-bottom: 2px solid $borderColor;
                     }
                     
                     h2 {
-                        color: #34495e;
-                        margin-top: 30px;
+                        font-size: 18px;
+                        font-weight: normal;
+                        margin: 30px 0 15px 0;
+                        color: $linkColor;
                     }
                     
                     h3 {
-                        color: #7f8c8d;
-                        margin: 10px 0;
+                        font-size: 16px;
+                        font-weight: bold;
+                        margin: 20px 0 10px 0;
                     }
                     
-                    .summary-card {
-                        background: #f8f9fa;
-                        padding: 20px;
-                        border: 1px solid #e9ecef;
-                        margin: 10px;
-                        text-align: center;
-                        width: 150px;
-                        float: left;
+                    .summary {
+                        background-color: $sectionBg;
+                        padding: 15px;
+                        margin-bottom: 20px;
+                        border: 1px solid $borderColor;
                     }
                     
-                    .summary-value {
+                    .summary-row {
+                        margin: 5px 0;
+                    }
+                    
+                    .score {
                         font-size: 36px;
                         font-weight: bold;
+                        color: $scoreColor;
                         margin: 10px 0;
                     }
                     
-                    .health-score {
-                        font-size: 24px;
-                        font-weight: bold;
-                        color: white;
-                        padding: 20px;
-                        margin: 10px 0;
-                    }
-                    
-                    .health-good { background: #27ae60; }
-                    .health-warning { background: #f39c12; }
-                    .health-critical { background: #e74c3c; }
-                    
-                    .issue-card {
-                        background: #fff;
-                        border: 1px solid #e0e0e0;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                    }
-                    
-                    .issue-title {
-                        font-size: 18px;
-                        font-weight: bold;
-                        margin: 0 0 10px 0;
-                    }
-                    
-                    .severity-badge {
-                        background: #e0e0e0;
-                        padding: 4px 12px;
-                        font-size: 12px;
-                        font-weight: bold;
-                        float: right;
-                    }
-                    
-                    .severity-1 { background: #e3f2fd; color: #1976d2; }
-                    .severity-2 { background: #fff3e0; color: #f57c00; }
-                    .severity-3 { background: #fbe9e7; color: #d84315; }
-                    .severity-4 { background: #ffebee; color: #c62828; }
-                    .severity-5 { background: #f3e5f5; color: #6a1b9a; }
-                    
-                    .method-section {
-                        background: #f5f5f5;
-                        border-left: 4px solid #3498db;
-                        padding: 20px;
+                    .method {
                         margin-bottom: 30px;
+                        border-left: 3px solid $linkColor;
+                        padding-left: 15px;
                     }
                     
-                    .method-name {
+                    .method-header {
                         font-family: monospace;
-                        font-size: 16px;
-                        color: #2c3e50;
+                        font-size: 14px;
+                        font-weight: bold;
+                        margin-bottom: 5px;
+                    }
+                    
+                    .method-stats {
+                        font-size: 12px;
+                        color: ${if (isDarkTheme) "#999999" else "#666666"};
+                        margin-bottom: 15px;
+                    }
+                    
+                    .issue {
+                        background-color: $sectionBg;
+                        border: 1px solid $borderColor;
+                        padding: 15px;
+                        margin-bottom: 15px;
+                    }
+                    
+                    .issue-header {
+                        font-weight: bold;
                         margin-bottom: 10px;
                     }
                     
-                    .impact-box {
-                        background: #fff8dc;
-                        border-left: 4px solid #ff9800;
-                        padding: 15px;
-                        margin: 15px 0;
+                    .severity {
+                        font-weight: bold;
+                        margin-left: 10px;
                     }
                     
-                    .fix-box {
-                        background: #e8f5e9;
-                        border-left: 4px solid #4caf50;
-                        padding: 15px;
-                        margin: 15px 0;
+                    .severity-5, .severity-4 { color: #f44336; }
+                    .severity-3 { color: #ff9800; }
+                    .severity-2, .severity-1 { color: #4caf50; }
+                    
+                    .section {
+                        margin: 10px 0;
+                        padding: 10px;
+                        background-color: $codeBg;
+                        border-left: 3px solid $borderColor;
                     }
                     
-                    .clear { clear: both; }
+                    .label {
+                        font-weight: bold;
+                        margin-right: 5px;
+                    }
+                    
+                    table {
+                        width: 100%;
+                        margin: 10px 0;
+                    }
+                    
+                    td {
+                        padding: 5px;
+                        vertical-align: top;
+                    }
+                    
+                    .stat-value {
+                        text-align: right;
+                        font-weight: bold;
+                    }
                 </style>
                 </head>
                 <body>
                     <h1>Code Health Report</h1>
                     
-                    <div>
-                        <div class="summary-card">
-                            <h3>Health Score</h3>
-                            <div class="health-score ${getHealthClass(averageScore)}">$averageScore</div>
-                        </div>
-                        <div class="summary-card">
-                            <h3>Methods</h3>
-                            <div class="summary-value">$totalMethods</div>
-                        </div>
-                        <div class="summary-card">
-                            <h3>Issues</h3>
-                            <div class="summary-value">${realIssues.size}</div>
-                        </div>
-                        <div class="clear"></div>
+                    <div class="summary">
+                        <table>
+                            <tr>
+                                <td>Overall Health Score:</td>
+                                <td class="stat-value"><span class="score">$averageScore</span>/100</td>
+                            </tr>
+                            <tr>
+                                <td>Methods Analyzed:</td>
+                                <td class="stat-value">$totalMethods</td>
+                            </tr>
+                            <tr>
+                                <td>Total Issues Found:</td>
+                                <td class="stat-value">${realIssues.size}</td>
+                            </tr>
+                            ${if (criticalCount > 0) """
+                            <tr>
+                                <td>Critical/High Issues:</td>
+                                <td class="stat-value" style="color: #f44336;">$criticalCount</td>
+                            </tr>
+                            """ else ""}
+                            ${if (mediumCount > 0) """
+                            <tr>
+                                <td>Medium Issues:</td>
+                                <td class="stat-value" style="color: #ff9800;">$mediumCount</td>
+                            </tr>
+                            """ else ""}
+                            ${if (lowCount > 0) """
+                            <tr>
+                                <td>Low/Minor Issues:</td>
+                                <td class="stat-value" style="color: #4caf50;">$lowCount</td>
+                            </tr>
+                            """ else ""}
+                        </table>
                     </div>
                     
-                    ${if (issuesByCategory.isNotEmpty()) """
-                        <h2>Issues by Category</h2>
-                        <ul>
-                        ${issuesByCategory.joinToString("") { (category, issues) ->
-                            "<li><strong>$category</strong>: ${issues.size} issues</li>"
-                        }}
-                        </ul>
-                    """ else ""}
-                    
-                    <h2>Detailed Analysis</h2>
-                    ${results.filter { it.issues.any { issue -> issue.verified && !issue.falsePositive } }
-                        .sortedBy { it.healthScore }
-                        .joinToString("") { result ->
-                            val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
-                            
-                            """
-                            <div class="method-section">
-                                <div class="method-name">${escapeHtml(result.fqn)}</div>
-                                <p>
-                                    Health Score: <strong>${result.healthScore}/100</strong> | 
-                                    Modified: <strong>${result.modificationCount}</strong> times | 
-                                    Called by: <strong>${result.impactedCallers.size}</strong> methods
-                                </p>
+                    ${if (results.any { it.issues.any { issue -> issue.verified && !issue.falsePositive } }) """
+                        <h2>Issues by Method</h2>
+                        
+                        ${results.filter { it.issues.any { issue -> issue.verified && !issue.falsePositive } }
+                            .sortedBy { it.healthScore }
+                            .joinToString("") { result ->
+                                val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
                                 
-                                ${verifiedIssues.joinToString("") { issue ->
-                                    """
-                                    <div class="issue-card">
-                                        <span class="severity-badge severity-${issue.severity}">Severity ${issue.severity}/5</span>
-                                        <h4 class="issue-title">${escapeHtml(issue.title)}</h4>
-                                        
-                                        <p><strong>Category:</strong> ${escapeHtml(issue.issueCategory)}</p>
-                                        <p>${escapeHtml(issue.description)}</p>
-                                        
-                                        <div class="impact-box">
-                                            <strong>Impact:</strong> ${escapeHtml(issue.impact)}
-                                        </div>
-                                        
-                                        <div class="fix-box">
-                                            <strong>Suggested Fix:</strong> ${escapeHtml(issue.suggestedFix)}
-                                        </div>
+                                """
+                                <div class="method">
+                                    <div class="method-header">${escapeHtml(result.fqn)}</div>
+                                    <div class="method-stats">
+                                        Score: ${result.healthScore}/100 | 
+                                        Modified: ${result.modificationCount}x | 
+                                        Called by: ${result.impactedCallers.size} methods | 
+                                        Issues: ${verifiedIssues.size}
                                     </div>
-                                    """.trimIndent()
-                                }}
-                            </div>
-                            """.trimIndent()
-                        }}
+                                    
+                                    ${verifiedIssues.sortedByDescending { it.severity }.joinToString("") { issue ->
+                                        """
+                                        <div class="issue">
+                                            <div class="issue-header">
+                                                ${escapeHtml(issue.title)}
+                                                <span class="severity severity-${issue.severity}">[Severity: ${issue.severity}/5]</span>
+                                            </div>
+                                            
+                                            <div style="margin: 5px 0;">
+                                                <span class="label">Category:</span> ${escapeHtml(issue.issueCategory)}
+                                            </div>
+                                            
+                                            <div style="margin: 10px 0;">
+                                                ${escapeHtml(issue.description)}
+                                            </div>
+                                            
+                                            <div class="section">
+                                                <span class="label">Impact:</span><br/>
+                                                ${escapeHtml(issue.impact)}
+                                            </div>
+                                            
+                                            <div class="section" style="background-color: ${if (isDarkTheme) "#2d4a2b" else "#e8f5e9"};">
+                                                <span class="label">Suggested Fix:</span><br/>
+                                                ${escapeHtml(issue.suggestedFix)}
+                                            </div>
+                                        </div>
+                                        """.trimIndent()
+                                    }}
+                                </div>
+                                """.trimIndent()
+                            }}
+                    """ else """
+                        <h2>No Issues Found</h2>
+                        <p>All analyzed methods passed the health check!</p>
+                    """}
+                    
+                    <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid $borderColor; font-size: 12px; color: ${if (isDarkTheme) "#999999" else "#666666"};">
+                        Generated: ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))}
+                    </div>
                 </body>
                 </html>
             """.trimIndent()

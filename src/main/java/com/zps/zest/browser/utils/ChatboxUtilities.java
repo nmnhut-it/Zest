@@ -116,6 +116,8 @@ public class ChatboxUtilities {
         CHAT_GIT_COMMIT_MESSAGE,      // Chat: Generate Git Commit Message
         CHAT_QUICK_COMMIT,      // Chat: Generate Git Commit Message
 
+        // Code Health
+        CODE_HEALTH,                  // Code Health Analysis
 
         EXPLORE_TOOL, // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools

@@ -36,6 +36,10 @@ dependencies {
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
     
+    // Kotlin Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
+    
     // ONNX Runtime - REQUIRED for ONNX models to work
 //    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 

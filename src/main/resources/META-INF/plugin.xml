@@ -80,6 +80,13 @@
                 id="zest.hybrid.index"
                 parentId="tools"
                 nonDefaultProject="true"/>
+                
+        <projectConfigurable
+                instance="com.zps.zest.codehealth.CodeHealthConfigurable"
+                displayName="Code Health"
+                id="zest.codehealth"
+                parentId="zest.settings"
+                nonDefaultProject="true"/>
 
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
 
@@ -93,6 +100,13 @@
         
         <!-- Status Bar Widget -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
+        
+        <!-- Code Health Services -->
+        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
+        
+        <!-- Code Health Notification Group -->
+        <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>
     </extensions>
     
     <actions>
@@ -196,6 +210,14 @@
         <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
                 class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
                 description="Start Tools to be used in chat view">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.CheckCodeHealth"
+                class="com.zps.zest.codehealth.CheckHealthAction"
+                text="Check Code Health"
+                description="Analyze methods modified today for potential issues and their impact on the codebase">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>

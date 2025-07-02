@@ -306,7 +306,7 @@ class CodeHealthTracker(private val project: Project) :
         if (!isAnalysisRunning.compareAndSet(false, true)) {
             ApplicationManager.getApplication().invokeLater {
                 NotificationGroupManager.getInstance()
-                    .getNotificationGroup("Zest Code Health")
+                    .getNotificationGroup("Zest Code Guardian")
                     .createNotification(
                         "Analysis Already Running",
                         "Another code health analysis is in progress. Please wait.",
@@ -322,7 +322,7 @@ class CodeHealthTracker(private val project: Project) :
         // Show starting notification
         ApplicationManager.getApplication().invokeLater {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Health")
+                .getNotificationGroup("Zest Code Guardian")
                 .createNotification(
                     "Code Health Analysis Started",
                     "Analyzing modified methods...",
@@ -345,7 +345,7 @@ class CodeHealthTracker(private val project: Project) :
                     println("[CodeHealth] No methods to analyze")
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Health")
+                            .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
                                 "No Methods to Analyze",
                                 "No modified methods found. Edit some code and try again.",
@@ -371,7 +371,7 @@ class CodeHealthTracker(private val project: Project) :
                     if (limitedMethods.size < needsReview.size) {
                         ApplicationManager.getApplication().invokeLater {
                             NotificationGroupManager.getInstance()
-                                .getNotificationGroup("Zest Code Health")
+                                .getNotificationGroup("Zest Code Guardian")
                                 .createNotification(
                                     "Analysis Limited",
                                     "Analyzing top ${limitedMethods.size} of ${needsReview.size} methods (most frequently modified).",
@@ -409,7 +409,7 @@ class CodeHealthTracker(private val project: Project) :
                 } else {
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Health")
+                            .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
                                 "Analysis Complete",
                                 "No issues found in analyzed methods.",
@@ -431,7 +431,7 @@ class CodeHealthTracker(private val project: Project) :
                 
                 ApplicationManager.getApplication().invokeLater {
                     NotificationGroupManager.getInstance()
-                        .getNotificationGroup("Zest Code Health")
+                        .getNotificationGroup("Zest Code Guardian")
                         .createNotification(
                             "Analysis Failed",
                             "Error during code health analysis: ${e.message}",

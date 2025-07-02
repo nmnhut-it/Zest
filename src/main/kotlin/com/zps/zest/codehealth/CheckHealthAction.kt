@@ -9,7 +9,11 @@ import com.intellij.notification.NotificationType
 /**
  * Manual trigger action for code health check
  */
-class CheckHealthAction : AnAction("Check Code Health Now") {
+class CheckHealthAction : AnAction() {
+    init {
+        templatePresentation.text = "Check Code Health"
+        templatePresentation.description = "Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống"
+    }
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -19,7 +23,7 @@ class CheckHealthAction : AnAction("Check Code Health Now") {
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Health")
+                .getNotificationGroup("Zest Code Guardian")
                 .createNotification(
                     "Code Health Analysis In Progress",
                     "Another analysis is already running. Please wait for it to complete.",
@@ -37,6 +41,9 @@ class CheckHealthAction : AnAction("Check Code Health Now") {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null
         
+        // Set tooltip
+        e.presentation.description = "Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống"
+        
         // Disable if analysis is running
         if (project != null) {
             val tracker = CodeHealthTracker.getInstance(project)
@@ -44,7 +51,7 @@ class CheckHealthAction : AnAction("Check Code Health Now") {
             if (tracker.isAnalysisRunning.get()) {
                 e.presentation.text = "Code Health Analysis Running..."
             } else {
-                e.presentation.text = "Check Code Health Now"
+                e.presentation.text = "Activate Code Guardian"
             }
         }
     }

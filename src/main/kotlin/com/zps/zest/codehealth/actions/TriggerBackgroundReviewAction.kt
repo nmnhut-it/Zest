@@ -34,7 +34,7 @@ class TriggerBackgroundReviewAction : AnAction("Trigger Background Health Review
         }
         
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Health")
+            .getNotificationGroup("Zest Code Guardian")
             .createNotification("Background Health Review", message, NotificationType.INFORMATION)
             .notify(project)
     }

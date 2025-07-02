@@ -83,8 +83,8 @@
                 
         <projectConfigurable
                 instance="com.zps.zest.codehealth.CodeHealthConfigurable"
-                displayName="Code Health"
-                id="zest.codehealth"
+                displayName="Code Guardian"
+                id="zest.codeguardian"
                 parentId="zest.settings"
                 nonDefaultProject="true"/>
 
@@ -101,14 +101,14 @@
         <!-- Status Bar Widget -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
         
-        <!-- Code Health Services -->
+        <!-- Code Guardian Services -->
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthVerificationAgent"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
         
-        <!-- Code Health Notification Group -->
-        <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>
+        <!-- Code Guardian Notification Group -->
+        <notificationGroup id="Zest Code Guardian" displayType="BALLOON" isLogByDefault="false"/>
     </extensions>
     
     <actions>
@@ -116,53 +116,53 @@
             <action id="Zest.InlineCompletion.Trigger"
                     class="com.zps.zest.completion.actions.ZestTrigger"
                     text="Trigger Inline Completion"
-                    description="Manually trigger AI-powered code completion at cursor position. Analyzes context to provide intelligent code suggestions, method implementations, and code patterns. | Kích hoạt thủ công tính năng hoàn thành code bằng AI tại vị trí con trỏ. Phân tích ngữ cảnh để đưa ra gợi ý code thông minh, implement method và các pattern code.">
+                    description="Gợi ý code thông minh tại vị trí con trỏ">
             </action>
 
             <action id="Zest.InlineCompletion.ImmediateTrigger"
                     class="com.zps.zest.completion.actions.ZestTriggerBlockRewriteAction"
                     text="Immediate Inline Completion"
-                    description="Instantly trigger AI completion with block rewrite capability (Ctrl+Space). Provides immediate code generation and transformation suggestions. | Kích hoạt ngay AI completion với khả năng viết lại block code (Ctrl+Space). Cung cấp gợi ý tạo và chuyển đổi code tức thì.">
+                    description="Gợi ý code nhanh với khả năng viết lại block (Ctrl+Space)">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
                     text="Accept Completion (Tab)"
-                    description="Accept AI code completion suggestion using Tab key. Applies the suggested code at cursor position. | Chấp nhận gợi ý hoàn thành code bằng phím Tab. Áp dụng code được gợi ý tại vị trí con trỏ.">
+                    description="Chấp nhận gợi ý bằng phím Tab">
                 <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.Accept"
                     class="com.zps.zest.completion.actions.ZestAccept"
                     text="Accept Completion"
-                    description="Accept AI code completion suggestion using Ctrl+Tab. Alternative method to apply suggested code. | Chấp nhận gợi ý hoàn thành code bằng Ctrl+Tab. Phương pháp thay thế để áp dụng code được gợi ý.">
+                    description="Chấp nhận gợi ý bằng Ctrl+Tab">
                 <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.CycleNext"
                     class="com.zps.zest.completion.actions.ZestCycleNext"
                     text="Cycle Next Completion"
-                    description="Navigate to next AI completion suggestion (Alt+Down). Cycles through multiple available completion options. | Chuyển đến gợi ý completion tiếp theo (Alt+Down). Duyệt qua nhiều tùy chọn completion có sẵn.">
+                    description="Xem gợi ý tiếp theo (Alt+Down)">
                 <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.CyclePrevious"
                     class="com.zps.zest.completion.actions.ZestCyclePrevious"
                     text="Cycle Previous Completion"
-                    description="Navigate to previous AI completion suggestion (Alt+Up). Cycles backward through available completion options. | Chuyển đến gợi ý completion trước đó (Alt+Up). Duyệt ngược qua các tùy chọn completion có sẵn.">
+                    description="Xem gợi ý trước đó (Alt+Up)">
                 <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
             </action>
 
             <action id="Zest.InlineCompletion.Dismiss"
                     class="com.zps.zest.completion.actions.ZestDismiss"
                     text="Dismiss Completion"
-                    description="Dismiss current AI completion suggestion (Escape). Cancels active completion without applying changes. | Bỏ qua gợi ý completion hiện tại (Escape). Hủy completion đang hoạt động mà không áp dụng thay đổi.">
+                    description="Hủy gợi ý (Escape)">
                 <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
             </action>
         </group>
 
-        <group id="ZestGroup" text="Zest" description="Zest AI-powered development tools for test generation, code review, commit assistance, and intelligent code completion. | Công cụ phát triển được hỗ trợ bởi AI Zest cho tạo test, review code, hỗ trợ commit và hoàn thành code thông minh." popup="true"
+        <group id="ZestGroup" text="Zest" description="AI-powered tools cho Java development" popup="true"
                icon="com.zps.zest.ZestIcons.ZEST">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
@@ -171,7 +171,7 @@
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
                 text="Test Advisor (Chat)"
                 icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
-                description="Analyze current class and generate comprehensive test writing guidance using AI. Analyzes class structure, dependencies, and complexity to provide step-by-step testing strategies. | Phân tích lớp hiện tại và tạo hướng dẫn viết test toàn diện bằng AI. Phân tích cấu trúc lớp, dependency và độ phức tạp để đưa ra chiến lược testing từng bước.">
+                description="Phân tích class và đưa ra hướng dẫn viết test chi tiết">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
@@ -179,7 +179,7 @@
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="Code Review (Chat)"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Request comprehensive AI code review for current class. Analyzes code quality, best practices, potential bugs, performance issues, and maintainability concerns with actionable recommendations. | Yêu cầu AI review code toàn diện cho lớp hiện tại. Phân tích chất lượng code, best practices, lỗi tiềm ẩn, vấn đề hiệu năng và khả năng bảo trì với các khuyến nghị cụ thể.">
+                description="Review code và đưa ra gợi ý cải thiện">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
@@ -187,7 +187,7 @@
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
                 text="Generate Commit Message (Chat)"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Generate intelligent commit messages based on git changes. Analyzes file modifications, additions, and deletions to create meaningful, conventional commit messages following best practices. | Tạo commit message thông minh dựa trên thay đổi git. Phân tích các file đã thay đổi, thêm mới và xóa để tạo commit message có ý nghĩa theo best practices.">
+                description="Tạo commit message tự động từ thay đổi code">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
@@ -195,7 +195,7 @@
                 class="com.zps.zest.QuickCommitAction"
                 text="Quick Commit &amp; Push"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="One-click commit and push with AI-generated message. Automatically stages all changes, generates meaningful commit message, commits, and pushes to remote repository. Accessible via Ctrl+Shift+Z, C. | Commit và push một cú nhấp với commit message do AI tạo. Tự động stage tất cả thay đổi, tạo commit message có ý nghĩa, commit và push lên remote repository. Truy cập qua Ctrl+Shift+Z, C.">
+                description="Commit và push nhanh với message tự động (Ctrl+Shift+Z, C)">
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
             <add-to-group group-id="ZestGroup" anchor="after"
                           relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
@@ -205,61 +205,69 @@
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                 text="Toggle ZPS Chat Developer Tools"
-                description="Toggle developer tools visibility in ZPS Chat browser panel. Provides debugging capabilities for web interface including console, network monitor, element inspector, and JavaScript debugging. | Bật/tắt developer tools trong panel trình duyệt ZPS Chat. Cung cấp khả năng debug cho giao diện web bao gồm console, network monitor, element inspector và JavaScript debugging.">
+                description="Bật/tắt DevTools cho ZPS Chat">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
         <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
                 class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
-                description="Start Tools to be used in chat view">
+                description="Khởi động tools để dùng trong chat">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
-        <!-- Code Health Group -->
-        <group id="Zest.CodeHealth" text="Code Health" popup="true">
+        <!-- Code Guardian Group -->
+        <group id="Zest.CodeGuardian" text="Code Guardian" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             
             <action id="Zest.CheckCodeHealth"
                     class="com.zps.zest.codehealth.CheckHealthAction"
-                    text="Check Code Health"
-                    description="Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống">
+                    text="Activate Code Guardian"
+                    description="Phân tích code đã thay đổi trong ngày để phát hiện lỗi tiềm ẩn">
             </action>
             
             <action id="Zest.AddMethodAtCaret"
                     class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
-                    text="Add Method at Caret to Review"
-                    description="Thêm phương thức tại vị trí con trỏ vào danh sách chờ đánh giá chất lượng">
+                    text="Guard This Method"
+                    description="Theo dõi method này để kiểm tra chất lượng">
             </action>
             
             <action id="Zest.TriggerBackgroundReview"
                     class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
-                    text="Trigger Background Code Review"
-                    description="Kích hoạt quy trình kiểm tra tự động cho tất cả phương thức đang chờ xử lý">
+                    text="Start Guardian Patrol"
+                    description="Bắt đầu kiểm tra tự động tất cả method đang theo dõi">
             </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="Trigger Daily Health Report"
-                    description="Khởi động báo cáo tổng hợp chất lượng code của ngày (mặc định lúc 13h)">
+                    text="Guardian Daily Report"
+                    description="Tạo báo cáo tổng hợp chất lượng code hàng ngày">
             </action>
         </group>
         
-        <!-- Code Health Debug Actions Group -->
-        <group id="Zest.CodeHealthDebug" text="Debug Tools" popup="true">
-            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>
+        <!-- Code Guardian Debug Actions Group -->
+        <group id="Zest.CodeGuardianDebug" text="Guardian Tools" popup="true">
+            <add-to-group group-id="Zest.CodeGuardian" anchor="last"/>
             
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="Show Review Queue Status"
-                    description="Hiển thị chi tiết các phương thức đang trong hàng đợi chờ kiểm tra">
+                    text="Guardian Watch List"
+                    description="Xem danh sách method đang được theo dõi">
             </action>
             
             <action id="Zest.DebugHealthAction"
                     class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="Debug Mode"
-                    description="Xóa dữ liệu hiện tại và tạo môi trường kiểm thử với dữ liệu mẫu">
+                    text="Guardian Test Mode"
+                    description="Chế độ test với dữ liệu mẫu">
+            </action>
+            
+            <separator/>
+            
+            <action id="Zest.ShowGuardianHelp"
+                    class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
+                    text="Guardian Help"
+                    description="Xem hướng dẫn sử dụng">
             </action>
         </group>
     </actions>

@@ -22,7 +22,7 @@ import javax.swing.*
  */
 object CodeHealthNotification {
 
-    private const val NOTIFICATION_GROUP_ID = "Zest Code Health"
+    private const val NOTIFICATION_GROUP_ID = "Zest Code Guardian"
 
     fun showHealthReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
         if (results.isEmpty()) {

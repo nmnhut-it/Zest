@@ -21,7 +21,7 @@ class TriggerFinalReviewAction : AnAction("Trigger Final Health Review (13h)") {
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Health")
+                .getNotificationGroup("Zest Code Guardian")
                 .createNotification(
                     "Analysis Already Running",
                     "Please wait for the current analysis to complete.",
@@ -35,7 +35,7 @@ class TriggerFinalReviewAction : AnAction("Trigger Final Health Review (13h)") {
         tracker.checkAndNotify()
         
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Health")
+            .getNotificationGroup("Zest Code Guardian")
             .createNotification(
                 "Final Review Triggered",
                 "The daily health check has been triggered. Results will appear shortly.",

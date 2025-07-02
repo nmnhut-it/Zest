@@ -61,7 +61,7 @@ class AddMethodAtCaretAction : AnAction("Add Method at Caret to Health Review") 
     
     private fun showNotification(project: com.intellij.openapi.project.Project, content: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Health")
+            .getNotificationGroup("Zest Code Guardian")
             .createNotification(content, type)
             .notify(project)
     }

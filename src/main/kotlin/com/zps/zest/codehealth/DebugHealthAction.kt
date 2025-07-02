@@ -22,7 +22,7 @@ class DebugHealthAction : AnAction("Debug Code Health") {
         
         // Show notification
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Health")
+            .getNotificationGroup("Zest Code Guardian")
             .createNotification(
                 "Debug Action Complete",
                 "Cleared all methods and added test method. Try running analysis now.",

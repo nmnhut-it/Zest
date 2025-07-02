@@ -185,7 +185,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ApplicationManager.getApplication().invokeLater {
                     if (!project.isDisposed) {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Health")
+                            .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
                                 "Code Health Analysis Partial Results",
                                 "Analysis timed out. Showing ${partialResults.size} of ${methodsToAnalyze.size} results.",

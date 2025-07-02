@@ -75,6 +75,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private var completionTimer: Job? = null
     
     // Strategy management
+    // SIMPLE: Traditional behavior - Tab accepts full completion
+    // LEAN: Tab accepts full completion, Ctrl+Tab accepts line-by-line
+    // METHOD_REWRITE: Special mode for method rewriting
     fun setCompletionStrategy(strategy: ZestCompletionProvider.CompletionStrategy) {
         val oldStrategy = completionProvider.strategy
         completionProvider.setStrategy(strategy)
@@ -472,8 +475,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     /**
-     * Accept the current completion with line-by-line support
-     * Simple approach: accept first line, show remaining lines as new completion
+     * Accept the current completion
+     * Tab (FULL_COMPLETION): Always accepts full completion
+     * Ctrl+Tab (CTRL_TAB_COMPLETION): Line-by-line in LEAN mode, full in other modes
      */
     fun accept(editor: Editor, offset: Int?, type: AcceptType) {
 //        System.out.println("[ZestInlineCompletion] Accept called:")
@@ -499,8 +503,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             return
         }
         
-        // Handle line-by-line acceptance for Tab in LEAN strategy
-        if (type == AcceptType.FULL_COMPLETION && 
+        // Handle line-by-line acceptance for Ctrl+Tab in LEAN strategy
+        if (type == AcceptType.CTRL_TAB_COMPLETION && 
             completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
             
             val lines = completion.insertText.lines()
@@ -535,7 +539,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     startAcceptanceTimeoutGuard()
                     // Track completion accepted metric
                     completion.completionId.let { completionId ->
-                        val acceptType = type
+                        val acceptType = AcceptType.CTRL_TAB_COMPLETION // Line-by-line acceptance
                         val lineNumber = lines.take(1).size // First line = 1
                         val totalLines = completion.insertText.lines().size
 
@@ -544,7 +548,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             completionContent = firstLine,
                             acceptType = acceptType.name,
                             isAll = remainingLines.isEmpty(),
-                            userAction = "tab" // Could be enhanced to track actual key/action
+                            userAction = "ctrl_tab" // Updated to reflect Ctrl+Tab
                         )
                     }
                     // Clear current completion before inserting
@@ -589,14 +593,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             }
         }
         
-        // Handle traditional acceptance (full completion for SIMPLE strategy, or other accept types)
+        // Handle traditional acceptance (full completion for all strategies with Tab)
         val textToInsert = when (type) {
             AcceptType.FULL_COMPLETION -> {
-                // For SIMPLE strategy, always accept the FULL completion (traditional behavior)
+                // Tab always accepts full completion now
+                completion.insertText
+            }
+            AcceptType.CTRL_TAB_COMPLETION -> {
+                // Ctrl+Tab uses traditional behavior (was the old Tab behavior)
                 if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE) {
-                    completion.insertText // Use the full completion text
+                    completion.insertText // Full completion for SIMPLE
                 } else {
-                    calculateAcceptedText(completion.insertText, type)
+                    calculateAcceptedText(completion.insertText, AcceptType.FULL_COMPLETION)
                 }
             }
             else -> calculateAcceptedText(completion.insertText, type)
@@ -1077,6 +1085,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private fun calculateAcceptedText(completionText: String, type: AcceptType): String {
         val result = when (type) {
             AcceptType.FULL_COMPLETION -> completionText
+            AcceptType.CTRL_TAB_COMPLETION -> completionText // For non-LEAN modes
             AcceptType.NEXT_WORD -> {
                 val wordMatch = Regex("\\S+").find(completionText)
                 wordMatch?.value ?: ""
@@ -1848,7 +1857,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     // Enums and interfaces
     
     enum class AcceptType {
-        FULL_COMPLETION, NEXT_WORD, NEXT_LINE
+        FULL_COMPLETION, NEXT_WORD, NEXT_LINE, CTRL_TAB_COMPLETION
     }
     
     interface Listener {

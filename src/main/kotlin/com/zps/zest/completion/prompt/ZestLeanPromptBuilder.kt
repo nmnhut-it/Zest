@@ -17,8 +17,6 @@ You are an expert code completion AI. Analyze the code context and provide a tho
 **File Context:**
 - File: ${context.fileName}
 - Language: ${context.language}
-- Cursor Line: ${context.cursorLine}
-- Context Type: ${context.contextType}
 
 **Full File with Cursor Marker:**
 ```${context.language.lowercase()}
@@ -30,14 +28,44 @@ ${context.markedContent}
 2. Consider the file structure, imports, and existing patterns
 3. Provide a completion that follows the established code style
 
-**Completion Requirements:**
-- Provide ONLY the code that should be inserted at the cursor
-- Do NOT include the cursor marker or surrounding context
+**Response Format:**
+You must provide your response in this EXACT format to ensure proper integration:
+
+<prefix>
+[Copy 1-2 lines of code that appear IMMEDIATELY BEFORE the cursor, exactly as shown]
+</prefix>
+
+<completion>
+[Your actual code completion - what should be inserted at the cursor]
+</completion>
+
+<suffix>
+[Copy 1-2 lines of code that appear IMMEDIATELY AFTER the cursor, exactly as shown]
+</suffix>
+
+**Important Requirements:**
+- The <prefix> section must contain the exact code before the cursor (no modifications)
+- The <completion> section contains ONLY the new code to insert
+- The <suffix> section must contain the exact code after the cursor (no modifications)
+- Do NOT include the cursor marker (<CURSOR>) in any section
 - Follow the existing code style and patterns
-- Be concise but complete
 - Ensure the completion is syntactically correct
 
-**Code Completion:**
+**Example Response Structure:**
+<prefix>
+    public User findBy
+</prefix>
+
+<completion>
+Id(Long id) {
+        return userRepository.findById(id).orElse(null);
+    }
+</completion>
+
+<suffix>
+    
+    public List<User> findAllActive() {
+</suffix>
         """.trimIndent()
     }
 }

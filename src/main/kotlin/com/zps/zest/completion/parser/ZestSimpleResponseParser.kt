@@ -122,8 +122,8 @@ class ZestSimpleResponseParser {
             documentText = documentText
         )
         
-        // Handle edge cases (thread-safe)
-        val adjustedCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
+        // Use the adjusted completion directly
+        val adjustedCompletion = overlapResult.adjustedCompletion
         
         // Strategy-aware display logic
         val finalCompletion = when (strategy) {
@@ -142,13 +142,13 @@ class ZestSimpleResponseParser {
         }
         
         // Debug logging with more detail
-        if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
+        if (overlapResult.prefixOverlapLength > 0 || overlapResult.suffixOverlapLength > 0) {
             System.out.println("=== OVERLAP DETECTION DEBUG ===")
             System.out.println("Strategy: $strategy")
             System.out.println("User input: '$recentUserInput'")
             System.out.println("Original completion: '$cleanedResponse'")
-            System.out.println("Overlap type: ${overlapResult.overlapType}")
-            System.out.println("Overlap length: ${overlapResult.overlapLength}")
+            System.out.println("Prefix overlap: ${overlapResult.prefixOverlapLength}")
+            System.out.println("Suffix overlap: ${overlapResult.suffixOverlapLength}")
             System.out.println("Adjusted completion: '$adjustedCompletion'")
             System.out.println("Final completion: '$finalCompletion'")
             System.out.println("=== END DEBUG ===")

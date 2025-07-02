@@ -162,17 +162,17 @@ class ZestCompletionProvider(private val project: Project) {
                     .withTemperature(0.1)  // Low temperature for more deterministic completions
                     .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
                 
-                System.out.println("[ZestCompletionProvider] LLM query params:")
-                System.out.println("  - model: local-model-mini")
-                System.out.println("  - maxTokens: $MAX_COMPLETION_TOKENS")
-                System.out.println("  - temperature: 0.1")
-                System.out.println("  - stop sequences: ${getStopSequences()}")
+//                System.out.println("[ZestCompletionProvider] LLM query params:")
+//                System.out.println("  - model: local-model-mini")
+//                System.out.println("  - maxTokens: $MAX_COMPLETION_TOKENS")
+//                System.out.println("  - temperature: 0.1")
+//                System.out.println("  - stop sequences: ${getStopSequences()}")
                 
                 val result = llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
-                System.out.println("[ZestCompletionProvider] LLM response received:")
-                System.out.println("  - response null: ${result == null}")
-                System.out.println("  - response length: ${result?.length}")
-                System.out.println("  - response preview: '${result?.take(100)}...'")
+//                System.out.println("[ZestCompletionProvider] LLM response received:")
+//                System.out.println("  - response null: ${result == null}")
+//                System.out.println("  - response length: ${result?.length}")
+//                System.out.println("  - response preview: '${result?.take(100)}...'")
                 result
             }
             val llmTime = System.currentTimeMillis() - llmStartTime
@@ -341,7 +341,7 @@ class ZestCompletionProvider(private val project: Project) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
                     .useLiteCodeModel()  // Use full model for reasoning
                     .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                    .withTemperature(0.2)  // Slightly higher for creative reasoning
+                    .withTemperature(0.8)  // Slightly higher for creative reasoning
                     .withStopSequences(getLeanStopSequences())
                 
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
@@ -536,6 +536,7 @@ class ZestCompletionProvider(private val project: Project) {
     private fun getLeanStopSequences(): List<String> {
         return listOf(
             "</code>",
+            "</suffix>",
             "<|endoftext|>",
             "<|end|>",
             "# End of file"
@@ -611,6 +612,6 @@ class ZestCompletionProvider(private val project: Project) {
         private const val MAX_COMPLETION_TOKENS = 16  // Small for simple completions
         
         private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L  // 15 seconds for reasoning
-        private const val LEAN_MAX_COMPLETION_TOKENS = 1000  // Limited tokens for focused completions (reasoning + completion)
+        private const val LEAN_MAX_COMPLETION_TOKENS = 200  // Limited tokens for focused completions (reasoning + completion)
     }
 }

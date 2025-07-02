@@ -15,6 +15,16 @@ class ZestLeanResponseParser {
     )
     
     /**
+     * Structure to hold parsed response with context
+     */
+    private data class ParsedResponse(
+        val prefix: String,
+        val completion: String,
+        val suffix: String,
+        val reasoning: String
+    )
+    
+    /**
      * Parse a reasoning-based response from the lean strategy with overlap detection
      */
     fun parseReasoningResponse(
@@ -27,13 +37,32 @@ class ZestLeanResponseParser {
             return LeanReasoningResult("", "", 0.0f, false)
         }
         
-        // Extract reasoning and completion from response
-        val (reasoning, completion) = extractReasoningAndCompletion(response)
+        // Extract structured response with prefix/completion/suffix
+        val parsedResponse = extractStructuredResponse(response)
         
-        // Clean the completion text
-        val cleanedCompletion = extractWrappedContent(completion)
+        // Use the completion from the structured response
+        var cleanedCompletion = parsedResponse.completion
+        
+        // If structured parsing failed, fall back to old method
+        if (cleanedCompletion.isEmpty()) {
+            val (reasoning, completion) = extractReasoningAndCompletion(response)
+            cleanedCompletion = extractWrappedContent(completion)
+            
+            // Update parsed response for consistency
+            parsedResponse.copy(
+                completion = cleanedCompletion,
+                reasoning = reasoning
+            )
+        }
+        
+        // Verify prefix/suffix match if provided
+        if (parsedResponse.prefix.isNotEmpty() || parsedResponse.suffix.isNotEmpty()) {
+            verifyContextMatch(parsedResponse, documentText, offset)
+        }
         
         // Apply overlap detection to the cleaned completion
+        // COMMENTED OUT: Overlap detection disabled for lean mode to rely on structured response format
+        /*
         val adjustedCompletion = if (cleanedCompletion.isNotEmpty()) {
             val recentUserInput = extractRecentUserInputSafe(documentText, offset)
             val overlapResult = overlapDetector.adjustCompletionForOverlap(
@@ -43,37 +72,146 @@ class ZestLeanResponseParser {
                 documentText = documentText
             )
             
-            // Handle edge cases
-            val finalCompletion = overlapDetector.handleEdgeCases(recentUserInput, overlapResult.adjustedCompletion)
-            
             // Debug logging for lean strategy overlap detection
-            if (overlapResult.overlapType != ZestCompletionOverlapDetector.OverlapType.NONE) {
-//                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
-//                System.out.println("User input: '$recentUserInput'")
-//                System.out.println("Original completion: '$cleanedCompletion'")
-//                System.out.println("Overlap type: ${overlapResult.overlapType}")
-//                System.out.println("Overlap length: ${overlapResult.overlapLength}")
-//                System.out.println("Final completion: '$finalCompletion'")
-//                System.out.println("=== END LEAN DEBUG ===")
+            if (overlapResult.prefixOverlapLength > 0 || overlapResult.suffixOverlapLength > 0) {
+                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
+                System.out.println("User input: '$recentUserInput'")
+                System.out.println("Original completion: '$cleanedCompletion'")
+                System.out.println("Prefix overlap: ${overlapResult.prefixOverlapLength}")
+                System.out.println("Suffix overlap: ${overlapResult.suffixOverlapLength}")
+                System.out.println("Final completion: '${overlapResult.adjustedCompletion}'")
+                System.out.println("=== END LEAN DEBUG ===")
             }
             
-            finalCompletion
+            overlapResult.adjustedCompletion
         } else {
             cleanedCompletion
         }
+        */
+        
+        // Use cleaned completion directly without overlap detection
+        val adjustedCompletion = cleanedCompletion
         
         // Validate the reasoning
-        val hasValidReasoning = validateReasoning(reasoning)
+        val hasValidReasoning = validateReasoning(parsedResponse.reasoning)
         
-        // Calculate confidence
-        val confidence = calculateConfidence(adjustedCompletion, reasoning, hasValidReasoning)
+        // Calculate confidence with context verification bonus
+        val contextMatchBonus = if (parsedResponse.prefix.isNotEmpty() || parsedResponse.suffix.isNotEmpty()) 0.1f else 0f
+        val confidence = calculateConfidence(adjustedCompletion, parsedResponse.reasoning, hasValidReasoning) + contextMatchBonus
         
         return LeanReasoningResult(
             completionText = adjustedCompletion,
-            reasoning = reasoning,
-            confidence = confidence,
+            reasoning = parsedResponse.reasoning,
+            confidence = confidence.coerceIn(0.0f, 1.0f),
             hasValidReasoning = hasValidReasoning
         )
+    }
+    
+    /**
+     * Extract structured response with prefix/completion/suffix format
+     */
+    private fun extractStructuredResponse(response: String): ParsedResponse {
+        var prefix = ""
+        var completion = ""
+        var suffix = ""
+        var reasoning = ""
+        
+        // Extract prefix
+        val prefixPattern = Regex("<prefix>\\s*(.+?)\\s*</prefix>", RegexOption.DOT_MATCHES_ALL)
+        val prefixMatch = prefixPattern.find(response)
+        if (prefixMatch != null) {
+            prefix = prefixMatch.groupValues[1].trim()
+        }
+        
+        // Extract completion
+        val completionPattern = Regex("<completion>\\s*(.+?)\\s*</completion>", RegexOption.DOT_MATCHES_ALL)
+        val completionMatch = completionPattern.find(response)
+        if (completionMatch != null) {
+            completion = completionMatch.groupValues[1].trim()
+        }
+        
+        // Extract suffix
+        val suffixPattern = Regex("<suffix>\\s*(.+?)\\s*</suffix>", RegexOption.DOT_MATCHES_ALL)
+        val suffixMatch = suffixPattern.find(response)
+        if (suffixMatch != null) {
+            suffix = suffixMatch.groupValues[1].trim()
+        }
+        
+        // Extract reasoning (everything before the structured tags)
+        if (prefixMatch != null) {
+            reasoning = response.substring(0, prefixMatch.range.first).trim()
+        } else if (completionMatch != null) {
+            reasoning = response.substring(0, completionMatch.range.first).trim()
+        }
+        
+        // Clean up reasoning from any instruction text
+        reasoning = reasoning
+            .replace("**Response Format:**", "")
+            .replace("You must provide your response in this EXACT format", "")
+            .trim()
+        
+        System.out.println("=== STRUCTURED RESPONSE PARSING ===")
+        System.out.println("Prefix: '${prefix.take(50)}${if (prefix.length > 50) "..." else ""}'")
+        System.out.println("Completion: '${completion.take(50)}${if (completion.length > 50) "..." else ""}'")
+        System.out.println("Suffix: '${suffix.take(50)}${if (suffix.length > 50) "..." else ""}'")
+        System.out.println("=== END STRUCTURED PARSING ===")
+        
+        return ParsedResponse(prefix, completion, suffix, reasoning)
+    }
+    
+    /**
+     * Verify that the provided prefix/suffix match the actual document
+     */
+    private fun verifyContextMatch(
+        parsedResponse: ParsedResponse,
+        documentText: String,
+        offset: Int
+    ) {
+        // Get actual context from document
+        val contextBefore = getContextBeforeCursor(documentText, offset, 200)
+        val contextAfter = getContextAfterCursor(documentText, offset, 200)
+        
+        // Normalize for comparison
+        val normalizedPrefix = parsedResponse.prefix.trim()
+        val normalizedSuffix = parsedResponse.suffix.trim()
+        
+        // Check prefix match
+        if (normalizedPrefix.isNotEmpty()) {
+            val prefixMatches = contextBefore.trimEnd().endsWith(normalizedPrefix)
+            if (!prefixMatches) {
+                System.out.println("WARNING: Prefix mismatch!")
+                System.out.println("Expected prefix: '$normalizedPrefix'")
+                System.out.println("Actual context ends with: '${contextBefore.takeLast(normalizedPrefix.length)}'")
+            }
+        }
+        
+        // Check suffix match
+        if (normalizedSuffix.isNotEmpty()) {
+            val suffixMatches = contextAfter.trimStart().startsWith(normalizedSuffix)
+            if (!suffixMatches) {
+                System.out.println("WARNING: Suffix mismatch!")
+                System.out.println("Expected suffix: '$normalizedSuffix'")
+                System.out.println("Actual context starts with: '${contextAfter.take(normalizedSuffix.length)}'")
+            }
+        }
+    }
+    
+    /**
+     * Get context before cursor
+     */
+    private fun getContextBeforeCursor(documentText: String, cursorOffset: Int, limit: Int): String {
+        if (cursorOffset <= 0) return ""
+        val startOffset = maxOf(0, cursorOffset - limit)
+        return documentText.substring(startOffset, cursorOffset)
+    }
+    
+    /**
+     * Get context after cursor
+     */
+    private fun getContextAfterCursor(documentText: String, cursorOffset: Int, limit: Int): String {
+        if (cursorOffset >= documentText.length) return ""
+        val endOffset = minOf(documentText.length, cursorOffset + limit)
+        return documentText.substring(cursorOffset, endOffset)
     }
     
     /**
@@ -121,7 +259,7 @@ class ZestLeanResponseParser {
     }
     
     /**
-     * Extract reasoning and completion from the response
+     * Extract reasoning and completion from the response (fallback method)
      */
     private fun extractReasoningAndCompletion(response: String): Pair<String, String> {
         // Look for completion section
@@ -174,9 +312,6 @@ class ZestLeanResponseParser {
             }
         }
 
-        // Remove any remaining wrapper artifacts
-//        content = removeTrailingExplanations(content)
-
         return content.trim()
     }
 
@@ -214,9 +349,6 @@ class ZestLeanResponseParser {
                 }
             }
         } while (content != previousContent) // Continue while content is changing
-
-        // Final cleanup
-//        content = removeTrailingExplanations(content)
 
         return content.trim()
     }

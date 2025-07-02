@@ -7,11 +7,9 @@ import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestMethodRewriteService
 
 /**
- * TAB action for line-by-line acceptance.
- * Smart TAB behavior:
- * - LEAN strategy: Line-by-line acceptance (Tab = first line only)
- * - SIMPLE strategy: Traditional full completion acceptance
- * - METHOD_REWRITE: Accept method rewrite
+ * TAB action for full completion acceptance.
+ * Tab always accepts the entire completion regardless of strategy.
+ * For line-by-line acceptance, use Ctrl+Tab instead.
  */
 class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
     
@@ -24,7 +22,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
             return
         }
         
-        // Handle inline completion acceptance with line-by-line support for LEAN strategy
+        // Always accept full completion with Tab (no more line-by-line)
         service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
     }
 

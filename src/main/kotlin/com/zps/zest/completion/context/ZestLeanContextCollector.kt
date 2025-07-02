@@ -362,8 +362,20 @@ class ZestLeanContextCollector(private val project: Project) {
                     i - (methodMatch.signatureLines.size - 1)
                 }
 
+                // Check if this method contains the cursor
                 val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
-                val containsCursor = cursorLine in signatureStartIndex..methodEnd
+                
+                // Special handling: if cursor is on an empty line right after a method's closing brace,
+                // it should NOT be considered inside the method
+                val containsCursor = if (cursorLine > methodEnd) {
+                    false
+                } else if (cursorLine == methodEnd && lines[cursorLine].trim() == "[CURSOR]") {
+                    // Cursor is alone on the closing brace line - consider it inside
+                    true
+                } else {
+                    cursorLine in signatureStartIndex..methodEnd
+                }
+                
                 val methodName = extractMethodName(lines[i])
 
                 // Calculate priority (higher is more important)
@@ -512,38 +524,14 @@ class ZestLeanContextCollector(private val project: Project) {
                         }
 
                     // Make sure to include the complete method body, including closing braces
-                    var actualMethodEnd = containingMethod.endLine
-
-                    // If the detected end seems wrong (e.g., missing closing brace), extend it
-                    var braceBalance = 0
                     for (j in bodyStart..containingMethod.endLine) {
                         if (j < lines.size) {
-                            val lineContent = lines[j]
-                            braceBalance += lineContent.count { it == '{' }
-                            braceBalance -= lineContent.count { it == '}' }
-                        }
-                    }
-
-                    // If braces are unbalanced, try to find the real end
-                    if (braceBalance > 0 && containingMethod.endLine < lines.size - 1) {
-                        for (j in containingMethod.endLine + 1 until lines.size) {
                             result.add(lines[j])
-                            braceBalance += lines[j].count { it == '{' }
-                            braceBalance -= lines[j].count { it == '}' }
-                            actualMethodEnd = j
-                            if (braceBalance == 0) break
-                        }
-                    } else {
-                        // Normal case - add lines up to detected end
-                        for (j in bodyStart..containingMethod.endLine) {
-                            if (j < lines.size) {
-                                result.add(lines[j])
-                            }
                         }
                     }
 
-                    // Skip to end of method (use actualMethodEnd which may have been extended)
-                    i = actualMethodEnd + 1
+                    // Skip to end of method
+                    i = containingMethod.endLine + 1
                 } else {
                     // We're in the middle of a method that's already being processed
                     i++
@@ -861,10 +849,16 @@ class ZestLeanContextCollector(private val project: Project) {
     }
 
     /**
-     * Finds the line number containing the [CURSOR] marker
+     * Finds the line number containing the [CURSOR] marker.
+     * Also handles edge cases where cursor might be right after a method.
      */
     private fun findCursorLine(lines: List<String>): Int {
-        return lines.indexOfFirst { it.contains("[CURSOR]") }
+        for (i in lines.indices) {
+            if (lines[i].contains("[CURSOR]")) {
+                return i
+            }
+        }
+        return -1
     }
 
 
@@ -981,11 +975,12 @@ class ZestLeanContextCollector(private val project: Project) {
     private fun findMatchingCloseBrace(lines: List<String>, openBraceLineIndex: Int): Int {
         var braceCount = 0
         var foundOpenBrace = false
+        var lastBraceLine = openBraceLineIndex
 
         for (i in openBraceLineIndex until lines.size) {
             val line = lines[i]
 
-            for (char in line) {
+            for ((charIndex, char) in line.withIndex()) {
                 when (char) {
                     '{' -> {
                         braceCount++

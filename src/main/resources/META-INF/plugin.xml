@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.866</version>
+    <version>1.9.868</version>
     
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -216,47 +216,50 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
-        <action id="Zest.CheckCodeHealth"
-                class="com.zps.zest.codehealth.CheckHealthAction"
-                text="Check Code Health"
-                description="Analyze methods modified today for potential issues and their impact on the codebase">
+        <!-- Code Health Group -->
+        <group id="Zest.CodeHealth" text="Code Health" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-        
-        <!-- Code Health Test Actions Group -->
-        <group id="Zest.CodeHealthTests" text="Code Health Tests" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.CheckCodeHealth"/>
-            <add-to-group group-id="ZestGroup" anchor="last"  />
-
+            
+            <action id="Zest.CheckCodeHealth"
+                    class="com.zps.zest.codehealth.CheckHealthAction"
+                    text="Check Code Health"
+                    description="Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống">
+            </action>
+            
             <action id="Zest.AddMethodAtCaret"
                     class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
-                    text="Add Method at Caret to Health Review"
-                    description="Add the method at cursor position to the code health review queue">
+                    text="Add Method at Caret to Review"
+                    description="Thêm phương thức tại vị trí con trỏ vào danh sách chờ đánh giá chất lượng">
             </action>
             
             <action id="Zest.TriggerBackgroundReview"
                     class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
-                    text="Trigger Background Health Review"
-                    description="Manually trigger background review of all pending methods">
+                    text="Trigger Background Code Review"
+                    description="Kích hoạt quy trình kiểm tra tự động cho tất cả phương thức đang chờ xử lý">
             </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="Trigger Final Health Review (13h)"
-                    description="Manually trigger the daily health check report">
+                    text="Trigger Daily Health Report"
+                    description="Khởi động báo cáo tổng hợp chất lượng code của ngày (mặc định lúc 13h)">
             </action>
+        </group>
+        
+        <!-- Code Health Debug Actions Group -->
+        <group id="Zest.CodeHealthDebug" text="Debug Tools" popup="true">
+            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>
             
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="Show Health Review Queue Status"
-                    description="Display the current status of the code health review queue">
+                    text="Show Review Queue Status"
+                    description="Hiển thị chi tiết các phương thức đang trong hàng đợi chờ kiểm tra">
             </action>
             
             <action id="Zest.DebugHealthAction"
                     class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="Debug Code Health"
-                    description="Clear all methods and add test method for debugging">
+                    text="Debug Mode"
+                    description="Xóa dữ liệu hiện tại và tạo môi trường kiểm thử với dữ liệu mẫu">
             </action>
         </group>
     </actions>

@@ -4,9 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.util.LLMService
-import com.zps.zest.completion.metrics.sendMetricEvent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -80,6 +78,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     fun trackCompletionViewed(
         completionId: String,
         completionLength: Int,
+        completionLineCount: Int,
         confidence: Float? = null
     ) {
         if (!isEnabled.get()) return
@@ -96,6 +95,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             elapsed = elapsed,
             metadata = mapOf(
                 "completion_length" to completionLength,
+                "completion_line_count" to completionLineCount,
                 "confidence" to (confidence ?: 0f)
             )
         ))

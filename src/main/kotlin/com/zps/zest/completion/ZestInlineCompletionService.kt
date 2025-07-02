@@ -510,7 +510,17 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     
                     // Start acceptance timeout guard
                     startAcceptanceTimeoutGuard()
-                    
+                    // Track completion accepted metric
+                    currentCompletionId?.let { completionId ->
+                        val acceptType =type
+
+                        metricsService.trackCompletionAccepted(
+                            completionId = completionId,
+                            completionContent = firstLine,
+                            acceptType = acceptType.name,
+                            userAction = "tab" // Could be enhanced to track actual key/action
+                        )
+                    }
                     // Clear current completion before inserting
                     clearCurrentCompletion()
                     
@@ -947,6 +957,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             metricsService.trackCompletionViewed(
                                 completionId = completionId,
                                 completionLength = completion.insertText.length,
+                                completionLineCount = completion.insertText.split("\n").size,
                                 confidence = completion.confidence
                             )
                         }
@@ -996,26 +1007,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 formatInsertedText(editor, startOffset, newCaretPosition)
                 
                 logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
+
             }
             
             project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
             
-            // Track completion accepted metric
-            currentCompletionId?.let { completionId ->
-                val acceptType = when {
-                    textToInsert == completionItem.insertText -> "full"
-                    textToInsert.contains('\n') -> "multi_line"
-                    textToInsert.split("\\s+".toRegex()).size > 1 -> "multi_word"
-                    else -> "partial"
-                }
-                
-                metricsService.trackCompletionAccepted(
-                    completionId = completionId,
-                    completionContent = textToInsert,
-                    acceptType = acceptType,
-                    userAction = "tab" // Could be enhanced to track actual key/action
-                )
-            }
+
             
         } finally {
             // Cancel timeout guard since acceptance is completing
@@ -1203,17 +1200,17 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             logger.debug("Caret moved significantly, dismissing completion")
                             
                             // Track completion dismissed due to caret movement
-                            currentCompletionId?.let { completionId ->
-                                val reason = when {
-                                    offsetDiff < 0 -> "cursor_moved_backward"
-                                    offsetDiff > 100 -> "cursor_moved_far_forward"
-                                    else -> "cursor_moved_typing_mismatch"
-                                }
-                                metricsService.trackCompletionDismissed(
-                                    completionId = completionId,
-                                    reason = reason
-                                )
-                            }
+//                            currentCompletionId?.let { completionId ->
+//                                val reason = when {
+//                                    offsetDiff < 0 -> "cursor_moved_backward"
+//                                    offsetDiff > 100 -> "cursor_moved_far_forward"
+//                                    else -> "cursor_moved_typing_mismatch"
+//                                }
+//                                metricsService.trackCompletionDismissed(
+//                                    completionId = completionId,
+//                                    reason = reason
+//                                )
+//                            }
                             
                             clearCurrentCompletion()
                         }
@@ -1406,13 +1403,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                                    System.out.println("[ZestInlineCompletion] Completion became empty, dismissing")
                                     // No meaningful completion left, dismiss
                                     logger.debug("Completion became empty after overlap detection, dismissing")
-                                    
-                                    // Track completion declined due to user typing
-                                    currentCompletionId?.let { completionId ->
-                                        metricsService.trackCompletionDeclined(
-                                            completionId = completionId,
-                                            reason = "user_typed_different"
-                                        )
+                                    if (completion.insertText) {
+                                        // Track completion declined due to user typing
+                                        currentCompletionId?.let { completionId ->
+                                            metricsService.trackCompletionDeclined(
+                                                completionId = completionId,
+                                                reason = "user_typed_different"
+                                            )
+                                        }
                                     }
                                     
                                     clearCurrentCompletion()

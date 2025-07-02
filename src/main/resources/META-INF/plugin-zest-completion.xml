@@ -65,12 +65,12 @@
                 <keyboard-shortcut first-keystroke="ctrl RIGHT" keymap="$default"/>
             </action>
             
-            <action id="Zest.InlineCompletion.AcceptNextLine"
-                    class="com.zps.zest.completion.actions.ZestAcceptNextLine"
-                    text="Accept Next Line"
-                    description="Accept only the next line of the completion">
-                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
-            </action>
+<!--            <action id="Zest.InlineCompletion.AcceptNextLine"-->
+<!--                    class="com.zps.zest.completion.actions.ZestAcceptNextLine"-->
+<!--                    text="Accept Next Line"-->
+<!--                    description="Accept only the next line of the completion">-->
+<!--                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>-->
+<!--            </action>-->
             
             <!-- Cycling actions -->
             <action id="Zest.InlineCompletion.CycleNext"

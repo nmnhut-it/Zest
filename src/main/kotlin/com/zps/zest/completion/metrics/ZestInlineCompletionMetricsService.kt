@@ -165,6 +165,35 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
+     * Track when a multi-line completion session is finalized
+     * (user stopped accepting lines before accepting all)
+     */
+    fun trackCompletionFinalized(
+        completionId: String,
+        reason: String = "partial_acceptance"
+    ) {
+        if (!isEnabled.get()) return
+        
+        val session = activeCompletions[completionId] ?: return
+        val elapsed = System.currentTimeMillis() - session.startTime
+        
+        // Only send if there were partial acceptances
+        if ((session.partialAcceptances ?: 0) > 0) {
+            sendEvent(MetricEvent.Dismiss(
+                completionId = completionId,
+                elapsed = elapsed,
+                metadata = mapOf(
+                    "reason" to reason,
+                    "partial_accept_count" to (session.partialAcceptances ?: 0),
+                    "total_accepted_length" to (session.totalAcceptedLength ?: 0)
+                )
+            ))
+        }
+        
+        cleanupSessionDelayed(completionId)
+    }
+    
+    /**
      * Track when a completion is accepted
      */
     fun trackCompletionAccepted(
@@ -179,6 +208,12 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
         
+        // Update session state for partial acceptances
+        if (!isAll) {
+            session.partialAcceptances = (session.partialAcceptances ?: 0) + 1
+            session.totalAcceptedLength = (session.totalAcceptedLength ?: 0) + completionContent.length
+        }
+        
         sendEvent(MetricEvent.Completed(
             completionId = completionId,
             completionContent = completionContent,
@@ -188,11 +223,14 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 "user_action" to userAction,
                 "strategy" to session.strategy,
                 "file_type" to session.fileType,
+                "is_partial" to !isAll,
+                "partial_accept_count" to (session.partialAcceptances ?: 0),
+                "total_accepted_length" to (session.totalAcceptedLength ?: completionContent.length),
                 "view_to_accept_time" to (session.viewedAt?.let { System.currentTimeMillis() - it } ?: 0L)
             )
         ))
         
-        // Clean up session after a delay
+        // Only clean up session if all lines are accepted
         if (isAll) {
             cleanupSessionDelayed(completionId)
         }

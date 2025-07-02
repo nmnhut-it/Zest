@@ -117,5 +117,7 @@ data class CompletionSession(
     var viewedAt: Long? = null,
     var completionLength: Int? = null,
     var confidence: Float? = null,
-    var hasViewed: Boolean
+    var hasViewed: Boolean,
+    var partialAcceptances: Int? = null,
+    var totalAcceptedLength: Int? = null
 )

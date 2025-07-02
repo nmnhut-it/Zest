@@ -100,7 +100,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private var currentCompletionJob: Job? = null
     private var currentContext: CompletionContext? = null
     private var currentCompletion: ZestInlineCompletionItem? = null
-    private var currentCompletionId: String? = null // Track current completion ID for metrics
     
     // Flag to track programmatic edits (e.g., when accepting completions)
     @Volatile
@@ -128,6 +127,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         val fullCompletion: ZestInlineCompletionItem,
         val firstLineCompletion: ZestInlineCompletionItem,
         val contextHash: String,
+        val completionId: String,
         val timestamp: Long = System.currentTimeMillis()
     ) {
         fun isExpired(maxAgeMs: Long = CACHE_EXPIRY_MS): Boolean {
@@ -281,7 +281,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     
                     // Generate a new completion ID for metrics tracking
                 val completionId = UUID.randomUUID().toString()
-                currentCompletionId = completionId
                     
                     try {
 //                        System.out.println("[ZestInlineCompletion] Building completion context...")
@@ -316,12 +315,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             "prefix_length" to context.prefixCode.length,
                             "suffix_length" to context.suffixCode.length
                         )
-                        metricsService.trackCompletionRequested(
-                            completionId = completionId,
-                            strategy = completionProvider.strategy.name,
-                            fileType = fileType,
-                            contextInfo = contextInfo
-                        )
                         
                         // Check cache first for SIMPLE and LEAN strategies
                         if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE ||
@@ -338,12 +331,28 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 // Store the FULL completion for acceptance
                                 currentCompletion = cached.fullCompletion
                                 
+                                // Track completion requested with the cached completion's ID
+                                metricsService.trackCompletionRequested(
+                                    completionId = cached.fullCompletion.completionId,
+                                    strategy = completionProvider.strategy.name,
+                                    fileType = fileType,
+                                    contextInfo = contextInfo + mapOf("from_cache" to true)
+                                )
+                                
                                 // Create a synthetic completion list for display
                                 val displayCompletion = ZestInlineCompletionList.single(completionToShow)
                                 handleCompletionResponse(editor, context, displayCompletion, requestId)
                                 return@launch
                             }
                         }
+                        
+                        // Only track new request if not from cache
+                        metricsService.trackCompletionRequested(
+                            completionId = completionId,
+                            strategy = completionProvider.strategy.name,
+                            fileType = fileType,
+                            contextInfo = contextInfo + mapOf("from_cache" to false)
+                        )
                         
                         // Use background context if enabled
                         if (backgroundContextEnabled) {
@@ -375,17 +384,25 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         if (currentContext == context) { // Ensure request is still valid
 //                            System.out.println("[ZestInlineCompletion] Context still valid, handling response...")
                             
+                            // Update the completion with our tracking ID
+                            val completionsWithId = completions?.let { list ->
+                                val items = list.items.map { item ->
+                                    item.copy(completionId = completionId)
+                                }
+                                ZestInlineCompletionList(list.isIncomplete, items)
+                            }
+                            
                             // Cache the completion if it's not empty and for cacheable strategies
-                            if (completions != null && !completions.isEmpty() && 
+                            if (completionsWithId != null && !completionsWithId.isEmpty() && 
                                 (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE ||
                                  completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN)) {
                                 
-                                val firstCompletion = completions.firstItem()!!
+                                val firstCompletion = completionsWithId.firstItem()!!
 //                                System.out.println("[ZestInlineCompletion] Caching completion for future use...")
                                 cacheCompletion(context, editor, firstCompletion)
                                 
                                 // For SIMPLE strategy, show full completion (line-by-line acceptance handled in accept() method)
-                                val displayCompletion = completions // Show full completion for all strategies
+                                val displayCompletion = completionsWithId // Show full completion for all strategies
                                 
                                 // Store the FULL completion for acceptance
                                 currentCompletion = firstCompletion
@@ -393,7 +410,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 handleCompletionResponse(editor, context, displayCompletion, requestId)
                             } else {
                                 // Non-cacheable strategy or empty completion
-                                handleCompletionResponse(editor, context, completions, requestId)
+                                handleCompletionResponse(editor, context, completionsWithId, requestId)
                             }
                         } else {
 //                            System.out.println("[ZestInlineCompletion] Context changed, ignoring response")
@@ -511,8 +528,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     // Start acceptance timeout guard
                     startAcceptanceTimeoutGuard()
                     // Track completion accepted metric
-                    currentCompletionId?.let { completionId ->
-                        val acceptType =type
+                    completion.completionId.let { completionId ->
+                        val acceptType = type
+                        val lineNumber = lines.take(1).size // First line = 1
+                        val totalLines = completion.insertText.lines().size
 
                         metricsService.trackCompletionAccepted(
                             completionId = completionId,
@@ -654,7 +673,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         insertText = remainingText,
                         replaceRange = ZestInlineCompletionItem.Range(targetOffset, targetOffset),
                         confidence = originalCompletion.confidence,
-                        metadata = originalCompletion.metadata
+                        metadata = originalCompletion.metadata,
+                        completionId = originalCompletion.completionId // Use same completion ID!
                     )
                     
                     // Update current state
@@ -685,11 +705,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         logger.debug("Dismissing completion")
         
         // Track completion dismissed metric
-        currentCompletionId?.let { completionId ->
-            metricsService.trackCompletionDismissed(
-                completionId = completionId,
-                reason = "user_dismissed"
-            )
+        currentCompletion?.completionId?.let { completionId ->
+            // Check if this was after a partial acceptance
+            val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+            if (timeSinceAccept < 5000L && completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
+                metricsService.trackCompletionFinalized(
+                    completionId = completionId,
+                    reason = "user_dismissed_remaining"
+                )
+            } else {
+                metricsService.trackCompletionDismissed(
+                    completionId = completionId,
+                    reason = "user_dismissed"
+                )
+            }
         }
         
         // IMPORTANT: Reset accepting flag when dismissing
@@ -954,7 +983,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
                         
                         // Track completion viewed metric
-                        currentCompletionId?.let { completionId ->
+                        completion.completionId.let { completionId ->
                             metricsService.trackCompletionViewed(
                                 completionId = completionId,
                                 completionLength = completion.insertText.length,
@@ -1071,9 +1100,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         currentCompletionJob = null
         currentContext = null
         currentCompletion = null
-        if (isAll) {
-            currentCompletionId = null // Clear completion ID
-        }
         
         // IMPORTANT: Reset accepting flag when clearing completion (unless we're in the middle of line-by-line acceptance)
         // For LEAN strategy, only reset if it's been more than a short delay since acceptance
@@ -1203,17 +1229,27 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             logger.debug("Caret moved significantly, dismissing completion")
                             
                             // Track completion dismissed due to caret movement
-//                            currentCompletionId?.let { completionId ->
-//                                val reason = when {
-//                                    offsetDiff < 0 -> "cursor_moved_backward"
-//                                    offsetDiff > 100 -> "cursor_moved_far_forward"
-//                                    else -> "cursor_moved_typing_mismatch"
-//                                }
-//                                metricsService.trackCompletionDismissed(
-//                                    completionId = completionId,
-//                                    reason = reason
-//                                )
-//                            }
+                            currentCompletion?.completionId?.let { completionId ->
+                                val reason = when {
+                                    offsetDiff < 0 -> "cursor_moved_backward"
+                                    offsetDiff > 100 -> "cursor_moved_far_forward"
+                                    else -> "cursor_moved_typing_mismatch"
+                                }
+                                
+                                // Check if this was a partial acceptance scenario
+                                val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
+                                if (timeSinceAccept < 5000L) { // Within 5 seconds of last acceptance
+                                    metricsService.trackCompletionFinalized(
+                                        completionId = completionId,
+                                        reason = "partial_acceptance_then_$reason"
+                                    )
+                                } else {
+                                    metricsService.trackCompletionDismissed(
+                                        completionId = completionId,
+                                        reason = reason
+                                    )
+                                }
+                            }
                             
                             clearCurrentCompletion()
                         }
@@ -1234,7 +1270,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                System.out.println("[ZestInlineCompletion] Editor selection changed, clearing completion")
                 
                 // Track completion dismissed due to editor change
-                currentCompletionId?.let { completionId ->
+                currentCompletion?.completionId?.let { completionId ->
                     metricsService.trackCompletionDismissed(
                         completionId = completionId,
                         reason = "editor_changed"
@@ -1267,7 +1303,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false due to user typing")
                             
                             // Track completion declined if we had one
-                            currentCompletionId?.let { completionId ->
+                            currentCompletion?.completionId?.let { completionId ->
                                 metricsService.trackCompletionDeclined(
                                     completionId = completionId,
                                     reason = "user_typed_during_acceptance"
@@ -1407,7 +1443,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     // No meaningful completion left, dismiss
                                     logger.debug("Completion became empty after overlap detection, dismissing")
                                         // Track completion declined due to user typing
-                                        currentCompletionId?.let { completionId ->
+                                        currentCompletion?.completionId?.let { completionId ->
                                             metricsService.trackCompletionDeclined(
                                                 completionId = completionId,
                                                 reason = "user_typed_different"
@@ -1728,7 +1764,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 val cached = CachedCompletion(
                     fullCompletion = fullCompletion,
                     firstLineCompletion = firstLineCompletion,
-                    contextHash = contextHash
+                    contextHash = contextHash,
+                    completionId = fullCompletion.completionId
                 )
                 
                 completionCache[cacheKey] = cached

@@ -18,7 +18,7 @@ import com.zps.zest.completion.async.SimpleTaskQueue
 class ZestLeanContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 5000
+        private const val MAX_CONTEXT_LENGTH = 20000
         private const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
     }

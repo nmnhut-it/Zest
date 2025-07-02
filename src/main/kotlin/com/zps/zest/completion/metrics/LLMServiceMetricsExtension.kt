@@ -153,13 +153,10 @@ suspend fun LLMService.sendInlineCompletionMetrics(
  * Convenience method to send a metric event
  */
 suspend fun LLMService.sendMetricEvent(event: MetricEvent): Boolean {
-    val metadata = when (event) {
-        is MetricEvent.Completed -> event.metadata
-        else -> event.metadata
-    }
+    val metadata = event.metadata
     
     val completionContent = when (event) {
-        is MetricEvent.Completed -> event.completionContent
+        is MetricEvent.Select -> event.completionContent
         else -> null
     }
     

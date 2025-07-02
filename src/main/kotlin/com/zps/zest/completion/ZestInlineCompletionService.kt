@@ -374,6 +374,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             System.out.println("  - first item range: ${it.replaceRange}")
                         }
                         
+                        // Track completion completed (response received)
+                        metricsService.trackCompletionCompleted(
+                            completionId = completionId,
+                            responseTime = elapsed
+                        )
+                        
                         // Check again if this request is still active
                         if (activeRequestId != requestId) {
 //                            System.out.println("[ZestInlineCompletion] Request $requestId is no longer active after completion")
@@ -698,25 +704,25 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     /**
-     * Dismiss the current completion
+     * Dismiss the current completion (ESC key)
      */
     fun dismiss() {
 //        System.out.println("[ZestInlineCompletion] Dismiss called")
         logger.debug("Dismissing completion")
         
-        // Track completion dismissed metric
+        // Track completion declined (ESC pressed)
         currentCompletion?.completionId?.let { completionId ->
             // Check if this was after a partial acceptance
             val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
             if (timeSinceAccept < 5000L && completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
                 metricsService.trackCompletionFinalized(
                     completionId = completionId,
-                    reason = "user_dismissed_remaining"
+                    reason = "esc_after_partial_acceptance"
                 )
             } else {
-                metricsService.trackCompletionDismissed(
+                metricsService.trackCompletionDeclined(
                     completionId = completionId,
-                    reason = "user_dismissed"
+                    reason = "esc_pressed"
                 )
             }
         }
@@ -1302,9 +1308,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         if (timeSinceAccept > 500L) {
 //                            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false due to user typing")
                             
-                            // Track completion declined if we had one
+                            // Track completion dismissed if we had one
                             currentCompletion?.completionId?.let { completionId ->
-                                metricsService.trackCompletionDeclined(
+                                metricsService.trackCompletionDismissed(
                                     completionId = completionId,
                                     reason = "user_typed_during_acceptance"
                                 )
@@ -1442,9 +1448,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                                    System.out.println("[ZestInlineCompletion] Completion became empty, dismissing")
                                     // No meaningful completion left, dismiss
                                     logger.debug("Completion became empty after overlap detection, dismissing")
-                                        // Track completion declined due to user typing
+                                        // Track completion dismissed due to user typing
                                         currentCompletion?.completionId?.let { completionId ->
-                                            metricsService.trackCompletionDeclined(
+                                            metricsService.trackCompletionDismissed(
                                                 completionId = completionId,
                                                 reason = "user_typed_different"
                                             )

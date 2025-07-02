@@ -25,7 +25,7 @@ sealed class MetricEvent {
         
         // Add event-specific fields
         when (this) {
-            is Completed -> baseRequest["completion_content"] = completionContent
+            is Select -> baseRequest["completion_content"] = completionContent
             else -> { /* No additional fields for other events */ }
         }
         
@@ -38,7 +38,7 @@ sealed class MetricEvent {
     }
     
     /**
-     * Completion request initiated
+     * Completion request initiated (bắt đầu gửi req)
      */
     data class Complete(
         override val completionId: String,
@@ -49,7 +49,18 @@ sealed class MetricEvent {
     }
     
     /**
-     * Completion displayed to user
+     * Request returned result (req trả về kết quả)
+     */
+    data class Completed(
+        override val completionId: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = "completed"
+    }
+    
+    /**
+     * Completion displayed to user (hiện ra cho user)
      */
     data class View(
         override val completionId: String,
@@ -60,10 +71,11 @@ sealed class MetricEvent {
     }
     
     /**
-     * Completion selected/highlighted
+     * User pressed TAB to accept (user nhấn tab để chọn gợi ý)
      */
     data class Select(
         override val completionId: String,
+        val completionContent: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -71,18 +83,7 @@ sealed class MetricEvent {
     }
     
     /**
-     * Completion dismissed by user
-     */
-    data class Dismiss(
-        override val completionId: String,
-        override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
-    ) : MetricEvent() {
-        override val eventType = "dismiss"
-    }
-    
-    /**
-     * Completion declined (user typed something different)
+     * User pressed ESC to reject (user nhấn esc để bỏ chọn gợi ý)
      */
     data class Decline(
         override val completionId: String,
@@ -93,15 +94,14 @@ sealed class MetricEvent {
     }
     
     /**
-     * Completion accepted and inserted
+     * User continued typing (user gõ tiếp - bỏ qua gợi ý)
      */
-    data class Completed(
+    data class Dismiss(
         override val completionId: String,
-        val completionContent: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "completed"
+        override val eventType = "dismiss"
     }
 }
 

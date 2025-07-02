@@ -104,33 +104,43 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
-     * Track when a completion is selected (highlighted)
+     * Track when request returns result
      */
-    fun trackCompletionSelected(completionId: String) {
-        if (!isEnabled.get()) return
-        
-        val session = activeCompletions[completionId] ?: return
-        val elapsed = System.currentTimeMillis() - session.startTime
-        
-        sendEvent(MetricEvent.Select(
-            completionId = completionId,
-            elapsed = elapsed
-        ))
-    }
-    
-    /**
-     * Track when a completion is dismissed
-     */
-    fun trackCompletionDismissed(
+    fun trackCompletionCompleted(
         completionId: String,
-        reason: String = "user_action"
+        responseTime: Long
     ) {
         if (!isEnabled.get()) return
         
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.Dismiss(
+        sendEvent(MetricEvent.Completed(
+            completionId = completionId,
+            elapsed = elapsed,
+            metadata = mapOf(
+                "response_time" to responseTime,
+                "strategy" to session.strategy,
+                "file_type" to session.fileType
+            )
+        ))
+    }
+    
+    /**
+     * Track when user presses ESC to reject
+     */
+    fun trackCompletionDeclined(
+        completionId: String,
+        reason: String = "esc_pressed"
+    ) {
+        if (!isEnabled.get()) return
+        
+        val session = activeCompletions[completionId] ?: return
+        if (session.hasViewed == false )
+            return;
+        val elapsed = System.currentTimeMillis() - session.startTime
+        
+        sendEvent(MetricEvent.Decline(
             completionId = completionId,
             elapsed = elapsed,
             metadata = mapOf("reason" to reason)
@@ -141,20 +151,18 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
-     * Track when a completion is declined
+     * Track when user continues typing (ignores completion)
      */
-    fun trackCompletionDeclined(
+    fun trackCompletionDismissed(
         completionId: String,
-        reason: String = "user_typed_different"
+        reason: String = "user_typed"
     ) {
         if (!isEnabled.get()) return
         
         val session = activeCompletions[completionId] ?: return
-        if (session.hasViewed == false )
-            return;
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.Decline(
+        sendEvent(MetricEvent.Dismiss(
             completionId = completionId,
             elapsed = elapsed,
             metadata = mapOf("reason" to reason)
@@ -194,7 +202,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
-     * Track when a completion is accepted
+     * Track when a completion is accepted (TAB pressed)
      */
     fun trackCompletionAccepted(
         completionId: String,
@@ -214,7 +222,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             session.totalAcceptedLength = (session.totalAcceptedLength ?: 0) + completionContent.length
         }
         
-        sendEvent(MetricEvent.Completed(
+        sendEvent(MetricEvent.Select(
             completionId = completionId,
             completionContent = completionContent,
             elapsed = elapsed,
@@ -285,7 +293,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             println("  - completionId: ${event.completionId}")
             println("  - elapsed: ${event.elapsed}ms")
             when (event) {
-                is MetricEvent.Completed -> println("  - content length: ${event.completionContent.length}")
+                is MetricEvent.Select -> println("  - content length: ${event.completionContent.length}")
                 else -> {}
             }
             
@@ -333,16 +341,16 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         return when (eventType) {
             "complete" -> MetricEvent.Complete(completionId, elapsed, metadata)
+            "completed" -> MetricEvent.Completed(completionId, elapsed, metadata)
             "view" -> MetricEvent.View(completionId, elapsed, metadata)
-            "select" -> MetricEvent.Select(completionId, elapsed, metadata)
-            "dismiss" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
-            "decline" -> MetricEvent.Decline(completionId, elapsed, metadata)
-            "completed" -> MetricEvent.Completed(
+            "select" -> MetricEvent.Select(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
                 elapsed = elapsed,
                 metadata = metadata
             )
+            "dismiss" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
+            "decline" -> MetricEvent.Decline(completionId, elapsed, metadata)
             else -> MetricEvent.Complete(completionId, elapsed, metadata) // Default
         }
     }

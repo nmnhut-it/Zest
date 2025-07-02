@@ -8,7 +8,6 @@ import com.zps.zest.langchain4j.util.LLMService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -63,7 +62,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         activeCompletions[completionId] = session
         
-        sendEvent(MetricEvent.Complete(
+        sendEvent(MetricEvent.CompletionRequest(
             completionId = completionId,
             elapsed = 0,
             metadata = mapOf(
@@ -108,6 +107,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
      */
     fun trackCompletionCompleted(
         completionId: String,
+        completionContent: String,
         responseTime: Long
     ) {
         if (!isEnabled.get()) return
@@ -115,8 +115,9 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.Completed(
+        sendEvent(MetricEvent.CompletionResponse(
             completionId = completionId,
+            completionContent = completionContent,
             elapsed = elapsed,
             metadata = mapOf(
                 "response_time" to responseTime,
@@ -340,8 +341,13 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val metadata = (requestBody["metadata"] as? Map<String, Any>) ?: emptyMap()
         
         return when (eventType) {
-            "complete" -> MetricEvent.Complete(completionId, elapsed, metadata)
-            "completed" -> MetricEvent.Completed(completionId, elapsed, metadata)
+            "complete" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
+            "completed" -> MetricEvent.CompletionResponse(
+                completionId = completionId,
+                completionContent = requestBody["completion_content"] as? String ?: "",
+                elapsed = elapsed,
+                metadata = metadata
+            )
             "view" -> MetricEvent.View(completionId, elapsed, metadata)
             "select" -> MetricEvent.Select(
                 completionId = completionId,
@@ -351,7 +357,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             )
             "dismiss" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
             "decline" -> MetricEvent.Decline(completionId, elapsed, metadata)
-            else -> MetricEvent.Complete(completionId, elapsed, metadata) // Default
+            else -> MetricEvent.CompletionRequest(completionId, elapsed, metadata) // Default
         }
     }
     

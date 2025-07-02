@@ -1,7 +1,5 @@
 package com.zps.zest.completion.metrics
 
-import com.jetbrains.rd.generator.nova.PredefinedType
-
 /**
  * Sealed class representing different types of metric events for inline completion
  */
@@ -26,6 +24,7 @@ sealed class MetricEvent {
         // Add event-specific fields
         when (this) {
             is Select -> baseRequest["completion_content"] = completionContent
+            is CompletionResponse -> baseRequest["completion_content"] = completionContent
             else -> { /* No additional fields for other events */ }
         }
         
@@ -40,23 +39,24 @@ sealed class MetricEvent {
     /**
      * Completion request initiated (bắt đầu gửi req)
      */
-    data class Complete(
+    data class CompletionRequest(
         override val completionId: String,
         override val elapsed: Long = 0,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "complete"
+        override val eventType = "request"
     }
     
     /**
      * Request returned result (req trả về kết quả)
      */
-    data class Completed(
+    data class CompletionResponse(
         override val completionId: String,
+        val completionContent: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "completed"
+        override val eventType = "response"
     }
     
     /**

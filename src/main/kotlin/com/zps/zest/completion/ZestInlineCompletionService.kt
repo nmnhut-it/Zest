@@ -372,7 +372,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         System.out.println("  - completions: ${completions}")
                         System.out.println("  - isEmpty: ${completions?.isEmpty()}")
                         System.out.println("  - size: ${completions?.items?.size}")
+                        var insertText = "";
                         completions?.items?.firstOrNull()?.let {
+                            insertText = it.insertText;
                             System.out.println("  - first item text: '${it.insertText.take(50)}...'")
                             System.out.println("  - first item range: ${it.replaceRange}")
                         }
@@ -380,6 +382,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         // Track completion completed (response received)
                         metricsService.trackCompletionCompleted(
                             completionId = completionId,
+                            completionContent = insertText,
                             responseTime = elapsed
                         )
                         
@@ -567,7 +570,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     
                     ApplicationManager.getApplication().invokeLater {
                         // Insert the first line
-                        acceptCompletionText(editor, context, completion, firstLine)
+                        acceptCompletionText(editor, context, completion, firstLine, AcceptType.CTRL_TAB_COMPLETION, "ctrl_tab")
                         
                         // After insertion, show remaining lines if any
                         if (remainingLines.isNotEmpty()) {
@@ -630,11 +633,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             // Start acceptance timeout guard
             startAcceptanceTimeoutGuard()
             
+            // Store the accept type and user action for metrics
+            val finalAcceptType = type
+            val userAction = when (type) {
+                AcceptType.FULL_COMPLETION -> "tab"
+                AcceptType.CTRL_TAB_COMPLETION -> "ctrl_tab"
+                AcceptType.NEXT_WORD -> "word_accept"
+                AcceptType.NEXT_LINE -> "line_accept"
+            }
+            
             // Clear the completion BEFORE inserting to prevent overlap handling
             clearCurrentCompletion()
             
             ApplicationManager.getApplication().invokeLater {
-                acceptCompletionText(editor, context, completion, textToInsert)
+                acceptCompletionText(editor, context, completion, textToInsert, finalAcceptType, userAction)
             }
         }
     }
@@ -1032,7 +1044,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         editor: Editor,
         context: CompletionContext,
         completionItem: ZestInlineCompletionItem,
-        textToInsert: String
+        textToInsert: String,
+        acceptType: AcceptType = AcceptType.FULL_COMPLETION,
+        userAction: String = "tab"
     ) {
 //        System.out.println("[ZestInlineCompletion] acceptCompletionText called:")
         System.out.println("  - text: '${textToInsert.take(50)}...'")
@@ -1065,6 +1079,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 
                 logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
 
+            }
+            
+            // Track completion accepted metric
+            completionItem.completionId.let { completionId ->
+                // Determine if this is accepting all of the completion
+                val isFullCompletion = textToInsert == completionItem.insertText
+                
+                metricsService.trackCompletionAccepted(
+                    completionId = completionId,
+                    completionContent = textToInsert,
+                    isAll = isFullCompletion,
+                    acceptType = acceptType.name,
+                    userAction = userAction
+                )
             }
             
             project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)

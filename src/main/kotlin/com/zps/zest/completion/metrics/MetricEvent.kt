@@ -79,7 +79,7 @@ sealed class MetricEvent {
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "select"
+        override val eventType = "tab"
     }
     
     /**
@@ -90,7 +90,7 @@ sealed class MetricEvent {
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "decline"
+        override val eventType = "esc"
     }
     
     /**
@@ -101,7 +101,7 @@ sealed class MetricEvent {
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
-        override val eventType = "dismiss"
+        override val eventType = "anykey"
     }
 }
 

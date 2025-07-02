@@ -455,10 +455,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                            System.out.println("[ZestInlineCompletion] Normal completion - clearing loading state")
                             project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
                             
-                            if (activeRequestId == requestId) {
-//                                System.out.println("[ZestInlineCompletion] Clearing activeRequestId")
-                                activeRequestId = null
-                            }
+                            // DO NOT clear activeRequestId here - let it be cleared after the EDT callback
+                            // This was the bug! The activeRequestId was being cleared before the EDT callback
+                            // if (activeRequestId == requestId) {
+                            //     activeRequestId = null
+                            // }
                         } else {
                             // METHOD_REWRITE - keep active for longer to allow method rewrite to complete
 //                            System.out.println("[ZestInlineCompletion] METHOD_REWRITE mode - keeping state active")
@@ -994,50 +995,91 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             
             val completion = completions.firstItem()!!
             currentCompletion = completion
-//            System.out.println("[ZestInlineCompletion] Set currentCompletion:")
+            System.out.println("[ZestInlineCompletion] Set currentCompletion:")
             System.out.println("  - text: '${completion.insertText.take(50)}...'")
             System.out.println("  - range: ${completion.replaceRange}")
+            System.out.println("  - currentCompletion is null: ${currentCompletion == null}")
             
             // Clear any existing rendering first to prevent duplicates
-//            System.out.println("[ZestInlineCompletion] Clearing existing rendering...")
-            ApplicationManager.getApplication().invokeAndWait {
-//                System.out.println("[ZestInlineCompletion] Hiding renderer on EDT")
-                renderer.hide()
+            System.out.println("[ZestInlineCompletion] Clearing existing rendering...")
+            try {
+                ApplicationManager.getApplication().invokeAndWait {
+                    System.out.println("[ZestInlineCompletion] Hiding renderer on EDT")
+                    renderer.hide()
+                }
+                System.out.println("[ZestInlineCompletion] Renderer hidden successfully")
+            } catch (e: Exception) {
+                System.out.println("[ZestInlineCompletion] Error hiding renderer: ${e.message}")
+                e.printStackTrace()
             }
             
+            System.out.println("[ZestInlineCompletion] Scheduling completion display on EDT...")
             ApplicationManager.getApplication().invokeLater {
-//                System.out.println("[ZestInlineCompletion] On EDT for rendering, checking if request still active...")
+                System.out.println("[ZestInlineCompletion] On EDT for rendering, checking if request still active...")
+                System.out.println("  - activeRequestId: $activeRequestId")
+                System.out.println("  - requestId: $requestId")
+                System.out.println("  - activeRequestId type: ${activeRequestId?.javaClass}")
+                System.out.println("  - requestId type: ${requestId.javaClass}")
+                System.out.println("  - match: ${activeRequestId == requestId}")
+                System.out.println("  - null check: ${activeRequestId != null}")
+                System.out.println("  - value match: ${activeRequestId?.toInt() == requestId}")
+                
                 // Final check if this request is still active
-                if (activeRequestId == requestId) {
-//                    System.out.println("[ZestInlineCompletion] Request still active, showing completion...")
+                if (activeRequestId != null && activeRequestId == requestId) {
+                    System.out.println("[ZestInlineCompletion] Request still active, showing completion...")
                     System.out.println("  - editor: ${editor}")
+                    System.out.println("  - editor.isDisposed: ${editor.isDisposed}")
                     System.out.println("  - offset: ${context.offset}")
                     System.out.println("  - strategy: ${completionProvider.strategy}")
+                    System.out.println("  - completion text length: ${completion.insertText.length}")
                     
-                    renderer.show(editor, context.offset, completion, completionProvider.strategy) { renderingContext ->
-//                        System.out.println("[ZestInlineCompletion] Renderer callback - completion displayed")
-                        System.out.println("  - rendering id: ${renderingContext.id}")
-                        System.out.println("  - inlays: ${renderingContext.inlays.size}")
-                        System.out.println("  - markups: ${renderingContext.markups.size}")
-                        project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+                    try {
+                        renderer.show(editor, context.offset, completion, completionProvider.strategy) { renderingContext ->
+                            System.out.println("[ZestInlineCompletion] Renderer callback - completion displayed")
+                            System.out.println("  - rendering id: ${renderingContext.id}")
+                            System.out.println("  - inlays: ${renderingContext.inlays.size}")
+                            System.out.println("  - markups: ${renderingContext.markups.size}")
+                            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+                            
+                            // Track completion viewed metric
+                            completion.completionId.let { completionId ->
+                                metricsService.trackCompletionViewed(
+                                    completionId = completionId,
+                                    completionLength = completion.insertText.length,
+                                    completionLineCount = completion.insertText.split("\n").size,
+                                    confidence = completion.confidence
+                                )
+                            }
+                        }
+                        System.out.println("[ZestInlineCompletion] renderer.show() called successfully")
+                        logger.debug("Displayed completion: '${completion.insertText.take(50)}'")
                         
-                        // Track completion viewed metric
-                        completion.completionId.let { completionId ->
-                            metricsService.trackCompletionViewed(
-                                completionId = completionId,
-                                completionLength = completion.insertText.length,
-                                completionLineCount = completion.insertText.split("\n").size,
-                                confidence = completion.confidence
-                            )
+                        // Clear activeRequestId after successful display
+                        if (activeRequestId == requestId) {
+                            System.out.println("[ZestInlineCompletion] Clearing activeRequestId after successful display")
+                            activeRequestId = null
+                        }
+                    } catch (e: Exception) {
+                        System.out.println("[ZestInlineCompletion] Error calling renderer.show(): ${e.message}")
+                        e.printStackTrace()
+                        
+                        // Clear activeRequestId on error too
+                        if (activeRequestId == requestId) {
+                            activeRequestId = null
                         }
                     }
-                    logger.debug("Displayed completion: '${completion.insertText.take(50)}'")
                 } else {
-//                    System.out.println("[ZestInlineCompletion] Request $requestId no longer active on EDT, not showing")
+                    System.out.println("[ZestInlineCompletion] Request $requestId no longer active on EDT, not showing")
+                    // Clear activeRequestId if it matches this stale request
+                    if (activeRequestId == requestId) {
+                        activeRequestId = null
+                    }
                 }
             }
+            System.out.println("[ZestInlineCompletion] Scheduled display on EDT")
         }
-//        System.out.println("[ZestInlineCompletion] Released response handling mutex")
+        System.out.println("[ZestInlineCompletion] Released response handling mutex")
+        System.out.println("[ZestInlineCompletion] handleCompletionResponse completed")
     }
     
     private fun acceptCompletionText(

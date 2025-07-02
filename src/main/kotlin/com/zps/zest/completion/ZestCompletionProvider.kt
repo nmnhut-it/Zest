@@ -354,11 +354,22 @@ class ZestCompletionProvider(private val project: Project) {
             }
             
             // Parse response with diff-based extraction
+            System.out.println("=== LEAN RESPONSE DEBUG ===")
+            System.out.println("Raw LLM response (first 1000 chars):")
+            System.out.println(response.take(1000))
+            System.out.println("=== END LEAN RESPONSE DEBUG ===")
+            
             val reasoningResult = leanResponseParser.parseReasoningResponse(
                 response, 
                 documentText, 
                 context.offset
             )
+            
+            System.out.println("=== LEAN PARSING RESULT ===")
+            System.out.println("Completion text: '${reasoningResult.completionText}'")
+            System.out.println("Has reasoning: ${reasoningResult.hasValidReasoning}")
+            System.out.println("Confidence: ${reasoningResult.confidence}")
+            System.out.println("=== END LEAN PARSING RESULT ===")
             
             if (reasoningResult.completionText.isBlank()) {
                 logger.debug("No valid completion after lean parsing")
@@ -371,6 +382,11 @@ class ZestCompletionProvider(private val project: Project) {
             val formattedCompletion = reasoningResult.completionText; // (editor, reasoningResult.completionText, context.offset)
             
             // Create completion item with reasoning metadata
+            System.out.println("=== CREATING LEAN COMPLETION ITEM ===")
+            System.out.println("formattedCompletion: '${formattedCompletion}'")
+            System.out.println("formattedCompletion length: ${formattedCompletion.length}")
+            System.out.println("=== END CREATING LEAN COMPLETION ITEM ===")
+            
             val item = ZestInlineCompletionItem(
                 insertText = formattedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
@@ -612,6 +628,6 @@ class ZestCompletionProvider(private val project: Project) {
         private const val MAX_COMPLETION_TOKENS = 16  // Small for simple completions
         
         private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L  // 15 seconds for reasoning
-        private const val LEAN_MAX_COMPLETION_TOKENS = 200  // Limited tokens for focused completions (reasoning + completion)
+        private const val LEAN_MAX_COMPLETION_TOKENS = 500  // Limited tokens for focused completions (reasoning + completion)
     }
 }

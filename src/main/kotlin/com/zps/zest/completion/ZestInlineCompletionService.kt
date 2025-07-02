@@ -391,7 +391,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         }
                         
                         if (currentContext == context) { // Ensure request is still valid
-//                            System.out.println("[ZestInlineCompletion] Context still valid, handling response...")
+                            System.out.println("[ZestInlineCompletion] Context still valid, handling response...")
+                            System.out.println("  - activeRequestId: $activeRequestId")
+                            System.out.println("  - requestId: $requestId")
                             
                             // Update the completion with our tracking ID
                             val completionsWithId = completions?.let { list ->
@@ -401,13 +403,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 ZestInlineCompletionList(list.isIncomplete, items)
                             }
                             
+                            System.out.println("[ZestInlineCompletion] completionsWithId: ${completionsWithId != null}")
+                            System.out.println("  - isEmpty: ${completionsWithId?.isEmpty()}")
+                            System.out.println("  - strategy: ${completionProvider.strategy}")
+                            
                             // Cache the completion if it's not empty and for cacheable strategies
                             if (completionsWithId != null && !completionsWithId.isEmpty() && 
                                 (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE ||
                                  completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN)) {
                                 
                                 val firstCompletion = completionsWithId.firstItem()!!
-//                                System.out.println("[ZestInlineCompletion] Caching completion for future use...")
+                                System.out.println("[ZestInlineCompletion] Caching completion for future use...")
+                                System.out.println("  - firstCompletion text: '${firstCompletion.insertText.take(100)}...'")
                                 cacheCompletion(context, editor, firstCompletion)
                                 
                                 // For SIMPLE strategy, show full completion (line-by-line acceptance handled in accept() method)
@@ -415,14 +422,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 
                                 // Store the FULL completion for acceptance
                                 currentCompletion = firstCompletion
+                                System.out.println("[ZestInlineCompletion] Set currentCompletion, calling handleCompletionResponse")
                                 
                                 handleCompletionResponse(editor, context, displayCompletion, requestId)
                             } else {
+                                System.out.println("[ZestInlineCompletion] Not caching - empty or non-cacheable")
                                 // Non-cacheable strategy or empty completion
                                 handleCompletionResponse(editor, context, completionsWithId, requestId)
                             }
                         } else {
-//                            System.out.println("[ZestInlineCompletion] Context changed, ignoring response")
+                            System.out.println("[ZestInlineCompletion] Context changed, ignoring response")
+                            System.out.println("  - currentContext: $currentContext")
+                            System.out.println("  - context: $context")
                         }
                     } catch (e: CancellationException) {
 //                        System.out.println("[ZestInlineCompletion] Completion request cancelled for request $requestId")
@@ -935,18 +946,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         completions: ZestInlineCompletionList?,
         requestId: Int
     ) {
-//        System.out.println("[ZestInlineCompletion] handleCompletionResponse called for request $requestId")
+        System.out.println("[ZestInlineCompletion] handleCompletionResponse called for request $requestId")
         System.out.println("  - completions null: ${completions == null}")
         System.out.println("  - completions empty: ${completions?.isEmpty()}")
+        System.out.println("  - activeRequestId: $activeRequestId")
+        System.out.println("  - thread: ${Thread.currentThread().name}")
         
         // Use mutex to ensure only one response is processed at a time
-//        System.out.println("[ZestInlineCompletion] Acquiring mutex for response handling...")
+        System.out.println("[ZestInlineCompletion] Acquiring mutex for response handling...")
         completionMutex.withLock {
-//            System.out.println("[ZestInlineCompletion] Mutex acquired for response handling")
+            System.out.println("[ZestInlineCompletion] Mutex acquired for response handling")
             
             // Check if this request is still active
             if (activeRequestId != requestId) {
-//                System.out.println("[ZestInlineCompletion] Response for request $requestId is stale (activeRequestId=$activeRequestId), ignoring")
+                System.out.println("[ZestInlineCompletion] Response for request $requestId is stale (activeRequestId=$activeRequestId), ignoring")
                 logger.debug("Response for request $requestId is stale, ignoring")
                 return
             }

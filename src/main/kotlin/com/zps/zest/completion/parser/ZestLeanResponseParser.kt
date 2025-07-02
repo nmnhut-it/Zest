@@ -43,8 +43,17 @@ class ZestLeanResponseParser {
         // Use the completion from the structured response
         var cleanedCompletion = parsedResponse.completion
         
+        // Debug log what we got
+        System.out.println("=== PARSED RESPONSE DEBUG ===")
+        System.out.println("Has prefix: ${parsedResponse.prefix.isNotEmpty()}")
+        System.out.println("Has completion: ${parsedResponse.completion.isNotEmpty()}")
+        System.out.println("Has suffix: ${parsedResponse.suffix.isNotEmpty()}")
+        System.out.println("Completion text: '${cleanedCompletion.take(100)}${if (cleanedCompletion.length > 100) "..." else ""}'")
+        System.out.println("=== END PARSED RESPONSE DEBUG ===")
+        
         // If structured parsing failed, fall back to old method
-        if (cleanedCompletion.isEmpty()) {
+        if (cleanedCompletion.isEmpty() && (parsedResponse.prefix.isEmpty() && parsedResponse.suffix.isEmpty())) {
+            System.out.println("Structured parsing failed, falling back to old method")
             val (reasoning, completion) = extractReasoningAndCompletion(response)
             cleanedCompletion = extractWrappedContent(completion)
             
@@ -116,25 +125,62 @@ class ZestLeanResponseParser {
         var suffix = ""
         var reasoning = ""
         
-        // Extract prefix
-        val prefixPattern = Regex("<prefix>\\s*(.+?)\\s*</prefix>", RegexOption.DOT_MATCHES_ALL)
+        // Debug: Print the raw response to understand the issue
+        System.out.println("=== RAW RESPONSE FOR PARSING ===")
+        System.out.println(response.take(500))
+        System.out.println("=== END RAW RESPONSE ===")
+        
+        // Extract prefix - handle case where it might be embedded in the full response
+        val prefixPattern = Regex("<prefix>(.+?)</prefix>", RegexOption.DOT_MATCHES_ALL)
         val prefixMatch = prefixPattern.find(response)
         if (prefixMatch != null) {
             prefix = prefixMatch.groupValues[1].trim()
         }
         
-        // Extract completion
-        val completionPattern = Regex("<completion>\\s*(.+?)\\s*</completion>", RegexOption.DOT_MATCHES_ALL)
+        // Extract completion - handle case where it might be embedded in the full response
+        val completionPattern = Regex("<completion>(.+?)</completion>", RegexOption.DOT_MATCHES_ALL)
         val completionMatch = completionPattern.find(response)
         if (completionMatch != null) {
             completion = completionMatch.groupValues[1].trim()
         }
         
-        // Extract suffix
-        val suffixPattern = Regex("<suffix>\\s*(.+?)\\s*</suffix>", RegexOption.DOT_MATCHES_ALL)
+        // Extract suffix - handle case where it might be embedded in the full response
+        val suffixPattern = Regex("<suffix>(.+?)</suffix>", RegexOption.DOT_MATCHES_ALL)
         val suffixMatch = suffixPattern.find(response)
         if (suffixMatch != null) {
             suffix = suffixMatch.groupValues[1].trim()
+        }
+        
+        // If we found structured tags but completion is empty, check for common formatting issues
+        if ((prefixMatch != null || suffixMatch != null) && completion.isEmpty()) {
+            // Check if the completion content is between prefix and suffix tags but not wrapped
+            if (prefixMatch != null && suffixMatch != null) {
+                val prefixEnd = prefixMatch.range.last + 1
+                val suffixStart = suffixMatch.range.first
+                if (suffixStart > prefixEnd) {
+                    val betweenContent = response.substring(prefixEnd, suffixStart).trim()
+                    // Check if there's content between that's not just whitespace
+                    if (betweenContent.isNotEmpty() && !betweenContent.startsWith("<completion>")) {
+                        System.out.println("Found completion content between tags without wrapper: '${betweenContent.take(100)}'")
+                        completion = betweenContent
+                    }
+                }
+            }
+            
+            // Alternative: Check if completion is at the end after all tags
+            val lastTagEnd = maxOf(
+                prefixMatch?.range?.last ?: -1,
+                completionMatch?.range?.last ?: -1,
+                suffixMatch?.range?.last ?: -1
+            ) + 1
+            
+            if (lastTagEnd > 0 && lastTagEnd < response.length) {
+                val remainingContent = response.substring(lastTagEnd).trim()
+                if (remainingContent.isNotEmpty() && completion.isEmpty()) {
+                    System.out.println("Found completion content after all tags: '${remainingContent.take(100)}'")
+                    completion = remainingContent
+                }
+            }
         }
         
         // Extract reasoning (everything before the structured tags)

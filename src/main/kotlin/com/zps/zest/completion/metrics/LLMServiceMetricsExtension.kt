@@ -58,7 +58,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             addProperty("elapsed", elapsed)
             
             // Add optional fields
-            completionContent?.let { addProperty("completion_content", it) }
+                completionContent?.let { addProperty("completion_content", it) }
             
             // Add metadata as nested object if present
             metadata?.takeIf { it.isNotEmpty() }?.let { meta ->

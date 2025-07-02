@@ -1,5 +1,7 @@
 package com.zps.zest.completion.metrics
 
+import com.jetbrains.rd.generator.nova.PredefinedType
+
 /**
  * Sealed class representing different types of metric events for inline completion
  */
@@ -114,5 +116,6 @@ data class CompletionSession(
     val contextInfo: Map<String, Any> = emptyMap(),
     var viewedAt: Long? = null,
     var completionLength: Int? = null,
-    var confidence: Float? = null
+    var confidence: Float? = null,
+    var hasViewed: Boolean
 )

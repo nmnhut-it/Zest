@@ -57,7 +57,8 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             startTime = System.currentTimeMillis(),
             strategy = strategy,
             fileType = fileType,
-            contextInfo = contextInfo
+            contextInfo = contextInfo,
+            hasViewed = false
         )
         
         activeCompletions[completionId] = session
@@ -84,6 +85,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         if (!isEnabled.get()) return
         
         val session = activeCompletions[completionId] ?: return
+        session.hasViewed = true;
         val elapsed = System.currentTimeMillis() - session.startTime
         
         session.viewedAt = System.currentTimeMillis()
@@ -148,6 +150,8 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         if (!isEnabled.get()) return
         
         val session = activeCompletions[completionId] ?: return
+        if (session.hasViewed == false )
+            return;
         val elapsed = System.currentTimeMillis() - session.startTime
         
         sendEvent(MetricEvent.Decline(
@@ -166,6 +170,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     fun trackCompletionAccepted(
         completionId: String,
         completionContent: String,
+        isAll: Boolean,
         acceptType: String = "full",
         userAction: String = "tab"
     ) {
@@ -188,7 +193,9 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         ))
         
         // Clean up session after a delay
-        cleanupSessionDelayed(completionId)
+        if (isAll) {
+            cleanupSessionDelayed(completionId)
+        }
     }
     
     /**

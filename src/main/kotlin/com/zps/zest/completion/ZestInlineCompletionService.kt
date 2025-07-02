@@ -518,11 +518,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             completionId = completionId,
                             completionContent = firstLine,
                             acceptType = acceptType.name,
+                            isAll = remainingLines.isEmpty(),
                             userAction = "tab" // Could be enhanced to track actual key/action
                         )
                     }
                     // Clear current completion before inserting
-                    clearCurrentCompletion()
+                    clearCurrentCompletion(remainingLines.isEmpty())
                     
                     ApplicationManager.getApplication().invokeLater {
                         // Insert the first line
@@ -1056,7 +1057,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         return result
     }
     
-    private fun clearCurrentCompletion() {
+    private fun clearCurrentCompletion(isAll: Boolean = true) {
 //        System.out.println("[ZestInlineCompletion] clearCurrentCompletion called")
         System.out.println("  - had timer: ${completionTimer != null}")
         System.out.println("  - had job: ${currentCompletionJob != null}")
@@ -1070,7 +1071,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         currentCompletionJob = null
         currentContext = null
         currentCompletion = null
-        currentCompletionId = null // Clear completion ID
+        if (isAll) {
+            currentCompletionId = null // Clear completion ID
+        }
         
         // IMPORTANT: Reset accepting flag when clearing completion (unless we're in the middle of line-by-line acceptance)
         // For LEAN strategy, only reset if it's been more than a short delay since acceptance
@@ -1403,7 +1406,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                                    System.out.println("[ZestInlineCompletion] Completion became empty, dismissing")
                                     // No meaningful completion left, dismiss
                                     logger.debug("Completion became empty after overlap detection, dismissing")
-                                    if (completion.insertText) {
                                         // Track completion declined due to user typing
                                         currentCompletionId?.let { completionId ->
                                             metricsService.trackCompletionDeclined(
@@ -1411,7 +1413,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                                 reason = "user_typed_different"
                                             )
                                         }
-                                    }
+
                                     
                                     clearCurrentCompletion()
                                 }

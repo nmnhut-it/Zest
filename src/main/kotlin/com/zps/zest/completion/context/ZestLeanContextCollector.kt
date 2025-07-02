@@ -25,7 +25,7 @@ import com.zps.zest.completion.async.SimpleTaskQueue
 class ZestLeanContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 1000
+        private const val MAX_CONTEXT_LENGTH = 1500  // Increased for priority-based inclusion
         private const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
         private const val SIMILARITY_THRESHOLD = 0.6  // Threshold for method/field name similarity
@@ -311,76 +311,250 @@ class ZestLeanContextCollector(private val project: Project) {
             else -> " { /* body hidden */ }"
         }
 
-        // Process the marked content first to preserve cursor position
-        val collapsedMarkedContent = when (language) {
-            "java" -> collapseMethodBodiesPreservingCursor(markedContent, placeholder, "java")
-            "javascript" -> collapseMethodBodiesPreservingCursor(markedContent, placeholder, "javascript")
-            else -> markedContent
-        }
+        // Use priority-based collapsing
+        val (collapsedMarkedContent, allContentIncluded) = collapseMethodBodiesInPriorityOrder(
+            markedContent,
+            placeholder,
+            language,
+            MAX_CONTEXT_LENGTH,
+            emptySet(), // No preserved methods in immediate context
+            emptySet()  // No preserved fields in immediate context
+        )
 
         // Generate original content by removing cursor marker from the result
         val collapsedOriginalContent = collapsedMarkedContent.replace("[CURSOR]", "")
 
-        // If still too long, truncate more aggressively
-        return if (collapsedMarkedContent.length > MAX_CONTEXT_LENGTH) {
-            // Find cursor position to ensure it's preserved
-            val cursorIndex = collapsedMarkedContent.indexOf("[CURSOR]")
-
-            if (cursorIndex != -1) {
-                // Cursor found - use smart truncation that preserves cursor
-                val truncated = smartTruncateAroundCursor(collapsedMarkedContent, cursorIndex, MAX_CONTEXT_LENGTH)
-                val originalTruncated = truncated.replace("[CURSOR]", "")
-                Triple(originalTruncated, truncated, true)
-            } else {
-                // No cursor found - use simple truncation (fallback)
-                val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-                val originalTruncated =
-                    collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-                Triple(originalTruncated, truncated, true)
-            }
-        } else {
-            Triple(collapsedOriginalContent, collapsedMarkedContent, collapsedOriginalContent != originalContent)
-        }
+        return Triple(collapsedOriginalContent, collapsedMarkedContent, !allContentIncluded)
     }
 
     /**
-     * Smart truncation that ensures cursor position is preserved within the content.
-     * Keeps context around the cursor position while staying within the length limit.
+     * Collapse method bodies in priority order, preserving the most relevant methods first
+     * Returns the collapsed content and whether all content fit within the limit
      */
-    private fun smartTruncateAroundCursor(content: String, cursorIndex: Int, maxLength: Int): String {
-        val truncationMarker = "\n/* ... content truncated ... */"
-        val availableLength = maxLength - truncationMarker.length * 2 // Account for both start and end markers
-
-        if (availableLength <= 0) {
-            return content.take(maxLength)
-        }
-
-        // Calculate how much content to keep before and after cursor
-        val halfLength = availableLength / 2
-        val beforeCursor = maxOf(0, cursorIndex - halfLength)
-        val afterCursor = minOf(content.length, cursorIndex + halfLength)
-
-        // Adjust to line boundaries to avoid cutting words/lines awkwardly
-        val beforeLineStart = content.lastIndexOf('\n', beforeCursor).let {
-            if (it == -1) 0 else it + 1
-        }
-        val afterLineEnd = content.indexOf('\n', afterCursor).let {
-            if (it == -1) content.length else it
-        }
-
-        val beforeTruncated = beforeLineStart > 0
-        val afterTruncated = afterLineEnd < content.length
-
-        return buildString {
-            if (beforeTruncated) {
-                append("/* ... content truncated ... */\n")
+    private fun collapseMethodBodiesInPriorityOrder(
+        content: String,
+        placeholder: String,
+        language: String,
+        maxLength: Int,
+        preservedMethods: Set<String> = emptySet(),
+        preservedFields: Set<String> = emptySet()
+    ): Pair<String, Boolean> {
+        val lines = content.lines()
+        val cursorLine = findCursorLine(lines)
+        
+        // First pass: identify all methods and calculate their priorities
+        val methodInfoList = mutableListOf<MethodInfo>()
+        var i = 0
+        
+        while (i < lines.size) {
+            val line = lines[i]
+            val methodMatch = when (language) {
+                "java" -> findJavaMethodStart(line, i, lines)
+                "javascript" -> findJavaScriptFunctionStart(line, i, lines)
+                else -> null
             }
-            append(content.substring(beforeLineStart, afterLineEnd))
-            if (afterTruncated) {
-                append("\n/* ... content truncated ... */")
+            
+            if (methodMatch != null) {
+                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
+                    methodMatch.signatureStartIndex
+                } else {
+                    i - (methodMatch.signatureLines.size - 1)
+                }
+                
+                val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
+                val containsCursor = cursorLine in signatureStartIndex..methodEnd
+                val methodName = extractMethodName(lines[i])
+                
+                // Calculate priority (higher is more important)
+                var priority = 0.0
+                
+                // Highest priority: contains cursor
+                if (containsCursor) {
+                    priority = 1000.0
+                }
+                
+                // High priority: in preserved methods set
+                if (methodName != null && methodName in preservedMethods) {
+                    priority = maxOf(priority, 100.0)
+                }
+                
+                // Medium priority: similar to preserved methods
+                if (methodName != null && preservedMethods.isNotEmpty()) {
+                    val maxSimilarity = preservedMethods.maxOf { preserved ->
+                        calculateMethodNameSimilarity(methodName, preserved)
+                    }
+                    if (maxSimilarity >= SIMILARITY_THRESHOLD) {
+                        priority = maxOf(priority, 50.0 + maxSimilarity * 50.0)
+                    }
+                }
+                
+                // Low priority: distance from cursor (closer is better)
+                if (priority == 0.0 && cursorLine >= 0) {
+                    val distance = kotlin.math.abs(i - cursorLine)
+                    priority = 10.0 / (1.0 + distance / 100.0)
+                }
+                
+                methodInfoList.add(
+                    MethodInfo(
+                        startLine = signatureStartIndex,
+                        endLine = methodEnd,
+                        signatureLines = methodMatch.signatureLines,
+                        braceLineIndex = methodMatch.braceLineIndex,
+                        priority = priority,
+                        methodName = methodName ?: "unknown"
+                    )
+                )
+                
+                i = methodEnd + 1
+            } else {
+                i++
             }
         }
+        
+        // Sort methods by priority (descending)
+        methodInfoList.sortByDescending { it.priority }
+        
+        // Second pass: build result with methods in priority order
+        val result = mutableListOf<String>()
+        val processedRanges = mutableListOf<IntRange>()
+        val expandedMethods = mutableSetOf<MethodInfo>()
+        
+        // Always expand highest priority methods first
+        for (methodInfo in methodInfoList) {
+            if (methodInfo.priority >= 100.0) { // Contains cursor or is in preserved set
+                expandedMethods.add(methodInfo)
+                processedRanges.add(methodInfo.startLine..methodInfo.endLine)
+            }
+        }
+        
+        // Build initial content with expanded high-priority methods
+        var currentLength = buildContentWithExpandedMethods(
+            lines, expandedMethods, processedRanges, placeholder
+        ).length
+        
+        // Add more methods in priority order until we approach the limit
+        for (methodInfo in methodInfoList) {
+            if (methodInfo in expandedMethods) continue
+            
+            // Estimate the additional length if we expand this method
+            val methodLength = (methodInfo.startLine..methodInfo.endLine)
+                .sumOf { lines.getOrNull(it)?.length?.plus(1) ?: 0 }
+            
+            // Leave some buffer space (10% of max length)
+            if (currentLength + methodLength <= maxLength * 0.9) {
+                expandedMethods.add(methodInfo)
+                processedRanges.add(methodInfo.startLine..methodInfo.endLine)
+                currentLength += methodLength
+            }
+        }
+        
+        // Build final result
+        val finalContent = buildContentWithExpandedMethods(
+            lines, expandedMethods, processedRanges, placeholder
+        )
+        
+        // Check if everything fit
+        val allContentIncluded = expandedMethods.size == methodInfoList.size
+        
+        return Pair(finalContent, allContentIncluded)
     }
+    
+    /**
+     * Build content with specified methods expanded and others collapsed
+     */
+    private fun buildContentWithExpandedMethods(
+        lines: List<String>,
+        expandedMethods: Set<MethodInfo>,
+        processedRanges: List<IntRange>,
+        placeholder: String
+    ): String {
+        val result = mutableListOf<String>()
+        var i = 0
+        
+        // Sort processed ranges by start line
+        val sortedRanges = processedRanges.sortedBy { it.first }
+        
+        while (i < lines.size) {
+            // Check if this line is part of a method
+            val containingMethod = expandedMethods.find { method ->
+                i in method.startLine..method.endLine
+            }
+            
+            if (containingMethod != null) {
+                // This is part of an expanded method
+                if (i == containingMethod.startLine) {
+                    // Add signature lines
+                    result.addAll(containingMethod.signatureLines)
+                    
+                    // Add the method body
+                    val bodyStart = if (containingMethod.braceLineIndex > containingMethod.startLine + containingMethod.signatureLines.size - 1) {
+                        containingMethod.braceLineIndex
+                    } else {
+                        containingMethod.startLine + containingMethod.signatureLines.size
+                    }
+                    
+                    for (j in bodyStart..containingMethod.endLine) {
+                        if (j < lines.size) {
+                            result.add(lines[j])
+                        }
+                    }
+                }
+                
+                // Skip to end of method
+                i = containingMethod.endLine + 1
+            } else {
+                // Check if this line is part of any method
+                val methodRange = sortedRanges.find { i in it }
+                
+                if (methodRange != null) {
+                    // This is a collapsed method
+                    val methodInfo = expandedMethods.find { it.startLine == methodRange.first }
+                        ?: methodInfoList.find { it.startLine == methodRange.first }
+                    
+                    if (methodInfo != null && i == methodInfo.startLine) {
+                        // Add collapsed method
+                        result.addAll(methodInfo.signatureLines)
+                        
+                        if (methodInfo.braceLineIndex != -1) {
+                            val collapsedBody = collapseBodyFromBrace(lines, methodInfo.braceLineIndex, placeholder)
+                            if (methodInfo.braceLineIndex > methodInfo.startLine + methodInfo.signatureLines.size - 1) {
+                                result.add(collapsedBody)
+                            } else {
+                                // Replace last line with collapsed version
+                                result[result.size - 1] = collapsedBody
+                            }
+                        }
+                    }
+                    
+                    // Skip to end of method
+                    i = methodRange.last + 1
+                } else {
+                    // Regular line
+                    result.add(lines[i])
+                    i++
+                }
+            }
+        }
+        
+        return removeDuplicateLines(result).joinToString("\n")
+    }
+    
+    /**
+     * Data class to hold method information
+     */
+    private data class MethodInfo(
+        val startLine: Int,
+        val endLine: Int,
+        val signatureLines: List<String>,
+        val braceLineIndex: Int,
+        val priority: Double,
+        val methodName: String
+    )
+    
+    /**
+     * List to track all methods found during parsing
+     */
+    private var methodInfoList = mutableListOf<MethodInfo>()
 
     /**
      * Remove consecutive duplicate lines from the result
@@ -415,121 +589,7 @@ class ZestLeanContextCollector(private val project: Project) {
         return result
     }
 
-    /**
-     * Cursor-preserving method body collapsing that ensures the [CURSOR] marker
-     * is never lost during the truncation process. Methods containing the cursor
-     * are preserved in full, while distant methods are collapsed.
-     */
-    private fun collapseMethodBodiesPreservingCursor(content: String, placeholder: String, language: String): String {
-        val lines = content.lines()
-        val result = mutableListOf<String>()
 
-        // Find cursor position
-        val cursorLine = findCursorLine(lines)
-        
-        // Find the method containing the cursor to preserve similar methods
-        var cursorMethodName: String? = null
-
-        var i = 0
-        val processedLines = mutableSetOf<Int>()
-
-        while (i < lines.size) {
-            // Skip if already processed
-            if (i in processedLines) {
-                i++
-                continue
-            }
-
-            val line = lines[i]
-            val methodMatch = when (language) {
-                "java" -> findJavaMethodStart(line, i, lines)
-                "javascript" -> findJavaScriptFunctionStart(line, i, lines)
-                else -> null
-            }
-
-            if (methodMatch != null) {
-                // Mark all signature lines as processed
-                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
-                    methodMatch.signatureStartIndex
-                } else {
-                    i - (methodMatch.signatureLines.size - 1)
-                }
-                
-                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
-                    processedLines.add(j)
-                }
-
-                // Check if this method contains the cursor
-                val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
-                val containsCursor = cursorLine in signatureStartIndex..methodEnd
-                
-                // Extract method name
-                val methodName = extractMethodName(lines[i])
-                
-                // If this method contains the cursor, remember its name
-                if (containsCursor && methodName != null) {
-                    cursorMethodName = methodName
-                }
-                
-                // Determine if we should preserve this method
-                val shouldPreserve = containsCursor || 
-                    (cursorMethodName != null && methodName != null && 
-                     calculateMethodNameSimilarity(methodName, cursorMethodName) >= SIMILARITY_THRESHOLD)
-
-                // Add the method signature line(s)
-                result.addAll(methodMatch.signatureLines)
-
-                // Find the opening brace
-                val braceLineIndex = methodMatch.braceLineIndex
-                if (braceLineIndex != -1) {
-                    // Mark brace line as processed if it's not part of signature
-                    if (braceLineIndex > i) {
-                        processedLines.add(braceLineIndex)
-                    }
-
-                    if (shouldPreserve) {
-                        // Preserve the entire method body
-                        val startBodyLine = if (braceLineIndex > i) braceLineIndex else i + 1
-                        for (bodyLineIndex in startBodyLine until methodEnd + 1) {
-                            if (bodyLineIndex < lines.size && bodyLineIndex !in processedLines) {
-                                result.add(lines[bodyLineIndex])
-                                processedLines.add(bodyLineIndex)
-                            }
-                        }
-                    } else {
-                        // Collapse the method body
-                        val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                        if (braceLineIndex > i) {
-                            result.add(collapsedBody)
-                        } else {
-                            // Replace last added line with collapsed version
-                            result[result.size - 1] = collapsedBody
-                        }
-
-                        // Mark all body lines as processed
-                        for (j in braceLineIndex until methodEnd + 1) {
-                            processedLines.add(j)
-                        }
-                    }
-
-                    // Move to after the method
-                    i = methodEnd + 1
-                } else {
-                    // No opening brace found, continue
-                    i++
-                }
-            } else {
-                // Regular line, add it
-                result.add(line)
-                processedLines.add(i)
-                i++
-            }
-        }
-
-        // Remove any duplicate lines that may have been introduced
-        val cleanedResult = removeDuplicateLines(result)
-        return cleanedResult.joinToString("\n")
-    }
 
     /**
      * Calculate cosine similarity between two strings based on character n-grams
@@ -680,118 +740,17 @@ class ZestLeanContextCollector(private val project: Project) {
         preserveMethods: Set<String>,
         preserveFields: Set<String>
     ): String {
-        val lines = content.lines()
-        val result = mutableListOf<String>()
-
-        // Find cursor position
-        val cursorLine = findCursorLine(lines)
-
-        var i = 0
-        val processedLines = mutableSetOf<Int>()
-
-        while (i < lines.size) {
-            // Skip if already processed
-            if (i in processedLines) {
-                i++
-                continue
-            }
-
-            val line = lines[i]
-
-            // Check if this is a field that should be preserved/hidden
-            if (language == "java" && isFieldDeclaration(line)) {
-                val fieldName = extractFieldName(line)
-                if (fieldName != null && !shouldPreserveFieldBySimilarity(fieldName, preserveFields)) {
-                    result.add("    // field hidden: $fieldName")
-                    processedLines.add(i)
-                    i++
-                    continue
-                }
-            }
-
-            val methodMatch = when (language) {
-                "java" -> findJavaMethodStart(line, i, lines)
-                "javascript" -> findJavaScriptFunctionStart(line, i, lines)
-                else -> null
-            }
-
-            if (methodMatch != null) {
-                // Mark all signature lines as processed
-                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
-                    methodMatch.signatureStartIndex
-                } else {
-                    i - (methodMatch.signatureLines.size - 1)
-                }
-                
-                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
-                    processedLines.add(j)
-                }
-
-                val methodName = extractMethodName(lines[i])
-                val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
-                val containsCursor = cursorLine in signatureStartIndex..methodEnd
-                val shouldPreserve = containsCursor || 
-                    (methodName != null && shouldPreserveMethodBySimilarity(methodName, preserveMethods))
-
-                // Add the method signature line(s), but filter out duplicates
-                val uniqueSignatureLines = mutableListOf<String>()
-                for (sigLine in methodMatch.signatureLines) {
-                    // Check if this line was already added to result
-                    if (result.isEmpty() || result.last() != sigLine) {
-                        uniqueSignatureLines.add(sigLine)
-                    }
-                }
-                result.addAll(uniqueSignatureLines)
-
-                // Find the opening brace
-                val braceLineIndex = methodMatch.braceLineIndex
-                if (braceLineIndex != -1) {
-                    // Mark brace line as processed if it's not part of signature
-                    if (braceLineIndex > i) {
-                        processedLines.add(braceLineIndex)
-                    }
-
-                    if (shouldPreserve) {
-                        // Preserve the entire method body
-                        val startBodyLine = if (braceLineIndex > i) braceLineIndex else i + 1
-                        for (bodyLineIndex in startBodyLine until methodEnd + 1) {
-                            if (bodyLineIndex < lines.size && bodyLineIndex !in processedLines) {
-                                result.add(lines[bodyLineIndex])
-                                processedLines.add(bodyLineIndex)
-                            }
-                        }
-                    } else {
-                        // Collapse the method body
-                        val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                        if (braceLineIndex > i) {
-                            result.add(collapsedBody)
-                        } else {
-                            // Replace last added line with collapsed version
-                            result[result.size - 1] = collapsedBody
-                        }
-
-                        // Mark all body lines as processed
-                        for (j in braceLineIndex until methodEnd + 1) {
-                            processedLines.add(j)
-                        }
-                    }
-
-                    // Move to after the method
-                    i = methodEnd + 1
-                } else {
-                    // No opening brace found, continue
-                    i++
-                }
-            } else {
-                result.add(line)
-                processedLines.add(i)
-                i++
-            }
-        }
-
-        // Remove any duplicate lines that may have been introduced
-        val cleanedResult = removeDuplicateLines(result)
-        return cleanedResult.joinToString("\n")
+        // Use priority-based collapsing with preserved methods
+        val (collapsedContent, _) = collapseMethodBodiesInPriorityOrder(
+            content,
+            placeholder,
+            language,
+            Int.MAX_VALUE, // No limit when we have dependency information
+            preserveMethods,
+            preserveFields
+        )
+        
+        return collapsedContent
     }
 
     /**
@@ -863,99 +822,7 @@ class ZestLeanContextCollector(private val project: Project) {
         return lines.indexOfFirst { it.contains("[CURSOR]") }
     }
 
-    private fun collapseJavaMethods(content: String, placeholder: String): String {
-        return collapseMethodBodies(content, placeholder, "java")
-    }
 
-    private fun collapseJavaScriptFunctions(content: String, placeholder: String): String {
-        return collapseMethodBodies(content, placeholder, "javascript")
-    }
-
-    /**
-     * Advanced method body collapsing with proper brace matching
-     * Handles nested braces, complex signatures, and preserves method signatures
-     */
-    private fun collapseMethodBodies(content: String, placeholder: String, language: String): String {
-        val lines = content.lines()
-        val result = mutableListOf<String>()
-        var i = 0
-        val processedLines = mutableSetOf<Int>()
-
-        while (i < lines.size) {
-            // Skip if already processed
-            if (i in processedLines) {
-                i++
-                continue
-            }
-
-            val line = lines[i]
-            val methodMatch = when (language) {
-                "java" -> findJavaMethodStart(line, i, lines)
-                "javascript" -> findJavaScriptFunctionStart(line, i, lines)
-                else -> null
-            }
-
-            if (methodMatch != null) {
-                // Mark all signature lines as processed
-                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
-                    methodMatch.signatureStartIndex
-                } else {
-                    i - (methodMatch.signatureLines.size - 1)
-                }
-                
-                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
-                    processedLines.add(j)
-                }
-
-                // Add the method signature line(s), but filter out duplicates
-                val uniqueSignatureLines = mutableListOf<String>()
-                for (sigLine in methodMatch.signatureLines) {
-                    // Check if this line was already added to result
-                    if (result.isEmpty() || result.last() != sigLine) {
-                        uniqueSignatureLines.add(sigLine)
-                    }
-                }
-                result.addAll(uniqueSignatureLines)
-
-                // Find the opening brace and collapse the body
-                val braceLineIndex = methodMatch.braceLineIndex
-                if (braceLineIndex != -1) {
-                    // Mark brace line as processed if it's not part of signature
-                    if (braceLineIndex > i) {
-                        processedLines.add(braceLineIndex)
-                    }
-
-                    val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                    if (braceLineIndex > i) {
-                        result.add(collapsedBody)
-                    } else {
-                        // Replace last added line with collapsed version
-                        result[result.size - 1] = collapsedBody
-                    }
-
-                    // Mark all body lines as processed
-                    val methodEnd = findMatchingCloseBrace(lines, braceLineIndex)
-                    for (j in braceLineIndex until methodEnd + 1) {
-                        processedLines.add(j)
-                    }
-
-                    // Skip to after the method body
-                    i = methodEnd + 1
-                } else {
-                    // No opening brace found, continue
-                    i++
-                }
-            } else {
-                result.add(line)
-                processedLines.add(i)
-                i++
-            }
-        }
-
-        // Remove any duplicate lines that may have been introduced
-        val cleanedResult = removeDuplicateLines(result)
-        return cleanedResult.joinToString("\n")
-    }
 
     private data class MethodMatch(
         val signatureLines: List<String>,

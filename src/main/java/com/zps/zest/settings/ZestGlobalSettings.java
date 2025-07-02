@@ -30,6 +30,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public boolean inlineCompletionEnabled = false;
     public boolean autoTriggerEnabled = false;
     public boolean backgroundContextEnabled = false;
+    public boolean continuousCompletionEnabled = true; // NEW: Auto-trigger next completion after acceptance
     
     // Default system prompts as static constants
     public static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +

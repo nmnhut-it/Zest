@@ -32,7 +32,7 @@ ${context.markedContent}
 You must provide your response in this EXACT format to ensure proper integration:
 
 <prefix>
-[Copy 1-2 lines of code that appear IMMEDIATELY BEFORE the cursor, exactly as shown]
+[Copy 2-3 lines of code that appear IMMEDIATELY BEFORE the cursor, exactly as shown]
 </prefix>
 
 <completion>

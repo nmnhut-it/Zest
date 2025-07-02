@@ -306,6 +306,20 @@ public class ConfigurationManager {
         }
     }
 
+    public boolean isContinuousCompletionEnabled() {
+        return globalSettings.continuousCompletionEnabled;
+    }
+
+    public void setContinuousCompletionEnabled(boolean enabled) {
+        globalSettings.continuousCompletionEnabled = enabled;
+        
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
+    }
+
     // Compatibility methods
     public String getOpenWebUIRagEndpoint() {
         return globalSettings.apiUrl;

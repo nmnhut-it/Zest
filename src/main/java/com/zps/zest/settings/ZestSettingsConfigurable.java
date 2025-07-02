@@ -45,6 +45,7 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox inlineCompletionCheckbox;
     private JBCheckBox autoTriggerCheckbox;
     private JBCheckBox backgroundContextCheckbox;
+    private JBCheckBox continuousCompletionCheckbox;
     
     // Context Settings
     private JBRadioButton contextInjectionRadio;
@@ -201,11 +202,17 @@ public class ZestSettingsConfigurable implements Configurable {
         autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
         builder.addComponent(autoTriggerCheckbox);
         
+        continuousCompletionCheckbox = new JBCheckBox("Continuous completion (auto-trigger after acceptance)", config.isContinuousCompletionEnabled());
+        continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(continuousCompletionCheckbox);
+        
         backgroundContextCheckbox = new JBCheckBox("Collect context in background", config.isBackgroundContextEnabled());
         builder.addComponent(backgroundContextCheckbox);
         
         inlineCompletionCheckbox.addItemListener(e -> {
-            autoTriggerCheckbox.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
+            boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
+            autoTriggerCheckbox.setEnabled(enabled);
+            continuousCompletionCheckbox.setEnabled(enabled);
         });
         
         // RAG Settings
@@ -392,6 +399,7 @@ public class ZestSettingsConfigurable implements Configurable {
                inlineCompletionCheckbox.isSelected() != config.isInlineCompletionEnabled() ||
                autoTriggerCheckbox.isSelected() != config.isAutoTriggerEnabled() ||
                backgroundContextCheckbox.isSelected() != config.isBackgroundContextEnabled() ||
+               continuousCompletionCheckbox.isSelected() != config.isContinuousCompletionEnabled() ||
                ragEnabledCheckbox.isSelected() != config.isRagEnabled() ||
                mcpEnabledCheckbox.isSelected() != config.isMcpEnabled() ||
                !mcpServerUriField.getText().equals(config.getMcpServerUri()) ||
@@ -428,6 +436,7 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setInlineCompletionEnabled(inlineCompletionCheckbox.isSelected());
         config.setAutoTriggerEnabled(autoTriggerCheckbox.isSelected());
         config.setBackgroundContextEnabled(backgroundContextCheckbox.isSelected());
+        config.setContinuousCompletionEnabled(continuousCompletionCheckbox.isSelected());
         config.setRagEnabled(ragEnabledCheckbox.isSelected());
         config.setMcpEnabled(mcpEnabledCheckbox.isSelected());
         config.setMcpServerUri(mcpServerUriField.getText().trim());
@@ -469,6 +478,8 @@ public class ZestSettingsConfigurable implements Configurable {
         autoTriggerCheckbox.setSelected(config.isAutoTriggerEnabled());
         autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
         backgroundContextCheckbox.setSelected(config.isBackgroundContextEnabled());
+        continuousCompletionCheckbox.setSelected(config.isContinuousCompletionEnabled());
+        continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
         
         ragEnabledCheckbox.setSelected(config.isRagEnabled());
         mcpEnabledCheckbox.setSelected(config.isMcpEnabled());

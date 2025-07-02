@@ -635,6 +635,6 @@ class ZestCompletionProvider(private val project: Project) {
         private const val MAX_COMPLETION_TOKENS = 16  // Small for simple completions
         
         private const val LEAN_COMPLETION_TIMEOUT_MS = 15000L  // 15 seconds for reasoning
-        private const val LEAN_MAX_COMPLETION_TOKENS = 200  // Limited tokens for focused completions (reasoning + completion)
+        private const val LEAN_MAX_COMPLETION_TOKENS = 350  // Limited tokens for focused completions (reasoning + completion)
     }
 }

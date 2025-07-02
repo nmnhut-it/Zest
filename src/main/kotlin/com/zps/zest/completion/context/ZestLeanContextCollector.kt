@@ -14,13 +14,21 @@ import com.zps.zest.completion.async.SimpleTaskQueue
  * Lean context collector that captures full file content with cursor position
  * for reasoning-based completions. Supports Java and JavaScript with automatic
  * language detection and context truncation.
+ * 
+ * Features:
+ * - Smart method body collapsing to stay within context limits
+ * - Preserves methods containing the cursor
+ * - Uses cosine similarity to preserve related methods based on name similarity
+ * - Supports both word-based and character n-gram similarity matching
+ * - Handles camelCase, PascalCase, snake_case method/field names
  */
 class ZestLeanContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 20000
+        private const val MAX_CONTEXT_LENGTH = 1000
         private const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
+        private const val SIMILARITY_THRESHOLD = 0.6  // Threshold for method/field name similarity
     }
 
     private val asyncAnalyzer = AsyncClassAnalyzer(project)
@@ -100,7 +108,7 @@ class ZestLeanContextCollector(private val project: Project) {
             isTruncated = isTruncated
         )
     }
-    
+
     /**
      * Collect context with async dependency analysis for better method preservation
      */
@@ -117,7 +125,7 @@ class ZestLeanContextCollector(private val project: Project) {
                 collectFullFileContext(editor, offset)
             }
         }
-        
+
         // Invoke callback on EDT
         if (ApplicationManager.getApplication().isDispatchThread) {
             onComplete(immediateContext)
@@ -126,12 +134,12 @@ class ZestLeanContextCollector(private val project: Project) {
                 onComplete(immediateContext)
             }
         }
-        
+
         // Only do async analysis for Java files
         if (immediateContext.language != "java") {
             return
         }
-        
+
         // Analyze dependencies asynchronously - must get PSI elements in read action
         ApplicationManager.getApplication().executeOnPooledThread {
             ApplicationManager.getApplication().runReadAction {
@@ -140,28 +148,43 @@ class ZestLeanContextCollector(private val project: Project) {
                     val element = psiFile.findElementAt(offset)
                     val containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
                     val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
-                    
+
                     if (containingMethod != null && containingClass != null) {
                         asyncAnalyzer.analyzeDependenciesForContext(
                             containingClass,
                             containingMethod
                         ) { methodsToPreserve, fieldsToPreserve ->
+                            // Add current method name to the preserved set
+                            val currentMethodName = containingMethod.name
+                            val enhancedMethodsToPreserve = methodsToPreserve.toMutableSet()
+                            enhancedMethodsToPreserve.add(currentMethodName)
+                            
+                            // Also find and add all methods with similar names
+                            val allMethods = containingClass.methods
+                            for (method in allMethods) {
+                                val methodName = method.name
+                                if (methodName != currentMethodName && 
+                                    calculateMethodNameSimilarity(methodName, currentMethodName) >= SIMILARITY_THRESHOLD) {
+                                    enhancedMethodsToPreserve.add(methodName)
+                                }
+                            }
+                            
                             // Re-process with dependency information
                             val enhancedMarkedContent = collapseMethodBodiesWithDependencies(
                                 immediateContext.markedContent,
                                 if (immediateContext.language == "java") METHOD_BODY_PLACEHOLDER else FUNCTION_BODY_PLACEHOLDER,
                                 immediateContext.language,
-                                methodsToPreserve,
+                                enhancedMethodsToPreserve,
                                 fieldsToPreserve
                             )
-                            
+
                             val enhancedContext = immediateContext.copy(
                                 markedContent = enhancedMarkedContent,
                                 fullContent = enhancedMarkedContent.replace("[CURSOR]", ""),
-                                preservedMethods = methodsToPreserve,
+                                preservedMethods = enhancedMethodsToPreserve,
                                 preservedFields = fieldsToPreserve
                             )
-                            
+
                             // Always invoke callback on EDT
                             ApplicationManager.getApplication().invokeLater {
                                 onComplete(enhancedContext)
@@ -302,7 +325,7 @@ class ZestLeanContextCollector(private val project: Project) {
         return if (collapsedMarkedContent.length > MAX_CONTEXT_LENGTH) {
             // Find cursor position to ensure it's preserved
             val cursorIndex = collapsedMarkedContent.indexOf("[CURSOR]")
-            
+
             if (cursorIndex != -1) {
                 // Cursor found - use smart truncation that preserves cursor
                 val truncated = smartTruncateAroundCursor(collapsedMarkedContent, cursorIndex, MAX_CONTEXT_LENGTH)
@@ -311,7 +334,8 @@ class ZestLeanContextCollector(private val project: Project) {
             } else {
                 // No cursor found - use simple truncation (fallback)
                 val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-                val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
+                val originalTruncated =
+                    collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
                 Triple(originalTruncated, truncated, true)
             }
         } else {
@@ -326,27 +350,27 @@ class ZestLeanContextCollector(private val project: Project) {
     private fun smartTruncateAroundCursor(content: String, cursorIndex: Int, maxLength: Int): String {
         val truncationMarker = "\n/* ... content truncated ... */"
         val availableLength = maxLength - truncationMarker.length * 2 // Account for both start and end markers
-        
+
         if (availableLength <= 0) {
             return content.take(maxLength)
         }
-        
+
         // Calculate how much content to keep before and after cursor
         val halfLength = availableLength / 2
         val beforeCursor = maxOf(0, cursorIndex - halfLength)
         val afterCursor = minOf(content.length, cursorIndex + halfLength)
-        
+
         // Adjust to line boundaries to avoid cutting words/lines awkwardly
-        val beforeLineStart = content.lastIndexOf('\n', beforeCursor).let { 
-            if (it == -1) 0 else it + 1 
+        val beforeLineStart = content.lastIndexOf('\n', beforeCursor).let {
+            if (it == -1) 0 else it + 1
         }
-        val afterLineEnd = content.indexOf('\n', afterCursor).let { 
-            if (it == -1) content.length else it 
+        val afterLineEnd = content.indexOf('\n', afterCursor).let {
+            if (it == -1) content.length else it
         }
-        
+
         val beforeTruncated = beforeLineStart > 0
         val afterTruncated = afterLineEnd < content.length
-        
+
         return buildString {
             if (beforeTruncated) {
                 append("/* ... content truncated ... */\n")
@@ -359,19 +383,63 @@ class ZestLeanContextCollector(private val project: Project) {
     }
 
     /**
+     * Remove consecutive duplicate lines from the result
+     */
+    private fun removeDuplicateLines(lines: List<String>): List<String> {
+        if (lines.isEmpty()) return lines
+        
+        val result = mutableListOf<String>()
+        val recentLines = mutableSetOf<String>()
+        val lookback = 5 // Check last 5 non-empty lines for duplicates
+        
+        for (line in lines) {
+            val trimmed = line.trim()
+            
+            // Skip if this exact line (ignoring whitespace) was recently added
+            if (trimmed.isNotEmpty() && trimmed in recentLines) {
+                continue
+            }
+            
+            result.add(line)
+            
+            // Update recent lines set
+            if (trimmed.isNotEmpty()) {
+                recentLines.add(trimmed)
+                // Keep only the last N lines in the set
+                if (recentLines.size > lookback) {
+                    recentLines.remove(recentLines.first())
+                }
+            }
+        }
+        
+        return result
+    }
+
+    /**
      * Cursor-preserving method body collapsing that ensures the [CURSOR] marker
      * is never lost during the truncation process. Methods containing the cursor
      * are preserved in full, while distant methods are collapsed.
      */
     private fun collapseMethodBodiesPreservingCursor(content: String, placeholder: String, language: String): String {
-        val lines = content.lines().toMutableList()
+        val lines = content.lines()
         val result = mutableListOf<String>()
-        
+
         // Find cursor position
         val cursorLine = findCursorLine(lines)
         
+        // Find the method containing the cursor to preserve similar methods
+        var cursorMethodName: String? = null
+
         var i = 0
+        val processedLines = mutableSetOf<Int>()
+
         while (i < lines.size) {
+            // Skip if already processed
+            if (i in processedLines) {
+                i++
+                continue
+            }
+
             val line = lines[i]
             val methodMatch = when (language) {
                 "java" -> findJavaMethodStart(line, i, lines)
@@ -380,44 +448,228 @@ class ZestLeanContextCollector(private val project: Project) {
             }
 
             if (methodMatch != null) {
+                // Mark all signature lines as processed
+                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
+                    methodMatch.signatureStartIndex
+                } else {
+                    i - (methodMatch.signatureLines.size - 1)
+                }
+                
+                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
+                    processedLines.add(j)
+                }
+
                 // Check if this method contains the cursor
                 val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
-                val containsCursor = cursorLine in i..methodEnd
+                val containsCursor = cursorLine in signatureStartIndex..methodEnd
                 
+                // Extract method name
+                val methodName = extractMethodName(lines[i])
+                
+                // If this method contains the cursor, remember its name
+                if (containsCursor && methodName != null) {
+                    cursorMethodName = methodName
+                }
+                
+                // Determine if we should preserve this method
+                val shouldPreserve = containsCursor || 
+                    (cursorMethodName != null && methodName != null && 
+                     calculateMethodNameSimilarity(methodName, cursorMethodName) >= SIMILARITY_THRESHOLD)
+
                 // Add the method signature line(s)
                 result.addAll(methodMatch.signatureLines)
 
                 // Find the opening brace
                 val braceLineIndex = methodMatch.braceLineIndex
                 if (braceLineIndex != -1) {
-                    if (containsCursor) {
-                        // Preserve the entire method body since it contains the cursor
-                        for (bodyLineIndex in braceLineIndex until methodEnd + 1) {
-                            if (bodyLineIndex < lines.size) {
+                    // Mark brace line as processed if it's not part of signature
+                    if (braceLineIndex > i) {
+                        processedLines.add(braceLineIndex)
+                    }
+
+                    if (shouldPreserve) {
+                        // Preserve the entire method body
+                        val startBodyLine = if (braceLineIndex > i) braceLineIndex else i + 1
+                        for (bodyLineIndex in startBodyLine until methodEnd + 1) {
+                            if (bodyLineIndex < lines.size && bodyLineIndex !in processedLines) {
                                 result.add(lines[bodyLineIndex])
+                                processedLines.add(bodyLineIndex)
                             }
                         }
                     } else {
-                        // Collapse the method body since it doesn't contain the cursor
+                        // Collapse the method body
                         val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                        result.add(collapsedBody)
+                        if (braceLineIndex > i) {
+                            result.add(collapsedBody)
+                        } else {
+                            // Replace last added line with collapsed version
+                            result[result.size - 1] = collapsedBody
+                        }
+
+                        // Mark all body lines as processed
+                        for (j in braceLineIndex until methodEnd + 1) {
+                            processedLines.add(j)
+                        }
                     }
-                    
-                    // Skip to after the method body
+
+                    // Move to after the method
                     i = methodEnd + 1
                 } else {
-                    // No opening brace found, just add the line and continue
+                    // No opening brace found, continue
                     i++
                 }
             } else {
+                // Regular line, add it
                 result.add(line)
+                processedLines.add(i)
                 i++
             }
         }
 
-        return result.joinToString("\n")
+        // Remove any duplicate lines that may have been introduced
+        val cleanedResult = removeDuplicateLines(result)
+        return cleanedResult.joinToString("\n")
+    }
+
+    /**
+     * Calculate cosine similarity between two strings based on character n-grams
+     */
+    private fun calculateStringSimilarity(s1: String, s2: String, ngramSize: Int = 2): Double {
+        if (s1.isEmpty() || s2.isEmpty()) return 0.0
+        
+        val ngrams1 = extractNgrams(s1.toLowerCase(), ngramSize)
+        val ngrams2 = extractNgrams(s2.toLowerCase(), ngramSize)
+        
+        if (ngrams1.isEmpty() || ngrams2.isEmpty()) return 0.0
+        
+        // Calculate term frequencies
+        val tf1 = ngrams1.groupingBy { it }.eachCount()
+        val tf2 = ngrams2.groupingBy { it }.eachCount()
+        
+        // Calculate cosine similarity
+        val allNgrams = (tf1.keys + tf2.keys).distinct()
+        var dotProduct = 0.0
+        var norm1 = 0.0
+        var norm2 = 0.0
+        
+        for (ngram in allNgrams) {
+            val count1 = tf1[ngram]?.toDouble() ?: 0.0
+            val count2 = tf2[ngram]?.toDouble() ?: 0.0
+            
+            dotProduct += count1 * count2
+            norm1 += count1 * count1
+            norm2 += count2 * count2
+        }
+        
+        if (norm1 == 0.0 || norm2 == 0.0) return 0.0
+        
+        return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2))
     }
     
+    /**
+     * Extract character n-grams from a string
+     */
+    private fun extractNgrams(text: String, n: Int): List<String> {
+        if (text.length < n) return listOf(text)
+        
+        val ngrams = mutableListOf<String>()
+        for (i in 0..text.length - n) {
+            ngrams.add(text.substring(i, i + n))
+        }
+        return ngrams
+    }
+    
+    /**
+     * Split camelCase or snake_case string into words
+     */
+    private fun splitIntoWords(text: String): List<String> {
+        // Handle camelCase and PascalCase
+        val camelCaseSplit = text.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+            .replace(Regex("([A-Z])([A-Z][a-z])"), "$1 $2")
+        
+        // Handle snake_case and kebab-case
+        return camelCaseSplit.split(Regex("[\\s_-]+"))
+            .filter { it.isNotEmpty() }
+            .map { it.toLowerCase() }
+    }
+    
+    /**
+     * Calculate word-based cosine similarity between method names
+     */
+    private fun calculateMethodNameSimilarity(name1: String, name2: String): Double {
+        val words1 = splitIntoWords(name1)
+        val words2 = splitIntoWords(name2)
+        
+        if (words1.isEmpty() || words2.isEmpty()) {
+            // Fall back to character-based similarity
+            return calculateStringSimilarity(name1, name2)
+        }
+        
+        // Create word frequency vectors
+        val allWords = (words1 + words2).distinct()
+        val vector1 = allWords.map { word -> words1.count { it == word }.toDouble() }
+        val vector2 = allWords.map { word -> words2.count { it == word }.toDouble() }
+        
+        // Calculate cosine similarity
+        val dotProduct = vector1.zip(vector2).sumOf { (a, b) -> a * b }
+        val norm1 = Math.sqrt(vector1.sumOf { it * it })
+        val norm2 = Math.sqrt(vector2.sumOf { it * it })
+        
+        if (norm1 == 0.0 || norm2 == 0.0) return 0.0
+        
+        val wordSimilarity = dotProduct / (norm1 * norm2)
+        
+        // Combine with character-based similarity for better results
+        val charSimilarity = calculateStringSimilarity(name1, name2)
+        
+        // Weight word similarity more heavily
+        return 0.7 * wordSimilarity + 0.3 * charSimilarity
+    }
+    
+    /**
+     * Check if a method name should be preserved based on similarity to preserved methods
+     */
+    private fun shouldPreserveMethodBySimilarity(
+        methodName: String, 
+        preserveMethods: Set<String>,
+        similarityThreshold: Double = SIMILARITY_THRESHOLD
+    ): Boolean {
+        // First check exact match
+        if (methodName in preserveMethods) return true
+        
+        // Then check similarity
+        for (preservedMethod in preserveMethods) {
+            val similarity = calculateMethodNameSimilarity(methodName, preservedMethod)
+            if (similarity >= similarityThreshold) {
+                return true
+            }
+        }
+        
+        return false
+    }
+
+    /**
+     * Check if a field name should be preserved based on similarity to preserved fields
+     */
+    private fun shouldPreserveFieldBySimilarity(
+        fieldName: String,
+        preserveFields: Set<String>,
+        similarityThreshold: Double = SIMILARITY_THRESHOLD
+    ): Boolean {
+        // First check exact match
+        if (fieldName in preserveFields) return true
+        
+        // Then check similarity
+        for (preservedField in preserveFields) {
+            val similarity = calculateMethodNameSimilarity(fieldName, preservedField)
+            if (similarity >= similarityThreshold) {
+                return true
+            }
+        }
+        
+        return false
+    }
+
     /**
      * Enhanced collapsing that preserves methods and fields based on dependencies
      */
@@ -428,26 +680,35 @@ class ZestLeanContextCollector(private val project: Project) {
         preserveMethods: Set<String>,
         preserveFields: Set<String>
     ): String {
-        val lines = content.lines().toMutableList()
+        val lines = content.lines()
         val result = mutableListOf<String>()
-        
+
         // Find cursor position
         val cursorLine = findCursorLine(lines)
-        
+
         var i = 0
+        val processedLines = mutableSetOf<Int>()
+
         while (i < lines.size) {
+            // Skip if already processed
+            if (i in processedLines) {
+                i++
+                continue
+            }
+
             val line = lines[i]
-            
+
             // Check if this is a field that should be preserved/hidden
             if (language == "java" && isFieldDeclaration(line)) {
                 val fieldName = extractFieldName(line)
-                if (fieldName != null && fieldName !in preserveFields) {
+                if (fieldName != null && !shouldPreserveFieldBySimilarity(fieldName, preserveFields)) {
                     result.add("    // field hidden: $fieldName")
+                    processedLines.add(i)
                     i++
                     continue
                 }
             }
-            
+
             val methodMatch = when (language) {
                 "java" -> findJavaMethodStart(line, i, lines)
                 "javascript" -> findJavaScriptFunctionStart(line, i, lines)
@@ -455,66 +716,130 @@ class ZestLeanContextCollector(private val project: Project) {
             }
 
             if (methodMatch != null) {
+                // Mark all signature lines as processed
+                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
+                    methodMatch.signatureStartIndex
+                } else {
+                    i - (methodMatch.signatureLines.size - 1)
+                }
+                
+                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
+                    processedLines.add(j)
+                }
+
                 val methodName = extractMethodName(lines[i])
                 val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
-                val containsCursor = cursorLine in i..methodEnd
-                val shouldPreserve = containsCursor || (methodName != null && methodName in preserveMethods)
-                
-                // Add the method signature line(s)
-                result.addAll(methodMatch.signatureLines)
+                val containsCursor = cursorLine in signatureStartIndex..methodEnd
+                val shouldPreserve = containsCursor || 
+                    (methodName != null && shouldPreserveMethodBySimilarity(methodName, preserveMethods))
+
+                // Add the method signature line(s), but filter out duplicates
+                val uniqueSignatureLines = mutableListOf<String>()
+                for (sigLine in methodMatch.signatureLines) {
+                    // Check if this line was already added to result
+                    if (result.isEmpty() || result.last() != sigLine) {
+                        uniqueSignatureLines.add(sigLine)
+                    }
+                }
+                result.addAll(uniqueSignatureLines)
 
                 // Find the opening brace
                 val braceLineIndex = methodMatch.braceLineIndex
                 if (braceLineIndex != -1) {
+                    // Mark brace line as processed if it's not part of signature
+                    if (braceLineIndex > i) {
+                        processedLines.add(braceLineIndex)
+                    }
+
                     if (shouldPreserve) {
                         // Preserve the entire method body
-                        for (bodyLineIndex in braceLineIndex until methodEnd + 1) {
-                            if (bodyLineIndex < lines.size) {
+                        val startBodyLine = if (braceLineIndex > i) braceLineIndex else i + 1
+                        for (bodyLineIndex in startBodyLine until methodEnd + 1) {
+                            if (bodyLineIndex < lines.size && bodyLineIndex !in processedLines) {
                                 result.add(lines[bodyLineIndex])
+                                processedLines.add(bodyLineIndex)
                             }
                         }
                     } else {
                         // Collapse the method body
                         val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                        result.add(collapsedBody)
+                        if (braceLineIndex > i) {
+                            result.add(collapsedBody)
+                        } else {
+                            // Replace last added line with collapsed version
+                            result[result.size - 1] = collapsedBody
+                        }
+
+                        // Mark all body lines as processed
+                        for (j in braceLineIndex until methodEnd + 1) {
+                            processedLines.add(j)
+                        }
                     }
-                    
-                    // Skip to after the method body
+
+                    // Move to after the method
                     i = methodEnd + 1
                 } else {
-                    // No opening brace found, just add the line and continue
+                    // No opening brace found, continue
                     i++
                 }
             } else {
                 result.add(line)
+                processedLines.add(i)
                 i++
             }
         }
 
-        return result.joinToString("\n")
+        // Remove any duplicate lines that may have been introduced
+        val cleanedResult = removeDuplicateLines(result)
+        return cleanedResult.joinToString("\n")
     }
-    
+
     /**
      * Extract method name from a line
      */
     private fun extractMethodName(line: String): String? {
-        // Java patterns
-        var match = Regex("""(?:public|private|protected|static|final)*\s*(?:\w+\s+)?(\w+)\s*\(""").find(line)
-        if (match != null) return match.groupValues[1]
-        
+        // Remove annotations and comments
+        val cleanLine = line.trim().replace(Regex("""^@\w+.*"""), "").trim()
+
+        // Java method patterns - more specific
+        // Pattern 1: Traditional method with return type
+        var match =
+            Regex("""(?:public|private|protected|static|final|abstract|synchronized|native)*\s*(?:<[^>]+>\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*\(""").find(
+                cleanLine
+            )
+        if (match != null && match.groupValues.size > 2) {
+            return match.groupValues[2] // Method name is the second group
+        }
+
+        // Pattern 2: Constructor (starts with capital letter)
+        match = Regex("""(?:public|private|protected)*\s*([A-Z]\w*)\s*\(""").find(cleanLine)
+        if (match != null) {
+            return match.groupValues[1]
+        }
+
+        // Pattern 3: Method without explicit modifiers
+        match = Regex("""^\s*(\w+)\s+(\w+)\s*\(""").find(cleanLine)
+        if (match != null && match.groupValues.size > 2) {
+            return match.groupValues[2]
+        }
+
         // JavaScript patterns
-        match = Regex("""function\s+(\w+)""").find(line)
+        match = Regex("""function\s+(\w+)""").find(cleanLine)
         if (match != null) return match.groupValues[1]
-        
-        match = Regex("""(\w+)\s*:\s*function""").find(line)
+
+        match = Regex("""(\w+)\s*:\s*function""").find(cleanLine)
         if (match != null) return match.groupValues[1]
-        
-        match = Regex("""(?:const|let|var)\s+(\w+)\s*=""").find(line)
+
+        match = Regex("""(?:const|let|var)\s+(\w+)\s*=""").find(cleanLine)
         if (match != null) return match.groupValues[1]
-        
+
+        // ES6 method syntax
+        match = Regex("""^\s*(\w+)\s*\([^)]*\)\s*\{""").find(cleanLine)
+        if (match != null) return match.groupValues[1]
+
         return null
     }
-    
+
     /**
      * Extract field name from a field declaration line
      */
@@ -522,15 +847,15 @@ class ZestLeanContextCollector(private val project: Project) {
         val match = Regex("""(?:private|protected|public|static|final)*\s+\w+\s+(\w+)\s*[;=]""").find(line)
         return match?.groupValues?.getOrNull(1)
     }
-    
+
     /**
      * Check if a line is a field declaration
      */
     private fun isFieldDeclaration(line: String): Boolean {
         return line.matches(Regex(""".*(?:private|protected|public|static|final).*\w+\s+\w+\s*[;=].*""")) &&
-               !line.contains("(")
+                !line.contains("(")
     }
-    
+
     /**
      * Finds the line number containing the [CURSOR] marker
      */
@@ -551,11 +876,18 @@ class ZestLeanContextCollector(private val project: Project) {
      * Handles nested braces, complex signatures, and preserves method signatures
      */
     private fun collapseMethodBodies(content: String, placeholder: String, language: String): String {
-        val lines = content.lines().toMutableList()
+        val lines = content.lines()
         val result = mutableListOf<String>()
         var i = 0
+        val processedLines = mutableSetOf<Int>()
 
         while (i < lines.size) {
+            // Skip if already processed
+            if (i in processedLines) {
+                i++
+                continue
+            }
+
             val line = lines[i]
             val methodMatch = when (language) {
                 "java" -> findJavaMethodStart(line, i, lines)
@@ -564,37 +896,80 @@ class ZestLeanContextCollector(private val project: Project) {
             }
 
             if (methodMatch != null) {
-                // Add the method signature line(s)
-                result.addAll(methodMatch.signatureLines)
+                // Mark all signature lines as processed
+                val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
+                    methodMatch.signatureStartIndex
+                } else {
+                    i - (methodMatch.signatureLines.size - 1)
+                }
+                
+                for (j in signatureStartIndex until signatureStartIndex + methodMatch.signatureLines.size) {
+                    processedLines.add(j)
+                }
+
+                // Add the method signature line(s), but filter out duplicates
+                val uniqueSignatureLines = mutableListOf<String>()
+                for (sigLine in methodMatch.signatureLines) {
+                    // Check if this line was already added to result
+                    if (result.isEmpty() || result.last() != sigLine) {
+                        uniqueSignatureLines.add(sigLine)
+                    }
+                }
+                result.addAll(uniqueSignatureLines)
 
                 // Find the opening brace and collapse the body
                 val braceLineIndex = methodMatch.braceLineIndex
                 if (braceLineIndex != -1) {
+                    // Mark brace line as processed if it's not part of signature
+                    if (braceLineIndex > i) {
+                        processedLines.add(braceLineIndex)
+                    }
+
                     val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex, placeholder)
-                    result.add(collapsedBody)
+                    if (braceLineIndex > i) {
+                        result.add(collapsedBody)
+                    } else {
+                        // Replace last added line with collapsed version
+                        result[result.size - 1] = collapsedBody
+                    }
+
+                    // Mark all body lines as processed
+                    val methodEnd = findMatchingCloseBrace(lines, braceLineIndex)
+                    for (j in braceLineIndex until methodEnd + 1) {
+                        processedLines.add(j)
+                    }
 
                     // Skip to after the method body
-                    i = findMatchingCloseBrace(lines, braceLineIndex) + 1
+                    i = methodEnd + 1
                 } else {
-                    // No opening brace found, just add the line and continue
+                    // No opening brace found, continue
                     i++
                 }
             } else {
                 result.add(line)
+                processedLines.add(i)
                 i++
             }
         }
 
-        return result.joinToString("\n")
+        // Remove any duplicate lines that may have been introduced
+        val cleanedResult = removeDuplicateLines(result)
+        return cleanedResult.joinToString("\n")
     }
 
     private data class MethodMatch(
         val signatureLines: List<String>,
-        val braceLineIndex: Int
+        val braceLineIndex: Int,
+        val signatureStartIndex: Int = -1
     )
 
     private fun findJavaMethodStart(line: String, lineIndex: Int, lines: List<String>): MethodMatch? {
         val trimmed = line.trim()
+
+        // Skip if this line is an annotation
+        if (trimmed.startsWith("@")) {
+            return null
+        }
 
         // Look for Java method patterns
         val methodPatterns = listOf(
@@ -619,7 +994,7 @@ class ZestLeanContextCollector(private val project: Project) {
                 val signatureStart = findAnnotationStart(lines, lineIndex)
                 val signatureLines = lines.subList(signatureStart, lineIndex + 1)
 
-                return MethodMatch(signatureLines, braceIndex)
+                return MethodMatch(signatureLines, braceIndex, signatureStart)
             }
         }
 
@@ -653,7 +1028,7 @@ class ZestLeanContextCollector(private val project: Project) {
                     else -> -1
                 }
 
-                return MethodMatch(listOf(line), braceIndex)
+                return MethodMatch(listOf(line), braceIndex, lineIndex)
             }
         }
 
@@ -705,6 +1080,7 @@ class ZestLeanContextCollector(private val project: Project) {
                         braceCount++
                         foundOpenBrace = true
                     }
+
                     '}' -> {
                         if (foundOpenBrace) {
                             braceCount--

@@ -69,20 +69,20 @@ public final class LLMService {
     /**
      * Simple synchronous call to LLM with a prompt.
      *
-     * @param prompt The prompt to send to the LLM
+     * @param prompt    The prompt to send to the LLM
      * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
     @Nullable
     public String query(@NotNull String prompt, ChatboxUtilities.EnumUsage enumUsage) {
-        return query(prompt+"\n/no_think", "local-model-mini", enumUsage);
+        return query(prompt + "\n/no_think", "local-model-mini", enumUsage);
     }
 
     /**
      * Simple synchronous call to LLM with a prompt and specific model.
      *
-     * @param prompt The prompt to send to the LLM
-     * @param model The model to use (overrides config)
+     * @param prompt    The prompt to send to the LLM
+     * @param model     The model to use (overrides config)
      * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
@@ -109,7 +109,7 @@ public final class LLMService {
      * Asynchronous call to LLM with specific model.
      *
      * @param prompt The prompt to send to the LLM
-     * @param model The model to use
+     * @param model  The model to use
      * @return CompletableFuture with the response
      */
     @NotNull
@@ -126,7 +126,7 @@ public final class LLMService {
     /**
      * Query with custom parameters.
      *
-     * @param params The query parameters
+     * @param params    The query parameters
      * @param enumUsage
      * @return The response from the LLM, or null if failed
      */
@@ -248,7 +248,7 @@ public final class LLMService {
      * Creates request body for OpenWebUI/Zingplay API.
      */
     private String createOpenWebUIRequestBody(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
-            JsonObject root = new JsonObject();
+        JsonObject root = new JsonObject();
         root.addProperty("model", params.getModel());
         root.addProperty("stream", false);
         String usage = enumUsage.name();
@@ -260,7 +260,7 @@ public final class LLMService {
         paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
 //        paramsObj.addProperty("num_predict", params.getMaxTokens());
         paramsObj.addProperty("temperature", params.getTemperature());
-        
+
         // Add stop sequences if provided
         if (!params.getStopSequences().isEmpty()) {
             com.google.gson.JsonArray stopArray = new com.google.gson.JsonArray();
@@ -269,7 +269,7 @@ public final class LLMService {
             }
 //            paramsObj.add("stop", stopArray);
         }
-        
+
         root.add("params", paramsObj);
 
         JsonObject message = new JsonObject();
@@ -305,7 +305,7 @@ public final class LLMService {
         JsonObject options = new JsonObject();
 //        options.addProperty("num_predict", params.getMaxTokens());
         options.addProperty("temperature", params.getTemperature());
-        
+
         // Add stop sequences if provided
         if (!params.getStopSequences().isEmpty()) {
             com.google.gson.JsonArray stopArray = new com.google.gson.JsonArray();
@@ -314,7 +314,7 @@ public final class LLMService {
             }
             options.add("stop", stopArray);
         }
-        
+
         root.add("options", options);
 
         return GSON.toJson(root);
@@ -475,20 +475,42 @@ public final class LLMService {
         }
 
         // Getters
-        public String getPrompt() { return prompt + (isLiteModel ?"\n/no_think":""); }
-        public String getModel() { return model; }
-        public int getMaxRetries() { return maxRetries; }
-        public long getTimeoutMs() { return timeoutMs; }
-        public int getMaxTokens() { return maxTokens; }
-        public double getTemperature() { return temperature; }
-        public java.util.List<String> getStopSequences() { return stopSequences; }
+        public String getPrompt() {
+            return prompt + (isLiteModel ? "\n/no_think" : "");
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public int getMaxRetries() {
+            return maxRetries;
+        }
+
+        public long getTimeoutMs() {
+            return timeoutMs;
+        }
+
+        public int getMaxTokens() {
+            return maxTokens;
+        }
+
+        public double getTemperature() {
+            return temperature;
+        }
+
+        public java.util.List<String> getStopSequences() {
+            return stopSequences;
+        }
+
         boolean isLiteModel = false;
+
         public LLMQueryParams useLiteCodeModel() {
             // Get current time in local timezone
             java.time.LocalTime currentTime = java.time.LocalTime.now();
             java.time.LocalTime officeStart = java.time.LocalTime.of(8, 30); // 8:30 AM
             java.time.LocalTime officeEnd = java.time.LocalTime.of(17, 30); // 5:30 PM
-            
+
             // During office hours (8:30 AM - 5:30 PM), use local-model if available
             if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
                 this.model = "local-model";
@@ -498,7 +520,7 @@ public final class LLMService {
                 this.model = "local-model-mini";
                 LOG.info("Outside office hours (" + currentTime + "), using local-model-mini for lite mode");
             }
-            
+
             this.isLiteModel = true;
             return this;
         }
@@ -514,16 +536,36 @@ public final class LLMService {
         private boolean hasAuthToken;
 
         // Getters and setters
-        public boolean isConfigured() { return configured; }
-        public void setConfigured(boolean configured) { this.configured = configured; }
+        public boolean isConfigured() {
+            return configured;
+        }
 
-        public String getApiUrl() { return apiUrl; }
-        public void setApiUrl(String apiUrl) { this.apiUrl = apiUrl; }
+        public void setConfigured(boolean configured) {
+            this.configured = configured;
+        }
 
-        public String getModel() { return model; }
-        public void setModel(String model) { this.model = model; }
+        public String getApiUrl() {
+            return apiUrl;
+        }
 
-        public boolean hasAuthToken() { return hasAuthToken; }
-        public void setHasAuthToken(boolean hasAuthToken) { this.hasAuthToken = hasAuthToken; }
+        public void setApiUrl(String apiUrl) {
+            this.apiUrl = apiUrl;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public boolean hasAuthToken() {
+            return hasAuthToken;
+        }
+
+        public void setHasAuthToken(boolean hasAuthToken) {
+            this.hasAuthToken = hasAuthToken;
+        }
     }
 }

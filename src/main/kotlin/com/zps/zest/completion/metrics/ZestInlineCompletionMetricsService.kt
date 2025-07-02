@@ -341,22 +341,22 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val metadata = (requestBody["metadata"] as? Map<String, Any>) ?: emptyMap()
         
         return when (eventType) {
-            "complete" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
-            "completed" -> MetricEvent.CompletionResponse(
+            "request" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
+            "response" -> MetricEvent.CompletionResponse(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
                 elapsed = elapsed,
                 metadata = metadata
             )
             "view" -> MetricEvent.View(completionId, elapsed, metadata)
-            "select" -> MetricEvent.Select(
+            "tab" -> MetricEvent.Select(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
                 elapsed = elapsed,
                 metadata = metadata
             )
-            "dismiss" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
-            "decline" -> MetricEvent.Decline(completionId, elapsed, metadata)
+            "anykey" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
+            "esc" -> MetricEvent.Decline(completionId, elapsed, metadata)
             else -> MetricEvent.CompletionRequest(completionId, elapsed, metadata) // Default
         }
     }

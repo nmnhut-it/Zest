@@ -112,8 +112,10 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             
             val requestInfo = buildString {
                 val requestState = detailedState["currentRequestState"] as? String
-                if (requestState != null && requestState != "IDLE") {
-                    append("\nRequest State: $requestState")
+                when (requestState) {
+                    "WAITING" -> append("\n⏱️ Waiting to trigger completion...")
+                    "REQUESTING" -> append("\n⏳ Requesting completion from AI...")
+                    "DISPLAYING" -> append("\n💡 Completion ready to accept")
                 }
                 
                 val requestsPerMinute = detailedState["requestsInLastMinute"] as? Int
@@ -414,7 +416,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 CompletionState.REQUESTING -> "Zest: ⏳ Requesting..."
                 CompletionState.WAITING -> "Zest: 💡 Ready"
                 CompletionState.ACCEPTING -> "Zest: ⚡ Accepting..."
-                CompletionState.IDLE -> "Zest"
+                CompletionState.IDLE -> "Zest" // Just "Zest" when idle/waiting for timer
                 CompletionState.DISABLED -> "Zest: ⏸️ Disabled"
                 CompletionState.ERROR -> "Zest: ❌ Error"
                 CompletionState.RATE_LIMITED -> "Zest: ⏱️ Rate Limited"
@@ -459,7 +461,18 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                     }
 
                     if (loading) {
-                        updateCompletionState(CompletionState.REQUESTING)
+                        // Only show requesting if we're actually requesting (not just waiting)
+                        val detailedState = try {
+                            completionService.getDetailedState()
+                        } catch (e: Exception) {
+                            emptyMap()
+                        }
+                        
+                        val requestState = detailedState["currentRequestState"] as? String
+                        if (requestState == "REQUESTING") {
+                            updateCompletionState(CompletionState.REQUESTING)
+                        }
+                        // Don't change state for WAITING - keep it as IDLE
                     } else {
                         // Get more detailed state info
                         val detailedState = try {
@@ -748,7 +761,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                     hasCompletion -> updateCompletionState(CompletionState.WAITING)
                     requestState == "REQUESTING" -> updateCompletionState(CompletionState.REQUESTING)
                     requestState == "WAITING" -> updateCompletionState(CompletionState.IDLE) // Timer waiting shows as idle
-                    detailedState["activeRequestId"] != "null" -> updateCompletionState(CompletionState.REQUESTING)
+                    requestState == "DISPLAYING" -> updateCompletionState(if (hasCompletion) CompletionState.WAITING else CompletionState.IDLE)
                     else -> updateCompletionState(CompletionState.IDLE)
                 }
 

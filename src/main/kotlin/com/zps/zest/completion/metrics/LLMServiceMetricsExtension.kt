@@ -157,6 +157,7 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent): Boolean {
     
     val completionContent = when (event) {
         is MetricEvent.Select -> event.completionContent
+        is MetricEvent.CompletionResponse -> event.completionContent
         else -> null
     }
     

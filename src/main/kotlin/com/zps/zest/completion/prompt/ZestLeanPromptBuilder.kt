@@ -24,7 +24,7 @@ ${context.markedContent}
 ```
 
 **Analysis Instructions:**
-1. Understand the current context and what the user is likely trying to accomplish
+1. Understand the current context and what the user is likely trying to type
 2. Consider the file structure, imports, and existing patterns
 3. Provide a completion that follows the established code style
 
@@ -50,6 +50,9 @@ You must provide your response in this EXACT format to ensure proper integration
 - Do NOT include the cursor marker (<CURSOR>) in any section
 - Follow the existing code style and patterns
 - Ensure the completion is syntactically correct
+- Completion should not exceed 5 lines and 50 words.
+
+**Note:** The completion should be a natural fragment that continues from the cursor - it doesn't need to be syntactically complete. It can end mid-statement, mid-block, or mid-expression, just like real typing.
 
 **Example Response Structure:**
 <prefix>

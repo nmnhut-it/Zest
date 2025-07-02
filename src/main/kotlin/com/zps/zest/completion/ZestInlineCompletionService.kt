@@ -524,6 +524,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     } catch (e: CancellationException) {
 //                        System.out.println("[ZestInlineCompletion] Completion request cancelled for request $requestId")
                         logger.debug("Completion request cancelled")
+                        
+                        // IMPORTANT: Clear activeRequestId if this was the cancelled request
+                        if (activeRequestId == requestId) {
+                            System.out.println("[ZestInlineCompletion] Clearing activeRequestId for cancelled request $requestId")
+                            activeRequestId = null
+                            currentRequestState = RequestState.IDLE
+                        }
+                        
                         throw e
                     } catch (e: Exception) {
 //                        System.out.println("[ZestInlineCompletion] Completion request failed with exception: ${e.message}")
@@ -538,9 +546,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 //                            System.out.println("[ZestInlineCompletion] Normal completion - clearing loading state")
                             project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
                             
-                            // Update state to IDLE if this was the active request
+                            // Update state based on outcome
                             if (activeRequestId == requestId) {
-                                currentRequestState = if (currentCompletion != null) RequestState.DISPLAYING else RequestState.IDLE
+                                when {
+                                    currentCompletion != null -> {
+                                        // Completion will be displayed, activeRequestId cleared in handleCompletionResponse
+                                        currentRequestState = RequestState.DISPLAYING
+                                    }
+                                    else -> {
+                                        // No completion, clear everything
+                                        currentRequestState = RequestState.IDLE
+                                        activeRequestId = null
+                                        System.out.println("[ZestInlineCompletion] No completion, cleared activeRequestId in finally")
+                                    }
+                                }
                             }
                         } else {
                             // METHOD_REWRITE - keep active for longer to allow method rewrite to complete
@@ -1594,19 +1613,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             it.cancel()
         }
         
-        // Don't schedule if a request is already active
-        if (activeRequestId != null) {
-//            System.out.println("[ZestInlineCompletion] Request already active (id=$activeRequestId), not scheduling")
-            return
-        }
-        
+
         // Don't schedule during cooldown period
         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
         if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
 //            System.out.println("[ZestInlineCompletion] In cooldown period, not scheduling")
             return
         }
-        
+        // Don't schedule if a request is already active
+        if (activeRequestId != null) {
+            System.out.println("[ZestInlineCompletion] Request already active (id=$activeRequestId), not scheduling")
+            currentRequestState = RequestState.IDLE // Reset state since we're not scheduling
+            return
+        }
+
         // Update state to WAITING
         currentRequestState = RequestState.WAITING
         
@@ -1865,7 +1885,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 1500L // 1.5 seconds after user stops typing
+        private const val AUTO_TRIGGER_DELAY_MS = 30L // 1.5 seconds after user stops typing
         private const val CACHE_EXPIRY_MS = 300000L // 5 minutes cache expiry
         private const val MAX_CACHE_SIZE = 50 // Maximum number of cached completions
         

@@ -156,10 +156,12 @@ public class SettingsMigrator {
             // Delete old config file
             if (oldConfigFile.delete()) {
                 LOG.info("Successfully migrated and deleted old config file: " + oldConfigFile.getName());
-                Messages.showInfoMessage(project,
-                    "Zest Plugin settings have been migrated to IntelliJ's settings system.\n" +
-                    "The old configuration file has been removed.",
-                    "Settings Migration Complete");
+                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(() -> {
+                    Messages.showInfoMessage(project,
+                        "Zest Plugin settings have been migrated to IntelliJ's settings system.\n" +
+                        "The old configuration file has been removed.",
+                        "Settings Migration Complete");
+                });
             } else {
                 LOG.warn("Failed to delete old config file: " + oldConfigFile.getName());
             }

@@ -14,7 +14,7 @@ import com.zps.zest.completion.async.SimpleTaskQueue
  * Lean context collector that captures full file content with cursor position
  * for reasoning-based completions. Supports Java and JavaScript with automatic
  * language detection and context truncation.
- * 
+ *
  * Features:
  * - Smart method body collapsing to stay within context limits
  * - Preserves methods containing the cursor
@@ -25,7 +25,7 @@ import com.zps.zest.completion.async.SimpleTaskQueue
 class ZestLeanContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 1500  // Increased for priority-based inclusion
+        private const val MAX_CONTEXT_LENGTH = 8000  // Increased for priority-based inclusion
         private const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
         private const val SIMILARITY_THRESHOLD = 0.6  // Threshold for method/field name similarity
@@ -158,17 +158,18 @@ class ZestLeanContextCollector(private val project: Project) {
                             val currentMethodName = containingMethod.name
                             val enhancedMethodsToPreserve = methodsToPreserve.toMutableSet()
                             enhancedMethodsToPreserve.add(currentMethodName)
-                            
+
                             // Also find and add all methods with similar names
                             val allMethods = containingClass.methods
                             for (method in allMethods) {
                                 val methodName = method.name
-                                if (methodName != currentMethodName && 
-                                    calculateMethodNameSimilarity(methodName, currentMethodName) >= SIMILARITY_THRESHOLD) {
+                                if (methodName != currentMethodName &&
+                                    calculateMethodNameSimilarity(methodName, currentMethodName) >= SIMILARITY_THRESHOLD
+                                ) {
                                     enhancedMethodsToPreserve.add(methodName)
                                 }
                             }
-                            
+
                             // Re-process with dependency information
                             val enhancedMarkedContent = collapseMethodBodiesWithDependencies(
                                 immediateContext.markedContent,
@@ -341,11 +342,11 @@ class ZestLeanContextCollector(private val project: Project) {
     ): Pair<String, Boolean> {
         val lines = content.lines()
         val cursorLine = findCursorLine(lines)
-        
+
         // First pass: identify all methods and calculate their priorities
         val methodInfoList = mutableListOf<MethodInfo>()
         var i = 0
-        
+
         while (i < lines.size) {
             val line = lines[i]
             val methodMatch = when (language) {
@@ -353,31 +354,47 @@ class ZestLeanContextCollector(private val project: Project) {
                 "javascript" -> findJavaScriptFunctionStart(line, i, lines)
                 else -> null
             }
-            
+
             if (methodMatch != null) {
                 val signatureStartIndex = if (methodMatch.signatureStartIndex != -1) {
                     methodMatch.signatureStartIndex
                 } else {
                     i - (methodMatch.signatureLines.size - 1)
                 }
-                
+
                 val methodEnd = findMatchingCloseBrace(lines, methodMatch.braceLineIndex)
                 val containsCursor = cursorLine in signatureStartIndex..methodEnd
                 val methodName = extractMethodName(lines[i])
-                
+
                 // Calculate priority (higher is more important)
                 var priority = 0.0
-                
+
                 // Highest priority: contains cursor
                 if (containsCursor) {
                     priority = 1000.0
                 }
-                
+
+                // Also check if cursor is right after the last statement but missing closing brace
+                // This handles the case where cursor is after catch block but before method's }
+                if (!containsCursor && cursorLine > signatureStartIndex && cursorLine <= methodEnd + 2) {
+                    // Check if we're in a situation where closing brace might be missing
+                    var braceBalance = 0
+                    for (lineIdx in signatureStartIndex..minOf(cursorLine, lines.size - 1)) {
+                        val lineContent = lines[lineIdx]
+                        braceBalance += lineContent.count { it == '{' }
+                        braceBalance -= lineContent.count { it == '}' }
+                    }
+                    // If braces are unbalanced, cursor is likely at the end of an incomplete method
+                    if (braceBalance > 0) {
+                        priority = 1000.0
+                    }
+                }
+
                 // High priority: in preserved methods set
                 if (methodName != null && methodName in preservedMethods) {
                     priority = maxOf(priority, 100.0)
                 }
-                
+
                 // Medium priority: similar to preserved methods
                 if (methodName != null && preservedMethods.isNotEmpty()) {
                     val maxSimilarity = preservedMethods.maxOf { preserved ->
@@ -387,13 +404,13 @@ class ZestLeanContextCollector(private val project: Project) {
                         priority = maxOf(priority, 50.0 + maxSimilarity * 50.0)
                     }
                 }
-                
+
                 // Low priority: distance from cursor (closer is better)
                 if (priority == 0.0 && cursorLine >= 0) {
                     val distance = kotlin.math.abs(i - cursorLine)
                     priority = 10.0 / (1.0 + distance / 100.0)
                 }
-                
+
                 methodInfoList.add(
                     MethodInfo(
                         startLine = signatureStartIndex,
@@ -404,21 +421,21 @@ class ZestLeanContextCollector(private val project: Project) {
                         methodName = methodName ?: "unknown"
                     )
                 )
-                
+
                 i = methodEnd + 1
             } else {
                 i++
             }
         }
-        
+
         // Sort methods by priority (descending)
         methodInfoList.sortByDescending { it.priority }
-        
+
         // Second pass: build result with methods in priority order
         val result = mutableListOf<String>()
         val processedRanges = mutableListOf<IntRange>()
         val expandedMethods = mutableSetOf<MethodInfo>()
-        
+
         // Always expand highest priority methods first
         for (methodInfo in methodInfoList) {
             if (methodInfo.priority >= 100.0) { // Contains cursor or is in preserved set
@@ -426,20 +443,20 @@ class ZestLeanContextCollector(private val project: Project) {
                 processedRanges.add(methodInfo.startLine..methodInfo.endLine)
             }
         }
-        
+
         // Build initial content with expanded high-priority methods
         var currentLength = buildContentWithExpandedMethods(
             lines, expandedMethods, processedRanges, placeholder
         ).length
-        
+
         // Add more methods in priority order until we approach the limit
         for (methodInfo in methodInfoList) {
             if (methodInfo in expandedMethods) continue
-            
+
             // Estimate the additional length if we expand this method
             val methodLength = (methodInfo.startLine..methodInfo.endLine)
                 .sumOf { lines.getOrNull(it)?.length?.plus(1) ?: 0 }
-            
+
             // Leave some buffer space (10% of max length)
             if (currentLength + methodLength <= maxLength * 0.9) {
                 expandedMethods.add(methodInfo)
@@ -447,18 +464,18 @@ class ZestLeanContextCollector(private val project: Project) {
                 currentLength += methodLength
             }
         }
-        
+
         // Build final result
         val finalContent = buildContentWithExpandedMethods(
             lines, expandedMethods, processedRanges, placeholder
         )
-        
+
         // Check if everything fit
         val allContentIncluded = expandedMethods.size == methodInfoList.size
-        
+
         return Pair(finalContent, allContentIncluded)
     }
-    
+
     /**
      * Build content with specified methods expanded and others collapsed
      */
@@ -470,51 +487,80 @@ class ZestLeanContextCollector(private val project: Project) {
     ): String {
         val result = mutableListOf<String>()
         var i = 0
-        
+
         // Sort processed ranges by start line
         val sortedRanges = processedRanges.sortedBy { it.first }
-        
+
         while (i < lines.size) {
             // Check if this line is part of a method
             val containingMethod = expandedMethods.find { method ->
                 i in method.startLine..method.endLine
             }
-            
+
             if (containingMethod != null) {
                 // This is part of an expanded method
                 if (i == containingMethod.startLine) {
                     // Add signature lines
                     result.addAll(containingMethod.signatureLines)
-                    
+
                     // Add the method body
-                    val bodyStart = if (containingMethod.braceLineIndex > containingMethod.startLine + containingMethod.signatureLines.size - 1) {
-                        containingMethod.braceLineIndex
-                    } else {
-                        containingMethod.startLine + containingMethod.signatureLines.size
-                    }
-                    
+                    val bodyStart =
+                        if (containingMethod.braceLineIndex > containingMethod.startLine + containingMethod.signatureLines.size - 1) {
+                            containingMethod.braceLineIndex
+                        } else {
+                            containingMethod.startLine + containingMethod.signatureLines.size
+                        }
+
+                    // Make sure to include the complete method body, including closing braces
+                    var actualMethodEnd = containingMethod.endLine
+
+                    // If the detected end seems wrong (e.g., missing closing brace), extend it
+                    var braceBalance = 0
                     for (j in bodyStart..containingMethod.endLine) {
                         if (j < lines.size) {
-                            result.add(lines[j])
+                            val lineContent = lines[j]
+                            braceBalance += lineContent.count { it == '{' }
+                            braceBalance -= lineContent.count { it == '}' }
                         }
                     }
+
+                    // If braces are unbalanced, try to find the real end
+                    if (braceBalance > 0 && containingMethod.endLine < lines.size - 1) {
+                        for (j in containingMethod.endLine + 1 until lines.size) {
+                            result.add(lines[j])
+                            braceBalance += lines[j].count { it == '{' }
+                            braceBalance -= lines[j].count { it == '}' }
+                            actualMethodEnd = j
+                            if (braceBalance == 0) break
+                        }
+                    } else {
+                        // Normal case - add lines up to detected end
+                        for (j in bodyStart..containingMethod.endLine) {
+                            if (j < lines.size) {
+                                result.add(lines[j])
+                            }
+                        }
+                    }
+
+                    // Skip to end of method (use actualMethodEnd which may have been extended)
+                    i = actualMethodEnd + 1
+                } else {
+                    // We're in the middle of a method that's already being processed
+                    i++
                 }
-                
-                // Skip to end of method
-                i = containingMethod.endLine + 1
             } else {
                 // Check if this line is part of any method
                 val methodRange = sortedRanges.find { i in it }
-                
+
                 if (methodRange != null) {
                     // This is a collapsed method
                     val methodInfo = expandedMethods.find { it.startLine == methodRange.first }
                         ?: methodInfoList.find { it.startLine == methodRange.first }
-                    
+
                     if (methodInfo != null && i == methodInfo.startLine) {
                         // Add collapsed method
                         result.addAll(methodInfo.signatureLines)
-                        
+
                         if (methodInfo.braceLineIndex != -1) {
                             val collapsedBody = collapseBodyFromBrace(lines, methodInfo.braceLineIndex, placeholder)
                             if (methodInfo.braceLineIndex > methodInfo.startLine + methodInfo.signatureLines.size - 1) {
@@ -525,7 +571,7 @@ class ZestLeanContextCollector(private val project: Project) {
                             }
                         }
                     }
-                    
+
                     // Skip to end of method
                     i = methodRange.last + 1
                 } else {
@@ -535,10 +581,10 @@ class ZestLeanContextCollector(private val project: Project) {
                 }
             }
         }
-        
+
         return removeDuplicateLines(result).joinToString("\n")
     }
-    
+
     /**
      * Data class to hold method information
      */
@@ -550,7 +596,7 @@ class ZestLeanContextCollector(private val project: Project) {
         val priority: Double,
         val methodName: String
     )
-    
+
     /**
      * List to track all methods found during parsing
      */
@@ -561,21 +607,21 @@ class ZestLeanContextCollector(private val project: Project) {
      */
     private fun removeDuplicateLines(lines: List<String>): List<String> {
         if (lines.isEmpty()) return lines
-        
+
         val result = mutableListOf<String>()
         val recentLines = mutableSetOf<String>()
         val lookback = 5 // Check last 5 non-empty lines for duplicates
-        
+
         for (line in lines) {
             val trimmed = line.trim()
-            
+
             // Skip if this exact line (ignoring whitespace) was recently added
             if (trimmed.isNotEmpty() && trimmed in recentLines) {
                 continue
             }
-            
+
             result.add(line)
-            
+
             // Update recent lines set
             if (trimmed.isNotEmpty()) {
                 recentLines.add(trimmed)
@@ -585,10 +631,9 @@ class ZestLeanContextCollector(private val project: Project) {
                 }
             }
         }
-        
+
         return result
     }
-
 
 
     /**
@@ -596,49 +641,49 @@ class ZestLeanContextCollector(private val project: Project) {
      */
     private fun calculateStringSimilarity(s1: String, s2: String, ngramSize: Int = 2): Double {
         if (s1.isEmpty() || s2.isEmpty()) return 0.0
-        
+
         val ngrams1 = extractNgrams(s1.toLowerCase(), ngramSize)
         val ngrams2 = extractNgrams(s2.toLowerCase(), ngramSize)
-        
+
         if (ngrams1.isEmpty() || ngrams2.isEmpty()) return 0.0
-        
+
         // Calculate term frequencies
         val tf1 = ngrams1.groupingBy { it }.eachCount()
         val tf2 = ngrams2.groupingBy { it }.eachCount()
-        
+
         // Calculate cosine similarity
         val allNgrams = (tf1.keys + tf2.keys).distinct()
         var dotProduct = 0.0
         var norm1 = 0.0
         var norm2 = 0.0
-        
+
         for (ngram in allNgrams) {
             val count1 = tf1[ngram]?.toDouble() ?: 0.0
             val count2 = tf2[ngram]?.toDouble() ?: 0.0
-            
+
             dotProduct += count1 * count2
             norm1 += count1 * count1
             norm2 += count2 * count2
         }
-        
+
         if (norm1 == 0.0 || norm2 == 0.0) return 0.0
-        
+
         return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2))
     }
-    
+
     /**
      * Extract character n-grams from a string
      */
     private fun extractNgrams(text: String, n: Int): List<String> {
         if (text.length < n) return listOf(text)
-        
+
         val ngrams = mutableListOf<String>()
         for (i in 0..text.length - n) {
             ngrams.add(text.substring(i, i + n))
         }
         return ngrams
     }
-    
+
     /**
      * Split camelCase or snake_case string into words
      */
@@ -646,57 +691,57 @@ class ZestLeanContextCollector(private val project: Project) {
         // Handle camelCase and PascalCase
         val camelCaseSplit = text.replace(Regex("([a-z])([A-Z])"), "$1 $2")
             .replace(Regex("([A-Z])([A-Z][a-z])"), "$1 $2")
-        
+
         // Handle snake_case and kebab-case
         return camelCaseSplit.split(Regex("[\\s_-]+"))
             .filter { it.isNotEmpty() }
             .map { it.toLowerCase() }
     }
-    
+
     /**
      * Calculate word-based cosine similarity between method names
      */
     private fun calculateMethodNameSimilarity(name1: String, name2: String): Double {
         val words1 = splitIntoWords(name1)
         val words2 = splitIntoWords(name2)
-        
+
         if (words1.isEmpty() || words2.isEmpty()) {
             // Fall back to character-based similarity
             return calculateStringSimilarity(name1, name2)
         }
-        
+
         // Create word frequency vectors
         val allWords = (words1 + words2).distinct()
         val vector1 = allWords.map { word -> words1.count { it == word }.toDouble() }
         val vector2 = allWords.map { word -> words2.count { it == word }.toDouble() }
-        
+
         // Calculate cosine similarity
         val dotProduct = vector1.zip(vector2).sumOf { (a, b) -> a * b }
         val norm1 = Math.sqrt(vector1.sumOf { it * it })
         val norm2 = Math.sqrt(vector2.sumOf { it * it })
-        
+
         if (norm1 == 0.0 || norm2 == 0.0) return 0.0
-        
+
         val wordSimilarity = dotProduct / (norm1 * norm2)
-        
+
         // Combine with character-based similarity for better results
         val charSimilarity = calculateStringSimilarity(name1, name2)
-        
+
         // Weight word similarity more heavily
         return 0.7 * wordSimilarity + 0.3 * charSimilarity
     }
-    
+
     /**
      * Check if a method name should be preserved based on similarity to preserved methods
      */
     private fun shouldPreserveMethodBySimilarity(
-        methodName: String, 
+        methodName: String,
         preserveMethods: Set<String>,
         similarityThreshold: Double = SIMILARITY_THRESHOLD
     ): Boolean {
         // First check exact match
         if (methodName in preserveMethods) return true
-        
+
         // Then check similarity
         for (preservedMethod in preserveMethods) {
             val similarity = calculateMethodNameSimilarity(methodName, preservedMethod)
@@ -704,7 +749,7 @@ class ZestLeanContextCollector(private val project: Project) {
                 return true
             }
         }
-        
+
         return false
     }
 
@@ -718,7 +763,7 @@ class ZestLeanContextCollector(private val project: Project) {
     ): Boolean {
         // First check exact match
         if (fieldName in preserveFields) return true
-        
+
         // Then check similarity
         for (preservedField in preserveFields) {
             val similarity = calculateMethodNameSimilarity(fieldName, preservedField)
@@ -726,7 +771,7 @@ class ZestLeanContextCollector(private val project: Project) {
                 return true
             }
         }
-        
+
         return false
     }
 
@@ -749,7 +794,7 @@ class ZestLeanContextCollector(private val project: Project) {
             preserveMethods,
             preserveFields
         )
-        
+
         return collapsedContent
     }
 
@@ -821,7 +866,6 @@ class ZestLeanContextCollector(private val project: Project) {
     private fun findCursorLine(lines: List<String>): Int {
         return lines.indexOfFirst { it.contains("[CURSOR]") }
     }
-
 
 
     private data class MethodMatch(

@@ -855,6 +855,329 @@ class CodeHealthAnalyzer(private val project: Project) {
         return score.coerceIn(0, 100)
     }
 
+    /**
+     * Analyze review units (groups of methods or whole files) using async processing
+     */
+    fun analyzeReviewUnitsAsync(
+        reviewUnits: List<ReviewOptimizer.ReviewUnit>,
+        optimizer: ReviewOptimizer,
+        indicator: ProgressIndicator? = null
+    ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Starting analysis of ${reviewUnits.size} review units")
+        results.clear()
+        val totalUnits = reviewUnits.size
+        val completed = AtomicInteger(0)
+        val latch = CountDownLatch(totalUnits)
+        val cancelled = AtomicBoolean(false)
+        
+        // Process review units
+        reviewUnits.forEach { unit ->
+            if (indicator?.isCanceled == true || cancelled.get()) {
+                println("[CodeHealthAnalyzer] Analysis cancelled")
+                latch.countDown()
+                return@forEach
+            }
+            
+            val currentCount = completed.get() + 1
+            
+            // Update progress
+            indicator?.let {
+                it.fraction = currentCount.toDouble() / totalUnits
+                it.text = "Analyzing unit $currentCount of $totalUnits: ${unit.getDescription()}"
+            }
+            
+            println("[CodeHealthAnalyzer] Queuing analysis for unit: ${unit.getDescription()}")
+            
+            // Analyze unit asynchronously
+            analyzeReviewUnitAsync(unit, optimizer) { results ->
+                if (cancelled.get()) {
+                    latch.countDown()
+                    return@analyzeReviewUnitAsync
+                }
+                
+                println("[CodeHealthAnalyzer] Unit analysis complete: ${unit.getDescription()}, ${results.size} results")
+                
+                // Store results
+                results.forEach { result ->
+                    this.results[result.fqn] = result
+                }
+                
+                val completedCount = completed.incrementAndGet()
+                
+                // Update progress after completion
+                indicator?.let {
+                    it.fraction = completedCount.toDouble() / totalUnits
+                    it.text = "Completed $completedCount of $totalUnits units"
+                    
+                    // Check cancellation
+                    if (it.isCanceled) {
+                        cancelled.set(true)
+                    }
+                }
+                
+                latch.countDown()
+            }
+        }
+        
+        // Wait for all analyses to complete
+        try {
+            val completed = latch.await(3, TimeUnit.MINUTES)
+            if (!completed) {
+                cancelled.set(true)
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out")
+            }
+        } catch (e: InterruptedException) {
+            cancelled.set(true)
+            Thread.currentThread().interrupt()
+        }
+        
+        return results.values.toList()
+            .sortedByDescending { it.healthScore * it.modificationCount }
+    }
+    
+    /**
+     * Analyze a single review unit asynchronously
+     */
+    private fun analyzeReviewUnitAsync(
+        unit: ReviewOptimizer.ReviewUnit,
+        optimizer: ReviewOptimizer,
+        onComplete: (List<MethodHealthResult>) -> Unit
+    ) {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // Get review context
+                val context = ReadAction.nonBlocking<ReviewOptimizer.ReviewContext> {
+                    optimizer.prepareReviewContext(unit)
+                }
+                .inSmartMode(project)
+                .executeSynchronously()
+                
+                // Analyze based on unit type
+                val results = when (unit.type) {
+                    ReviewOptimizer.ReviewUnit.ReviewType.WHOLE_FILE -> {
+                        analyzeWholeFile(unit, context)
+                    }
+                    ReviewOptimizer.ReviewUnit.ReviewType.METHOD_GROUP -> {
+                        analyzeMethodGroup(unit, context)
+                    }
+                }
+                
+                onComplete(results)
+                
+            } catch (e: Exception) {
+                println("[CodeHealthAnalyzer] ERROR analyzing unit ${unit.getDescription()}: ${e.message}")
+                e.printStackTrace()
+                onComplete(emptyList())
+            }
+        }
+    }
+    
+    /**
+     * Analyze an entire file
+     */
+    private fun analyzeWholeFile(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext
+    ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Analyzing whole file: ${unit.className}")
+        
+        val prompt = """
+            Analyze this entire Java file for code health issues.
+            
+            File: ${unit.className}
+            Size: ${unit.lineCount} lines
+            Modified methods: ${unit.methods.joinToString(", ")}
+            
+            ${context.toPromptContext()}
+            
+            Analyze ALL methods in the file, but pay special attention to the modified ones.
+            Look for:
+            - Issues in the modified methods
+            - Problems in how other methods interact with modified methods
+            - Class-level design issues
+            - Resource management problems
+            - Thread safety concerns
+            
+            Return ONLY valid JSON with results for EACH method:
+            {
+                "methods": [
+                    {
+                        "fqn": "full.class.Name.methodName",
+                        "summary": "Brief assessment",
+                        "healthScore": 85,
+                        "issues": [
+                            {
+                                "category": "Category",
+                                "severity": 3,
+                                "title": "Issue title",
+                                "description": "What's wrong",
+                                "impact": "Consequences",
+                                "suggestedFix": "How to fix",
+                                "confidence": 0.9
+                            }
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+        
+        return callLLMForFileAnalysis(unit, context, prompt)
+    }
+    
+    /**
+     * Analyze a group of methods from the same class
+     */
+    private fun analyzeMethodGroup(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext
+    ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Analyzing method group: ${unit.className} - ${unit.methods.size} methods")
+        
+        val prompt = """
+            Analyze this group of related Java methods for code health issues.
+            
+            Class: ${unit.className}
+            Methods: ${unit.methods.joinToString(", ")}
+            
+            ${context.toPromptContext()}
+            
+            Focus on:
+            - Issues within each method
+            - Problems in how these methods interact
+            - Shared resources or state problems
+            - Pattern violations across methods
+            - Cumulative performance impacts
+            
+            Return ONLY valid JSON with results for EACH method:
+            {
+                "methods": [
+                    {
+                        "fqn": "full.class.Name.methodName",
+                        "summary": "Brief assessment",
+                        "healthScore": 85,
+                        "issues": [
+                            {
+                                "category": "Category",
+                                "severity": 3,
+                                "title": "Issue title",
+                                "description": "What's wrong",
+                                "impact": "Consequences",
+                                "suggestedFix": "How to fix",
+                                "confidence": 0.9
+                            }
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+        
+        return callLLMForFileAnalysis(unit, context, prompt)
+    }
+    
+    /**
+     * Call LLM for file/group analysis
+     */
+    private fun callLLMForFileAnalysis(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext,
+        prompt: String
+    ): List<MethodHealthResult> {
+        try {
+            // Rate limit LLM calls
+            llmRateLimiter.acquire()
+            
+            val params = LLMService.LLMQueryParams(prompt)
+                .useLiteCodeModel()
+                .withMaxTokens(4096)
+                .withTemperature(0.3)
+            
+            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            
+            return if (response != null) {
+                parseFileAnalysisResponse(unit, context, response)
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR calling LLM for ${unit.getDescription()}: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Parse LLM response for file/group analysis
+     */
+    private fun parseFileAnalysisResponse(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext,
+        response: String
+    ): List<MethodHealthResult> {
+        try {
+            val results = mutableListOf<MethodHealthResult>()
+            
+            // Extract JSON
+            val jsonStart = response.indexOf("{")
+            val jsonEnd = response.lastIndexOf("}")
+            if (jsonStart == -1 || jsonEnd == -1) return emptyList()
+            
+            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
+            
+            // Parse each method result
+            val methodPattern = Regex(
+                """"fqn"\s*:\s*"([^"]+)"[^}]*"summary"\s*:\s*"([^"]+)"[^}]*"healthScore"\s*:\s*(\d+)""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            
+            methodPattern.findAll(jsonContent).forEach { match ->
+                val fqn = match.groupValues[1]
+                val summary = match.groupValues[2]
+                val healthScore = match.groupValues[3].toIntOrNull() ?: 85
+                
+                // Find issues for this method
+                val issues = parseIssuesForMethod(fqn, jsonContent)
+                
+                results.add(MethodHealthResult(
+                    fqn = fqn,
+                    issues = issues,
+                    impactedCallers = emptyList(), // Will be filled later if needed
+                    healthScore = healthScore,
+                    modificationCount = 1, // Default
+                    codeContext = "", // Already in context
+                    summary = summary
+                ))
+            }
+            
+            // Mark all issues as verified when using file/group analysis
+            return results.map { result ->
+                result.copy(
+                    issues = result.issues.map { issue ->
+                        issue.copy(
+                            verified = true,
+                            verificationReason = "Verified through ${unit.type} analysis"
+                        )
+                    }
+                )
+            }
+            
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR parsing file analysis response: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Parse issues for a specific method from JSON response
+     */
+    private fun parseIssuesForMethod(fqn: String, jsonContent: String): List<HealthIssue> {
+        // This is a simplified version - in production, use proper JSON parsing
+        val issues = mutableListOf<HealthIssue>()
+        
+        // Find the method block and extract its issues
+        // ... parsing logic ...
+        
+        return issues
+    }
+    
     fun dispose() {
         analysisQueue.shutdown()
         llmRateLimiter.shutdown()

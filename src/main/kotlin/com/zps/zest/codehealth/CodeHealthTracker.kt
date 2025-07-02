@@ -357,31 +357,52 @@ class CodeHealthTracker(private val project: Project) :
                     return@executeOnPooledThread
                 }
                 
-                // Separate methods into pre-reviewed and need-review
-                val needsReview = methods.filter { !preReviewedMethods.containsKey(it.fqn) }
-                println("[CodeHealth] ${needsReview.size} methods need fresh review, ${preReviewedMethods.size} already reviewed")
+                // Use ReviewOptimizer to group methods
+                val optimizer = ReviewOptimizer(project)
+                val allMethodFQNs = methods.map { it.fqn }
+                val reviewUnits = optimizer.optimizeReviewUnits(allMethodFQNs)
                 
-                // Analyze only the methods that haven't been reviewed yet
-                val freshResults = if (needsReview.isNotEmpty()) {
+                println("[CodeHealth] Optimized into ${reviewUnits.size} review units:")
+                reviewUnits.forEach { unit ->
+                    println("[CodeHealth] - ${unit.getDescription()}")
+                }
+                
+                // Separate pre-reviewed units from new ones
+                val preReviewedUnits = mutableListOf<ReviewOptimizer.ReviewUnit>()
+                val needsReviewUnits = mutableListOf<ReviewOptimizer.ReviewUnit>()
+                
+                reviewUnits.forEach { unit ->
+                    val unitId = unit.getIdentifier()
+                    if (reviewer.hasReviewedUnit(unitId)) {
+                        preReviewedUnits.add(unit)
+                    } else {
+                        needsReviewUnits.add(unit)
+                    }
+                }
+                
+                println("[CodeHealth] ${needsReviewUnits.size} units need review, ${preReviewedUnits.size} already reviewed")
+                
+                // Analyze only the units that haven't been reviewed yet
+                val freshResults = if (needsReviewUnits.isNotEmpty()) {
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
                     val startTime = System.currentTimeMillis()
                     
-                    // Limit to MAX_METHODS_PER_ANALYSIS
-                    val limitedMethods = needsReview.take(CodeHealthAnalyzer.MAX_METHODS_PER_ANALYSIS)
-                    if (limitedMethods.size < needsReview.size) {
+                    // Limit units if needed
+                    val limitedUnits = needsReviewUnits.take(10) // Limit to 10 review units
+                    if (limitedUnits.size < needsReviewUnits.size) {
                         ApplicationManager.getApplication().invokeLater {
                             NotificationGroupManager.getInstance()
                                 .getNotificationGroup("Zest Code Guardian")
                                 .createNotification(
                                     "Analysis Limited",
-                                    "Analyzing top ${limitedMethods.size} of ${needsReview.size} methods (most frequently modified).",
+                                    "Analyzing ${limitedUnits.size} of ${needsReviewUnits.size} review units.",
                                     NotificationType.WARNING
                                 )
                                 .notify(project)
                         }
                     }
                     
-                    val results = analyzer.analyzeAllMethodsAsync(limitedMethods, null)
+                    val results = analyzer.analyzeReviewUnitsAsync(limitedUnits, optimizer, null)
                     
                     val analysisTime = System.currentTimeMillis() - startTime
                     println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
@@ -390,9 +411,14 @@ class CodeHealthTracker(private val project: Project) :
                     emptyList()
                 }
                 
+                // Get pre-reviewed results
+                val preReviewedResults = preReviewedUnits.flatMap { unit ->
+                    reviewer.getReviewedUnitResults(unit.getIdentifier())
+                }
+                
                 // Combine pre-reviewed and fresh results
-                val allResults = preReviewedMethods.values.toList() + freshResults
-                println("[CodeHealth] Total results: ${allResults.size} (${preReviewedMethods.size} cached, ${freshResults.size} fresh)")
+                val allResults = preReviewedResults + freshResults
+                println("[CodeHealth] Total results: ${allResults.size} (${preReviewedResults.size} cached, ${freshResults.size} fresh)")
                 
                 if (allResults.isNotEmpty()) {
                     val totalIssues = allResults.sumOf { it.issues.size }

@@ -29,8 +29,9 @@ class BackgroundHealthReviewer(private val project: Project) {
     private val reviewExecutor = Executors.newCachedThreadPool()
     private val isReviewing = AtomicBoolean(false)
     
-    // Cache for reviewed methods
+    // Cache for reviewed methods and units
     private val reviewedMethods = ConcurrentHashMap<String, MethodHealthResult>()
+    private val reviewedUnits = ConcurrentHashMap<String, List<MethodHealthResult>>() // Unit ID -> Results
     private val pendingReviews = ConcurrentHashMap<String, Long>() // FQN -> last modified time
     private val gson = Gson()
     
@@ -97,29 +98,62 @@ class BackgroundHealthReviewer(private val project: Project) {
             try {
                 println("[BackgroundHealthReviewer] Starting background review of $fqn")
                 
-                val analyzer = CodeHealthAnalyzer.getInstance(project)
-                val method = CodeHealthTracker.ModifiedMethod(
-                    fqn = fqn,
-                    modificationCount = 1,
-                    lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
-                )
+                // Check if this method is part of a small file or group that should be reviewed together
+                val optimizer = ReviewOptimizer(project)
+                val reviewUnits = optimizer.optimizeReviewUnits(listOf(fqn))
                 
-                // Create a single-method list for the analyzer
-                val methods = listOf(method)
-                
-                // Run analysis
-                val results = analyzer.analyzeAllMethodsAsync(methods, null)
-                
-                if (results.isNotEmpty()) {
-                    val result = results.first()
-                    reviewedMethods[fqn] = result
-                    pendingReviews.remove(fqn) // Remove from pending since it's been reviewed
+                if (reviewUnits.isNotEmpty()) {
+                    val unit = reviewUnits.first()
+                    val unitId = unit.getIdentifier()
                     
-                    println("[BackgroundHealthReviewer] Completed review of $fqn: " +
-                            "${result.issues.size} issues found, health score: ${result.healthScore}")
+                    // Check if this unit has already been reviewed
+                    if (hasReviewedUnit(unitId)) {
+                        println("[BackgroundHealthReviewer] Unit $unitId already reviewed, skipping")
+                        return@submit
+                    }
                     
-                    // Persist to state
-                    saveReviewedMethods()
+                    println("[BackgroundHealthReviewer] Reviewing as part of unit: ${unit.getDescription()}")
+                    
+                    val analyzer = CodeHealthAnalyzer.getInstance(project)
+                    val results = analyzer.analyzeReviewUnitsAsync(listOf(unit), optimizer, null)
+                    
+                    if (results.isNotEmpty()) {
+                        // Store results by unit
+                        storeReviewedUnit(unitId, results)
+                        
+                        // Remove all methods in this unit from pending
+                        unit.methods.forEach { methodName ->
+                            pendingReviews.remove("${unit.className}.$methodName")
+                        }
+                        
+                        println("[BackgroundHealthReviewer] Completed review of unit $unitId: " +
+                                "${results.size} method results, " +
+                                "${results.sumOf { it.issues.size }} total issues")
+                        
+                        // Persist to state
+                        saveReviewedMethods()
+                    }
+                } else {
+                    // Fallback to individual method review
+                    val method = CodeHealthTracker.ModifiedMethod(
+                        fqn = fqn,
+                        modificationCount = 1,
+                        lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
+                    )
+                    
+                    val analyzer = CodeHealthAnalyzer.getInstance(project)
+                    val results = analyzer.analyzeAllMethodsAsync(listOf(method), null)
+                    
+                    if (results.isNotEmpty()) {
+                        val result = results.first()
+                        reviewedMethods[fqn] = result
+                        pendingReviews.remove(fqn)
+                        
+                        println("[BackgroundHealthReviewer] Completed individual review of $fqn: " +
+                                "${result.issues.size} issues found, health score: ${result.healthScore}")
+                        
+                        saveReviewedMethods()
+                    }
                 }
             } catch (e: Exception) {
                 println("[BackgroundHealthReviewer] Error reviewing $fqn: ${e.message}")
@@ -134,13 +168,39 @@ class BackgroundHealthReviewer(private val project: Project) {
     fun getReviewedMethods(): Map<String, MethodHealthResult> = reviewedMethods.toMap()
     
     /**
-     * Clear all reviewed methods (called after 13h report)
+     * Check if a review unit has been reviewed
+     */
+    fun hasReviewedUnit(unitId: String): Boolean {
+        return reviewedUnits.containsKey(unitId)
+    }
+    
+    /**
+     * Get results for a reviewed unit
+     */
+    fun getReviewedUnitResults(unitId: String): List<MethodHealthResult> {
+        return reviewedUnits[unitId] ?: emptyList()
+    }
+    
+    /**
+     * Store results for a review unit
+     */
+    fun storeReviewedUnit(unitId: String, results: List<MethodHealthResult>) {
+        reviewedUnits[unitId] = results
+        // Also store individual methods for compatibility
+        results.forEach { result ->
+            reviewedMethods[result.fqn] = result
+        }
+    }
+    
+    /**
+     * Clear all reviewed methods and units (called after 13h report)
      */
     fun clearReviewedMethods() {
         reviewedMethods.clear()
+        reviewedUnits.clear()
         pendingReviews.clear()
         saveReviewedMethods()
-        println("[BackgroundHealthReviewer] Cleared all reviewed methods")
+        println("[BackgroundHealthReviewer] Cleared all reviewed methods and units")
     }
     
     /**

@@ -105,6 +105,7 @@
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthVerificationAgent"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
         
         <!-- Code Health Notification Group -->
         <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>
@@ -222,5 +223,41 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        
+        <!-- Code Health Test Actions Group -->
+        <group id="Zest.CodeHealthTests" text="Code Health Tests" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.CheckCodeHealth"/>
+            <add-to-group group-id="ZestGroup" anchor="last"  />
+
+            <action id="Zest.AddMethodAtCaret"
+                    class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
+                    text="Add Method at Caret to Health Review"
+                    description="Add the method at cursor position to the code health review queue">
+            </action>
+            
+            <action id="Zest.TriggerBackgroundReview"
+                    class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
+                    text="Trigger Background Health Review"
+                    description="Manually trigger background review of all pending methods">
+            </action>
+            
+            <action id="Zest.TriggerFinalReview"
+                    class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
+                    text="Trigger Final Health Review (13h)"
+                    description="Manually trigger the daily health check report">
+            </action>
+            
+            <action id="Zest.ShowReviewQueueStatus"
+                    class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
+                    text="Show Health Review Queue Status"
+                    description="Display the current status of the code health review queue">
+            </action>
+            
+            <action id="Zest.DebugHealthAction"
+                    class="com.zps.zest.codehealth.DebugHealthAction"
+                    text="Debug Code Health"
+                    description="Clear all methods and add test method for debugging">
+            </action>
+        </group>
     </actions>
 </idea-plugin>

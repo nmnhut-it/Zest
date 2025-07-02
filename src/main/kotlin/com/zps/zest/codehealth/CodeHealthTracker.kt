@@ -200,7 +200,7 @@ class CodeHealthTracker(private val project: Project) :
         }
     }
 
-    private fun trackMethodModification(fqn: String) {
+    fun trackMethodModification(fqn: String) {
         if (fqn.isBlank()) {
             println("[CodeHealthTracker] WARNING: Attempting to track empty FQN")
             return
@@ -219,10 +219,11 @@ class CodeHealthTracker(private val project: Project) :
                 }
         }
 
+        val now = System.currentTimeMillis()
         methodModifications.compute(fqn) { _, existing ->
             if (existing != null) {
                 existing.modificationCount++
-                existing.lastModified = System.currentTimeMillis()
+                existing.lastModified = now
                 println("[CodeHealthTracker] Updated method $fqn: count=${existing.modificationCount}")
                 existing
             } else {
@@ -230,6 +231,9 @@ class CodeHealthTracker(private val project: Project) :
                 ModifiedMethod(fqn)
             }
         }
+        
+        // Queue for background review after inactivity
+        BackgroundHealthReviewer.getInstance(project).updateMethodModificationTime(fqn, now)
         
         println("[CodeHealthTracker] Total tracked methods: ${methodModifications.size}")
         
@@ -286,7 +290,7 @@ class CodeHealthTracker(private val project: Project) :
     }
 
     fun checkAndNotify() {
-        if (!state.enabled || methodModifications.isEmpty()) return
+        if (!state.enabled) return
         
         // Prevent concurrent analyses
         if (!isAnalysisRunning.compareAndSet(false, true)) {
@@ -295,77 +299,72 @@ class CodeHealthTracker(private val project: Project) :
         
         println("[CodeHealth] Starting code health analysis...")
         
-        // Run analysis in background with progress
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            project,
-            "Analyzing Code Health",
-            true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                try {
-                    indicator.isIndeterminate = false
-                    
-                    val methods = getModifiedMethodDetails()
-                        .filter { it.fqn.isNotBlank() } // Filter out empty FQNs
-                    
-                    if (methods.isEmpty()) {
-                        println("[CodeHealth] No valid modified methods to analyze")
-                        return
-                    }
-                    
-                    // Limit methods to analyze
-                    val methodsToAnalyze = methods.take(50)
-                    println("[CodeHealth] Found ${methods.size} modified methods, analyzing top ${methodsToAnalyze.size}")
-                    
-                    indicator.text = "Analyzing ${methodsToAnalyze.size} modified methods..."
-                    indicator.fraction = 0.0
-                    
-                    // Trigger async analysis
+        // Run analysis in background without progress UI
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val reviewer = BackgroundHealthReviewer.getInstance(project)
+                val preReviewedMethods = reviewer.getReviewedMethods()
+                println("[CodeHealth] Found ${preReviewedMethods.size} pre-reviewed methods")
+                
+                val methods = getModifiedMethodDetails()
+                    .filter { it.fqn.isNotBlank() } // Filter out empty FQNs
+                
+                if (methods.isEmpty() && preReviewedMethods.isEmpty()) {
+                    println("[CodeHealth] No methods to analyze")
+                    isAnalysisRunning.set(false)
+                    return@executeOnPooledThread
+                }
+                
+                // Separate methods into pre-reviewed and need-review
+                val needsReview = methods.filter { !preReviewedMethods.containsKey(it.fqn) }
+                println("[CodeHealth] ${needsReview.size} methods need fresh review, ${preReviewedMethods.size} already reviewed")
+                
+                // Analyze only the methods that haven't been reviewed yet
+                val freshResults = if (needsReview.isNotEmpty()) {
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
                     val startTime = System.currentTimeMillis()
                     
-                    val results = analyzer.analyzeAllMethodsAsync(methodsToAnalyze, indicator)
+                    val results = analyzer.analyzeAllMethodsAsync(needsReview.take(50), null)
                     
                     val analysisTime = System.currentTimeMillis() - startTime
-                    println("[CodeHealth] Analysis completed in ${analysisTime}ms. Found ${results.size} results")
+                    println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
+                    results
+                } else {
+                    emptyList()
+                }
+                
+                // Combine pre-reviewed and fresh results
+                val allResults = preReviewedMethods.values.toList() + freshResults
+                println("[CodeHealth] Total results: ${allResults.size} (${preReviewedMethods.size} cached, ${freshResults.size} fresh)")
+                
+                if (allResults.isNotEmpty()) {
+                    val totalIssues = allResults.sumOf { it.issues.size }
+                    val verifiedIssues = allResults.sumOf { result -> 
+                        result.issues.count { it.verified && !it.falsePositive } 
+                    }
+                    println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
                     
-                    if (results.isNotEmpty() && !indicator.isCanceled) {
-                        val totalIssues = results.sumOf { it.issues.size }
-                        val verifiedIssues = results.sumOf { result -> 
-                            result.issues.count { it.verified && !it.falsePositive } 
-                        }
-                        println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
-                        
-                        ApplicationManager.getApplication().invokeLater {
-                            if (!project.isDisposed) {
-                                CodeHealthNotification.showHealthReport(project, results)
-                            }
+                    ApplicationManager.getApplication().invokeLater {
+                        if (!project.isDisposed) {
+                            CodeHealthNotification.showHealthReport(project, allResults)
                         }
                     }
-                    
-                    // Update last check time
-                    state.lastCheckTime = System.currentTimeMillis()
-                    
-                } catch (e: Exception) {
-                    println("[CodeHealth] ERROR during analysis: ${e.message}")
-                    e.printStackTrace()
-                } finally {
-                    isAnalysisRunning.set(false)
-                    println("[CodeHealth] Analysis finished")
                 }
-            }
-            
-            override fun onCancel() {
-                println("[CodeHealth] Analysis cancelled by user")
+                
+                // Clear the background reviewer cache after report
+                reviewer.clearReviewedMethods()
+                
+                // Update last check time
+                state.lastCheckTime = System.currentTimeMillis()
+                
+            } catch (e: Exception) {
+                println("[CodeHealth] ERROR during analysis: ${e.message}")
+                e.printStackTrace()
+            } finally {
                 isAnalysisRunning.set(false)
+                println("[CodeHealth] Analysis finished")
             }
-            
-            override fun onThrowable(error: Throwable) {
-                println("[CodeHealth] Analysis failed with error: ${error.message}")
-                error.printStackTrace()
-                super.onThrowable(error)
-            }
-        })
+        }
     }
 
     private fun scheduleNextCheck() {

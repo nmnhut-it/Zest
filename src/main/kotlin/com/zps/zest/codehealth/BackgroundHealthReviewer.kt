@@ -1,0 +1,231 @@
+package com.zps.zest.codehealth
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
+import com.zps.zest.codehealth.CodeHealthAnalyzer.*
+import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicBoolean
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+
+/**
+ * Service that reviews methods in the background after they haven't been modified for 10 minutes.
+ * Results are cached for the final 13h report.
+ */
+@Service(Service.Level.PROJECT)
+class BackgroundHealthReviewer(private val project: Project) {
+    
+    companion object {
+        private const val INACTIVITY_THRESHOLD_MS = 10 * 60 * 1000L // 10 minutes
+        private const val CHECK_INTERVAL_MS = 30 * 1000L // Check every 30 seconds
+        
+        fun getInstance(project: Project): BackgroundHealthReviewer =
+            project.getService(BackgroundHealthReviewer::class.java)
+    }
+    
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val reviewExecutor = Executors.newCachedThreadPool()
+    private val isReviewing = AtomicBoolean(false)
+    
+    // Cache for reviewed methods
+    private val reviewedMethods = ConcurrentHashMap<String, MethodHealthResult>()
+    private val pendingReviews = ConcurrentHashMap<String, Long>() // FQN -> last modified time
+    private val gson = Gson()
+    
+    init {
+        // Schedule periodic check for methods ready to review
+        scheduler.scheduleWithFixedDelay(
+            ::checkAndReviewInactiveMethods,
+            1, // Initial delay
+            CHECK_INTERVAL_MS / 1000, // Convert to seconds
+            TimeUnit.SECONDS
+        )
+        
+        println("[BackgroundHealthReviewer] Initialized with check interval: ${CHECK_INTERVAL_MS}ms")
+    }
+    
+    /**
+     * Add a method to the pending review queue
+     */
+    fun queueMethodForReview(fqn: String, lastModified: Long) {
+        if (fqn.isBlank()) return
+        
+        pendingReviews[fqn] = lastModified
+        println("[BackgroundHealthReviewer] Queued method for review: $fqn (last modified: $lastModified)")
+    }
+    
+    /**
+     * Update the last modified time for a method (called when method is edited)
+     */
+    fun updateMethodModificationTime(fqn: String, time: Long) {
+        pendingReviews[fqn] = time
+        // Remove from reviewed cache since it's been modified again
+        reviewedMethods.remove(fqn)
+        println("[BackgroundHealthReviewer] Updated modification time for $fqn, removed from cache")
+    }
+    
+    /**
+     * Check for methods that haven't been modified for 10 minutes and review them
+     */
+    private fun checkAndReviewInactiveMethods() {
+        if (project.isDisposed) return
+        
+        val now = System.currentTimeMillis()
+        val methodsToReview = pendingReviews.entries
+            .filter { (fqn, lastModified) ->
+                val inactive = (now - lastModified) >= INACTIVITY_THRESHOLD_MS
+                val notReviewed = !reviewedMethods.containsKey(fqn)
+                inactive && notReviewed
+            }
+            .map { it.key }
+        
+        if (methodsToReview.isNotEmpty()) {
+            println("[BackgroundHealthReviewer] Found ${methodsToReview.size} methods ready for background review")
+            methodsToReview.forEach { fqn ->
+                reviewMethodInBackground(fqn)
+            }
+        }
+    }
+    
+    /**
+     * Review a single method in the background
+     */
+    private fun reviewMethodInBackground(fqn: String) {
+        reviewExecutor.submit {
+            try {
+                println("[BackgroundHealthReviewer] Starting background review of $fqn")
+                
+                val analyzer = CodeHealthAnalyzer.getInstance(project)
+                val method = CodeHealthTracker.ModifiedMethod(
+                    fqn = fqn,
+                    modificationCount = 1,
+                    lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
+                )
+                
+                // Create a single-method list for the analyzer
+                val methods = listOf(method)
+                
+                // Run analysis
+                val results = analyzer.analyzeAllMethodsAsync(methods, null)
+                
+                if (results.isNotEmpty()) {
+                    val result = results.first()
+                    reviewedMethods[fqn] = result
+                    pendingReviews.remove(fqn) // Remove from pending since it's been reviewed
+                    
+                    println("[BackgroundHealthReviewer] Completed review of $fqn: " +
+                            "${result.issues.size} issues found, health score: ${result.healthScore}")
+                    
+                    // Persist to state
+                    saveReviewedMethods()
+                }
+            } catch (e: Exception) {
+                println("[BackgroundHealthReviewer] Error reviewing $fqn: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    /**
+     * Get all reviewed methods (used by the 13h report)
+     */
+    fun getReviewedMethods(): Map<String, MethodHealthResult> = reviewedMethods.toMap()
+    
+    /**
+     * Clear all reviewed methods (called after 13h report)
+     */
+    fun clearReviewedMethods() {
+        reviewedMethods.clear()
+        pendingReviews.clear()
+        saveReviewedMethods()
+        println("[BackgroundHealthReviewer] Cleared all reviewed methods")
+    }
+    
+    /**
+     * Manually trigger review of all pending methods
+     */
+    fun reviewAllPendingMethods() {
+        val methodsToReview = pendingReviews.keys.toList()
+        println("[BackgroundHealthReviewer] Manually reviewing ${methodsToReview.size} pending methods")
+        
+        methodsToReview.forEach { fqn ->
+            reviewMethodInBackground(fqn)
+        }
+    }
+    
+    /**
+     * Save reviewed methods to persistent storage
+     */
+    private fun saveReviewedMethods() {
+        try {
+            val tracker = CodeHealthTracker.getInstance(project)
+            val state = tracker.state
+            
+            // Serialize reviewed methods
+            val serialized = reviewedMethods.mapValues { (_, result) ->
+                gson.toJson(result)
+            }
+            
+            // Store in state (you'll need to add this field to State)
+            // For now, we'll just keep in memory
+            
+        } catch (e: Exception) {
+            println("[BackgroundHealthReviewer] Error saving reviewed methods: ${e.message}")
+        }
+    }
+    
+    /**
+     * Load reviewed methods from persistent storage
+     */
+    fun loadReviewedMethods(serializedData: Map<String, String>) {
+        try {
+            serializedData.forEach { (fqn, json) ->
+                val result = gson.fromJson(json, MethodHealthResult::class.java)
+                reviewedMethods[fqn] = result
+            }
+            println("[BackgroundHealthReviewer] Loaded ${reviewedMethods.size} reviewed methods from storage")
+        } catch (e: Exception) {
+            println("[BackgroundHealthReviewer] Error loading reviewed methods: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get statistics about the review queue
+     */
+    fun getQueueStats(): BackgroundReviewStats {
+        val now = System.currentTimeMillis()
+        val pendingCount = pendingReviews.size
+        val reviewedCount = reviewedMethods.size
+        val readyForReview = pendingReviews.count { (_, lastModified) ->
+            (now - lastModified) >= INACTIVITY_THRESHOLD_MS
+        }
+        
+        return BackgroundReviewStats(
+            pendingCount = pendingCount,
+            reviewedCount = reviewedCount,
+            readyForReviewCount = readyForReview,
+            totalIssuesFound = reviewedMethods.values.sumOf { it.issues.size }
+        )
+    }
+    
+    data class BackgroundReviewStats(
+        val pendingCount: Int,
+        val reviewedCount: Int,
+        val readyForReviewCount: Int,
+        val totalIssuesFound: Int
+    )
+    
+    fun dispose() {
+        scheduler.shutdown()
+        reviewExecutor.shutdown()
+        try {
+            scheduler.awaitTermination(5, TimeUnit.SECONDS)
+            reviewExecutor.awaitTermination(5, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            scheduler.shutdownNow()
+            reviewExecutor.shutdownNow()
+        }
+    }
+}

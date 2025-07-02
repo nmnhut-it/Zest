@@ -65,7 +65,8 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         ACCEPTING("⚡ Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
         IDLE("💤 Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
         DISABLED("⏸️ Disabled", ICON_IDLE, "Zest completion is disabled in settings"),
-        ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state - Click to reset")
+        ERROR("❌ Error", ICON_ERROR, "Zest completion has an error or orphaned state - Click to reset"),
+        RATE_LIMITED("⏱️ Rate Limited", ICON_WAITING, "Too many requests - waiting before next request")
     }
 
     enum class MethodRewriteState(val displayText: String, val icon: Icon, val tooltip: String) {
@@ -101,8 +102,32 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             } else ""
 
             val strategy = "\nStrategy: ${getStrategyName()}"
+            
+            // Add request state info
+            val detailedState = try {
+                completionService.getDetailedState()
+            } catch (e: Exception) {
+                emptyMap()
+            }
+            
+            val requestInfo = buildString {
+                val requestState = detailedState["currentRequestState"] as? String
+                if (requestState != null && requestState != "IDLE") {
+                    append("\nRequest State: $requestState")
+                }
+                
+                val requestsPerMinute = detailedState["requestsInLastMinute"] as? Int
+                if (requestsPerMinute != null && requestsPerMinute > 0) {
+                    append("\nRequests/min: $requestsPerMinute")
+                }
+                
+                val timeSinceLastRequest = detailedState["timeSinceLastRequest"] as? Long
+                if (timeSinceLastRequest != null && timeSinceLastRequest < 5000) {
+                    append("\nLast request: ${timeSinceLastRequest}ms ago")
+                }
+            }
 
-            return "$primaryState$statusInfo$strategy\n\nClick for options • Right-click for menu"
+            return "$primaryState$statusInfo$strategy$requestInfo\n\nClick for options • Right-click for menu"
         }
 
         override fun getClickConsumer(): Consumer<MouseEvent>? {
@@ -216,6 +241,20 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                         mouseEvent
                     )
                 }
+            }
+            // Rate limited state - show info
+            currentCompletionState == CompletionState.RATE_LIMITED -> {
+                val detailedState = try {
+                    completionService.getDetailedState()
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+                val requestsPerMinute = detailedState["requestsInLastMinute"] as? Int ?: 0
+                showBalloon(
+                    "Rate limited: $requestsPerMinute requests in the last minute. Please wait...",
+                    MessageType.WARNING,
+                    mouseEvent
+                )
             }
             // Completion states
             currentCompletionState == CompletionState.REQUESTING -> {
@@ -378,6 +417,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 CompletionState.IDLE -> "Zest"
                 CompletionState.DISABLED -> "Zest: ⏸️ Disabled"
                 CompletionState.ERROR -> "Zest: ❌ Error"
+                CompletionState.RATE_LIMITED -> "Zest: ⏱️ Rate Limited"
             }
         }
 
@@ -421,8 +461,22 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                     if (loading) {
                         updateCompletionState(CompletionState.REQUESTING)
                     } else {
+                        // Get more detailed state info
+                        val detailedState = try {
+                            completionService.getDetailedState()
+                        } catch (e: Exception) {
+                            emptyMap()
+                        }
+                        
+                        val requestState = detailedState["currentRequestState"] as? String
                         val hasCompletion = completionService.getCurrentCompletion() != null
-                        updateCompletionState(if (hasCompletion) CompletionState.WAITING else CompletionState.IDLE)
+                        
+                        when {
+                            hasCompletion -> updateCompletionState(CompletionState.WAITING)
+                            requestState == "WAITING" -> updateCompletionState(CompletionState.IDLE)
+                            requestState == "REQUESTING" -> updateCompletionState(CompletionState.REQUESTING)
+                            else -> updateCompletionState(CompletionState.IDLE)
+                        }
                     }
                 }
             }
@@ -444,15 +498,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
                     updateCompletionState(CompletionState.ACCEPTING)
 
+                    // Don't immediately switch back - let the service manage the state
                     scope.launch {
-                        delay(500)
+                        delay(1000) // Wait a bit longer
                         ApplicationManager.getApplication().invokeLater {
-                            if (!completionService.isEnabled()) {
-                                updateCompletionState(CompletionState.DISABLED)
-                            } else {
-                                val hasCompletion = completionService.getCurrentCompletion() != null
-                                updateCompletionState(if (hasCompletion) CompletionState.WAITING else CompletionState.IDLE)
-                            }
+                            checkForOrphanedState() // Let the state check determine the right state
                         }
                     }
                 }
@@ -609,14 +659,27 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
             val info = buildString {
                 appendLine("=== Zest Status Debug Info ===")
-                appendLine("Completion State: ${currentCompletionState.displayText}")
-                appendLine("Method Rewrite State: ${currentMethodRewriteState?.displayText ?: "None"}")
-                appendLine("Method Rewrite Status: $methodRewriteStatus")
+                appendLine("Widget State:")
+                appendLine("  Completion State: ${currentCompletionState.displayText}")
+                appendLine("  Method Rewrite State: ${currentMethodRewriteState?.displayText ?: "None"}")
+                appendLine("  Method Rewrite Status: $methodRewriteStatus")
                 appendLine()
-                appendLine("Detailed State:")
-                detailedState.forEach { (key, value) ->
-                    appendLine("  $key: $value")
-                }
+                appendLine("Service State:")
+                appendLine("  Request State: ${detailedState["currentRequestState"]}")
+                appendLine("  Active Request ID: ${detailedState["activeRequestId"]}")
+                appendLine("  Is Accepting: ${detailedState["isAcceptingCompletion"]}")
+                appendLine("  Is Programmatic Edit: ${detailedState["isProgrammaticEdit"]}")
+                appendLine()
+                appendLine("Rate Limiting:")
+                appendLine("  Requests/min: ${detailedState["requestsInLastMinute"]}")
+                appendLine("  Time since last request: ${detailedState["timeSinceLastRequest"]}ms")
+                appendLine("  Time since last accept: ${detailedState["timeSinceAccept"]}ms")
+                appendLine()
+                appendLine("Configuration:")
+                appendLine("  Strategy: ${detailedState["strategy"]}")
+                appendLine("  Enabled: ${detailedState["isEnabled"]}")
+                appendLine("  Auto-trigger: ${detailedState["autoTrigger"]}")
+                appendLine()
                 appendLine("Cache: $cacheStats")
 
                 val currentCompletion = completionService.getCurrentCompletion()
@@ -625,10 +688,19 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                     appendLine("Text: '${currentCompletion.insertText.take(100)}...'")
                     appendLine("Range: ${currentCompletion.replaceRange}")
                     appendLine("Confidence: ${currentCompletion.confidence}")
+                    appendLine("ID: ${currentCompletion.completionId}")
                 }
             }
 
             logger.info(info)
+            
+            // Show in a message dialog too
+            com.intellij.openapi.ui.Messages.showMessageDialog(
+                project,
+                info,
+                "Zest Debug Information",
+                com.intellij.openapi.ui.Messages.getInformationIcon()
+            )
 
         } catch (e: Exception) {
             logger.warn("Failed to get debug info", e)
@@ -661,9 +733,21 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
                 logger.debug("Status bar state check: $detailedState")
 
+                // Check for rate limiting
+                val requestsPerMinute = detailedState["requestsInLastMinute"] as? Int ?: 0
+                if (requestsPerMinute >= 25) { // Show rate limited when approaching limit
+                    updateCompletionState(CompletionState.RATE_LIMITED)
+                    return@invokeLater
+                }
+
+                // Use the new currentRequestState from detailed state
+                val requestState = detailedState["currentRequestState"] as? String
+
                 when {
                     detailedState["isAcceptingCompletion"] == true -> updateCompletionState(CompletionState.ACCEPTING)
                     hasCompletion -> updateCompletionState(CompletionState.WAITING)
+                    requestState == "REQUESTING" -> updateCompletionState(CompletionState.REQUESTING)
+                    requestState == "WAITING" -> updateCompletionState(CompletionState.IDLE) // Timer waiting shows as idle
                     detailedState["activeRequestId"] != "null" -> updateCompletionState(CompletionState.REQUESTING)
                     else -> updateCompletionState(CompletionState.IDLE)
                 }

@@ -13,6 +13,7 @@ import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.CompletionMetadata
+import com.zps.zest.completion.CancellableLLMRequest
 import com.zps.zest.completion.context.ZestSimpleContextCollector
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.completion.prompt.ZestSimplePromptBuilder
@@ -44,6 +45,16 @@ class ZestCompletionProvider(private val project: Project) {
             logger.warn("Failed to create LLMService instance", e)
             throw IllegalStateException("LLMService not available", e)
         }
+    }
+    
+    private val cancellableLLM by lazy { CancellableLLMRequest(project) }
+    
+    // Request tracking for cancellation
+    @Volatile
+    private var currentRequestId: Int? = null
+    
+    fun setCurrentRequestId(requestId: Int?) {
+        currentRequestId = requestId
     }
     
     // Strategy components
@@ -79,22 +90,25 @@ class ZestCompletionProvider(private val project: Project) {
         strategy = newStrategy
     }
     
-    suspend fun requestCompletion(context: CompletionContext): ZestInlineCompletionList? {
-        System.out.println("[ZestCompletionProvider] requestCompletion called with strategy: $strategy")
+    suspend fun requestCompletion(context: CompletionContext, requestId: Int): ZestInlineCompletionList? {
+        System.out.println("[ZestCompletionProvider] requestCompletion called with strategy: $strategy, requestId: $requestId")
         System.out.println("  - context offset: ${context.offset}")
         System.out.println("  - context file: ${context.fileName}")
         
+        // Update current request ID for cancellation
+        currentRequestId = requestId
+        
         return when (strategy) {
-            CompletionStrategy.SIMPLE -> requestSimpleCompletion(context)
-            CompletionStrategy.LEAN -> requestLeanCompletion(context)
-            CompletionStrategy.METHOD_REWRITE -> requestMethodRewrite(context)
+            CompletionStrategy.SIMPLE -> requestSimpleCompletion(context, requestId)
+            CompletionStrategy.LEAN -> requestLeanCompletion(context, requestId)
+            CompletionStrategy.METHOD_REWRITE -> requestMethodRewrite(context, requestId)
         }
     }
     
     /**
      * Original simple completion strategy
      */
-    private suspend fun requestSimpleCompletion(context: CompletionContext): ZestInlineCompletionList? {
+    private suspend fun requestSimpleCompletion(context: CompletionContext, requestId: Int): ZestInlineCompletionList? {
         System.out.println("[ZestCompletionProvider] requestSimpleCompletion started")
         System.out.println("  - offset: ${context.offset}")
         System.out.println("  - fileName: ${context.fileName}")
@@ -152,8 +166,8 @@ class ZestCompletionProvider(private val project: Project) {
             System.out.println("  - first 100 chars: '${prompt.take(100)}...'")
             logger.debug("Prompt built, length: ${prompt.length}")
             
-            // Query LLM with timeout (background thread)
-            System.out.println("[ZestCompletionProvider] Querying LLM...")
+            // Query LLM with timeout and cancellation support
+            System.out.println("[ZestCompletionProvider] Querying LLM with cancellation support...")
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -162,18 +176,9 @@ class ZestCompletionProvider(private val project: Project) {
                     .withTemperature(0.1)  // Low temperature for more deterministic completions
                     .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
                 
-//                System.out.println("[ZestCompletionProvider] LLM query params:")
-//                System.out.println("  - model: local-model-mini")
-//                System.out.println("  - maxTokens: $MAX_COMPLETION_TOKENS")
-//                System.out.println("  - temperature: 0.1")
-//                System.out.println("  - stop sequences: ${getStopSequences()}")
-                
-                val result = llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
-//                System.out.println("[ZestCompletionProvider] LLM response received:")
-//                System.out.println("  - response null: ${result == null}")
-//                System.out.println("  - response length: ${result?.length}")
-//                System.out.println("  - response preview: '${result?.take(100)}...'")
-                result
+                // Use cancellable request
+                val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
+                cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
             val llmTime = System.currentTimeMillis() - llmStartTime
             System.out.println("[ZestCompletionProvider] LLM query took ${llmTime}ms")
@@ -241,7 +246,7 @@ class ZestCompletionProvider(private val project: Project) {
             val result = ZestInlineCompletionList.single(item)
             System.out.println("[ZestCompletionProvider] Returning completion list with ${result.items.size} items")
             
-            logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms)")
+            logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms) for request $requestId")
             result
             
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -259,7 +264,7 @@ class ZestCompletionProvider(private val project: Project) {
     /**
      * New lean completion strategy with full file context and reasoning
      */
-    private suspend fun requestLeanCompletion(context: CompletionContext): ZestInlineCompletionList? {
+    private suspend fun requestLeanCompletion(context: CompletionContext, requestId: Int): ZestInlineCompletionList? {
         return try {
             logger.debug("Requesting lean completion for ${context.fileName} at offset ${context.offset}")
             
@@ -335,7 +340,7 @@ class ZestCompletionProvider(private val project: Project) {
             val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
             logger.debug("Lean prompt built, length: ${prompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
             
-            // Query LLM with higher timeout for reasoning
+            // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()
             val response = withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
                 val queryParams = LLMService.LLMQueryParams(prompt)
@@ -344,7 +349,9 @@ class ZestCompletionProvider(private val project: Project) {
                     .withTemperature(0.8)  // Slightly higher for creative reasoning
                     .withStopSequences(getLeanStopSequences())
                 
-                llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                // Use cancellable request
+                val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
+                cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
             val llmTime = System.currentTimeMillis() - llmStartTime
             
@@ -403,7 +410,7 @@ class ZestCompletionProvider(private val project: Project) {
                 )
             )
             
-            logger.info("Lean completion completed in ${totalTime}ms (llm=${llmTime}ms) with reasoning: ${reasoningResult.hasValidReasoning}")
+            logger.info("Lean completion completed in ${totalTime}ms (llm=${llmTime}ms) with reasoning: ${reasoningResult.hasValidReasoning} for request $requestId")
             ZestInlineCompletionList.single(item)
             
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -412,7 +419,7 @@ class ZestCompletionProvider(private val project: Project) {
         } catch (e: Exception) {
             logger.warn("Lean completion failed, falling back to simple", e)
             // Fallback to simple strategy
-            requestSimpleCompletion(context)
+            requestSimpleCompletion(context, requestId)
         }
     }
     
@@ -562,7 +569,7 @@ class ZestCompletionProvider(private val project: Project) {
     /**
      * Method rewrite strategy - shows floating window with method rewrites
      */
-    private suspend fun requestMethodRewrite(context: CompletionContext): ZestInlineCompletionList? {
+    private suspend fun requestMethodRewrite(context: CompletionContext, requestId: Int): ZestInlineCompletionList? {
         System.out.println("[ZestCompletionProvider] requestMethodRewrite started")
         System.out.println("  - offset: ${context.offset}")
         System.out.println("  - fileName: ${context.fileName}")

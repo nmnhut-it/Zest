@@ -23,6 +23,7 @@ import com.zps.zest.langchain4j.util.LLMService
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Analysis engine that examines modified methods for issues and impact.
@@ -33,8 +34,11 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     companion object {
         private const val MAX_CONCURRENT_ANALYSES = 2
-        private const val LLM_DELAY_MS = 1000L // Delay between LLM calls to avoid spikes
+        private const val LLM_DELAY_MS = 2000L // Increased delay between LLM calls
         private const val CHUNK_SIZE = 5 // Process methods in chunks
+        const val MAX_METHODS_PER_ANALYSIS = 20 // Hard limit to prevent excessive LLM calls
+        private const val MAX_LLM_RETRIES = 2 // Limit retries per method
+        private const val LLM_TIMEOUT_MS = 30000L // 30 second timeout per LLM call
         
         // Feature flags
         var SKIP_VERIFICATION = true // Skip verification step for faster analysis
@@ -101,15 +105,23 @@ class CodeHealthAnalyzer(private val project: Project) {
         methods: List<CodeHealthTracker.ModifiedMethod>,
         indicator: ProgressIndicator? = null
     ): List<MethodHealthResult> {
-        println("[CodeHealthAnalyzer] Starting analysis of ${methods.size} methods")
+        // Limit the number of methods to analyze
+        val methodsToAnalyze = methods.take(MAX_METHODS_PER_ANALYSIS)
+        
+        if (methodsToAnalyze.size < methods.size) {
+            println("[CodeHealthAnalyzer] Limited analysis from ${methods.size} to ${methodsToAnalyze.size} methods")
+        }
+        
+        println("[CodeHealthAnalyzer] Starting analysis of ${methodsToAnalyze.size} methods")
         results.clear()
-        val totalMethods = methods.size
+        val totalMethods = methodsToAnalyze.size
         val completed = AtomicInteger(0)
         val latch = CountDownLatch(totalMethods)
+        val cancelled = AtomicBoolean(false)
         
         // Process methods
-        methods.forEach { method ->
-            if (indicator?.isCanceled == true) {
+        methodsToAnalyze.forEach { method ->
+            if (indicator?.isCanceled == true || cancelled.get()) {
                 println("[CodeHealthAnalyzer] Analysis cancelled")
                 latch.countDown()
                 return@forEach
@@ -128,6 +140,11 @@ class CodeHealthAnalyzer(private val project: Project) {
             
             // Analyze method asynchronously
             analyzeMethodAsync(method) { result ->
+                if (cancelled.get()) {
+                    latch.countDown()
+                    return@analyzeMethodAsync
+                }
+                
                 val issueCount = result.issues.size
                 val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
                 println("[CodeHealthAnalyzer] Method analysis complete for ${method.fqn}: $issueCount issues found, $verifiedCount verified")
@@ -139,6 +156,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                 indicator?.let {
                     it.fraction = completedCount.toDouble() / totalMethods
                     it.text = "Completed $completedCount of $totalMethods methods"
+                    
+                    // Check cancellation
+                    if (it.isCanceled) {
+                        cancelled.set(true)
+                    }
                 }
                 
                 latch.countDown()
@@ -146,46 +168,38 @@ class CodeHealthAnalyzer(private val project: Project) {
             }
         }
         
-        // Wait for all analyses to complete
+        // Wait for all analyses to complete with better timeout handling
         try {
             println("[CodeHealthAnalyzer] Waiting for all analyses to complete...")
             
-            // Show warning if taking too long
-            val warningFuture = CompletableFuture.runAsync({
-                Thread.sleep(30000) // 30 seconds
-                if (latch.count > 0) {
-                    println("[CodeHealthAnalyzer] WARNING: Analysis taking longer than expected. ${latch.count} methods remaining")
-                    ApplicationManager.getApplication().invokeLater {
+            val completed = latch.await(2, TimeUnit.MINUTES) // Reduced timeout
+            
+            if (!completed) {
+                cancelled.set(true)
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 2 minutes. Latch count: ${latch.count}")
+                
+                // Return partial results
+                val partialResults = results.values.toList()
+                    .sortedByDescending { it.healthScore * it.modificationCount }
+                
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) {
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Health")
                             .createNotification(
-                                "Code Health Analysis Running",
-                                "Analysis is taking longer than expected. ${latch.count} methods remaining...",
+                                "Code Health Analysis Partial Results",
+                                "Analysis timed out. Showing ${partialResults.size} of ${methodsToAnalyze.size} results.",
                                 NotificationType.WARNING
                             )
                             .notify(project)
                     }
                 }
-            })
-            
-            val completed = latch.await(5, TimeUnit.MINUTES) // Timeout after 5 minutes
-            warningFuture.cancel(true) // Cancel warning if completed
-            
-            if (!completed) {
-                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 5 minutes. Latch count: ${latch.count}")
-                ApplicationManager.getApplication().invokeLater {
-                    NotificationGroupManager.getInstance()
-                        .getNotificationGroup("Zest Code Health")
-                        .createNotification(
-                            "Code Health Analysis Timeout",
-                            "Analysis timed out after 5 minutes. Returning partial results.",
-                            NotificationType.ERROR
-                        )
-                        .notify(project)
-                }
+                
+                return partialResults
             }
         } catch (e: InterruptedException) {
             println("[CodeHealthAnalyzer] Analysis interrupted")
+            cancelled.set(true)
             Thread.currentThread().interrupt()
         }
         
@@ -301,51 +315,75 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): MethodHealthResult {
         val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
-        return try {
-            println("[CodeHealthAnalyzer] Calling LLM for detection of ${method.fqn} (prompt length: ${detectionPrompt.length})")
-            
-            // Rate limit LLM calls
-            llmRateLimiter.acquire()
-            
-            val startTime = System.currentTimeMillis()
-            
-            // Use lite code model for better performance
-            val params = LLMService.LLMQueryParams(detectionPrompt)
-                .useLiteCodeModel()
-                .withMaxTokens(4096)
-                .withTemperature(0.3)
-            
-            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-            val elapsed = System.currentTimeMillis() - startTime
-            
-            if (response != null) {
-                println("[CodeHealthAnalyzer] LLM responded in ${elapsed}ms for ${method.fqn} (response length: ${response.length})")
-                parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response)
-            } else {
-                println("[CodeHealthAnalyzer] LLM returned null response for ${method.fqn} after ${elapsed}ms")
-                // Return empty result if LLM fails
-                MethodHealthResult(
-                    fqn = method.fqn,
-                    issues = emptyList(),
-                    impactedCallers = callers,
-                    healthScore = 100,
-                    modificationCount = method.modificationCount,
-                    codeContext = context,
-                    summary = "Failed to analyze method"
-                )
+        var lastException: Exception? = null
+        
+        // Retry logic with exponential backoff
+        for (attempt in 1..MAX_LLM_RETRIES) {
+            try {
+                println("[CodeHealthAnalyzer] LLM detection attempt $attempt for ${method.fqn}")
+                
+                // Rate limit LLM calls
+                llmRateLimiter.acquire()
+                
+                val startTime = System.currentTimeMillis()
+                
+                // Use lite code model for better performance with timeout
+                val params = LLMService.LLMQueryParams(detectionPrompt)
+                    .useLiteCodeModel()
+                    .withMaxTokens(4096)
+                    .withTemperature(0.3)
+                
+                // Create a future with timeout
+                val future = CompletableFuture.supplyAsync({
+                    llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+                })
+                
+                val response = try {
+                    future.get(LLM_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                } catch (e: TimeoutException) {
+                    future.cancel(true)
+                    throw Exception("LLM timeout after ${LLM_TIMEOUT_MS}ms")
+                }
+                
+                val elapsed = System.currentTimeMillis() - startTime
+                
+                if (response != null) {
+                    println("[CodeHealthAnalyzer] LLM succeeded on attempt $attempt in ${elapsed}ms for ${method.fqn}")
+                    llmRateLimiter.recordSuccess()
+                    return parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response)
+                } else {
+                    println("[CodeHealthAnalyzer] LLM returned null on attempt $attempt for ${method.fqn}")
+                    lastException = Exception("LLM returned null response")
+                    llmRateLimiter.recordError()
+                }
+                
+            } catch (e: Exception) {
+                println("[CodeHealthAnalyzer] LLM attempt $attempt failed for ${method.fqn}: ${e.message}")
+                lastException = e
+                llmRateLimiter.recordError()
+                
+                // Exponential backoff before retry
+                if (attempt < MAX_LLM_RETRIES) {
+                    val backoffMs = (1000L * Math.pow(2.0, attempt.toDouble())).toLong()
+                    println("[CodeHealthAnalyzer] Waiting ${backoffMs}ms before retry...")
+                    Thread.sleep(backoffMs)
+                }
             }
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] ERROR calling LLM for ${method.fqn}: ${e.message}")
-            MethodHealthResult(
-                fqn = method.fqn,
-                issues = emptyList(),
-                impactedCallers = callers,
-                healthScore = 100,
-                modificationCount = method.modificationCount,
-                codeContext = context,
-                summary = "Analysis error: ${e.message}"
-            )
         }
+        
+        // All retries failed
+        println("[CodeHealthAnalyzer] All LLM attempts failed for ${method.fqn}: ${lastException?.message}")
+        
+        // Return a result indicating analysis failure
+        return MethodHealthResult(
+            fqn = method.fqn,
+            issues = emptyList(),
+            impactedCallers = callers,
+            healthScore = 85, // Conservative score when analysis fails
+            modificationCount = method.modificationCount,
+            codeContext = context,
+            summary = "Analysis failed: ${lastException?.message ?: "Unknown error"}"
+        )
     }
 
     private fun buildDetectionPrompt(fqn: String, context: String, callers: List<String>, callerSnippets: List<CallerSnippet>): String {
@@ -863,17 +901,42 @@ class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
 }
 
 /**
- * Rate limiter for controlling LLM calls
+ * Rate limiter for controlling LLM calls with circuit breaker pattern
  */
 class RateLimiter(private val delayMs: Long) {
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private val semaphore = Semaphore(1)
+    private val recentErrors = AtomicInteger(0)
+    private val circuitBreakerThreshold = 5
+    private var circuitOpenUntil = AtomicLong(0)
     
     fun acquire() {
+        // Check circuit breaker
+        val now = System.currentTimeMillis()
+        if (circuitOpenUntil.get() > now) {
+            val waitTime = circuitOpenUntil.get() - now
+            println("[RateLimiter] Circuit breaker open. Waiting ${waitTime}ms")
+            Thread.sleep(waitTime)
+        }
+        
         semaphore.acquire()
         scheduler.schedule({
             semaphore.release()
         }, delayMs, TimeUnit.MILLISECONDS)
+    }
+    
+    fun recordError() {
+        val errors = recentErrors.incrementAndGet()
+        if (errors >= circuitBreakerThreshold) {
+            // Open circuit breaker for 30 seconds
+            circuitOpenUntil.set(System.currentTimeMillis() + 30000)
+            println("[RateLimiter] Circuit breaker opened due to $errors errors")
+            recentErrors.set(0)
+        }
+    }
+    
+    fun recordSuccess() {
+        recentErrors.updateAndGet { count -> (count - 1).coerceAtLeast(0) }
     }
     
     fun shutdown() {

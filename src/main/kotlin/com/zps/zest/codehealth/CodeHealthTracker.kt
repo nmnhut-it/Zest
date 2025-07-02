@@ -1,5 +1,7 @@
 package com.zps.zest.codehealth
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.*
@@ -130,15 +132,23 @@ class CodeHealthTracker(private val project: Project) :
         
         // Queue document processing to avoid blocking EDT
         documentProcessingQueue.submit {
-            ReadAction.nonBlocking<String?> {
-                extractMethodFQN(document, editor.caretModel.offset)
+            try {
+                // Use computeInReadAction to avoid blocking
+                ApplicationManager.getApplication().runReadAction {
+                    val fqn = extractMethodFQN(document, editor.caretModel.offset)
+                    if (fqn != null) {
+                        println("[CodeHealthTracker] Extracted FQN: $fqn")
+                        // Track in background thread
+                        ApplicationManager.getApplication().executeOnPooledThread {
+                            trackMethodModification(fqn)
+                        }
+                    } else {
+                        println("[CodeHealthTracker] No FQN extracted from document change")
+                    }
+                }
+            } catch (e: Exception) {
+                println("[CodeHealthTracker] Error processing document change: ${e.message}")
             }
-            .inSmartMode(project)
-            .executeSynchronously()
-            ?.let { fqn ->
-                println("[CodeHealthTracker] Extracted FQN: $fqn")
-                trackMethodModification(fqn)
-            } ?: println("[CodeHealthTracker] No FQN extracted from document change")
         }
     }
 
@@ -294,10 +304,32 @@ class CodeHealthTracker(private val project: Project) :
         
         // Prevent concurrent analyses
         if (!isAnalysisRunning.compareAndSet(false, true)) {
+            ApplicationManager.getApplication().invokeLater {
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("Zest Code Health")
+                    .createNotification(
+                        "Analysis Already Running",
+                        "Another code health analysis is in progress. Please wait.",
+                        NotificationType.WARNING
+                    )
+                    .notify(project)
+            }
             return
         }
         
         println("[CodeHealth] Starting code health analysis...")
+        
+        // Show starting notification
+        ApplicationManager.getApplication().invokeLater {
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("Zest Code Health")
+                .createNotification(
+                    "Code Health Analysis Started",
+                    "Analyzing modified methods...",
+                    NotificationType.INFORMATION
+                )
+                .notify(project)
+        }
         
         // Run analysis in background without progress UI
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -311,6 +343,16 @@ class CodeHealthTracker(private val project: Project) :
                 
                 if (methods.isEmpty() && preReviewedMethods.isEmpty()) {
                     println("[CodeHealth] No methods to analyze")
+                    ApplicationManager.getApplication().invokeLater {
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup("Zest Code Health")
+                            .createNotification(
+                                "No Methods to Analyze",
+                                "No modified methods found. Edit some code and try again.",
+                                NotificationType.INFORMATION
+                            )
+                            .notify(project)
+                    }
                     isAnalysisRunning.set(false)
                     return@executeOnPooledThread
                 }
@@ -324,7 +366,22 @@ class CodeHealthTracker(private val project: Project) :
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
                     val startTime = System.currentTimeMillis()
                     
-                    val results = analyzer.analyzeAllMethodsAsync(needsReview.take(50), null)
+                    // Limit to MAX_METHODS_PER_ANALYSIS
+                    val limitedMethods = needsReview.take(CodeHealthAnalyzer.MAX_METHODS_PER_ANALYSIS)
+                    if (limitedMethods.size < needsReview.size) {
+                        ApplicationManager.getApplication().invokeLater {
+                            NotificationGroupManager.getInstance()
+                                .getNotificationGroup("Zest Code Health")
+                                .createNotification(
+                                    "Analysis Limited",
+                                    "Analyzing top ${limitedMethods.size} of ${needsReview.size} methods (most frequently modified).",
+                                    NotificationType.WARNING
+                                )
+                                .notify(project)
+                        }
+                    }
+                    
+                    val results = analyzer.analyzeAllMethodsAsync(limitedMethods, null)
                     
                     val analysisTime = System.currentTimeMillis() - startTime
                     println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
@@ -349,6 +406,17 @@ class CodeHealthTracker(private val project: Project) :
                             CodeHealthNotification.showHealthReport(project, allResults)
                         }
                     }
+                } else {
+                    ApplicationManager.getApplication().invokeLater {
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup("Zest Code Health")
+                            .createNotification(
+                                "Analysis Complete",
+                                "No issues found in analyzed methods.",
+                                NotificationType.INFORMATION
+                            )
+                            .notify(project)
+                    }
                 }
                 
                 // Clear the background reviewer cache after report
@@ -360,6 +428,17 @@ class CodeHealthTracker(private val project: Project) :
             } catch (e: Exception) {
                 println("[CodeHealth] ERROR during analysis: ${e.message}")
                 e.printStackTrace()
+                
+                ApplicationManager.getApplication().invokeLater {
+                    NotificationGroupManager.getInstance()
+                        .getNotificationGroup("Zest Code Health")
+                        .createNotification(
+                            "Analysis Failed",
+                            "Error during code health analysis: ${e.message}",
+                            NotificationType.ERROR
+                        )
+                        .notify(project)
+                }
             } finally {
                 isAnalysisRunning.set(false)
                 println("[CodeHealth] Analysis finished")
@@ -399,10 +478,24 @@ class CodeHealthTracker(private val project: Project) :
     fun dispose() {
         documentProcessingQueue.shutdown()
         scheduler.shutdown()
+        
+        // Also dispose of background reviewer
+        BackgroundHealthReviewer.getInstance(project).dispose()
+        
+        // Clear all data
+        methodModifications.clear()
+        
         try {
-            scheduler.awaitTermination(5, TimeUnit.SECONDS)
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow()
+            }
+            if (!documentProcessingQueue.awaitTermination(5, TimeUnit.SECONDS)) {
+                documentProcessingQueue.shutdownNow()
+            }
         } catch (e: InterruptedException) {
             scheduler.shutdownNow()
+            documentProcessingQueue.shutdownNow()
+            Thread.currentThread().interrupt()
         }
     }
 }
@@ -418,12 +511,20 @@ class SimpleTaskQueue(private val delayMs: Long = 100L) {
             try {
                 task()
             } catch (e: Exception) {
-                // Log error but continue processing
+                println("[SimpleTaskQueue] Error executing task: ${e.message}")
             }
         }, delayMs, TimeUnit.MILLISECONDS)
     }
     
     fun shutdown() {
         scheduler.shutdown()
+    }
+    
+    fun awaitTermination(timeout: Long, unit: TimeUnit): Boolean {
+        return scheduler.awaitTermination(timeout, unit)
+    }
+    
+    fun shutdownNow() {
+        scheduler.shutdownNow()
     }
 }

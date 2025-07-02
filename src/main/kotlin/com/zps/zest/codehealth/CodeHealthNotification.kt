@@ -38,7 +38,7 @@ object CodeHealthNotification {
 
         println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
 
-        val title = "Code Health Check Complete"
+        val title = "Zest: Code health check"
         val content = buildString {
             append("Analyzed ${results.size} methods • ")
             append("Found $totalIssues verified issues")

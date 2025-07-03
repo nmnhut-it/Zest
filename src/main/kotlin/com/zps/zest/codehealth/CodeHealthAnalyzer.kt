@@ -1090,7 +1090,6 @@ class CodeHealthAnalyzer(private val project: Project) {
             val params = LLMService.LLMQueryParams(prompt)
                 .useLiteCodeModel()
                 .withMaxTokens(4096)
-                .withTemperature(0.3)
             
             val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
             

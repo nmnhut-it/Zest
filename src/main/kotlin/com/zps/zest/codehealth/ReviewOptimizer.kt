@@ -12,7 +12,7 @@ import com.intellij.psi.util.PsiTreeUtil
 class ReviewOptimizer(private val project: Project) {
     
     companion object {
-        const val SMALL_FILE_THRESHOLD = 200 // lines
+        const val SMALL_FILE_THRESHOLD = 500 // lines
     }
     
     data class ReviewUnit(

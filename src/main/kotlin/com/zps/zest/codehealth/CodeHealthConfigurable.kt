@@ -19,6 +19,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     private val checkTimeField = JBTextField(10)
     private val maxMethodsField = JBTextField(10)
     private val skipVerificationCheckBox = JBCheckBox("Skip verification step (faster analysis)")
+    private val javaOnlyCheckBox = JBCheckBox("Analyze Java files only", true)
     
     override fun getDisplayName(): String = "Code Health"
     
@@ -39,6 +40,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
             .addLabeledComponent("Check time (HH:MM):", checkTimeField)
             .addLabeledComponent("Max methods to track:", maxMethodsField)
             .addComponent(skipVerificationCheckBox)
+            .addComponent(javaOnlyCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel.apply {
                 border = JBUI.Borders.empty(5)

@@ -172,11 +172,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         try {
             println("[CodeHealthAnalyzer] Waiting for all analyses to complete...")
             
-            val completed = latch.await(2, TimeUnit.MINUTES) // Reduced timeout
+            val completed = latch.await(10, TimeUnit.MINUTES) // Increased timeout to 10 minutes
             
             if (!completed) {
                 cancelled.set(true)
-                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 2 minutes. Latch count: ${latch.count}")
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 10 minutes. Latch count: ${latch.count}")
                 
                 // Return partial results
                 val partialResults = results.values.toList()
@@ -220,6 +220,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         if (method.fqn.isBlank()) {
             println("[CodeHealthAnalyzer] WARNING: Skipping method with empty FQN")
             onComplete(createFallbackResult("", "", emptyList(), method.modificationCount))
+            return
+        }
+        
+        // Check if already analyzed
+        if (results.containsKey(method.fqn)) {
+            println("[CodeHealthAnalyzer] Method ${method.fqn} already analyzed, skipping")
+            onComplete(results[method.fqn]!!)
             return
         }
         
@@ -390,11 +397,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         return """
             Analyze this Java method for potential issues. Be concise but thorough.
             
-            Method: $fqn
+            Java Method: $fqn
             Modified: ${if (callers.size > 5) "Many times" else "Recently"}
             Callers: ${callers.size} methods
             
-            Code:
+            Java Code:
             ```java
             $context
             ```
@@ -667,6 +674,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
             .findClass(className, GlobalSearchScope.projectScope(project))
         
+        // Ensure it's a Java class
+        if (psiClass?.containingFile?.name?.endsWith(".java") != true) {
+            return "// Not a Java file: $fqn"
+        }
+        
         return psiClass?.methods?.find { it.name == methodName }?.let { psiMethod ->
             buildString {
                 appendLine("// File: ${psiMethod.containingFile?.virtualFile?.path}")
@@ -910,10 +922,10 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         // Wait for all analyses to complete
         try {
-            val completed = latch.await(3, TimeUnit.MINUTES)
+            val completed = latch.await(10, TimeUnit.MINUTES) // Increased to 10 minutes
             if (!completed) {
                 cancelled.set(true)
-                println("[CodeHealthAnalyzer] WARNING: Analysis timed out")
+                println("[CodeHealthAnalyzer] WARNING: Analysis timed out after 10 minutes")
             }
         } catch (e: InterruptedException) {
             cancelled.set(true)

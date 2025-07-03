@@ -118,6 +118,11 @@ class ReviewOptimizer(private val project: Project) {
                 
             val psiFile = psiClass.containingFile
             
+            // Ensure it's a Java file
+            if (!isJavaFile(psiFile)) {
+                return@compute ReviewContext.empty(unit.className)
+            }
+            
             ReviewContext(
                 className = unit.className,
                 fileContent = psiFile.text,
@@ -137,6 +142,12 @@ class ReviewOptimizer(private val project: Project) {
                 ?: return@compute ReviewContext.empty(unit.className)
                 
             val psiFile = psiClass.containingFile
+            
+            // Ensure it's a Java file
+            if (!isJavaFile(psiFile)) {
+                return@compute ReviewContext.empty(unit.className)
+            }
+            
             val methods = mutableListOf<MethodInfo>()
             
             // Extract method details
@@ -167,6 +178,10 @@ class ReviewOptimizer(private val project: Project) {
     private fun extractImports(psiFile: PsiFile): List<String> {
         if (psiFile !is PsiJavaFile) return emptyList()
         return psiFile.importList?.allImportStatements?.map { it.text } ?: emptyList()
+    }
+    
+    private fun isJavaFile(psiFile: PsiFile?): Boolean {
+        return psiFile != null && (psiFile is PsiJavaFile || psiFile.name.endsWith(".java"))
     }
     
     private fun extractClassContext(psiClass: com.intellij.psi.PsiClass): ClassContext {

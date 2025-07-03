@@ -131,7 +131,14 @@ class CodeHealthTracker(private val project: Project) :
     override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
         if (!state.enabled) return
         
-        println("[CodeHealthTracker] Document changed event received")
+        // Check if this is a Java file
+        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+        if (psiFile == null || !psiFile.name.endsWith(".java")) {
+            println("[CodeHealthTracker] Skipping non-Java file: ${psiFile?.name}")
+            return
+        }
+        
+        println("[CodeHealthTracker] Document changed event received for Java file: ${psiFile.name}")
         
         // Queue document processing to avoid blocking EDT
         documentProcessingQueue.submit {
@@ -165,6 +172,12 @@ class CodeHealthTracker(private val project: Project) :
             val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
             if (psiFile == null) {
                 println("[CodeHealthTracker] PSI file is null")
+                return null
+            }
+            
+            // Ensure it's a Java file
+            if (!psiFile.name.endsWith(".java")) {
+                println("[CodeHealthTracker] Not a Java file: ${psiFile.name}")
                 return null
             }
             

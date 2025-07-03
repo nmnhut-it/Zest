@@ -85,7 +85,10 @@ class BackgroundHealthReviewer(private val project: Project) {
         if (methodsToReview.isNotEmpty()) {
             println("[BackgroundHealthReviewer] Found ${methodsToReview.size} methods ready for background review")
             methodsToReview.forEach { fqn ->
-                reviewMethodInBackground(fqn)
+                // Double-check before queuing
+                if (!hasReviewedMethod(fqn)) {
+                    reviewMethodInBackground(fqn)
+                }
             }
         }
     }
@@ -94,6 +97,12 @@ class BackgroundHealthReviewer(private val project: Project) {
      * Review a single method in the background
      */
     private fun reviewMethodInBackground(fqn: String) {
+        // Skip if already reviewed
+        if (hasReviewedMethod(fqn)) {
+            println("[BackgroundHealthReviewer] Method $fqn already reviewed, skipping")
+            return
+        }
+        
         reviewExecutor.submit {
             try {
                 println("[BackgroundHealthReviewer] Starting background review of $fqn")
@@ -172,6 +181,13 @@ class BackgroundHealthReviewer(private val project: Project) {
      */
     fun hasReviewedUnit(unitId: String): Boolean {
         return reviewedUnits.containsKey(unitId)
+    }
+    
+    /**
+     * Check if a specific method has been reviewed
+     */
+    fun hasReviewedMethod(fqn: String): Boolean {
+        return reviewedMethods.containsKey(fqn)
     }
     
     /**

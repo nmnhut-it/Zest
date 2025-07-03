@@ -216,6 +216,33 @@ class BackgroundHealthReviewer(private val project: Project) {
     }
     
     /**
+     * Trigger background review (called from status bar)
+     */
+    fun triggerBackgroundReview() {
+        println("[BackgroundHealthReviewer] Background review triggered from status bar")
+        
+        // Check for methods ready to review immediately
+        checkAndReviewInactiveMethods()
+        
+        // Also trigger review of all pending methods
+        reviewAllPendingMethods()
+    }
+    
+    /**
+     * Trigger final review (called from status bar)
+     */
+    fun triggerFinalReview() {
+        println("[BackgroundHealthReviewer] Final review triggered from status bar")
+        
+        // Review all pending methods first
+        reviewAllPendingMethods()
+        
+        // Then trigger the code health check
+        val tracker = CodeHealthTracker.getInstance(project)
+        tracker.checkAndNotify()
+    }
+    
+    /**
      * Save reviewed methods to persistent storage
      */
     private fun saveReviewedMethods() {

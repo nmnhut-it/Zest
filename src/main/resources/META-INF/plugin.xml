@@ -41,6 +41,7 @@
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
@@ -98,8 +99,9 @@
 
         <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
         
-        <!-- Status Bar Widget -->
+        <!-- Status Bar Widgets -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
+        <statusBarWidgetFactory implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" order="last"/>
         
         <!-- Code Guardian Services -->
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>

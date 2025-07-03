@@ -38,28 +38,52 @@ object CodeHealthNotification {
 
         println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
 
-        val title = "Zest: Code health check"
-        val content = buildString {
-            append("Analyzed ${results.size} methods • ")
-            append("Found $totalIssues verified issues")
-            if (criticalIssues > 0) {
-                append(" ($criticalIssues critical, $highIssues high)")
-            }
-            append(" • Average health: $averageScore/100")
-        }
-
-        // Create notification with action to show details
-        val notification = NotificationGroupManager.getInstance()
-            .getNotificationGroup(NOTIFICATION_GROUP_ID)
-            .createNotification(title, content, getNotificationType(averageScore))
-            .addAction(object : AnAction("View Details") {
-                override fun actionPerformed(e: AnActionEvent) {
-                    println("[CodeHealthNotification] User clicked View Details")
-                    showDetailedReport(project, results)
+        // Only show balloon notification if there are critical issues
+        if (criticalIssues > 0) {
+            val title = "Code Guardian: Critical Issues Found"
+            val content = "$criticalIssues critical issues detected. Click status bar for details."
+            
+            val notification = NotificationGroupManager.getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                .createNotification(title, content, NotificationType.ERROR)
+                .addAction(object : AnAction("View Details") {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        println("[CodeHealthNotification] User clicked View Details")
+                        showDetailedReport(project, results)
+                    }
+                })
+            
+            notification.notify(project)
+        } else if (totalIssues > 0) {
+            // For non-critical issues, just update status bar without balloon
+            println("[CodeHealthNotification] Non-critical issues found, status bar updated")
+            
+            // Optionally show a subtle notification that auto-dismisses quickly
+            if (totalIssues > 5) {
+                val notification = NotificationGroupManager.getInstance()
+                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                    .createNotification(
+                        "Code Guardian",
+                        "$totalIssues issues found. Check status bar for details.",
+                        NotificationType.WARNING
+                    )
+                
+                notification.notify(project)
+                
+                // Auto-expire after 3 seconds
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    Thread.sleep(3000)
+                    ApplicationManager.getApplication().invokeLater {
+                        notification.expire()
+                    }
                 }
-            })
-
-        notification.notify(project)
+            }
+        }
+        
+        // Always show the detailed report dialog if there are issues
+        if (totalIssues > 0) {
+            showDetailedReport(project, results)
+        }
     }
 
     private fun getNotificationType(healthScore: Int): NotificationType {

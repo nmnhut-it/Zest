@@ -856,12 +856,12 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     /**
-     * Analyze review units (groups of methods or whole files) using async processing
+     * Analyze review units (groups of methods or whole files) using async processing with progress callback
      */
     fun analyzeReviewUnitsAsync(
         reviewUnits: List<ReviewOptimizer.ReviewUnit>,
         optimizer: ReviewOptimizer,
-        indicator: ProgressIndicator? = null
+        progressCallback: ((String) -> Unit)? = null
     ): List<MethodHealthResult> {
         println("[CodeHealthAnalyzer] Starting analysis of ${reviewUnits.size} review units")
         results.clear()
@@ -872,7 +872,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         // Process review units
         reviewUnits.forEach { unit ->
-            if (indicator?.isCanceled == true || cancelled.get()) {
+            if (cancelled.get()) {
                 println("[CodeHealthAnalyzer] Analysis cancelled")
                 latch.countDown()
                 return@forEach
@@ -880,11 +880,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             
             val currentCount = completed.get() + 1
             
-            // Update progress
-            indicator?.let {
-                it.fraction = currentCount.toDouble() / totalUnits
-                it.text = "Analyzing unit $currentCount of $totalUnits: ${unit.getDescription()}"
-            }
+            // Update progress via callback
+            progressCallback?.invoke("Analyzing unit $currentCount of $totalUnits: ${unit.getDescription()}")
             
             println("[CodeHealthAnalyzer] Queuing analysis for unit: ${unit.getDescription()}")
             
@@ -905,15 +902,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 val completedCount = completed.incrementAndGet()
                 
                 // Update progress after completion
-                indicator?.let {
-                    it.fraction = completedCount.toDouble() / totalUnits
-                    it.text = "Completed $completedCount of $totalUnits units"
-                    
-                    // Check cancellation
-                    if (it.isCanceled) {
-                        cancelled.set(true)
-                    }
-                }
+                progressCallback?.invoke("Completed $completedCount of $totalUnits units")
                 
                 latch.countDown()
             }

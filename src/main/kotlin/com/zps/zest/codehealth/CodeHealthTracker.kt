@@ -51,6 +51,9 @@ class CodeHealthTracker(private val project: Project) :
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     private val methodModifications = ConcurrentHashMap<String, ModifiedMethod>()
     
+    // Store last analysis results for status bar widget
+    private var lastAnalysisResults: List<CodeHealthAnalyzer.MethodHealthResult>? = null
+    
     // Async processing
     private val documentProcessingQueue = SimpleTaskQueue(delayMs = DEBOUNCE_DELAY_MS)
     val isAnalysisRunning = AtomicBoolean(false)
@@ -299,8 +302,16 @@ class CodeHealthTracker(private val project: Project) :
         persistStateAsync()
     }
 
+    /**
+     * Get the last analysis results for the status bar widget
+     */
+    fun getLastResults(): List<CodeHealthAnalyzer.MethodHealthResult>? = lastAnalysisResults
+
     fun checkAndNotify() {
         if (!state.enabled) return
+        
+        // Get the status bar widget if available
+        val statusBarWidget = getStatusBarWidget()
         
         // Prevent concurrent analyses
         if (!isAnalysisRunning.compareAndSet(false, true)) {
@@ -318,6 +329,9 @@ class CodeHealthTracker(private val project: Project) :
         }
         
         println("[CodeHealth] Starting code health analysis...")
+        
+        // Notify status bar widget that analysis is starting
+        statusBarWidget?.notifyAnalysisStarted("Preparing analysis...")
         
         // Show starting notification
         ApplicationManager.getApplication().invokeLater {
@@ -353,6 +367,7 @@ class CodeHealthTracker(private val project: Project) :
                             )
                             .notify(project)
                     }
+                    statusBarWidget?.notifyAnalysisComplete(emptyList())
                     isAnalysisRunning.set(false)
                     return@executeOnPooledThread
                 }
@@ -382,6 +397,9 @@ class CodeHealthTracker(private val project: Project) :
                 
                 println("[CodeHealth] ${needsReviewUnits.size} units need review, ${preReviewedUnits.size} already reviewed")
                 
+                // Update status bar with progress
+                statusBarWidget?.notifyAnalysisProgress(0, needsReviewUnits.size)
+                
                 // Analyze only the units that haven't been reviewed yet
                 val freshResults = if (needsReviewUnits.isNotEmpty()) {
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
@@ -402,7 +420,14 @@ class CodeHealthTracker(private val project: Project) :
                         }
                     }
                     
-                    val results = analyzer.analyzeReviewUnitsAsync(limitedUnits, optimizer, null)
+                    // Update progress callback
+                    var currentUnit = 0
+                    val progressCallback: (String) -> Unit = { status ->
+                        currentUnit++
+                        statusBarWidget?.notifyAnalysisProgress(currentUnit, limitedUnits.size)
+                    }
+                    
+                    val results = analyzer.analyzeReviewUnitsAsync(limitedUnits, optimizer, progressCallback)
                     
                     val analysisTime = System.currentTimeMillis() - startTime
                     println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
@@ -419,6 +444,12 @@ class CodeHealthTracker(private val project: Project) :
                 // Combine pre-reviewed and fresh results
                 val allResults = preReviewedResults + freshResults
                 println("[CodeHealth] Total results: ${allResults.size} (${preReviewedResults.size} cached, ${freshResults.size} fresh)")
+                
+                // Store results for status bar widget
+                lastAnalysisResults = allResults
+                
+                // Update status bar widget with results
+                statusBarWidget?.notifyAnalysisComplete(allResults)
                 
                 if (allResults.isNotEmpty()) {
                     val totalIssues = allResults.sumOf { it.issues.size }
@@ -455,6 +486,8 @@ class CodeHealthTracker(private val project: Project) :
                 println("[CodeHealth] ERROR during analysis: ${e.message}")
                 e.printStackTrace()
                 
+                statusBarWidget?.notifyError("Analysis failed: ${e.message}")
+                
                 ApplicationManager.getApplication().invokeLater {
                     NotificationGroupManager.getInstance()
                         .getNotificationGroup("Zest Code Guardian")
@@ -469,6 +502,17 @@ class CodeHealthTracker(private val project: Project) :
                 isAnalysisRunning.set(false)
                 println("[CodeHealth] Analysis finished")
             }
+        }
+    }
+    
+    private fun getStatusBarWidget(): com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidget? {
+        return try {
+            val windowManager = com.intellij.openapi.wm.WindowManager.getInstance()
+            val statusBar = windowManager.getStatusBar(project)
+            statusBar?.getWidget(com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidget.WIDGET_ID) as? com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidget
+        } catch (e: Exception) {
+            println("[CodeHealth] Could not get status bar widget: ${e.message}")
+            null
         }
     }
 

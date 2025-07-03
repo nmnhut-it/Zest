@@ -20,6 +20,8 @@ import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.langchain4j.util.LLMService
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -451,6 +453,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         llmResponse: String
     ): MethodHealthResult {
         return try {
+            val gson = Gson()
+            
             // Extract JSON content
             val jsonStart = llmResponse.indexOf("{")
             val jsonEnd = llmResponse.lastIndexOf("}")
@@ -459,35 +463,28 @@ class CodeHealthAnalyzer(private val project: Project) {
             }
             
             val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
+            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
             
             // Parse summary and health score
-            val summaryMatch = Regex(""""summary"\s*:\s*"([^"]+)"""").find(jsonContent)
-            val summary = summaryMatch?.groupValues?.get(1) ?: "Analysis completed"
-            
-            val scoreMatch = Regex(""""healthScore"\s*:\s*(\d+)""").find(jsonContent)
-            val healthScore = scoreMatch?.groupValues?.get(1)?.toIntOrNull() ?: 85
+            val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
+            val healthScore = jsonObject.get("healthScore")?.asInt ?: 85
             
             // Parse issues
             val issues = mutableListOf<HealthIssue>()
-            val issuePattern = Regex(
-                """"category"\s*:\s*"([^"]+)"[^}]*"severity"\s*:\s*(\d+)[^}]*"title"\s*:\s*"([^"]+)"[^}]*"description"\s*:\s*"([^"]+)"[^}]*"impact"\s*:\s*"([^"]+)"[^}]*"suggestedFix"\s*:\s*"([^"]+)"[^}]*"confidence"\s*:\s*([\d.]+)(?:[^}]*"callerEvidence"\s*:\s*"([^"]+)")?""",
-                RegexOption.DOT_MATCHES_ALL
-            )
+            val issuesArray = jsonObject.getAsJsonArray("issues")
             
-            issuePattern.findAll(jsonContent).forEach { match ->
-                val groups = match.groupValues
-                val category = groups[1]
-                val severityStr = groups[2]
-                val title = groups[3]
-                val description = groups[4]
-                val impact = groups[5]
-                val suggestedFix = groups[6]
-                val confidenceStr = groups[7]
-                val callerEvidence = groups.getOrNull(8)
+            issuesArray?.forEach { element ->
+                val issueObject = element.asJsonObject
                 
-                // Extract code snippet if present
-                val snippetMatch = Regex(""""codeSnippet"\s*:\s*"([^"]+)"""").find(jsonContent)
-                val codeSnippet = snippetMatch?.groupValues?.get(1)
+                val category = issueObject.get("category")?.asString ?: "Unknown"
+                val severity = issueObject.get("severity")?.asInt ?: 1
+                val title = issueObject.get("title")?.asString ?: "Unknown Issue"
+                val description = issueObject.get("description")?.asString ?: ""
+                val impact = issueObject.get("impact")?.asString ?: ""
+                val suggestedFix = issueObject.get("suggestedFix")?.asString ?: ""
+                val confidence = issueObject.get("confidence")?.asDouble ?: 0.8
+                val callerEvidence = issueObject.get("callerEvidence")?.asString
+                val codeSnippet = issueObject.get("codeSnippet")?.asString
                 
                 // If caller evidence is mentioned, try to match it with actual caller snippets
                 val relevantCallerSnippets = if (callerEvidence != null) {
@@ -502,12 +499,12 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 issues.add(HealthIssue(
                     issueCategory = category,
-                    severity = severityStr.toIntOrNull() ?: 1,
+                    severity = severity,
                     title = title,
                     description = description,
                     impact = impact,
                     suggestedFix = suggestedFix,
-                    confidence = confidenceStr.toDoubleOrNull() ?: 0.8,
+                    confidence = confidence,
                     verified = false,  // Will be verified in second pass
                     codeSnippet = codeSnippet,
                     callerSnippets = relevantCallerSnippets
@@ -524,6 +521,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                 summary = summary
             )
         } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error parsing detection response: ${e.message}")
+            e.printStackTrace()
             createFallbackResult(fqn, context, callers, modificationCount)
         }
     }
@@ -599,6 +598,8 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun parseVerificationResponse(result: MethodHealthResult, llmResponse: String): MethodHealthResult {
         try {
+            val gson = Gson()
+            
             val jsonStart = llmResponse.indexOf("{")
             val jsonEnd = llmResponse.lastIndexOf("}")
             if (jsonStart == -1 || jsonEnd == -1) {
@@ -606,26 +607,28 @@ class CodeHealthAnalyzer(private val project: Project) {
             }
             
             val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
+            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
             
             // Parse verifications
-            val verificationPattern = Regex(
-                """"issueIndex"\s*:\s*(\d+)[^}]*"verified"\s*:\s*(true|false)[^}]*"verificationReason"\s*:\s*"([^"]+)"[^}]*"adjustedSeverity"\s*:\s*(\d+)[^}]*"adjustedConfidence"\s*:\s*([\d.]+)""",
-                RegexOption.DOT_MATCHES_ALL
-            )
-            
+            val verificationsArray = jsonObject.getAsJsonArray("verifications")
             val verifiedIssues = result.issues.toMutableList()
             
-            verificationPattern.findAll(jsonContent).forEach { match ->
-                val (indexStr, verifiedStr, reason, severityStr, confidenceStr) = match.destructured
-                val index = indexStr.toIntOrNull() ?: return@forEach
+            verificationsArray?.forEach { element ->
+                val verificationObject = element.asJsonObject
+                
+                val index = verificationObject.get("issueIndex")?.asInt ?: return@forEach
+                val verified = verificationObject.get("verified")?.asBoolean ?: true
+                val reason = verificationObject.get("verificationReason")?.asString ?: "No reason provided"
+                val adjustedSeverity = verificationObject.get("adjustedSeverity")?.asInt
+                val adjustedConfidence = verificationObject.get("adjustedConfidence")?.asDouble
                 
                 if (index in verifiedIssues.indices) {
                     verifiedIssues[index] = verifiedIssues[index].copy(
-                        verified = verifiedStr.toBoolean(),
+                        verified = verified,
                         verificationReason = reason,
-                        falsePositive = !verifiedStr.toBoolean(),
-                        severity = severityStr.toIntOrNull() ?: verifiedIssues[index].severity,
-                        confidence = confidenceStr.toDoubleOrNull() ?: verifiedIssues[index].confidence
+                        falsePositive = !verified,
+                        severity = adjustedSeverity ?: verifiedIssues[index].severity,
+                        confidence = adjustedConfidence ?: verifiedIssues[index].confidence
                     )
                 }
             }
@@ -639,6 +642,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                 healthScore = newHealthScore
             )
         } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error parsing verification response: ${e.message}")
+            e.printStackTrace()
             return result
         }
     }
@@ -1114,32 +1119,52 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): List<MethodHealthResult> {
         try {
             val results = mutableListOf<MethodHealthResult>()
+            val gson = Gson()
             
-            // Extract JSON
+            // Extract JSON content
             val jsonStart = response.indexOf("{")
             val jsonEnd = response.lastIndexOf("}")
             if (jsonStart == -1 || jsonEnd == -1) return emptyList()
             
             val jsonContent = response.substring(jsonStart, jsonEnd + 1)
             
-            // Parse each method result
-            val methodPattern = Regex(
-                """"fqn"\s*:\s*"([^"]+)"[^}]*"summary"\s*:\s*"([^"]+)"[^}]*"healthScore"\s*:\s*(\d+)""",
-                RegexOption.DOT_MATCHES_ALL
-            )
+            // Parse using Gson
+            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            val methodsArray = jsonObject.getAsJsonArray("methods")
             
-            methodPattern.findAll(jsonContent).forEach { match ->
-                val fqn = match.groupValues[1]
-                val summary = match.groupValues[2]
-                val healthScore = match.groupValues[3].toIntOrNull() ?: 85
+            methodsArray?.forEach { element ->
+                val methodObject = element.asJsonObject
                 
-                // Find issues for this method
-                val issues = parseIssuesForMethod(fqn, jsonContent)
+                val fqn = methodObject.get("fqn")?.asString ?: return@forEach
+                val summary = methodObject.get("summary")?.asString ?: "Analysis completed"
+                val healthScore = methodObject.get("healthScore")?.asInt ?: 85
+                
+                // Parse issues for this method
+                val issues = mutableListOf<HealthIssue>()
+                val issuesArray = methodObject.getAsJsonArray("issues")
+                
+                issuesArray?.forEach { issueElement ->
+                    val issueObject = issueElement.asJsonObject
+                    
+                    issues.add(HealthIssue(
+                        issueCategory = issueObject.get("category")?.asString ?: "Unknown",
+                        severity = issueObject.get("severity")?.asInt ?: 3,
+                        title = issueObject.get("title")?.asString ?: "Unknown Issue",
+                        description = issueObject.get("description")?.asString ?: "",
+                        impact = issueObject.get("impact")?.asString ?: "",
+                        suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
+                        confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
+                        verified = true, // Pre-verified for file/group analysis
+                        verificationReason = "Verified through ${unit.type} analysis",
+                        codeSnippet = issueObject.get("codeSnippet")?.asString,
+                        callerSnippets = emptyList()
+                    ))
+                }
                 
                 results.add(MethodHealthResult(
                     fqn = fqn,
                     issues = issues,
-                    impactedCallers = emptyList(), // Will be filled later if needed
+                    impactedCallers = emptyList(), // Could be filled later if needed
                     healthScore = healthScore,
                     modificationCount = 1, // Default
                     codeContext = "", // Already in context
@@ -1147,20 +1172,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ))
             }
             
-            // Mark all issues as verified when using file/group analysis
-            return results.map { result ->
-                result.copy(
-                    issues = result.issues.map { issue ->
-                        issue.copy(
-                            verified = true,
-                            verificationReason = "Verified through ${unit.type} analysis"
-                        )
-                    }
-                )
-            }
+            return results
             
         } catch (e: Exception) {
             println("[CodeHealthAnalyzer] ERROR parsing file analysis response: ${e.message}")
+            e.printStackTrace()
             return emptyList()
         }
     }
@@ -1169,11 +1185,51 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Parse issues for a specific method from JSON response
      */
     private fun parseIssuesForMethod(fqn: String, jsonContent: String): List<HealthIssue> {
-        // This is a simplified version - in production, use proper JSON parsing
         val issues = mutableListOf<HealthIssue>()
         
-        // Find the method block and extract its issues
-        // ... parsing logic ...
+        try {
+            // Parse the JSON response using Gson
+            val gson = Gson()
+            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            
+            // Get the methods array
+            val methodsArray = jsonObject.getAsJsonArray("methods")
+            
+            // Find the method with matching FQN
+            methodsArray?.forEach { element ->
+                val methodObject = element.asJsonObject
+                val methodFqn = methodObject.get("fqn")?.asString
+                
+                if (methodFqn == fqn) {
+                    // Found the method, parse its issues
+                    val issuesArray = methodObject.getAsJsonArray("issues")
+                    
+                    issuesArray?.forEach { issueElement ->
+                        val issueObject = issueElement.asJsonObject
+                        
+                        val issue = HealthIssue(
+                            issueCategory = issueObject.get("category")?.asString ?: "Unknown",
+                            severity = issueObject.get("severity")?.asInt ?: 3,
+                            title = issueObject.get("title")?.asString ?: "Unknown Issue",
+                            description = issueObject.get("description")?.asString ?: "",
+                            impact = issueObject.get("impact")?.asString ?: "",
+                            suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
+                            confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
+                            verified = false, // Will be marked as verified later
+                            codeSnippet = issueObject.get("codeSnippet")?.asString,
+                            callerSnippets = emptyList()
+                        )
+                        
+                        issues.add(issue)
+                    }
+                    
+                    return@forEach // Found the method, stop searching
+                }
+            }
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error parsing issues for method $fqn: ${e.message}")
+            e.printStackTrace()
+        }
         
         return issues
     }

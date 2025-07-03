@@ -332,8 +332,8 @@ class CodeHealthTracker(private val project: Project) :
                 NotificationGroupManager.getInstance()
                     .getNotificationGroup("Zest Code Guardian")
                     .createNotification(
-                        "Analysis Already Running",
-                        "Another code health analysis is in progress. Please wait.",
+                        "⚡ Zest Guardian Already Working",
+                        "🔍 Analysis in progress... Results coming soon!",
                         NotificationType.WARNING
                     )
                     .notify(project)
@@ -351,8 +351,8 @@ class CodeHealthTracker(private val project: Project) :
             NotificationGroupManager.getInstance()
                 .getNotificationGroup("Zest Code Guardian")
                 .createNotification(
-                    "Code Health Analysis Started",
-                    "Analyzing modified methods...",
+                    "🚀 Zest Code Guardian Activated",
+                    "🔍 Scanning your code for improvement opportunities...",
                     NotificationType.INFORMATION
                 )
                 .notify(project)
@@ -374,8 +374,8 @@ class CodeHealthTracker(private val project: Project) :
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
-                                "No Methods to Analyze",
-                                "No modified methods found. Edit some code and try again.",
+                                "🤔 Zest Guardian: Nothing to Analyze",
+                                "💡 Start coding! I'll watch for issues as you work.",
                                 NotificationType.INFORMATION
                             )
                             .notify(project)
@@ -425,8 +425,8 @@ class CodeHealthTracker(private val project: Project) :
                             NotificationGroupManager.getInstance()
                                 .getNotificationGroup("Zest Code Guardian")
                                 .createNotification(
-                                    "Analysis Limited",
-                                    "Analyzing ${limitedUnits.size} of ${needsReviewUnits.size} review units.",
+                                    "⚡ Analysis Optimized",
+                                    "🎯 Focusing on ${limitedUnits.size} of ${needsReviewUnits.size} code units for faster results.",
                                     NotificationType.WARNING
                                 )
                                 .notify(project)
@@ -481,8 +481,8 @@ class CodeHealthTracker(private val project: Project) :
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
-                                "Analysis Complete",
-                                "No issues found in analyzed methods.",
+                                "✨ Zest Guardian: All Clear!",
+                                "🏆 Your code is clean - no issues detected!",
                                 NotificationType.INFORMATION
                             )
                             .notify(project)
@@ -505,8 +505,8 @@ class CodeHealthTracker(private val project: Project) :
                     NotificationGroupManager.getInstance()
                         .getNotificationGroup("Zest Code Guardian")
                         .createNotification(
-                            "Analysis Failed",
-                            "Error during code health analysis: ${e.message}",
+                            "😔 Zest Guardian: Analysis Failed",
+                            "💔 Something went wrong: ${e.message}. Let's try again!",
                             NotificationType.ERROR
                         )
                         .notify(project)

@@ -820,7 +820,7 @@ Please provide ONLY the commit message, no additional explanation, no markdown f
         }
 
         const payload = {
-            model: "Qwen2.5-Coder-7B", // Default model, could be made configurable
+            model: "local-model-mini", // Default model, could be made configurable
             messages: [
                 {
                     role: "user",
@@ -1390,7 +1390,7 @@ const QuickCommitPipeline = {
                 'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
-                model: "Qwen2.5-Coder-7B",
+                model: "local-model-mini",
                 messages: [{
                     role: "user",
                     content: prompt

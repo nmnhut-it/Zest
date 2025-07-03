@@ -26,16 +26,16 @@ class TriggerBackgroundReviewAction : AnAction() {
         
         // Show notification with stats
         val message = buildString {
-            appendLine("Background Review Triggered")
-            appendLine("Pending: ${statsBefore.pendingCount} methods")
-            appendLine("Ready for review: ${statsBefore.readyForReviewCount} methods")
-            appendLine("Already reviewed: ${statsBefore.reviewedCount} methods")
-            appendLine("Total issues found: ${statsBefore.totalIssuesFound}")
+            appendLine("🔄 Background Review Started!")
+            appendLine("📝 Pending: ${statsBefore.pendingCount} methods")
+            appendLine("✅ Ready: ${statsBefore.readyForReviewCount} methods")
+            appendLine("📊 Already reviewed: ${statsBefore.reviewedCount} methods")
+            appendLine("🎯 Issues found so far: ${statsBefore.totalIssuesFound}")
         }
         
         NotificationGroupManager.getInstance()
             .getNotificationGroup("Zest Code Guardian")
-            .createNotification("Background Health Review", message, NotificationType.INFORMATION)
+            .createNotification("🔍 Zest Guardian: Background Review", message, NotificationType.INFORMATION)
             .notify(project)
     }
     

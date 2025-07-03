@@ -30,7 +30,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(GitCommitMessageGeneratorAction.class);
 
     // Hardcoded or configurable model name for new chat; can be refactored to support user selection.
-    private static final String DEFAULT_MODEL_NAME = "Qwen2.5-Coder-7B";
+    private static final String DEFAULT_MODEL_NAME = "local-model-mini";
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
@@ -573,7 +573,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     /**
      * Sends the commit message prompt to the chat box using newChat and activates the browser window.
      *
-     * @param modelName the name of the model to use (e.g., "Qwen2.5-Coder-7B")
+     * @param modelName the name of the model to use (e.g., "local-model-mini")
      */
     private boolean sendPromptToChatBox(Project project, String prompt, String modelName) {
         LOG.info("Sending commit message prompt to chat box using new chat and model: " + modelName);

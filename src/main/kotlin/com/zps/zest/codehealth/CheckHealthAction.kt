@@ -11,8 +11,8 @@ import com.intellij.notification.NotificationType
  */
 class CheckHealthAction : AnAction() {
     init {
-        templatePresentation.text = "Check Code Health"
-        templatePresentation.description = "Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống"
+        templatePresentation.text = "🚀 Activate Zest Guardian"
+        templatePresentation.description = "AI-powered code analysis to find bugs, performance issues, and security risks"
     }
     
     override fun actionPerformed(e: AnActionEvent) {
@@ -25,8 +25,8 @@ class CheckHealthAction : AnAction() {
             NotificationGroupManager.getInstance()
                 .getNotificationGroup("Zest Code Guardian")
                 .createNotification(
-                    "Code Health Analysis In Progress",
-                    "Another analysis is already running. Please wait for it to complete.",
+                    "⚡ Zest Guardian Already Working",
+                    "🔍 Analysis in progress... Results coming soon!",
                     NotificationType.WARNING
                 )
                 .notify(project)
@@ -42,16 +42,16 @@ class CheckHealthAction : AnAction() {
         e.presentation.isEnabledAndVisible = project != null
         
         // Set tooltip
-        e.presentation.description = "Phân tích các phương thức đã chỉnh sửa trong ngày để phát hiện vấn đề tiềm ẩn và đánh giá tác động lên hệ thống"
+        e.presentation.description = "AI-powered code analysis to find bugs, performance issues, and security risks"
         
         // Disable if analysis is running
         if (project != null) {
             val tracker = CodeHealthTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
             if (tracker.isAnalysisRunning.get()) {
-                e.presentation.text = "Code Health Analysis Running..."
+                e.presentation.text = "🔄 Zest Guardian Analyzing..."
             } else {
-                e.presentation.text = "Activate Code Guardian"
+                e.presentation.text = "🚀 Activate Zest Guardian"
             }
         }
     }

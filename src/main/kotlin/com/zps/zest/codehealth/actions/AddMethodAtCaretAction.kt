@@ -28,13 +28,13 @@ class AddMethodAtCaretAction : AnAction() {
         
         val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
         if (method == null) {
-            showNotification(project, "No method found at cursor position", NotificationType.WARNING)
+            showNotification(project, "🎯 Place cursor inside a method first!", NotificationType.WARNING)
             return
         }
         
         val containingClass = method.containingClass
         if (containingClass == null) {
-            showNotification(project, "Method has no containing class", NotificationType.WARNING)
+            showNotification(project, "⚠️ Method needs a containing class", NotificationType.WARNING)
             return
         }
         
@@ -48,7 +48,7 @@ class AddMethodAtCaretAction : AnAction() {
         val reviewer = BackgroundHealthReviewer.getInstance(project)
         reviewer.queueMethodForReview(fqn, System.currentTimeMillis())
         
-        showNotification(project, "Added method to health review: $fqn", NotificationType.INFORMATION)
+        showNotification(project, "✅ Queued for review: $fqn", NotificationType.INFORMATION)
     }
     
     override fun update(e: AnActionEvent) {

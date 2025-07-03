@@ -189,8 +189,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Guardian")
                             .createNotification(
-                                "Code Health Analysis Partial Results",
-                                "Analysis timed out. Showing ${partialResults.size} of ${methodsToAnalyze.size} results.",
+                                "⏱️ Zest Guardian: Partial Results",
+                                "⚡ Got ${partialResults.size} of ${methodsToAnalyze.size} results. Still valuable insights!",
                                 NotificationType.WARNING
                             )
                             .notify(project)

@@ -14,7 +14,7 @@ import com.zps.zest.codehealth.CodeHealthTracker
 /**
  * Test action to add the method at caret to the review queue
  */
-class AddMethodAtCaretAction : AnAction("Add Method at Caret to Health Review") {
+class AddMethodAtCaretAction : AnAction() {
     
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
     

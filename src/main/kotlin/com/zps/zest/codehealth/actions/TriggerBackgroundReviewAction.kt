@@ -10,7 +10,7 @@ import com.zps.zest.codehealth.BackgroundHealthReviewer
 /**
  * Test action to trigger background review of all pending methods
  */
-class TriggerBackgroundReviewAction : AnAction("Trigger Background Health Review") {
+class TriggerBackgroundReviewAction : AnAction() {
     
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
     

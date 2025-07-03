@@ -16,7 +16,7 @@ import javax.swing.*
 /**
  * Test action to show the current status of the review queue
  */
-class ShowReviewQueueStatusAction : AnAction("Show Health Review Queue Status") {
+class ShowReviewQueueStatusAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

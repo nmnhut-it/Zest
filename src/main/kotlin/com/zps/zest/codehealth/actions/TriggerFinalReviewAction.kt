@@ -10,7 +10,7 @@ import com.zps.zest.codehealth.CodeHealthTracker
 /**
  * Test action to trigger the final 13h review and report
  */
-class TriggerFinalReviewAction : AnAction("Trigger Final Health Review (13h)") {
+class TriggerFinalReviewAction : AnAction() {
     
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
     

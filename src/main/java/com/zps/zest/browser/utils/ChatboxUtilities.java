@@ -118,6 +118,7 @@ public class ChatboxUtilities {
 
         // Code Health
         CODE_HEALTH,                  // Code Health Analysis
+        CODE_HEALTH_LOGGING,                  // Code Health Analysis logging 
 
         EXPLORE_TOOL, // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools

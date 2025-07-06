@@ -193,16 +193,16 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
-        <action id="Zest.QuickCommitAction"
-                class="com.zps.zest.QuickCommitAction"
-                text="Quick Commit &amp; Push"
-                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Commit và push nhanh với message tự động (Ctrl+Shift+Z, C)">
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>
-            <add-to-group group-id="ZestGroup" anchor="after"
-                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>
-            <add-to-group group-id="VcsGroups" anchor="last"/>
-        </action>
+<!--        <action id="Zest.QuickCommitAction"-->
+<!--                class="com.zps.zest.QuickCommitAction"-->
+<!--                text="Quick Commit &amp; Push"-->
+<!--                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"-->
+<!--                description="Commit và push nhanh với message tự động (Ctrl+Shift+Z, C)">-->
+<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>-->
+<!--            <add-to-group group-id="ZestGroup" anchor="after"-->
+<!--                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
+<!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
+<!--        </action>-->
 
         <action id="Zest.ToggleDevTools"
                 class="com.zps.zest.browser.actions.ToggleDevToolsAction"
@@ -249,7 +249,7 @@
         </group>
         
         <!-- Code Guardian Debug Actions Group -->
-        <group id="Zest.CodeGuardianDebug" text="Guardian Tools" popup="true">
+        <group id="Zest.CodeGuardianDebug" text="Guardian Debugging Tools" popup="true">
             <add-to-group group-id="Zest.CodeGuardian" anchor="last"/>
             
             <action id="Zest.ShowReviewQueueStatus"
@@ -272,5 +272,13 @@
                     description="Xem hướng dẫn sử dụng">
             </action>
         </group>
+        
+        <!-- Zest Completion Debug Action -->
+        <action id="Zest.ShowCompletionTimingDebug"
+                class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
+                text="Zest Completion Timing Debug..."
+                description="Show detailed timing breakdown for recent completions">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

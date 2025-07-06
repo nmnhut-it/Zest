@@ -12,8 +12,7 @@ import com.intellij.openapi.project.Project
 class ZestCocos2dxContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 2000
-        private const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
+        private const val MAX_CONTEXT_LENGTH = 8000  // Increased since we're just keeping 40 lines total
 
         // Cocos2d-x specific patterns
         private val COCOS_NODE_TYPES = listOf(
@@ -462,307 +461,37 @@ class ZestCocos2dxContextCollector(private val project: Project) {
     }
 
     private fun truncateCocos2dxContent(originalContent: String, markedContent: String): Triple<String, String, Boolean> {
-        // Process the marked content first to preserve cursor position
-        val collapsedMarkedContent = collapseFunctionBodiesPreservingCursor(markedContent)
+        val lines = markedContent.lines()
+        val cursorLineIndex = lines.indexOfFirst { it.contains("[CURSOR]") }
         
-        // Generate original content by removing cursor marker from the result
-        val collapsedOriginalContent = collapsedMarkedContent.replace("[CURSOR]", "")
-
-        return if (collapsedMarkedContent.length > MAX_CONTEXT_LENGTH) {
-            // Find cursor position to ensure it's preserved
-            val cursorIndex = collapsedMarkedContent.indexOf("[CURSOR]")
+        if (cursorLineIndex == -1) {
+            // No cursor found, just return as is
+            return Triple(originalContent, markedContent, false)
+        }
+        
+        // Keep 20 lines before and after cursor
+        val startLine = maxOf(0, cursorLineIndex - 20)
+        val endLine = minOf(lines.size, cursorLineIndex + 21) // +21 to include cursor line + 20 after
+        
+        val truncatedMarked = buildString {
+            append(SYNTAX_GUIDANCE)
+            append("\n\n")
             
-            if (cursorIndex != -1) {
-                // Cursor found - use smart truncation that preserves cursor
-                val truncated = smartTruncateAroundCursor(collapsedMarkedContent, cursorIndex, MAX_CONTEXT_LENGTH)
-                val originalTruncated = truncated.replace("[CURSOR]", "")
-                Triple(originalTruncated, truncated, true)
-            } else {
-                // No cursor found - use simple truncation (fallback)
-                val truncated = collapsedMarkedContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-                val originalTruncated = collapsedOriginalContent.take(MAX_CONTEXT_LENGTH) + "\n/* ... content truncated ... */"
-                Triple(originalTruncated, truncated, true)
-            }
-        } else {
-            Triple(collapsedOriginalContent, collapsedMarkedContent, collapsedOriginalContent != originalContent)
-        }
-    }
-
-    /**
-     * Smart truncation that ensures cursor position is preserved within the content.
-     * Keeps context around the cursor position while staying within the length limit.
-     * Always preserves Cocos2d-x syntax guidance at the beginning.
-     */
-    private fun smartTruncateAroundCursor(content: String, cursorIndex: Int, maxLength: Int): String {
-        val truncationMarker = "\n/* ... content truncated ... */"
-        val syntaxGuidanceLength = SYNTAX_GUIDANCE.length + 2 // +2 for the newlines
-        
-        // Always preserve syntax guidance + some minimum content
-        val minContentAfterGuidance = 500
-        val availableLength = maxLength - truncationMarker.length * 2 - syntaxGuidanceLength
-        
-        if (availableLength <= minContentAfterGuidance) {
-            // If we can't fit much after the guidance, just do simple truncation
-            return content.take(maxLength) + truncationMarker
-        }
-        
-        // Extract the syntax guidance part (should be at the beginning)
-        val syntaxGuidanceEnd = content.indexOf("\n\n") + 2
-        val guidance = if (syntaxGuidanceEnd > 2) content.substring(0, syntaxGuidanceEnd) else ""
-        val actualContent = if (syntaxGuidanceEnd > 2) content.substring(syntaxGuidanceEnd) else content
-        val adjustedCursorIndex = cursorIndex - syntaxGuidanceEnd
-        
-        if (adjustedCursorIndex < 0 || actualContent.isEmpty()) {
-            // Cursor is in guidance section or no actual content
-            return content.take(maxLength) + truncationMarker
-        }
-        
-        // Calculate how much content to keep before and after cursor in the actual content
-        val halfLength = availableLength / 2
-        val beforeCursor = maxOf(0, adjustedCursorIndex - halfLength)
-        val afterCursor = minOf(actualContent.length, adjustedCursorIndex + halfLength)
-        
-        // Adjust to line boundaries to avoid cutting words/lines awkwardly
-        val beforeLineStart = actualContent.lastIndexOf('\n', beforeCursor).let { 
-            if (it == -1) 0 else it + 1 
-        }
-        val afterLineEnd = actualContent.indexOf('\n', afterCursor).let { 
-            if (it == -1) actualContent.length else it 
-        }
-        
-        val beforeTruncated = beforeLineStart > 0
-        val afterTruncated = afterLineEnd < actualContent.length
-        
-        return buildString {
-            // Always include syntax guidance
-            append(guidance)
-            
-            if (beforeTruncated) {
+            if (startLine > 0) {
                 append("/* ... content truncated ... */\n")
             }
-            append(actualContent.substring(beforeLineStart, afterLineEnd))
-            if (afterTruncated) {
+            
+            lines.subList(startLine, endLine).joinToString("\n").let { append(it) }
+            
+            if (endLine < lines.size) {
                 append("\n/* ... content truncated ... */")
             }
         }
-    }
-
-    /**
-     * Cursor-preserving function body collapsing for Cocos2d-x projects.
-     * Ensures the [CURSOR] marker is never lost during truncation.
-     */
-    private fun collapseFunctionBodiesPreservingCursor(content: String): String {
-        val lines = content.lines().toMutableList()
-        val result = mutableListOf<String>()
         
-        // Find cursor position
-        val cursorLine = findCursorLine(lines)
+        val truncatedOriginal = truncatedMarked.replace("[CURSOR]", "")
+        val isTruncated = startLine > 0 || endLine < lines.size
         
-        var i = 0
-        while (i < lines.size) {
-            val line = lines[i]
-            val functionMatch = findCocos2dxFunctionStart(line, i, lines)
-
-            if (functionMatch != null) {
-                // Check if this function contains the cursor
-                val functionEnd = findMatchingCloseBrace(lines, functionMatch.braceLineIndex)
-                val containsCursor = cursorLine in i..functionEnd
-                
-                // Add the function signature line(s)
-                result.addAll(functionMatch.signatureLines)
-
-                // Find the opening brace and handle the body
-                val braceLineIndex = functionMatch.braceLineIndex
-                if (braceLineIndex != -1) {
-                    if (containsCursor || functionMatch.isImportant) {
-                        // Preserve the entire function body since it contains the cursor or is important
-                        for (bodyLineIndex in braceLineIndex until functionEnd + 1) {
-                            if (bodyLineIndex < lines.size) {
-                                result.add(lines[bodyLineIndex])
-                            }
-                        }
-                    } else {
-                        // Collapse the function body since it doesn't contain the cursor
-                        val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex)
-                        result.add(collapsedBody)
-                    }
-                    
-                    // Skip to after the function body
-                    i = functionEnd + 1
-                } else {
-                    // No opening brace found, just add the line and continue
-                    i++
-                }
-            } else {
-                result.add(line)
-                i++
-            }
-        }
-
-        return result.joinToString("\n")
-    }
-    
-    /**
-     * Finds the line number containing the [CURSOR] marker
-     */
-    private fun findCursorLine(lines: List<String>): Int {
-        return lines.indexOfFirst { it.contains("[CURSOR]") }
-    }
-
-    private fun collapseFunctionBodies(content: String): String {
-        val lines = content.lines().toMutableList()
-        val result = mutableListOf<String>()
-        var i = 0
-
-        while (i < lines.size) {
-            val line = lines[i]
-            val functionMatch = findCocos2dxFunctionStart(line, i, lines)
-
-            if (functionMatch != null) {
-                // Add the function signature line(s)
-                result.addAll(functionMatch.signatureLines)
-
-                // Find the opening brace and collapse the body
-                val braceLineIndex = functionMatch.braceLineIndex
-                if (braceLineIndex != -1) {
-                    val collapsedBody = collapseBodyFromBrace(lines, braceLineIndex)
-                    result.add(collapsedBody)
-
-                    // Skip to after the function body
-                    i = findMatchingCloseBrace(lines, braceLineIndex) + 1
-                } else {
-                    // No opening brace found, just add the line and continue
-                    i++
-                }
-            } else {
-                result.add(line)
-                i++
-            }
-        }
-
-        return result.joinToString("\n")
-    }
-
-    private data class FunctionMatch(
-        val signatureLines: List<String>,
-        val braceLineIndex: Int,
-        val isImportant: Boolean = false
-    )
-
-    private fun findCocos2dxFunctionStart(line: String, lineIndex: Int, lines: List<String>): FunctionMatch? {
-        val trimmed = line.trim()
-
-        // Cocos2d-x specific patterns with importance marking
-        val cocosPatterns = listOf(
-            // Lifecycle methods (important to preserve signature)
-            Regex("""^\s*(${COCOS_LIFECYCLE_METHODS.joinToString("|")})\s*:\s*function\s*\([^)]*\)\s*\{?\s*$""") to true,
-            // Scene extend pattern
-            Regex("""^\s*var\s+\w+\s*=\s*cc\.Scene\.extend\s*\(\s*\{?\s*$""") to true,
-            // Node extend pattern
-            Regex("""^\s*var\s+\w+\s*=\s*cc\.Node\.extend\s*\(\s*\{?\s*$""") to true,
-            // Class create method
-            Regex("""^\s*create\s*:\s*function\s*\([^)]*\)\s*\{?\s*$""") to true,
-            // Event handlers (important)
-            Regex("""^\s*(onTouch\w+|onKey\w+|onEnter|onExit)\s*:\s*function\s*\([^)]*\)\s*\{?\s*$""") to true,
-            // Regular methods in objects
-            Regex("""^\s*\w+\s*:\s*function\s*\([^)]*\)\s*\{?\s*$""") to false,
-            // Standard function declarations
-            Regex("""^\s*function\s+\w*\s*\([^)]*\)\s*\{?\s*$""") to false,
-            // Arrow functions
-            Regex("""^\s*(?:const|let|var)\s+\w+\s*=\s*\([^)]*\)\s*=>\s*\{?\s*$""") to false
-        )
-
-        for ((pattern, isImportant) in cocosPatterns) {
-            if (pattern.matches(trimmed)) {
-                val braceIndex = when {
-                    line.contains("{") -> lineIndex
-                    lineIndex + 1 < lines.size && lines[lineIndex + 1].trim().startsWith("{") -> lineIndex + 1
-                    else -> -1
-                }
-
-                return FunctionMatch(listOf(line), braceIndex, isImportant)
-            }
-        }
-
-        return null
-    }
-
-    private fun collapseBodyFromBrace(lines: List<String>, braceLineIndex: Int): String {
-        val braceLine = lines[braceLineIndex]
-        val beforeBrace = braceLine.substringBefore("{")
-        val afterBrace = braceLine.substringAfter("{")
-
-        // For Cocos2d-x, preserve the structure but collapse body
-        return if (afterBrace.trim().isNotEmpty() && !afterBrace.trim().startsWith("}")) {
-            beforeBrace + "{" + FUNCTION_BODY_PLACEHOLDER + " }"
-        } else {
-            beforeBrace + FUNCTION_BODY_PLACEHOLDER
-        }
-    }
-
-    private fun findMatchingCloseBrace(lines: List<String>, openBraceLineIndex: Int): Int {
-        var braceCount = 0
-        var foundOpenBrace = false
-        var inString = false
-        var inComment = false
-        var i = openBraceLineIndex
-
-        while (i < lines.size) {
-            val line = lines[i]
-            var j = 0
-
-            while (j < line.length) {
-                val char = line[j]
-                val nextChar = if (j + 1 < line.length) line[j + 1] else null
-
-                // Handle comments and strings
-                when {
-                    !inString && !inComment && char == '/' && nextChar == '/' -> {
-                        // Single line comment - skip rest of line
-                        break
-                    }
-                    !inString && !inComment && char == '/' && nextChar == '*' -> {
-                        inComment = true
-                        j++ // Skip next char
-                    }
-                    inComment && char == '*' && nextChar == '/' -> {
-                        inComment = false
-                        j++ // Skip next char
-                    }
-                    !inComment && char == '"' && (j == 0 || line[j-1] != '\\') -> {
-                        inString = !inString
-                    }
-                    !inString && !inComment -> {
-                        when (char) {
-                            '{' -> {
-                                braceCount++
-                                foundOpenBrace = true
-                            }
-                            '}' -> {
-                                if (foundOpenBrace) {
-                                    braceCount--
-                                    if (braceCount == 0) {
-                                        return i
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                j++
-            }
-
-            // Reset comment state at end of line for single-line comments
-            if (inComment && !line.contains("*/")) {
-                // This was actually a single line comment, reset
-                inComment = false
-            }
-
-            i++
-        }
-
-        // If no matching brace found, return the last line
-        return lines.size - 1
+        return Triple(truncatedOriginal, truncatedMarked, isTruncated)
     }
 
     private fun mapCocos2dxToStandardContext(cocosType: Cocos2dxContextType): ZestLeanContextCollector.CursorContextType {

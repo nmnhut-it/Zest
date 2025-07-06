@@ -573,6 +573,12 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         val cocos2dxPatterns = listOf(
             "cc\\.",
             "cc\\.\\w+",
+            "ccui\\.",      // Cocos UI components
+            "ccui\\.\\w+",  
+            "ccs\\.",       // Cocos Studio
+            "ccs\\.\\w+",
+            "sp\\.",        // Spine animations
+            "sp\\.\\w+",
             "cocos2d",
             "CCScene",
             "CCNode"

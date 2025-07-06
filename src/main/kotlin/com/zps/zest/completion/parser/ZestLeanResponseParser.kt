@@ -44,16 +44,16 @@ class ZestLeanResponseParser {
         var cleanedCompletion = parsedResponse.completion
         
         // Debug log what we got
-        System.out.println("=== PARSED RESPONSE DEBUG ===")
-        System.out.println("Has prefix: ${parsedResponse.prefix.isNotEmpty()}")
-        System.out.println("Has completion: ${parsedResponse.completion.isNotEmpty()}")
-        System.out.println("Has suffix: ${parsedResponse.suffix.isNotEmpty()}")
-        System.out.println("Completion text: '${cleanedCompletion.take(100)}${if (cleanedCompletion.length > 100) "..." else ""}'")
-        System.out.println("=== END PARSED RESPONSE DEBUG ===")
+//        System.out.println("=== PARSED RESPONSE DEBUG ===")
+//        System.out.println("Has prefix: ${parsedResponse.prefix.isNotEmpty()}")
+//        System.out.println("Has completion: ${parsedResponse.completion.isNotEmpty()}")
+//        System.out.println("Has suffix: ${parsedResponse.suffix.isNotEmpty()}")
+//        System.out.println("Completion text: '${cleanedCompletion.take(100)}${if (cleanedCompletion.length > 100) "..." else ""}'")
+//        System.out.println("=== END PARSED RESPONSE DEBUG ===")
         
         // If structured parsing failed, fall back to old method
         if (cleanedCompletion.isEmpty() && (parsedResponse.prefix.isEmpty() && parsedResponse.suffix.isEmpty())) {
-            System.out.println("Structured parsing failed, falling back to old method")
+//            System.out.println("Structured parsing failed, falling back to old method")
             val (reasoning, completion) = extractReasoningAndCompletion(response)
             cleanedCompletion = extractWrappedContent(completion)
             
@@ -83,13 +83,13 @@ class ZestLeanResponseParser {
             
             // Debug logging for lean strategy overlap detection
             if (overlapResult.prefixOverlapLength > 0 || overlapResult.suffixOverlapLength > 0) {
-                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
-                System.out.println("User input: '$recentUserInput'")
-                System.out.println("Original completion: '$cleanedCompletion'")
-                System.out.println("Prefix overlap: ${overlapResult.prefixOverlapLength}")
-                System.out.println("Suffix overlap: ${overlapResult.suffixOverlapLength}")
-                System.out.println("Final completion: '${overlapResult.adjustedCompletion}'")
-                System.out.println("=== END LEAN DEBUG ===")
+//                System.out.println("=== LEAN OVERLAP DETECTION DEBUG ===")
+//                System.out.println("User input: '$recentUserInput'")
+//                System.out.println("Original completion: '$cleanedCompletion'")
+//                System.out.println("Prefix overlap: ${overlapResult.prefixOverlapLength}")
+//                System.out.println("Suffix overlap: ${overlapResult.suffixOverlapLength}")
+//                System.out.println("Final completion: '${overlapResult.adjustedCompletion}'")
+//                System.out.println("=== END LEAN DEBUG ===")
             }
             
             overlapResult.adjustedCompletion
@@ -126,9 +126,9 @@ class ZestLeanResponseParser {
         var reasoning = ""
         
         // Debug: Print the raw response to understand the issue
-        System.out.println("=== RAW RESPONSE FOR PARSING ===")
-        System.out.println(response.take(500))
-        System.out.println("=== END RAW RESPONSE ===")
+//        System.out.println("=== RAW RESPONSE FOR PARSING ===")
+//        System.out.println(response.take(500))
+//        System.out.println("=== END RAW RESPONSE ===")
         
         // Extract prefix - handle case where it might be embedded in the full response
         val prefixPattern = Regex("<prefix>(.+?)</prefix>", RegexOption.DOT_MATCHES_ALL)
@@ -161,7 +161,7 @@ class ZestLeanResponseParser {
                     val betweenContent = response.substring(prefixEnd, suffixStart).trim()
                     // Check if there's content between that's not just whitespace
                     if (betweenContent.isNotEmpty() && !betweenContent.startsWith("<completion>")) {
-                        System.out.println("Found completion content between tags without wrapper: '${betweenContent.take(100)}'")
+//                        System.out.println("Found completion content between tags without wrapper: '${betweenContent.take(100)}'")
                         completion = betweenContent
                     }
                 }
@@ -177,7 +177,7 @@ class ZestLeanResponseParser {
             if (lastTagEnd > 0 && lastTagEnd < response.length) {
                 val remainingContent = response.substring(lastTagEnd).trim()
                 if (remainingContent.isNotEmpty() && completion.isEmpty()) {
-                    System.out.println("Found completion content after all tags: '${remainingContent.take(100)}'")
+//                    System.out.println("Found completion content after all tags: '${remainingContent.take(100)}'")
                     completion = remainingContent
                 }
             }
@@ -196,11 +196,11 @@ class ZestLeanResponseParser {
             .replace("You must provide your response in this EXACT format", "")
             .trim()
         
-        System.out.println("=== STRUCTURED RESPONSE PARSING ===")
-        System.out.println("Prefix: '${prefix.take(50)}${if (prefix.length > 50) "..." else ""}'")
-        System.out.println("Completion: '${completion.take(50)}${if (completion.length > 50) "..." else ""}'")
-        System.out.println("Suffix: '${suffix.take(50)}${if (suffix.length > 50) "..." else ""}'")
-        System.out.println("=== END STRUCTURED PARSING ===")
+//        System.out.println("=== STRUCTURED RESPONSE PARSING ===")
+//        System.out.println("Prefix: '${prefix.take(50)}${if (prefix.length > 50) "..." else ""}'")
+//        System.out.println("Completion: '${completion.take(50)}${if (completion.length > 50) "..." else ""}'")
+//        System.out.println("Suffix: '${suffix.take(50)}${if (suffix.length > 50) "..." else ""}'")
+//        System.out.println("=== END STRUCTURED PARSING ===")
         
         return ParsedResponse(prefix, completion, suffix, reasoning)
     }
@@ -225,9 +225,9 @@ class ZestLeanResponseParser {
         if (normalizedPrefix.isNotEmpty()) {
             val prefixMatches = contextBefore.trimEnd().endsWith(normalizedPrefix)
             if (!prefixMatches) {
-                System.out.println("WARNING: Prefix mismatch!")
-                System.out.println("Expected prefix: '$normalizedPrefix'")
-                System.out.println("Actual context ends with: '${contextBefore.takeLast(normalizedPrefix.length)}'")
+//                System.out.println("WARNING: Prefix mismatch!")
+//                System.out.println("Expected prefix: '$normalizedPrefix'")
+//                System.out.println("Actual context ends with: '${contextBefore.takeLast(normalizedPrefix.length)}'")
             }
         }
         
@@ -235,9 +235,9 @@ class ZestLeanResponseParser {
         if (normalizedSuffix.isNotEmpty()) {
             val suffixMatches = contextAfter.trimStart().startsWith(normalizedSuffix)
             if (!suffixMatches) {
-                System.out.println("WARNING: Suffix mismatch!")
-                System.out.println("Expected suffix: '$normalizedSuffix'")
-                System.out.println("Actual context starts with: '${contextAfter.take(normalizedSuffix.length)}'")
+//                System.out.println("WARNING: Suffix mismatch!")
+//                System.out.println("Expected suffix: '$normalizedSuffix'")
+//                System.out.println("Actual context starts with: '${contextAfter.take(normalizedSuffix.length)}'")
             }
         }
     }

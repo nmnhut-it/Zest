@@ -16,6 +16,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.data.ZestInlineCompletionItem
+import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Rectangle
@@ -51,6 +52,8 @@ class ZestInlineCompletionRenderer {
         strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.SIMPLE,
         callback: (context: RenderingContext) -> Unit = {}
     ) {
+        val renderStartTime = System.currentTimeMillis()
+        
         ApplicationManager.getApplication().invokeLater {
             // Always hide any existing completion first to prevent duplicates
             hide()
@@ -86,7 +89,20 @@ class ZestInlineCompletionRenderer {
                 current = context
                 callback(context)
                 
-                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups")
+                val renderTime = System.currentTimeMillis() - renderStartTime
+                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups in ${renderTime}ms")
+                
+                // Track inlay rendering time if we have a completion ID
+                completion.metadata?.requestId?.let { requestId ->
+                    try {
+                        editor.project?.let { project ->
+                            val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
+                            metricsService.trackInlayRenderingTime(requestId, renderTime)
+                        }
+                    } catch (e: Exception) {
+                        // Ignore metrics tracking errors
+                    }
+                }
                 
                 // Schedule a check to ensure our completion is still visible
                 // This helps detect when IntelliJ actions have interfered

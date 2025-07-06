@@ -94,7 +94,21 @@
                     description="Hide the current completion">
                 <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
             </action>
+            
+            <!-- Debug timing action -->
+            <action id="Zest.InlineCompletion.DebugTiming"
+                    class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
+                    text="Show Completion Timing Debug"
+                    description="Display detailed timing information for completions"/>
         </group>
+        
+        <!-- Add debug action to Tools menu -->
+        <action id="Zest.ShowCompletionTimingDebug"
+                class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
+                text="Zest Completion Timing Debug..."
+                description="Show detailed timing breakdown for recent completions">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
         
         <!-- Context menu group for completion actions -->
         <group id="Zest.InlineCompletionContextMenu">
@@ -107,5 +121,13 @@
             <separator/>
             <reference id="Zest.InlineCompletion.Dismiss"/>
         </group>
+        
+        <!-- Add debug action to Tools menu -->
+        <action id="Zest.ShowCompletionTimingDebug"
+                class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
+                text="Zest Completion Timing Debug..."
+                description="Show detailed timing breakdown for recent completions">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

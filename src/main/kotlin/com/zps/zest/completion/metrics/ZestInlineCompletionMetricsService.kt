@@ -26,6 +26,14 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     // Track active completions
     private val activeCompletions = ConcurrentHashMap<String, CompletionSession>()
     
+    // Track cancellations
+    private var cancellationsSinceLastCompletion = 0
+    private var lastSuccessfulCompletionTime: Long? = null
+    
+    // Timing breakdowns for debugging
+    private val timingHistory = mutableListOf<CompletionTimingInfo>()
+    private val maxTimingHistory = 50
+    
     // Service state
     private val isEnabled = AtomicBoolean(true)
     private var processingJob: Job? = null
@@ -62,6 +70,14 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         activeCompletions[completionId] = session
         
+        // Initialize timing info
+        val timingInfo = CompletionTimingInfo(
+            completionId = completionId,
+            strategy = strategy,
+            fileName = fileType
+        )
+        session.timingInfo = timingInfo
+        
         sendEvent(MetricEvent.CompletionRequest(
             completionId = completionId,
             elapsed = 0,
@@ -70,6 +86,56 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 "file_type" to fileType
             ) + contextInfo
         ))
+    }
+    
+    /**
+     * Track context collection timing
+     */
+    fun trackContextCollectionTime(completionId: String, timeMs: Long) {
+        activeCompletions[completionId]?.timingInfo?.contextCollectionTime = timeMs
+    }
+    
+    /**
+     * Track LLM call timing
+     */
+    fun trackLLMCallTime(completionId: String, timeMs: Long) {
+        activeCompletions[completionId]?.timingInfo?.llmCallTime = timeMs
+    }
+    
+    /**
+     * Track response parsing timing
+     */
+    fun trackResponseParsingTime(completionId: String, timeMs: Long) {
+        activeCompletions[completionId]?.timingInfo?.responseParsingTime = timeMs
+    }
+    
+    /**
+     * Track inlay rendering timing
+     */
+    fun trackInlayRenderingTime(completionId: String, timeMs: Long) {
+        activeCompletions[completionId]?.timingInfo?.inlayRenderingTime = timeMs
+    }
+    
+    /**
+     * Track when a completion is cancelled
+     */
+    fun trackCompletionCancelled(completionId: String) {
+        val session = activeCompletions[completionId] ?: return
+        session.timingInfo?.let { timing ->
+            timing.cancelled = true
+            timing.totalTime = System.currentTimeMillis() - session.startTime
+            
+            // Add to history
+            synchronized(timingHistory) {
+                timingHistory.add(0, timing)
+                if (timingHistory.size > maxTimingHistory) {
+                    timingHistory.removeAt(timingHistory.size - 1)
+                }
+            }
+        }
+        
+        cancellationsSinceLastCompletion++
+        activeCompletions.remove(completionId)
     }
     
     /**
@@ -216,6 +282,26 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
+        
+        // Update timing info for successful completion
+        session.timingInfo?.let { timing ->
+            timing.succeeded = true
+            timing.totalTime = elapsed
+            
+            // Add to history
+            synchronized(timingHistory) {
+                timingHistory.add(0, timing)
+                if (timingHistory.size > maxTimingHistory) {
+                    timingHistory.removeAt(timingHistory.size - 1)
+                }
+            }
+        }
+        
+        // Reset cancellation counter on successful completion
+        if (isAll) {
+            cancellationsSinceLastCompletion = 0
+            lastSuccessfulCompletionTime = System.currentTimeMillis()
+        }
         
         // Update session state for partial acceptances
         if (!isAll) {
@@ -392,11 +478,76 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
+     * Get timing history for debugging
+     */
+    fun getTimingHistory(): List<CompletionTimingInfo> {
+        return synchronized(timingHistory) {
+            timingHistory.toList()
+        }
+    }
+    
+    /**
      * Clear all active sessions (for testing/debugging)
      */
     fun clearAllSessions() {
         activeCompletions.clear()
         logger.info("Cleared all active completion sessions")
+    }
+    
+    /**
+     * Generate debug report with timing information
+     */
+    fun generateTimingDebugReport(): String {
+        val sb = StringBuilder()
+        
+        sb.appendLine("=== ZEST COMPLETION TIMING DEBUG REPORT ===")
+        sb.appendLine("Generated at: ${System.currentTimeMillis()}")
+        sb.appendLine()
+        
+        // Summary
+        sb.appendLine("=== SUMMARY ===")
+        sb.appendLine("Active completions: ${activeCompletions.size}")
+        sb.appendLine("Cancellations since last completion: $cancellationsSinceLastCompletion")
+        lastSuccessfulCompletionTime?.let {
+            val timeSinceLast = System.currentTimeMillis() - it
+            sb.appendLine("Time since last successful completion: ${timeSinceLast}ms (${timeSinceLast/1000}s)")
+        }
+        sb.appendLine()
+        
+        // Recent timing history
+        sb.appendLine("=== RECENT COMPLETIONS (Last ${timingHistory.size}) ===")
+        synchronized(timingHistory) {
+            timingHistory.forEachIndexed { index, timing ->
+                sb.appendLine("\n[${index + 1}] ${timing.completionId}")
+                sb.appendLine("  Strategy: ${timing.strategy}")
+                sb.appendLine("  File: ${timing.fileName}")
+                sb.appendLine("  Status: ${when {
+                    timing.cancelled -> "CANCELLED"
+                    timing.succeeded -> "ACCEPTED"
+                    timing.error != null -> "ERROR: ${timing.error}"
+                    else -> "UNKNOWN"
+                }}")
+                sb.appendLine("  Total time: ${timing.totalTime}ms")
+                sb.appendLine("  Breakdown:")
+                sb.appendLine("    - Context collection: ${timing.contextCollectionTime}ms")
+                sb.appendLine("    - LLM call: ${timing.llmCallTime}ms")
+                sb.appendLine("    - Response parsing: ${timing.responseParsingTime}ms")
+                sb.appendLine("    - Inlay rendering: ${timing.inlayRenderingTime}ms")
+            }
+        }
+        
+        // Average timings for successful completions
+        val successfulCompletions = timingHistory.filter { it.succeeded }
+        if (successfulCompletions.isNotEmpty()) {
+            sb.appendLine("\n=== AVERAGE TIMINGS (${successfulCompletions.size} successful) ===")
+            sb.appendLine("Average total time: ${successfulCompletions.map { it.totalTime }.average().toLong()}ms")
+            sb.appendLine("Average context collection: ${successfulCompletions.map { it.contextCollectionTime }.average().toLong()}ms")
+            sb.appendLine("Average LLM call: ${successfulCompletions.map { it.llmCallTime }.average().toLong()}ms")
+            sb.appendLine("Average response parsing: ${successfulCompletions.map { it.responseParsingTime }.average().toLong()}ms")
+            sb.appendLine("Average inlay rendering: ${successfulCompletions.map { it.inlayRenderingTime }.average().toLong()}ms")
+        }
+        
+        return sb.toString()
     }
     
     override fun dispose() {
@@ -421,4 +572,26 @@ data class MetricsState(
     val enabled: Boolean,
     val activeCompletions: Int,
     val queuedEvents: Int
+)
+
+/**
+ * Timing information for a completion request
+ */
+data class CompletionTimingInfo(
+    val completionId: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val strategy: String,
+    val fileName: String,
+    
+    // Timing breakdowns (all in milliseconds)
+    var contextCollectionTime: Long = 0,
+    var llmCallTime: Long = 0,
+    var responseParsingTime: Long = 0,
+    var inlayRenderingTime: Long = 0,
+    var totalTime: Long = 0,
+    
+    // Additional info
+    var cancelled: Boolean = false,
+    var succeeded: Boolean = false,
+    var error: String? = null
 )

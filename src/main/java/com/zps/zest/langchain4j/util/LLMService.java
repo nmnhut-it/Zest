@@ -219,8 +219,11 @@ public final class LLMService {
             }
 
             // Read response
+            long elapsed = System.currentTimeMillis();
             String response = readResponse(connection);
+            elapsed = System.currentTimeMillis() - elapsed;
 
+            System.out.println("Llm request time: " + elapsed);
             if (debugMode) {
                 System.out.println("DEBUG: LLM Response: " + response);
             }

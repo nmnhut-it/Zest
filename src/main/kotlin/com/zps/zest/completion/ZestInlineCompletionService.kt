@@ -2,7 +2,6 @@ package com.zps.zest.completion
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -23,19 +22,16 @@ import com.zps.zest.ConfigurationManager
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.ZestInlineCompletionList
-import com.zps.zest.completion.parser.ZestSimpleResponseParser
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
+import com.zps.zest.completion.parser.ZestSimpleResponseParser
 import com.zps.zest.events.ZestCaretListener
 import com.zps.zest.events.ZestDocumentListener
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
-import java.util.UUID
-import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Simplified service for handling inline completions
@@ -45,31 +41,31 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val logger = Logger.getInstance(ZestInlineCompletionService::class.java)
     private val messageBusConnection = project.messageBus.connect()
     private val editorManager = FileEditorManager.getInstance(project)
-    
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val completionProvider = ZestCompletionProvider(project)
     private val renderer = ZestInlineCompletionRenderer()
     private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
-    
+
     // Method rewrite service integration
     private val methodRewriteService by lazy { project.getService(ZestMethodRewriteService::class.java) }
-    
+
     // Metrics service integration
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
-    
+
     // Configuration
     private var autoTriggerEnabled = false
     private var inlineCompletionEnabled = false
     private var backgroundContextEnabled = false
     private var continuousCompletionEnabled = true // NEW: Auto-trigger next completion after acceptance
-    
+
     // Configuration manager reference
     private val configManager = ConfigurationManager.getInstance(project)
-    
+
     // Request tracking to prevent multiple concurrent requests
     private val requestGeneration = AtomicInteger(0)
     private var activeRequestId: Int? = null
-    
+
     // Request state machine
     enum class RequestState {
         IDLE,           // No request active
@@ -77,44 +73,39 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         REQUESTING,     // Provider call in progress
         DISPLAYING      // Completion shown
     }
-    
+
     @Volatile
     private var currentRequestState = RequestState.IDLE
-    
+
     // Track the last request time for rate limiting
     @Volatile
     private var lastRequestTimestamp = 0L
     private val MIN_REQUEST_INTERVAL_MS = 500L // Minimum 500ms between requests
-    
+
     // Dynamic rate limiting (thread-safe)
     private val requestHistory = Collections.synchronizedList(mutableListOf<Long>())
     private val REQUEST_HISTORY_WINDOW_MS = 60_000L // 1 minute window
     private val MAX_REQUESTS_PER_MINUTE = 30
-    
+
     private fun isRateLimited(): Boolean {
         val now = System.currentTimeMillis()
-        
+
         // Clean up old entries (thread-safe)
         synchronized(requestHistory) {
             requestHistory.removeAll { now - it > REQUEST_HISTORY_WINDOW_MS }
-            
+
             // Check if we've exceeded the limit
             if (requestHistory.size >= MAX_REQUESTS_PER_MINUTE) {
-//                System.out.println("[ZestInlineCompletion] Rate limited: ${requestHistory.size} requests in the last minute")
+
                 return true
             }
         }
-        
+
         // Check minimum interval
         val timeSinceLastRequest = now - lastRequestTimestamp
-        if (timeSinceLastRequest < MIN_REQUEST_INTERVAL_MS) {
-//            System.out.println("[ZestInlineCompletion] Rate limited: only ${timeSinceLastRequest}ms since last request")
-            return true
-        }
-        
-        return false
+        return timeSinceLastRequest < MIN_REQUEST_INTERVAL_MS
     }
-    
+
     private fun recordRequest() {
         val now = System.currentTimeMillis()
         lastRequestTimestamp = now
@@ -122,13 +113,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             requestHistory.add(now)
         }
     }
-    
+
     // Mutex for critical sections
     private val completionMutex = Mutex()
-    
+
     // Single debounce timer
     private var completionTimer: Job? = null
-    
+
     // Strategy management
     // SIMPLE: Traditional behavior - Tab accepts full completion
     // LEAN: Tab accepts full completion, Ctrl+Tab accepts line-by-line
@@ -136,9 +127,9 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     fun setCompletionStrategy(strategy: ZestCompletionProvider.CompletionStrategy) {
         val oldStrategy = completionProvider.strategy
         completionProvider.setStrategy(strategy)
-////        System.out.println("[ZestInlineCompletion] Strategy updated to: $strategy")
+
         logger.info("Completion strategy updated to: $strategy")
-        
+
         // Clear cache when strategy changes to ensure appropriate completions
         if (oldStrategy != strategy) {
             scope.launch {
@@ -146,40 +137,40 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     completionCache.clear()
                 }
             }
-////            System.out.println("[ZestInlineCompletion] Cache cleared due to strategy change")
+
         }
     }
-    
+
     fun getCompletionStrategy(): ZestCompletionProvider.CompletionStrategy {
         return completionProvider.strategy
     }
-    
+
     // State management
     private var currentCompletionJob: Job? = null
     private var currentContext: CompletionContext? = null
     private var currentCompletion: ZestInlineCompletionItem? = null
-    
+
     // Flag to track programmatic edits (e.g., when accepting completions)
     @Volatile
     private var isProgrammaticEdit = false
-    
+
     // Timestamp of last accepted completion to implement cooldown
     @Volatile
     private var lastAcceptedTimestamp = 0L
     private val ACCEPTANCE_COOLDOWN_MS = 3000L // 3 seconds cooldown after accepting (increased from 2s)
-    
+
     // Track the last accepted text to avoid re-suggesting the same completion
     @Volatile
     private var lastAcceptedText: String? = null
-    
+
     // Flag to completely disable all completion activities during acceptance
     @Volatile
     private var isAcceptingCompletion = false
-    
+
     // Acceptance timeout protection - auto-reset if acceptance takes too long
     private val ACCEPTANCE_TIMEOUT_MS = 10000L // 10 seconds max acceptance time
     private var acceptanceTimeoutJob: Job? = null
-    
+
     // Completion cache for simple & lean mode
     private data class CachedCompletion(
         val fullCompletion: ZestInlineCompletionItem,
@@ -192,208 +183,197 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             return System.currentTimeMillis() - timestamp > maxAgeMs
         }
     }
-    
+
     private val completionCache = ConcurrentHashMap<String, CachedCompletion>()
     private val cacheMutex = Mutex()
-    
+
     init {
-////        System.out.println("[ZestInlineCompletion] Initializing service for project: ${project.name}")
+
         logger.info("Initializing simplified ZestInlineCompletionService")
-        
+
         // Load configuration settings from ConfigurationManager
         loadConfiguration()
-        
+
         setupEventListeners()
-        
+
         // Log initial strategy
-////        System.out.println("[ZestInlineCompletion] Initial completion strategy: ${completionProvider.strategy}")
-        
-////        System.out.println("[ZestInlineCompletion] Service initialization complete")
+
+
     }
-    
+
     /**
      * Load configuration from ConfigurationManager
      */
     private fun loadConfiguration() {
-        inlineCompletionEnabled = configManager.isInlineCompletionEnabled()
-        autoTriggerEnabled = configManager.isAutoTriggerEnabled()
-        backgroundContextEnabled = configManager.isBackgroundContextEnabled()
-        continuousCompletionEnabled = configManager.isContinuousCompletionEnabled()
-        
-////        System.out.println("[ZestInlineCompletion] Configuration loaded:")
-//        System.out.println("  - inlineCompletionEnabled: $inlineCompletionEnabled")
-//        System.out.println("  - autoTriggerEnabled: $autoTriggerEnabled")
-//        System.out.println("  - backgroundContextEnabled: $backgroundContextEnabled")
-//        System.out.println("  - continuousCompletionEnabled: $continuousCompletionEnabled")
-        
+        inlineCompletionEnabled = configManager.isInlineCompletionEnabled
+        autoTriggerEnabled = configManager.isAutoTriggerEnabled
+        backgroundContextEnabled = configManager.isBackgroundContextEnabled
+        continuousCompletionEnabled = configManager.isContinuousCompletionEnabled
+
+
+
+
+
+
+
         logger.info("Loaded configuration: inlineCompletion=$inlineCompletionEnabled, autoTrigger=$autoTriggerEnabled, backgroundContext=$backgroundContextEnabled, continuousCompletion=$continuousCompletionEnabled")
     }
-    
+
     /**
      * Update configuration from ConfigurationManager
      * Call this when settings change
      */
     fun updateConfiguration() {
-////        System.out.println("[ZestInlineCompletion] Updating configuration...")
+
         loadConfiguration()
-        
+
         // If inline completion is disabled, clear any current completion
         if (!inlineCompletionEnabled) {
-////            System.out.println("[ZestInlineCompletion] Inline completion disabled, clearing current completion")
+
             clearCurrentCompletion()
         }
-        
+
         // Clear cache when configuration changes to ensure fresh results
         clearCache()
     }
-    
+
     /**
      * Request inline completion at the specified position
      */
     fun provideInlineCompletion(editor: Editor, offset: Int, manually: Boolean = false) {
-////        System.out.println("[ZestInlineCompletion] provideInlineCompletion called:")
-//        System.out.println("  - offset: $offset")
-//        System.out.println("  - manually: $manually")
-//        System.out.println("  - editor: ${editor.document.text.length} chars")
-//        System.out.println("  - activeRequestId: $activeRequestId")
-//        System.out.println("  - currentCompletion: ${currentCompletion != null}")
-//        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-//        System.out.println("  - currentRequestState: $currentRequestState")
-        
+
+
         // Cancel any pending timer FIRST
         completionTimer?.let {
-//            System.out.println("[ZestInlineCompletion] Cancelling pending timer")
+
             it.cancel()
             completionTimer = null
         }
-        
+
         // Check rate limiting (unless manually triggered)
         if (!manually && isRateLimited()) {
-//            System.out.println("[ZestInlineCompletion] Rate limited - skipping request")
+
             return
         }
-        
+
         // Check if project is ready
         if (project.isDisposed || !project.isInitialized) {
-////            System.out.println("[ZestInlineCompletion] Project not ready - disposed: ${project.isDisposed}, initialized: ${project.isInitialized}")
+
             logger.debug("Project not ready, ignoring completion request")
             return
         }
-        
+
         // Check if editor is still valid
         if (editor.isDisposed) {
-////            System.out.println("[ZestInlineCompletion] Editor is disposed, ignoring request")
+
             return
         }
-        
+
         // Block all completion requests during acceptance
         if (isAcceptingCompletion) {
-////            System.out.println("[ZestInlineCompletion] Currently accepting a completion, blocking all new requests")
+
             return
         }
-        
+
         // Check cooldown period unless manually triggered
         if (!manually) {
             val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
             if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
-////                System.out.println("[ZestInlineCompletion] In cooldown period (${timeSinceAccept}ms < ${ACCEPTANCE_COOLDOWN_MS}ms), ignoring automatic request")
+
                 return
             }
         }
-        
+
         scope.launch {
             val requestId = requestGeneration.incrementAndGet()
-////            System.out.println("[ZestInlineCompletion] Generated requestId: $requestId")
-            
+
+
             logger.debug("Requesting completion at offset $offset, manually=$manually, requestId=$requestId")
-            
+
             // Check if inline completion is enabled at all
             if (!inlineCompletionEnabled && !manually) {
-////                System.out.println("[ZestInlineCompletion] Inline completion is disabled and not manual, ignoring request")
+
                 logger.debug("Inline completion is disabled, ignoring request")
                 return@launch
             }
-            
+
             // Cancel any existing request BEFORE acquiring mutex
             if (currentRequestState == RequestState.REQUESTING && activeRequestId != null) {
-//                System.out.println("[ZestInlineCompletion] Cancelling previous request $activeRequestId for new request $requestId")
+
                 completionProvider.setCurrentRequestId(null) // Signal cancellation to provider
             }
-            
+
             currentCompletionJob?.let {
-//                System.out.println("[ZestInlineCompletion] Cancelling existing completion job")
+
                 it.cancel()
                 currentCompletionJob = null
             }
-            
+
             // Use mutex to ensure only one request is processed at a time
-////            System.out.println("[ZestInlineCompletion] Acquiring completion mutex for request $requestId...")
+
             completionMutex.withLock {
-////                System.out.println("[ZestInlineCompletion] Mutex acquired for request $requestId")
-                
+
+
                 // Check if this is still the latest request
                 if (requestId < (activeRequestId ?: 0)) {
-////                    System.out.println("[ZestInlineCompletion] Request $requestId is outdated (activeRequestId=$activeRequestId), skipping")
+
                     logger.debug("Request $requestId is outdated, skipping")
                     return@withLock
                 }
-                
+
                 activeRequestId = requestId
-////                System.out.println("[ZestInlineCompletion] Set activeRequestId to $requestId")
-                
+
+
                 // Clear any existing completion request (moved after state update)
-////                System.out.println("[ZestInlineCompletion] Clearing current completion...")
+
                 clearCurrentCompletion()
-                
+
                 // Check if auto-trigger is disabled and this is not manual
                 if (!autoTriggerEnabled && !manually) {
-////                    System.out.println("[ZestInlineCompletion] Auto-trigger disabled and not manual, ignoring request")
+
                     logger.debug("Auto-trigger disabled, ignoring automatic request")
                     activeRequestId = null
                     return@withLock
                 }
-                
+
                 // NOW we're actually going to request - update state
                 currentRequestState = RequestState.REQUESTING
                 recordRequest() // Record this request for rate limiting
-                
+
                 // Notify listeners that we're loading
-////                System.out.println("[ZestInlineCompletion] Notifying loading state: true")
+
                 project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(true)
-                
+
                 // Start completion request
                 currentCompletionJob = scope.launch {
-////                    System.out.println("[ZestInlineCompletion] Starting completion job for request $requestId")
-                    
+
+
                     // Generate a new completion ID for metrics tracking
-                val completionId = UUID.randomUUID().toString()
-                    
+                    val completionId = UUID.randomUUID().toString()
+
                     try {
-////                        System.out.println("[ZestInlineCompletion] Building completion context...")
+
                         val context = buildCompletionContext(editor, offset, manually)
                         if (context == null) {
-////                            System.out.println("[ZestInlineCompletion] Failed to build completion context - returned null")
+
                             logger.debug("Failed to build completion context")
                             return@launch
                         }
-////                        System.out.println("[ZestInlineCompletion] Context built successfully:")
-//                        System.out.println("  - prefix: '${context.prefixCode.takeLast(20)}'")
-//                        System.out.println("  - suffix: '${context.suffixCode.take(20)}'")
-//                        System.out.println("  - line: ${context.offset}")
-                        
+
+
                         // Check if this request is still active
                         if (activeRequestId != requestId) {
-////                            System.out.println("[ZestInlineCompletion] Request $requestId is no longer active (activeRequestId=$activeRequestId)")
+
                             logger.debug("Request $requestId is no longer active")
                             return@launch
                         }
-                        
+
                         currentContext = context
-////                        System.out.println("[ZestInlineCompletion] Set currentContext")
-                        
+
+
                         // Track completion requested metric
                         val fileType = context.language
-                        val virtualFile = FileDocumentManager.getInstance().getFile(editor.document)
+                        FileDocumentManager.getInstance().getFile(editor.document)
                         val contextInfo = mapOf(
                             "manually_triggered" to manually,
                             "offset" to context.offset,
@@ -401,22 +381,21 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             "prefix_length" to context.prefixCode.length,
                             "suffix_length" to context.suffixCode.length
                         )
-                        
+
                         // Check cache first for SIMPLE and LEAN strategies
-                        if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE ||
-                            completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
-                            
-////                            System.out.println("[ZestInlineCompletion] Checking cache for ${completionProvider.strategy} strategy...")
+                        if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE || completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
+
+
                             val cached = getCachedCompletion(context, editor)
                             if (cached != null) {
-////                                System.out.println("[ZestInlineCompletion] Using cached completion")
-                                
+
+
                                 // For both SIMPLE and LEAN, use full completion (they have different Tab behaviors)
                                 val completionToShow = cached.fullCompletion
-                                
+
                                 // Store the FULL completion for acceptance
                                 currentCompletion = cached.fullCompletion
-                                
+
                                 // Track completion requested with the cached completion's ID
                                 metricsService.trackCompletionRequested(
                                     completionId = cached.fullCompletion.completionId,
@@ -424,14 +403,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     fileType = fileType,
                                     contextInfo = contextInfo + mapOf("from_cache" to true)
                                 )
-                                
+
                                 // Create a synthetic completion list for display
                                 val displayCompletion = ZestInlineCompletionList.single(completionToShow)
                                 handleCompletionResponse(editor, context, displayCompletion, requestId)
                                 return@launch
                             }
                         }
-                        
+
                         // Only track new request if not from cache
                         metricsService.trackCompletionRequested(
                             completionId = completionId,
@@ -439,51 +418,45 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             fileType = fileType,
                             contextInfo = contextInfo + mapOf("from_cache" to false)
                         )
-                        
+
                         // Use background context if enabled
                         if (backgroundContextEnabled) {
-////                            System.out.println("[ZestInlineCompletion] Background context is enabled")
+
                             logger.debug("Background context is enabled, including additional context")
                             // TODO: Implement background context gathering here
                         }
-                        
+
 //                        // Tell the provider about the new request ID for cancellation
                         completionProvider.setCurrentRequestId(requestId)
-                        
-//                        System.out.println("[ZestInlineCompletion] Requesting completion from provider...")
+
+
                         val startTime = System.currentTimeMillis()
-                        val completions = completionProvider.requestCompletion(context, requestId)
+                        val completions = completionProvider.requestCompletion(context, requestId, completionId)
                         val elapsed = System.currentTimeMillis() - startTime
-////                        System.out.println("[ZestInlineCompletion] Provider returned in ${elapsed}ms:")
-//                        System.out.println("  - completions: ${completions}")
-//                        System.out.println("  - isEmpty: ${completions?.isEmpty()}")
-//                        System.out.println("  - size: ${completions?.items?.size}")
-                        var insertText = "";
+
+
+                        var insertText = ""
                         completions?.items?.firstOrNull()?.let {
-                            insertText = it.insertText;
-//                            System.out.println("  - first item text: '${it.insertText.take(50)}...'")
-//                            System.out.println("  - first item range: ${it.replaceRange}")
+                            insertText = it.insertText
+
+
                         }
-                        
+
                         // Track completion completed (response received)
                         metricsService.trackCompletionCompleted(
-                            completionId = completionId,
-                            completionContent = insertText,
-                            responseTime = elapsed
+                            completionId = completionId, completionContent = insertText, responseTime = elapsed
                         )
-                        
+
                         // Check again if this request is still active
                         if (activeRequestId != requestId) {
-////                            System.out.println("[ZestInlineCompletion] Request $requestId is no longer active after completion")
+
                             logger.debug("Request $requestId is no longer active after completion")
                             return@launch
                         }
-                        
+
                         if (currentContext == context) { // Ensure request is still valid
-//                            System.out.println("[ZestInlineCompletion] Context still valid, handling response...")
-//                            System.out.println("  - activeRequestId: $activeRequestId")
-//                            System.out.println("  - requestId: $requestId")
-                            
+
+
                             // Update the completion with our tracking ID
                             val completionsWithId = completions?.let { list ->
                                 val items = list.items.map { item ->
@@ -491,64 +464,58 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 }
                                 ZestInlineCompletionList(list.isIncomplete, items)
                             }
-                            
-//                            System.out.println("[ZestInlineCompletion] completionsWithId: ${completionsWithId != null}")
-//                            System.out.println("  - isEmpty: ${completionsWithId?.isEmpty()}")
-//                            System.out.println("  - strategy: ${completionProvider.strategy}")
-                            
+
+
                             // Cache the completion if it's not empty and for cacheable strategies
-                            if (completionsWithId != null && !completionsWithId.isEmpty() && 
-                                (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE ||
-                                 completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN)) {
-                                
+                            if (completionsWithId != null && !completionsWithId.isEmpty() && (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE || completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN)) {
+
                                 val firstCompletion = completionsWithId.firstItem()!!
-//                                System.out.println("[ZestInlineCompletion] Caching completion for future use...")
-//                                System.out.println("  - firstCompletion text: '${firstCompletion.insertText.take(100)}...'")
+
+
                                 cacheCompletion(context, editor, firstCompletion)
-                                
+
                                 // For SIMPLE strategy, show full completion (line-by-line acceptance handled in accept() method)
                                 val displayCompletion = completionsWithId // Show full completion for all strategies
-                                
+
                                 // Store the FULL completion for acceptance
                                 currentCompletion = firstCompletion
-//                                System.out.println("[ZestInlineCompletion] Set currentCompletion, calling handleCompletionResponse")
-                                
+
+
                                 handleCompletionResponse(editor, context, displayCompletion, requestId)
                             } else {
-//                                System.out.println("[ZestInlineCompletion] Not caching - empty or non-cacheable")
+
                                 // Non-cacheable strategy or empty completion
                                 handleCompletionResponse(editor, context, completionsWithId, requestId)
                             }
                         } else {
-//                            System.out.println("[ZestInlineCompletion] Context changed, ignoring response")
-//                            System.out.println("  - currentContext: $currentContext")
-//                            System.out.println("  - context: $context")
+
+
                         }
                     } catch (e: CancellationException) {
-////                        System.out.println("[ZestInlineCompletion] Completion request cancelled for request $requestId")
+
                         logger.debug("Completion request cancelled")
-                        
+
                         // IMPORTANT: Clear activeRequestId if this was the cancelled request
                         if (activeRequestId == requestId) {
-//                            System.out.println("[ZestInlineCompletion] Clearing activeRequestId for cancelled request $requestId")
+
                             activeRequestId = null
                             currentRequestState = RequestState.IDLE
                         }
-                        
+
                         throw e
                     } catch (e: Exception) {
-////                        System.out.println("[ZestInlineCompletion] Completion request failed with exception: ${e.message}")
+
                         e.printStackTrace()
                         logger.warn("Completion request failed", e)
                     } finally {
-////                        System.out.println("[ZestInlineCompletion] Completion job finished")
-                        
+
+
                         // For METHOD_REWRITE, keep loading state and activeRequestId active longer
                         if (completionProvider.strategy != ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
                             // Normal completion - clear immediately
-////                            System.out.println("[ZestInlineCompletion] Normal completion - clearing loading state")
+
                             project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
-                            
+
                             // Update state based on outcome
                             if (activeRequestId == requestId) {
                                 when {
@@ -556,33 +523,34 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                         // Completion will be displayed, activeRequestId cleared in handleCompletionResponse
                                         currentRequestState = RequestState.DISPLAYING
                                     }
+
                                     else -> {
                                         // No completion, clear everything
                                         currentRequestState = RequestState.IDLE
                                         activeRequestId = null
-//                                        System.out.println("[ZestInlineCompletion] No completion, cleared activeRequestId in finally")
+
                                     }
                                 }
                             }
                         } else {
                             // METHOD_REWRITE - keep active for longer to allow method rewrite to complete
-////                            System.out.println("[ZestInlineCompletion] METHOD_REWRITE mode - keeping state active")
-                            
+
+
                             // Clear loading state after a delay
                             scope.launch {
                                 delay(5000) // 5 seconds should be enough for method rewrite to show UI
                                 if (activeRequestId == requestId) {
-////                                    System.out.println("[ZestInlineCompletion] Clearing loading state after delay")
+
                                     project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
                                     currentRequestState = RequestState.IDLE
                                 }
                             }
-                            
+
                             // Clear activeRequestId after a shorter delay
                             scope.launch {
                                 delay(2000) // 2 seconds for method rewrite service to start
                                 if (activeRequestId == requestId) {
-////                                    System.out.println("[ZestInlineCompletion] Clearing activeRequestId after delay")
+
                                     activeRequestId = null
                                 }
                             }
@@ -590,78 +558,70 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     }
                 }
             }
-////            System.out.println("[ZestInlineCompletion] Released completion mutex")
+
         }
     }
-    
+
     /**
      * Accept the current completion
      * Tab (FULL_COMPLETION): Always accepts full completion
      * Ctrl+Tab (CTRL_TAB_COMPLETION): Line-by-line in LEAN mode, full in other modes
      */
     fun accept(editor: Editor, offset: Int?, type: AcceptType) {
-////        System.out.println("[ZestInlineCompletion] Accept called:")
-//        System.out.println("  - offset: $offset")
-//        System.out.println("  - type: $type")
-//        System.out.println("  - currentContext: ${currentContext != null}")
-//        System.out.println("  - currentCompletion: ${currentCompletion != null}")
-//        System.out.println("  - strategy: ${completionProvider.strategy}")
-        
+
+
         // Prevent multiple simultaneous accepts
         if (isAcceptingCompletion) {
-////            System.out.println("[ZestInlineCompletion] Already accepting a completion, ignoring")
+
             return
         }
-        
+
         val context = currentContext ?: return
         val completion = currentCompletion ?: return
         val actualOffset = offset ?: context.offset
-        
+
         if (actualOffset != context.offset) {
-////            System.out.println("[ZestInlineCompletion] Invalid position for acceptance: $actualOffset != ${context.offset}")
+
             logger.debug("Invalid position for acceptance")
             return
         }
-        
+
         // Handle line-by-line acceptance for Ctrl+Tab in LEAN strategy
-        if (type == AcceptType.CTRL_TAB_COMPLETION && 
-            completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
-            
+        if (type == AcceptType.CTRL_TAB_COMPLETION && completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
+
             val lines = completion.insertText.lines()
-////            System.out.println("[ZestInlineCompletion] Line splitting debug:")
-//            System.out.println("  - Total completion text: '${completion.insertText}'")
-//            System.out.println("  - Split into ${lines.size} lines:")
+
+
+
             lines.forEachIndexed { index, line ->
-//                System.out.println("    [$index]: '${line}'")
+
             }
-            
+
             if (lines.size > 1) {
-////                System.out.println("[ZestInlineCompletion] Multi-line completion in LEAN mode, accepting first line only")
-                
+
+
                 // Accept only the first line
                 var firstLine = lines[0]
                 val remainingLines = lines.drop(1).filter { it.isNotBlank() } // Filter out empty lines
-                
-//                System.out.println("  - First line to accept: '${firstLine}'")
-//                System.out.println("  - Remaining lines (${remainingLines.size}): ${remainingLines.map { "'$it'" }}")
-                
+
+
                 // Ensure first line ends with newline if there are remaining lines
                 if (remainingLines.isNotEmpty() && !firstLine.endsWith("\n")) {
                     firstLine = "$firstLine\n"
-//                    System.out.println("  - Added newline to first line: '${firstLine}'")
+
                 }
-                
+
                 if (firstLine.isNotEmpty()) {
                     // Set accepting flag
                     isAcceptingCompletion = true
-                    
+
                     // Start acceptance timeout guard
                     startAcceptanceTimeoutGuard()
                     // Track completion accepted metric
                     completion.completionId.let { completionId ->
                         val acceptType = AcceptType.CTRL_TAB_COMPLETION // Line-by-line acceptance
-                        val lineNumber = lines.take(1).size // First line = 1
-                        val totalLines = completion.insertText.lines().size
+                        lines.take(1).size // First line = 1
+                        completion.insertText.lines().size
 
                         metricsService.trackCompletionAccepted(
                             completionId = completionId,
@@ -673,30 +633,31 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     }
                     // Clear current completion before inserting
                     clearCurrentCompletion(remainingLines.isEmpty())
-                    
+
                     ApplicationManager.getApplication().invokeLater {
                         // Insert the first line
-                        acceptCompletionText(editor, context, completion, firstLine, AcceptType.CTRL_TAB_COMPLETION, "ctrl_tab")
-                        
+                        acceptCompletionText(
+                            editor, context, completion, firstLine, AcceptType.CTRL_TAB_COMPLETION, "ctrl_tab"
+                        )
+
                         // After insertion, show remaining lines if any
                         if (remainingLines.isNotEmpty()) {
                             // Calculate new offset after insertion
                             val newOffset = actualOffset + firstLine.length
-                            
+
                             // Create completion for remaining lines
                             val remainingText = remainingLines.joinToString("\n")
-//                            System.out.println("  - Remaining text to show: '${remainingText}'")
+
                             showRemainingLines(editor, newOffset, remainingText, completion)
-                            
+
                             // Reset accepting flag immediately for line-by-line acceptance
                             // since the remaining lines are now displayed as a new completion
                             scope.launch {
                                 delay(300) // Small delay to ensure showRemainingLines completes
                                 isAcceptingCompletion = false
                                 cancelAcceptanceTimeoutGuard()
-////                                System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false for line-by-line acceptance")
-//                                System.out.println("  - timestamp: ${System.currentTimeMillis()}")
-//                                System.out.println("  - hasCompletion: ${currentCompletion != null}")
+
+
                             }
                         } else {
                             // No remaining lines, reset immediately
@@ -704,7 +665,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 delay(100) // Very short delay
                                 isAcceptingCompletion = false
                                 cancelAcceptanceTimeoutGuard()
-////                                System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false (no remaining lines)")
+
                             }
                         }
                     }
@@ -712,13 +673,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 return
             }
         }
-        
+
         // Handle traditional acceptance (full completion for all strategies with Tab)
         val textToInsert = when (type) {
             AcceptType.FULL_COMPLETION -> {
                 // Tab always accepts full completion now
                 completion.insertText
             }
+
             AcceptType.CTRL_TAB_COMPLETION -> {
                 // Ctrl+Tab uses traditional behavior (was the old Tab behavior)
                 if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE) {
@@ -727,18 +689,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     calculateAcceptedText(completion.insertText, AcceptType.FULL_COMPLETION)
                 }
             }
+
             else -> calculateAcceptedText(completion.insertText, type)
         }
-        
-////        System.out.println("[ZestInlineCompletion] Traditional acceptance: '${textToInsert.take(50)}...'")
-        
+
+
+
         if (textToInsert.isNotEmpty()) {
             // Set accepting flag BEFORE clearing completion or inserting text
             isAcceptingCompletion = true
-            
+
             // Start acceptance timeout guard
             startAcceptanceTimeoutGuard()
-            
+
             // Store the accept type and user action for metrics
             val finalAcceptType = type
             val userAction = when (type) {
@@ -747,40 +710,40 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 AcceptType.NEXT_WORD -> "word_accept"
                 AcceptType.NEXT_LINE -> "line_accept"
             }
-            
+
             // Clear the completion BEFORE inserting to prevent overlap handling
             clearCurrentCompletion()
-            
+
             ApplicationManager.getApplication().invokeLater {
                 acceptCompletionText(editor, context, completion, textToInsert, finalAcceptType, userAction)
             }
         }
     }
-    
+
     /**
      * Start a timeout guard to automatically reset acceptance state if it gets stuck
      */
     private fun startAcceptanceTimeoutGuard() {
         // Cancel any existing timeout guard
         acceptanceTimeoutJob?.cancel()
-        
+
         acceptanceTimeoutJob = scope.launch {
             delay(ACCEPTANCE_TIMEOUT_MS)
-            
+
             if (isAcceptingCompletion) {
-////                System.out.println("[ZestInlineCompletion] TIMEOUT: Acceptance took too long, auto-resetting state")
+
                 logger.warn("Acceptance timeout reached, auto-resetting state")
-                
+
                 // Force reset all flags and state
                 isAcceptingCompletion = false
                 isProgrammaticEdit = false
-                
+
                 // Notify status bar of error state
                 project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
             }
         }
     }
-    
+
     /**
      * Cancel the acceptance timeout guard (called when acceptance completes normally)
      */
@@ -788,29 +751,29 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         acceptanceTimeoutJob?.cancel()
         acceptanceTimeoutJob = null
     }
-    
+
     /**
      * Show remaining lines as a new completion after accepting one line
      * Simplified approach for better reliability
      */
-    private fun showRemainingLines(editor: Editor, newOffset: Int, remainingText: String, originalCompletion: ZestInlineCompletionItem) {
-////        System.out.println("[ZestInlineCompletion] showRemainingLines called:")
-//        System.out.println("  - newOffset: $newOffset")
-//        System.out.println("  - remainingText: '${remainingText.take(100)}...'")
-        
+    private fun showRemainingLines(
+        editor: Editor, newOffset: Int, remainingText: String, originalCompletion: ZestInlineCompletionItem
+    ) {
+
+
         // Schedule showing remaining lines after a short delay to ensure insertion is complete
         scope.launch {
             delay(200) // Slightly longer delay to ensure all operations complete
-            
+
             ApplicationManager.getApplication().invokeLater {
                 try {
                     // Get current cursor position
                     val currentCaretOffset = editor.caretModel.offset
-////                    System.out.println("[ZestInlineCompletion] Current caret position: $currentCaretOffset")
-                    
+
+
                     // Use current cursor position as the starting point for remaining completion
                     val targetOffset = currentCaretOffset
-                    
+
                     // Create new completion item for remaining lines
                     val remainingCompletion = ZestInlineCompletionItem(
                         insertText = remainingText,
@@ -819,103 +782,99 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         metadata = originalCompletion.metadata,
                         completionId = originalCompletion.completionId // Use same completion ID!
                     )
-                    
+
                     // Update current state
                     currentCompletion = remainingCompletion
                     currentContext = CompletionContext.from(editor, targetOffset, manually = true)
-                    
+
                     // Show the remaining completion
-////                    System.out.println("[ZestInlineCompletion] Showing remaining completion at current cursor position: $targetOffset")
-//                    System.out.println("  - Remaining lines: '${remainingText.lines().take(3).joinToString("; ")}'")
-                    
-                    renderer.show(editor, targetOffset, remainingCompletion, completionProvider.strategy) { renderingContext ->
-////                        System.out.println("[ZestInlineCompletion] Remaining completion displayed successfully")
+
+
+                    renderer.show(
+                        editor, targetOffset, remainingCompletion, completionProvider.strategy
+                    ) { renderingContext ->
+
                         project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
                     }
                 } catch (e: Exception) {
-////                    System.out.println("[ZestInlineCompletion] Error showing remaining lines: ${e.message}")
+
                     e.printStackTrace()
                 }
             }
         }
     }
-    
+
     /**
      * Dismiss the current completion (ESC key)
      */
     fun dismiss() {
-////        System.out.println("[ZestInlineCompletion] Dismiss called")
+
         logger.debug("Dismissing completion")
-        
+
         // Track completion declined (ESC pressed)
         currentCompletion?.completionId?.let { completionId ->
             // Check if this was after a partial acceptance
             val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
             if (timeSinceAccept < 5000L && completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
                 metricsService.trackCompletionFinalized(
-                    completionId = completionId,
-                    reason = "esc_after_partial_acceptance"
+                    completionId = completionId, reason = "esc_after_partial_acceptance"
                 )
             } else {
                 metricsService.trackCompletionDeclined(
-                    completionId = completionId,
-                    reason = "esc_pressed"
+                    completionId = completionId, reason = "esc_pressed"
                 )
             }
         }
-        
+
         // IMPORTANT: Reset accepting flag when dismissing
         if (isAcceptingCompletion) {
-////            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false on dismiss")
+
             isAcceptingCompletion = false
             cancelAcceptanceTimeoutGuard()
         }
-        
+
         clearCurrentCompletion()
     }
-    
+
     /**
      * Check if inline completion is visible at the given position
      */
     fun isInlineCompletionVisibleAt(editor: Editor, offset: Int): Boolean {
-        val result = renderer.current?.editor == editor && 
-               renderer.current?.offset == offset &&
-               currentCompletion != null
-////        System.out.println("[ZestInlineCompletion] isInlineCompletionVisibleAt($offset): $result")
+        val result =
+            renderer.current?.editor == editor && renderer.current?.offset == offset && currentCompletion != null
+
         return result
     }
-    
+
     /**
      * Get the current completion item being displayed
      */
     fun getCurrentCompletion(): ZestInlineCompletionItem? {
         return currentCompletion
     }
-    
+
     /**
      * Check and fix any stuck acceptance states (called by status bar widget)
      */
     fun checkAndFixStuckState(): Boolean {
         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
         val isStuck = isAcceptingCompletion && timeSinceAccept > 3000L // 3 seconds is stuck
-        
+
         if (isStuck) {
-////            System.out.println("[ZestInlineCompletion] STUCK STATE DETECTED: Force resetting")
-//            System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-//            System.out.println("  - timeSinceAccept: ${timeSinceAccept}ms")
-            
+
+
             // Force reset all flags
             isAcceptingCompletion = false
             isProgrammaticEdit = false
             cancelAcceptanceTimeoutGuard()
-            
+
             logger.warn("Force reset stuck acceptance state after ${timeSinceAccept}ms")
             return true
         }
-        
+
         return false
     }
-    
+
     /**
      * Get detailed state for debugging
      */
@@ -925,7 +884,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             requestHistory.removeAll { now - it > REQUEST_HISTORY_WINDOW_MS }
             requestHistory.size
         }
-        
+
         return mapOf(
             "isAcceptingCompletion" to isAcceptingCompletion,
             "isProgrammaticEdit" to isProgrammaticEdit,
@@ -942,21 +901,21 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             "autoTrigger" to autoTriggerEnabled
         )
     }
-    
+
     /**
      * Force refresh/clear all completion state - useful for status bar refresh button
      */
     fun forceRefreshState() {
-////        System.out.println("[ZestInlineCompletion] Force refresh state requested")
+
         logger.info("Force refreshing completion state")
-        
+
         scope.launch {
             completionMutex.withLock {
                 // Cancel all active operations
                 currentCompletionJob?.cancel()
                 completionTimer?.cancel()
                 acceptanceTimeoutJob?.cancel()
-                
+
                 // Reset ALL flags (this is the key fix)
                 isAcceptingCompletion = false
                 isProgrammaticEdit = false
@@ -964,34 +923,30 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 lastAcceptedTimestamp = 0L
                 lastAcceptedText = null
                 currentRequestState = RequestState.IDLE
-                
-////                System.out.println("[ZestInlineCompletion] Force reset all flags:")
-//                System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-//                System.out.println("  - isProgrammaticEdit: $isProgrammaticEdit")
-//                System.out.println("  - activeRequestId: $activeRequestId")
-                
+
+
                 // Clear all state
                 currentContext = null
                 currentCompletion = null
-                
+
                 // Clear cache
                 cacheMutex.withLock {
                     completionCache.clear()
                 }
-                
+
                 // Hide renderer
                 ApplicationManager.getApplication().invokeLater {
                     renderer.hide()
-                    
+
                     // Notify listeners of reset state
                     project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
                 }
-                
-////                System.out.println("[ZestInlineCompletion] Force refresh completed")
+
+
             }
         }
     }
-    
+
     /**
      * Get current completion state for status bar
      */
@@ -1005,165 +960,143 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             append("Accepting: $isAcceptingCompletion")
         }
     }
-    
+
     /**
      * Check if inline completion is enabled
      */
     fun isEnabled(): Boolean {
         return inlineCompletionEnabled
     }
-    
+
     /**
      * Check if auto-trigger is enabled
      */
     fun isAutoTriggerEnabled(): Boolean {
         return autoTriggerEnabled
     }
-    
+
     /**
      * Check if continuous completion is enabled
      */
     fun isContinuousCompletionEnabled(): Boolean {
         return continuousCompletionEnabled
     }
-    
+
     // Private implementation methods
-    
+
     private suspend fun buildCompletionContext(editor: Editor, offset: Int, manually: Boolean): CompletionContext? {
-////        System.out.println("[ZestInlineCompletion] Building completion context on thread: ${Thread.currentThread().name}")
-        
+
+
         // Check if the project is fully initialized before attempting to build context
         if (project.isDisposed || !project.isInitialized) {
-////            System.out.println("[ZestInlineCompletion] Project not ready - disposed: ${project.isDisposed}, initialized: ${project.isInitialized}")
+
             return null
         }
-        
+
         return try {
             // Use ApplicationManager.invokeLater with a CompletableFuture instead of Dispatchers.Main
             // to avoid the Main dispatcher initialization issue
             val future = java.util.concurrent.CompletableFuture<CompletionContext?>()
-            
+
             ApplicationManager.getApplication().invokeLater {
                 try {
                     // Check if editor is still valid
                     if (editor.isDisposed) {
-////                        System.out.println("[ZestInlineCompletion] Editor is disposed")
+
                         future.complete(null)
                         return@invokeLater
                     }
-                    
-                    val caretOffset = editor.caretModel.offset
-////                    System.out.println("[ZestInlineCompletion] Editor valid, caret at: $caretOffset, requested: $offset")
+
+                    editor.caretModel.offset
+
                     val context = CompletionContext.from(editor, offset, manually)
-////                    System.out.println("[ZestInlineCompletion] Context created: ${context != null}")
+
                     future.complete(context)
                 } catch (e: Exception) {
-////                    System.out.println("[ZestInlineCompletion] Editor access failed: ${e.message}")
+
                     future.complete(null)
                 }
             }
-            
+
             // Wait for the result with a timeout
             future.get(2, java.util.concurrent.TimeUnit.SECONDS)
         } catch (e: java.util.concurrent.TimeoutException) {
-////            System.out.println("[ZestInlineCompletion] Timeout waiting for context build")
+
             logger.warn("Timeout building completion context")
             null
         } catch (e: Exception) {
-////            System.out.println("[ZestInlineCompletion] Failed to build context: ${e.message}")
+
             logger.warn("Failed to build completion context", e)
             null
         }
     }
-    
+
     private suspend fun handleCompletionResponse(
-        editor: Editor,
-        context: CompletionContext,
-        completions: ZestInlineCompletionList?,
-        requestId: Int
+        editor: Editor, context: CompletionContext, completions: ZestInlineCompletionList?, requestId: Int
     ) {
-//        System.out.println("[ZestInlineCompletion] handleCompletionResponse called for request $requestId")
-//        System.out.println("  - completions null: ${completions == null}")
-//        System.out.println("  - completions empty: ${completions?.isEmpty()}")
-//        System.out.println("  - activeRequestId: $activeRequestId")
-//        System.out.println("  - thread: ${Thread.currentThread().name}")
-        
+
+
         // Use mutex to ensure only one response is processed at a time
-//        System.out.println("[ZestInlineCompletion] Acquiring mutex for response handling...")
+
         completionMutex.withLock {
-//            System.out.println("[ZestInlineCompletion] Mutex acquired for response handling")
-            
+
+
             // Check if this request is still active
             if (activeRequestId != requestId) {
-//                System.out.println("[ZestInlineCompletion] Response for request $requestId is stale (activeRequestId=$activeRequestId), ignoring")
+
                 logger.debug("Response for request $requestId is stale, ignoring")
                 return
             }
-            
+
             // Check if we're in method rewrite mode FIRST (before checking empty)
             if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
-////                System.out.println("[ZestInlineCompletion] Method rewrite mode - inline diff should be shown")
+
                 // Method rewrite mode handles its own UI via inline diff renderer
                 // The completion provider already triggered the method rewrite service
                 logger.debug("Method rewrite mode - inline diff should be shown")
                 // Don't process empty completions for method rewrite - it's expected
                 return
             }
-            
+
             if (completions == null || completions.isEmpty()) {
-////                System.out.println("[ZestInlineCompletion] No completions available")
+
                 logger.debug("No completions available")
                 return
             }
-            
+
             val completion = completions.firstItem()!!
             currentCompletion = completion
-//            System.out.println("[ZestInlineCompletion] Set currentCompletion:")
-//            System.out.println("  - text: '${completion.insertText.take(50)}...'")
-//            System.out.println("  - range: ${completion.replaceRange}")
-//            System.out.println("  - currentCompletion is null: ${currentCompletion == null}")
-            
+
+
             // Clear any existing rendering first to prevent duplicates
-//            System.out.println("[ZestInlineCompletion] Clearing existing rendering...")
+
             try {
                 ApplicationManager.getApplication().invokeAndWait {
-//                    System.out.println("[ZestInlineCompletion] Hiding renderer on EDT")
+
                     renderer.hide()
                 }
-//                System.out.println("[ZestInlineCompletion] Renderer hidden successfully")
+
             } catch (e: Exception) {
-//                System.out.println("[ZestInlineCompletion] Error hiding renderer: ${e.message}")
+
                 e.printStackTrace()
             }
-            
-//            System.out.println("[ZestInlineCompletion] Scheduling completion display on EDT...")
+
+
             ApplicationManager.getApplication().invokeLater {
-//                System.out.println("[ZestInlineCompletion] On EDT for rendering, checking if request still active...")
-//                System.out.println("  - activeRequestId: $activeRequestId")
-//                System.out.println("  - requestId: $requestId")
-//                System.out.println("  - activeRequestId type: ${activeRequestId?.javaClass}")
-//                System.out.println("  - requestId type: ${requestId.javaClass}")
-//                System.out.println("  - match: ${activeRequestId == requestId}")
-//                System.out.println("  - null check: ${activeRequestId != null}")
-//                System.out.println("  - value match: ${activeRequestId?.toInt() == requestId}")
-                
+
+
                 // Final check if this request is still active
                 if (activeRequestId != null && activeRequestId == requestId) {
-//                    System.out.println("[ZestInlineCompletion] Request still active, showing completion...")
-//                    System.out.println("  - editor: ${editor}")
-//                    System.out.println("  - editor.isDisposed: ${editor.isDisposed}")
-//                    System.out.println("  - offset: ${context.offset}")
-//                    System.out.println("  - strategy: ${completionProvider.strategy}")
-//                    System.out.println("  - completion text length: ${completion.insertText.length}")
-                    
+
+
                     try {
-                        renderer.show(editor, context.offset, completion, completionProvider.strategy) { renderingContext ->
-//                            System.out.println("[ZestInlineCompletion] Renderer callback - completion displayed")
-//                            System.out.println("  - rendering id: ${renderingContext.id}")
-//                            System.out.println("  - inlays: ${renderingContext.inlays.size}")
-//                            System.out.println("  - markups: ${renderingContext.markups.size}")
+                        renderer.show(
+                            editor, context.offset, completion, completionProvider.strategy
+                        ) { renderingContext ->
+
+
                             project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
-                            
+
                             // Track completion viewed metric
                             completion.completionId.let { completionId ->
                                 metricsService.trackCompletionViewed(
@@ -1174,19 +1107,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 )
                             }
                         }
-//                        System.out.println("[ZestInlineCompletion] renderer.show() called successfully")
+
                         logger.debug("Displayed completion: '${completion.insertText.take(50)}'")
-                        
+
                         // Clear activeRequestId after successful display
                         if (activeRequestId == requestId) {
-//                            System.out.println("[ZestInlineCompletion] Clearing activeRequestId after successful display")
+
                             activeRequestId = null
                             currentRequestState = RequestState.DISPLAYING
                         }
                     } catch (e: Exception) {
-//                        System.out.println("[ZestInlineCompletion] Error calling renderer.show(): ${e.message}")
+
                         e.printStackTrace()
-                        
+
                         // Clear activeRequestId on error too
                         if (activeRequestId == requestId) {
                             activeRequestId = null
@@ -1194,7 +1127,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         }
                     }
                 } else {
-//                    System.out.println("[ZestInlineCompletion] Request $requestId no longer active on EDT, not showing")
+
                     // Clear activeRequestId if it matches this stale request
                     if (activeRequestId == requestId) {
                         activeRequestId = null
@@ -1202,12 +1135,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     }
                 }
             }
-//            System.out.println("[ZestInlineCompletion] Scheduled display on EDT")
+
         }
-//        System.out.println("[ZestInlineCompletion] Released response handling mutex")
-//        System.out.println("[ZestInlineCompletion] handleCompletionResponse completed")
+
+
     }
-    
+
     private fun acceptCompletionText(
         editor: Editor,
         context: CompletionContext,
@@ -1216,44 +1149,41 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         acceptType: AcceptType = AcceptType.FULL_COMPLETION,
         userAction: String = "tab"
     ) {
-////        System.out.println("[ZestInlineCompletion] acceptCompletionText called:")
-//        System.out.println("  - text: '${textToInsert.take(50)}...'")
-//        System.out.println("  - range: ${completionItem.replaceRange}")
-        
+
+
         // Set all protection flags
         isProgrammaticEdit = true
         lastAcceptedTimestamp = System.currentTimeMillis()
         lastAcceptedText = textToInsert
-////        System.out.println("[ZestInlineCompletion] Set isProgrammaticEdit=true, timestamp=$lastAcceptedTimestamp")
-        
+
+
         try {
             WriteCommandAction.runWriteCommandAction(project) {
                 val document = editor.document
                 val startOffset = completionItem.replaceRange.start
                 val endOffset = completionItem.replaceRange.end
-                
-////                System.out.println("[ZestInlineCompletion] Replacing text from $startOffset to $endOffset")
-                
+
+
                 // Replace the text
                 document.replaceString(startOffset, endOffset, textToInsert)
-                
+
                 // Move cursor to end of inserted text
                 val newCaretPosition = startOffset + textToInsert.length
                 editor.caretModel.moveToOffset(newCaretPosition)
-////                System.out.println("[ZestInlineCompletion] Moved caret to $newCaretPosition")
-                
+
+
                 // Format the inserted text to ensure proper indentation
                 formatInsertedText(editor, startOffset, newCaretPosition)
-                
+
                 logger.debug("Accepted completion: inserted '$textToInsert' at offset $startOffset")
 
             }
-            
+
             // Track completion accepted metric
             completionItem.completionId.let { completionId ->
                 // Determine if this is accepting all of the completion
                 val isFullCompletion = textToInsert == completionItem.insertText
-                
+
                 metricsService.trackCompletionAccepted(
                     completionId = completionId,
                     completionContent = textToInsert,
@@ -1262,68 +1192,67 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     userAction = userAction
                 )
             }
-            
+
             project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
-            
+
             // NEW: Schedule next completion for full acceptance (not line-by-line)
             val shouldTriggerNext = continuousCompletionEnabled && when {
                 // Only trigger for full completion acceptance (Tab)
                 acceptType == AcceptType.FULL_COMPLETION -> true
                 // Also trigger for Ctrl+Tab in SIMPLE mode (which is full completion)
-                acceptType == AcceptType.CTRL_TAB_COMPLETION && 
-                    completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE -> true
+                acceptType == AcceptType.CTRL_TAB_COMPLETION && completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE -> true
                 // Don't trigger for line-by-line or partial acceptances
                 else -> false
             }
-            
+
             if (shouldTriggerNext) {
-//                System.out.println("[ZestInlineCompletion] Scheduling next completion after full acceptance")
-                
+
+
                 // Schedule next completion after a short delay
                 scope.launch {
                     // Wait for the acceptance to complete and editor to stabilize
                     delay(500) // Half second delay
-                    
+
                     ApplicationManager.getApplication().invokeLater {
                         try {
                             // Get the new cursor position after acceptance
                             val newOffset = editor.caretModel.offset
-//                            System.out.println("[ZestInlineCompletion] Triggering next completion at new offset: $newOffset")
-                            
+
+
                             // Trigger next completion manually (bypasses cooldown)
                             provideInlineCompletion(editor, newOffset, manually = true)
                         } catch (e: Exception) {
-//                            System.out.println("[ZestInlineCompletion] Failed to trigger next completion: ${e.message}")
+
                         }
                     }
                 }
             }
 
-            
+
         } finally {
             // Cancel timeout guard since acceptance is completing
             cancelAcceptanceTimeoutGuard()
-            
+
             // Reset flags after a delay to ensure all document change events are processed
             scope.launch {
                 // Keep isProgrammaticEdit true for longer
                 delay(1000) // 1 second for programmatic edit flag
                 isProgrammaticEdit = false
-////                System.out.println("[ZestInlineCompletion] Reset isProgrammaticEdit=false after 1000ms delay")
-                
+
+
                 // For LEAN strategy line-by-line acceptance, don't use the long cooldown
                 // The accepting flag will be reset by the line-by-line logic instead
                 if (completionProvider.strategy != ZestCompletionProvider.CompletionStrategy.LEAN) {
                     // Reset accepting flag after full cooldown period for other strategies
                     delay(ACCEPTANCE_COOLDOWN_MS - 1000) // Remaining cooldown time
                     isAcceptingCompletion = false
-////                    System.out.println("[ZestInlineCompletion] Reset isAcceptingCompletion=false after full cooldown")
+
                 }
                 // For LEAN strategy, isAcceptingCompletion is managed by line-by-line logic
             }
         }
     }
-    
+
     private fun calculateAcceptedText(completionText: String, type: AcceptType): String {
         val result = when (type) {
             AcceptType.FULL_COMPLETION -> completionText
@@ -1332,58 +1261,54 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 val wordMatch = Regex("\\S+").find(completionText)
                 wordMatch?.value ?: ""
             }
+
             AcceptType.NEXT_LINE -> {
                 val firstLine = completionText.lines().firstOrNull() ?: ""
                 firstLine
             }
         }
-////        System.out.println("[ZestInlineCompletion] calculateAcceptedText:")
-//        System.out.println("  - type: $type")
-//        System.out.println("  - result: '${result.take(50)}...'")
+
+
+
         return result
     }
-    
+
     private fun clearCurrentCompletion(isAll: Boolean = true) {
-////        System.out.println("[ZestInlineCompletion] clearCurrentCompletion called")
-////        System.out.println("  - had timer: ${completionTimer != null}")
-////        System.out.println("  - had job: ${currentCompletionJob != null}")
-////        System.out.println("  - had context: ${currentContext != null}")
-////        System.out.println("  - had completion: ${currentCompletion != null}")
-////        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-        
+
+
         completionTimer?.cancel()
         completionTimer = null
         currentCompletionJob?.cancel()
         currentCompletionJob = null
         currentContext = null
         currentCompletion = null
-        
+
         // Update state to IDLE if we're clearing
         if (currentRequestState == RequestState.DISPLAYING) {
             currentRequestState = RequestState.IDLE
         }
-        
+
         // IMPORTANT: Reset accepting flag when clearing completion (unless we're in the middle of line-by-line acceptance)
         // For LEAN strategy, only reset if it's been more than a short delay since acceptance
         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
         if (isAcceptingCompletion && (completionProvider.strategy != ZestCompletionProvider.CompletionStrategy.LEAN || timeSinceAccept > 1000L)) {
-////            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false in clearCurrentCompletion")
+
             isAcceptingCompletion = false
             cancelAcceptanceTimeoutGuard()
         }
-        
+
         // DO NOT clear activeRequestId here - it's managed by the request lifecycle
         // activeRequestId = null  // REMOVED - this was causing the bug!
-        
+
         ApplicationManager.getApplication().invokeLater {
-////            System.out.println("[ZestInlineCompletion] Hiding renderer in clearCurrentCompletion")
+
             renderer.hide()
         }
     }
-    
+
     private fun setupEventListeners() {
-////        System.out.println("[ZestInlineCompletion] Setting up event listeners")
-        
+
+
         // Caret change listener - only schedule completion if not actively typing
         messageBusConnection.subscribe(ZestCaretListener.TOPIC, object : ZestCaretListener {
             override fun caretPositionChanged(editor: Editor, event: CaretEvent) {
@@ -1391,15 +1316,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     // Don't process caret changes during acceptance
                     if (isAcceptingCompletion) {
                         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
-////                        System.out.println("[ZestInlineCompletion] Caret changed during acceptance, ignoring")
-//                        System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-//                        System.out.println("  - lastAcceptedTimestamp: $lastAcceptedTimestamp")
-//                        System.out.println("  - currentTime: ${System.currentTimeMillis()}")
-//                        System.out.println("  - timeSinceAccept: $timeSinceAccept")
-                        
+
+
                         // Auto-recovery: if accepting state has been stuck for too long, force reset
                         if (timeSinceAccept > 5000L) { // 5 seconds
-////                            System.out.println("[ZestInlineCompletion] RECOVERY: Accepting state stuck too long, force resetting")
+
                             isAcceptingCompletion = false
                             isProgrammaticEdit = false
                             cancelAcceptanceTimeoutGuard()
@@ -1408,27 +1329,27 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             return
                         }
                     }
-                    
+
                     // For method rewrite, also check if we're in the post-accept cooldown
                     if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE) {
                         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
                         if (timeSinceAccept < 2000L) { // 2 seconds cooldown for method rewrite
-////                            System.out.println("[ZestInlineCompletion] Method rewrite cooldown active (${timeSinceAccept}ms < 2000ms), ignoring caret change")
+
                             return
                         }
                     }
-                    
+
                     val currentOffset = editor.logicalPositionToOffset(event.newPosition)
                     val context = currentContext
-                    
-////                    System.out.println("[ZestInlineCompletion] Caret position changed:")
-//                    System.out.println("  - new offset: $currentOffset")
-//                    System.out.println("  - context offset: ${context?.offset}")
-                    
+
+
+
+
+
                     if (context != null) {
                         val offsetDiff = currentOffset - context.offset
-//                        System.out.println("  - offset difference: $offsetDiff")
-                        
+
+
                         // More lenient dismissal logic - only dismiss if cursor moved far away
                         // or if user moved backwards (suggesting they want to edit earlier text)
                         val shouldDismiss = when {
@@ -1436,10 +1357,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 // User moved backwards - check if they moved far back
                                 kotlin.math.abs(offsetDiff) > 5 // Allow small backward movements
                             }
+
                             offsetDiff > 100 -> {
                                 // User moved too far forward
                                 true
                             }
+
                             offsetDiff > 0 -> {
                                 // User moved forward but within reasonable range
                                 // Check if the completion is still meaningful at this position
@@ -1452,7 +1375,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                         val currentLine = documentText.substring(lineStart, currentOffset)
                                         val originalLineStart = documentText.lastIndexOf('\n', context.offset - 1) + 1
                                         val originalLine = documentText.substring(originalLineStart, context.offset)
-                                        
+
                                         // Get what the user has typed since the original completion position
                                         if (currentLine.startsWith(originalLine)) {
                                             currentLine.substring(originalLine.length)
@@ -1462,34 +1385,36 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     } catch (e: Exception) {
                                         ""
                                     }
-                                    
-//                                    System.out.println("  - user typed since completion: '$userTypedText'")
-//                                    System.out.println("  - completion starts with: '${completion.insertText.take(20)}...'")
-                                    
+
+
                                     // Don't dismiss if user is typing text that matches the beginning of completion
-                                    if (userTypedText.isNotEmpty() && completion.insertText.startsWith(userTypedText, ignoreCase = true)) {
-//                                        System.out.println("  - user typing matches completion start, keeping completion")
+                                    if (userTypedText.isNotEmpty() && completion.insertText.startsWith(
+                                            userTypedText, ignoreCase = true
+                                        )
+                                    ) {
+
                                         false // Don't dismiss - user is typing matching text
                                     } else if (userTypedText.length > 20) {
-//                                        System.out.println("  - user typed too much non-matching text, dismissing")
+
                                         true // User typed too much non-matching text
                                     } else {
-//                                        System.out.println("  - user typed some non-matching text, but keeping completion for now")
+
                                         false // Keep completion for now
                                     }
                                 } else {
                                     false // No completion to dismiss
                                 }
                             }
+
                             else -> false // No movement, don't dismiss
                         }
-                        
-//                        System.out.println("  - should dismiss: $shouldDismiss")
-                        
+
+
+
                         if (shouldDismiss) {
-////                            System.out.println("[ZestInlineCompletion] Caret moved significantly, dismissing completion")
+
                             logger.debug("Caret moved significantly, dismissing completion")
-                            
+
                             // Track completion dismissed due to caret movement
                             currentCompletion?.completionId?.let { completionId ->
                                 val reason = when {
@@ -1497,118 +1422,114 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     offsetDiff > 100 -> "cursor_moved_far_forward"
                                     else -> "cursor_moved_typing_mismatch"
                                 }
-                                
+
                                 // Check if this was a partial acceptance scenario
                                 val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
                                 if (timeSinceAccept < 5000L) { // Within 5 seconds of last acceptance
                                     metricsService.trackCompletionFinalized(
-                                        completionId = completionId,
-                                        reason = "partial_acceptance_then_$reason"
+                                        completionId = completionId, reason = "partial_acceptance_then_$reason"
                                     )
                                 } else {
                                     metricsService.trackCompletionDismissed(
-                                        completionId = completionId,
-                                        reason = reason
+                                        completionId = completionId, reason = reason
                                     )
                                 }
                             }
-                            
+
                             clearCurrentCompletion()
                         }
                     }
-                    
+
                     // Don't schedule completion on every caret move - only when there's no completion
                     // and no active request, and user has stopped typing
                     // The document listener will handle scheduling after typing stops
                 }
             }
         })
-        
+
         // Editor selection change listener
-        messageBusConnection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
-            override fun selectionChanged(event: FileEditorManagerEvent) {
-////                System.out.println("[ZestInlineCompletion] Editor selection changed, clearing completion")
-                
-                // Track completion dismissed due to editor change
-                currentCompletion?.completionId?.let { completionId ->
-                    metricsService.trackCompletionDismissed(
-                        completionId = completionId,
-                        reason = "editor_changed"
-                    )
+        messageBusConnection.subscribe(
+            FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
+                override fun selectionChanged(event: FileEditorManagerEvent) {
+
+
+                    // Track completion dismissed due to editor change
+                    currentCompletion?.completionId?.let { completionId ->
+                        metricsService.trackCompletionDismissed(
+                            completionId = completionId, reason = "editor_changed"
+                        )
+                    }
+
+                    // Reset accepting flag when switching editors
+                    if (isAcceptingCompletion) {
+
+                        isAcceptingCompletion = false
+                        cancelAcceptanceTimeoutGuard()
+                    }
+                    clearCurrentCompletion()
                 }
-                
-                // Reset accepting flag when switching editors
-                if (isAcceptingCompletion) {
-////                    System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false on editor selection change")
-                    isAcceptingCompletion = false
-                    cancelAcceptanceTimeoutGuard()
-                }
-                clearCurrentCompletion()
-            }
-        })
-        
+            })
+
         // Document change listener - cancel timers and reset state when user types
         messageBusConnection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
             override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
                 if (editorManager.selectedTextEditor == editor && !isProgrammaticEdit) {
-////                    System.out.println("[ZestInlineCompletion] Document changed by user (non-programmatic)")
-                    
+
+
                     // Cancel any pending timer on document change
                     completionTimer?.let {
-//                        System.out.println("[ZestInlineCompletion] Cancelling timer due to document change")
+
                         it.cancel()
                         completionTimer = null
                         if (currentRequestState == RequestState.WAITING) {
                             currentRequestState = RequestState.IDLE
                         }
                     }
-                    
+
                     // Cancel any active request if user is typing
                     if (currentRequestState == RequestState.REQUESTING && activeRequestId != null) {
-//                        System.out.println("[ZestInlineCompletion] Cancelling active request due to user typing")
+
                         currentCompletionJob?.cancel()
                         // Don't null out activeRequestId here - let the job handle it
                         currentRequestState = RequestState.IDLE
                     }
-                    
+
                     // Clear any displayed completion when user types
                     if (currentCompletion != null && !isAcceptingCompletion) {
-//                        System.out.println("[ZestInlineCompletion] Clearing completion due to user typing")
-                        
+
+
                         // Track completion dismissed due to user typing
                         currentCompletion?.completionId?.let { completionId ->
                             metricsService.trackCompletionDismissed(
-                                completionId = completionId,
-                                reason = "user_typed"
+                                completionId = completionId, reason = "user_typed"
                             )
                         }
-                        
+
                         clearCurrentCompletion()
                     }
-                    
+
                     // If we're accepting and user types something else, cancel the acceptance
                     if (isAcceptingCompletion) {
                         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
-////                        System.out.println("[ZestInlineCompletion] User typed during acceptance, timeSinceAccept: ${timeSinceAccept}ms")
-                        
+
+
                         // If it's been more than a brief moment since acceptance, user is typing something new
                         if (timeSinceAccept > 500L) {
-////                            System.out.println("[ZestInlineCompletion] Resetting isAcceptingCompletion=false due to user typing")
-                            
+
+
                             // Track completion dismissed if we had one
                             currentCompletion?.completionId?.let { completionId ->
                                 metricsService.trackCompletionDismissed(
-                                    completionId = completionId,
-                                    reason = "user_typed_during_acceptance"
+                                    completionId = completionId, reason = "user_typed_during_acceptance"
                                 )
                             }
-                            
+
                             isAcceptingCompletion = false
                             cancelAcceptanceTimeoutGuard()
                             clearCurrentCompletion()
                         }
                     }
-                    
+
                     // Schedule new completion after user stops typing (if auto-trigger enabled)
                     if (autoTriggerEnabled && !isAcceptingCompletion) {
                         val caretOffset = try {
@@ -1616,148 +1537,142 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         } catch (e: Exception) {
                             -1
                         }
-                        
+
                         if (caretOffset >= 0) {
-//                            System.out.println("[ZestInlineCompletion] Scheduling new completion after document change")
+
                             scheduleNewCompletion(editor)
                         }
                     }
                 }
             }
         })
-        
-////        System.out.println("[ZestInlineCompletion] Event listeners setup complete")
+
+
     }
 
-    
+
     /**
      * Schedule a new completion request with debouncing
      * SIMPLIFIED: Longer delay to prevent conflicts with active completions
      */
     private fun scheduleNewCompletion(editor: Editor) {
-////        System.out.println("[ZestInlineCompletion] scheduleNewCompletion called")
-//        System.out.println("  - currentRequestState: $currentRequestState")
-        
+
+
         // Don't schedule during acceptance
         if (isAcceptingCompletion) {
-////            System.out.println("[ZestInlineCompletion] Currently accepting, not scheduling")
+
             return
         }
-        
+
         // Don't schedule if already waiting or requesting
         if (currentRequestState == RequestState.WAITING || currentRequestState == RequestState.REQUESTING) {
-//            System.out.println("[ZestInlineCompletion] Already waiting or requesting, not scheduling new timer")
+
             return
         }
-        
+
         // Cancel any existing timer
         completionTimer?.let {
-////            System.out.println("[ZestInlineCompletion] Cancelling existing timer")
+
             it.cancel()
         }
-        
+
 
         // Don't schedule during cooldown period
         val timeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
         if (timeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
-////            System.out.println("[ZestInlineCompletion] In cooldown period, not scheduling")
+
             return
         }
         // Don't schedule if a request is already active
         if (activeRequestId != null) {
-//            System.out.println("[ZestInlineCompletion] Request already active (id=$activeRequestId), not scheduling")
+
             currentRequestState = RequestState.IDLE // Reset state since we're not scheduling
             return
         }
 
         // Update state to WAITING
         currentRequestState = RequestState.WAITING
-        
+
         completionTimer = scope.launch {
-////            System.out.println("[ZestInlineCompletion] Timer started, waiting ${AUTO_TRIGGER_DELAY_MS}ms...")
+
             delay(AUTO_TRIGGER_DELAY_MS)
-            
-////            System.out.println("[ZestInlineCompletion] Timer fired, checking conditions...")
-//            System.out.println("  - currentCompletion: ${currentCompletion != null}")
-//            System.out.println("  - activeRequestId: $activeRequestId")
-//            System.out.println("  - isAcceptingCompletion: $isAcceptingCompletion")
-//            System.out.println("  - currentRequestState: $currentRequestState")
-            
+
+
             // Check if currently accepting
             if (isAcceptingCompletion) {
-////                System.out.println("[ZestInlineCompletion] Currently accepting after delay, not triggering")
+
                 currentRequestState = RequestState.IDLE
                 return@launch
             }
-            
+
             // Final check for cooldown period
             val currentTimeSinceAccept = System.currentTimeMillis() - lastAcceptedTimestamp
             if (currentTimeSinceAccept < ACCEPTANCE_COOLDOWN_MS) {
-////                System.out.println("[ZestInlineCompletion] Still in cooldown after delay, not triggering")
+
                 currentRequestState = RequestState.IDLE
                 return@launch
             }
-            
+
             // Check again if no completion is active
             if (currentCompletion == null && currentRequestState != RequestState.REQUESTING) {
                 ApplicationManager.getApplication().invokeLater {
                     try {
                         val currentOffset = editor.caretModel.offset
-////                        System.out.println("[ZestInlineCompletion] Triggering completion at offset $currentOffset")
+
                         provideInlineCompletion(editor, currentOffset, manually = false)
                     } catch (e: Exception) {
-////                        System.out.println("[ZestInlineCompletion] Failed to trigger completion: ${e.message}")
+
                         currentRequestState = RequestState.IDLE
                         // Editor is disposed, do nothing
                     }
                 }
             } else {
-////                System.out.println("[ZestInlineCompletion] Conditions not met, not triggering")
+
                 currentRequestState = RequestState.IDLE
             }
         }
     }
 
-    
+
     /**
      * Format the inserted completion text using IntelliJ's code style
      * This ensures the accepted completion follows the project's formatting rules
      * Enhanced for lean & simple mode with better PSI synchronization
      */
     private fun formatInsertedText(editor: Editor, startOffset: Int, endOffset: Int) {
-////        System.out.println("[ZestInlineCompletion] formatInsertedText called: $startOffset to $endOffset")
+
         try {
             val document = editor.document
             val psiDocumentManager = PsiDocumentManager.getInstance(project)
             val psiFile = psiDocumentManager.getPsiFile(document)
-            
+
             if (psiFile != null) {
                 // Ensure PSI is synchronized with document changes
                 psiDocumentManager.commitDocument(document)
-                
+
                 // Wait for PSI to be ready
                 if (psiDocumentManager.isUncommited(document)) {
-////                    System.out.println("[ZestInlineCompletion] Waiting for PSI synchronization...")
+
                     psiDocumentManager.commitAndRunReadAction {
                         performFormatting(psiFile, startOffset, endOffset)
                     }
                 } else {
                     performFormatting(psiFile, startOffset, endOffset)
                 }
-                
-////                System.out.println("[ZestInlineCompletion] Successfully formatted inserted text")
+
+
                 logger.debug("Formatted inserted text from offset $startOffset to $endOffset")
             } else {
-////                System.out.println("[ZestInlineCompletion] Cannot format - PsiFile is null")
+
                 logger.debug("Cannot format inserted text: PsiFile is null")
             }
         } catch (e: Exception) {
-////            System.out.println("[ZestInlineCompletion] Failed to format: ${e.message}")
+
             logger.warn("Failed to format inserted text: ${e.message}")
             // Don't fail the acceptance if formatting fails
         }
     }
-    
+
     /**
      * Perform the actual formatting operation
      */
@@ -1767,20 +1682,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             // Use reformatRange for proper indentation and formatting
             codeStyleManager.reformatRange(psiFile, startOffset, endOffset)
         } catch (e: Exception) {
-////            System.out.println("[ZestInlineCompletion] Formatting operation failed: ${e.message}")
+
             logger.debug("Formatting operation failed", e)
         }
     }
-    
+
     // Cache management methods
-    
+
     /**
      * Generate a cache key for the current context
      */
     private fun generateCacheKey(context: CompletionContext): String {
         return "${context.fileName}:${context.offset}:${context.prefixCode.hashCode()}:${context.suffixCode.hashCode()}"
     }
-    
+
     /**
      * Generate context hash for cache validation
      */
@@ -1795,7 +1710,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             "invalid"
         }
     }
-    
+
     /**
      * Check if we have a valid cached completion for this context
      */
@@ -1803,81 +1718,78 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         return cacheMutex.withLock {
             val cacheKey = generateCacheKey(context)
             val cached = completionCache[cacheKey]
-            
+
             if (cached != null) {
                 // Verify context hasn't changed significantly
                 val currentHash = generateContextHash(editor, context.offset)
                 if (!cached.isExpired() && cached.contextHash == currentHash) {
-//                    System.out.println("[ZestCache] Cache hit for key: $cacheKey")
+
                     return@withLock cached
                 } else {
-//                    System.out.println("[ZestCache] Cache miss - expired or context changed: $cacheKey")
+
                     completionCache.remove(cacheKey)
                 }
             }
             null
         }
     }
-    
+
     /**
      * Cache a completion result for future use
      */
-    private suspend fun cacheCompletion(context: CompletionContext, editor: Editor, fullCompletion: ZestInlineCompletionItem) {
+    private suspend fun cacheCompletion(
+        context: CompletionContext, editor: Editor, fullCompletion: ZestInlineCompletionItem
+    ) {
         cacheMutex.withLock {
             try {
                 // Create first-line version for simple display
                 val firstLine = fullCompletion.insertText.lines().firstOrNull() ?: ""
                 val firstLineCompletion = fullCompletion.copy(insertText = firstLine)
-                
+
                 val cacheKey = generateCacheKey(context)
                 val contextHash = generateContextHash(editor, context.offset)
-                
+
                 val cached = CachedCompletion(
                     fullCompletion = fullCompletion,
                     firstLineCompletion = firstLineCompletion,
                     contextHash = contextHash,
                     completionId = fullCompletion.completionId
                 )
-                
+
                 completionCache[cacheKey] = cached
-//                System.out.println("[ZestCache] Cached completion for key: $cacheKey")
-//                System.out.println("  - Full text: '${fullCompletion.insertText.take(50)}...'")
-//                System.out.println("  - First line: '${firstLine.take(50)}...'")
-                
+
+
                 // Clean up old cache entries if we exceed max size
                 if (completionCache.size > MAX_CACHE_SIZE) {
                     cleanupCache()
                 }
             } catch (e: Exception) {
-//                System.out.println("[ZestCache] Failed to cache completion: ${e.message}")
+
             }
         }
     }
-    
+
     /**
      * Clean up expired or excess cache entries
      */
     private fun cleanupCache() {
         // This method is called from within cacheMutex.withLock, so no additional locking needed
-        val expiredKeys = completionCache.entries
-            .filter { it.value.isExpired() }
-            .map { it.key }
-        
+        val expiredKeys = completionCache.entries.filter { it.value.isExpired() }.map { it.key }
+
         expiredKeys.forEach { completionCache.remove(it) }
-//        System.out.println("[ZestCache] Cleaned up ${expiredKeys.size} expired entries")
-        
+
+
         // If still too many, remove oldest entries
         if (completionCache.size > MAX_CACHE_SIZE) {
-            val oldestKeys = completionCache.entries
-                .sortedBy { it.value.timestamp }
-                .take(completionCache.size - MAX_CACHE_SIZE)
-                .map { it.key }
-            
+            val oldestKeys =
+                completionCache.entries.sortedBy { it.value.timestamp }.take(completionCache.size - MAX_CACHE_SIZE)
+                    .map { it.key }
+
             oldestKeys.forEach { completionCache.remove(it) }
-//            System.out.println("[ZestCache] Cleaned up ${oldestKeys.size} oldest entries")
+
         }
     }
-    
+
     /**
      * Clear the completion cache
      */
@@ -1885,21 +1797,20 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         scope.launch {
             cacheMutex.withLock {
                 completionCache.clear()
-//                System.out.println("[ZestCache] Cache cleared")
+
             }
         }
     }
-    
+
     /**
      * Get cache statistics for debugging
      */
     fun getCacheStats(): String {
-        return "Cache: ${completionCache.size} entries, " +
-               "expired: ${completionCache.values.count { it.isExpired() }}"
+        return "Cache: ${completionCache.size} entries, " + "expired: ${completionCache.values.count { it.isExpired() }}"
     }
-    
+
     override fun dispose() {
-////        System.out.println("[ZestInlineCompletion] Disposing service")
+
         logger.info("Disposing simplified ZestInlineCompletionService")
         activeRequestId = null
         completionTimer?.cancel()
@@ -1909,29 +1820,29 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         clearCache() // Clear completion cache
         messageBusConnection.dispose()
     }
-    
+
     // Enums and interfaces
-    
+
     enum class AcceptType {
         FULL_COMPLETION, NEXT_WORD, NEXT_LINE, CTRL_TAB_COMPLETION
     }
-    
+
     interface Listener {
         fun loadingStateChanged(loading: Boolean) {}
         fun completionDisplayed(context: ZestInlineCompletionRenderer.RenderingContext) {}
         fun completionAccepted(type: AcceptType) {}
-        
+
         companion object {
             @Topic.ProjectLevel
             val TOPIC = Topic(Listener::class.java, Topic.BroadcastDirection.NONE)
         }
     }
-    
+
     companion object {
         private const val AUTO_TRIGGER_DELAY_MS = 30L // 1.5 seconds after user stops typing
         private const val CACHE_EXPIRY_MS = 300000L // 5 minutes cache expiry
         private const val MAX_CACHE_SIZE = 50 // Maximum number of cached completions
-        
+
         /**
          * Notify all active inline completion services that configuration has changed
          */

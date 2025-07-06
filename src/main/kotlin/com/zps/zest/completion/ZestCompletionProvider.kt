@@ -1,14 +1,10 @@
 package com.zps.zest.completion
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiFile
-import com.intellij.psi.codeStyle.CodeStyleManager
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.completion.context.ZestSimpleContextCollector
@@ -106,10 +102,10 @@ class ZestCompletionProvider(private val project: Project) {
         requestId: Int,
         completionId: String
     ): ZestInlineCompletionList? {
+        val startTime = System.currentTimeMillis()
+
         return try {
             logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
-
-            val startTime = System.currentTimeMillis()
 
             // Get current editor and document text on EDT
 
@@ -154,26 +150,30 @@ class ZestCompletionProvider(private val project: Project) {
             logger.debug("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}")
 
             // Query LLM with timeout and cancellation support
-
             val llmStartTime = System.currentTimeMillis()
-            val response = withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                val queryParams =
-                    LLMService.LLMQueryParams(prompt).useLiteCodeModel().withMaxTokens(MAX_COMPLETION_TOKENS)
-                        .withTemperature(0.1)  // Low temperature for more deterministic completions
-                        .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
+            var llmTime = 0L
+            val response = try {
+                withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
+                    val queryParams =
+                        LLMService.LLMQueryParams(prompt).useLiteCodeModel().withMaxTokens(MAX_COMPLETION_TOKENS)
+                            .withTemperature(0.1)  // Low temperature for more deterministic completions
+                            .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
 
-                // Use cancellable request
-                val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
-                cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                    // Use cancellable request
+                    val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
+                    cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                }
+            } finally {
+                // Always track LLM time, even if cancelled
+                llmTime = System.currentTimeMillis() - llmStartTime
+                if (llmTime > 0) {
+                    metricsService.trackLLMCallTime(completionId, llmTime)
+                }
             }
 
 
-            val llmTime = System.currentTimeMillis() - llmStartTime
-            metricsService.trackLLMCallTime(completionId, llmTime)
-
-
             if (response == null) {
-                logger.debug("Completion request timed out")
+                logger.debug("Completion request timed out or was cancelled")
                 return null
             }
 
@@ -226,7 +226,7 @@ class ZestCompletionProvider(private val project: Project) {
 
         } catch (e: kotlinx.coroutines.CancellationException) {
             metricsService.trackCompletionCancelled(completionId)
-            logger.debug("Completion request was cancelled")
+            logger.debug("Completion request was cancelled after ${System.currentTimeMillis() - startTime}ms")
             throw e
         } catch (e: Exception) {
 
@@ -244,10 +244,10 @@ class ZestCompletionProvider(private val project: Project) {
         requestId: Int,
         completionId: String
     ): ZestInlineCompletionList? {
+        val startTime = System.currentTimeMillis()
+
         return try {
             logger.debug("Requesting lean completion for ${context.fileName} at offset ${context.offset}")
-
-            val startTime = System.currentTimeMillis()
 
             // Get current editor and full document text on EDT
             val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
@@ -330,23 +330,30 @@ class ZestCompletionProvider(private val project: Project) {
 
             // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()
-            val response = withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
-                val queryParams = LLMService.LLMQueryParams(prompt).useLiteCodeModel()  // Use full model for reasoning
-                    .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                    .withTemperature(0.5)  // Slightly higher for creative reasoning
-                    .withStopSequences(getLeanStopSequences())
+            var llmTime = 0L
+            val response = try {
+                withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
+                    val queryParams =
+                        LLMService.LLMQueryParams(prompt).useLiteCodeModel()  // Use full model for reasoning
+                            .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
+                            .withTemperature(0.5)  // Slightly higher for creative reasoning
+                            .withStopSequences(getLeanStopSequences())
 
-                // Use cancellable request
-                val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
-                cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                    // Use cancellable request
+                    val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
+                    cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                }
+            } finally {
+                // Always track LLM time, even if cancelled
+                llmTime = System.currentTimeMillis() - llmStartTime
+                if (llmTime > 0) {
+                    metricsService.trackLLMCallTime(completionId, llmTime)
+                }
             }
 
 
-            val llmTime = System.currentTimeMillis() - llmStartTime
-            metricsService.trackLLMCallTime(completionId, llmTime)
-
             if (response == null) {
-                logger.debug("Lean completion request timed out")
+                logger.debug("Lean completion request timed out or was cancelled")
                 return null
             }
 
@@ -390,12 +397,12 @@ class ZestCompletionProvider(private val project: Project) {
                 )
             )
 
-            logger.info("Lean completion completed in ${totalTime}ms (llm=${llmTime}ms) with reasoning: ${reasoningResult.hasValidReasoning} for request $requestId")
+            logger.info("Lean completion completed in ${totalTime}ms (context=${leanContextTime}ms, prompt=${promptBuildTime}ms, llm=${llmTime}ms, parse=${parseTime}ms) with reasoning: ${reasoningResult.hasValidReasoning} for request $requestId")
             ZestInlineCompletionList.single(item)
 
         } catch (e: kotlinx.coroutines.CancellationException) {
             metricsService.trackCompletionCancelled(completionId)
-            logger.debug("Lean completion request was cancelled")
+            logger.debug("Lean completion request was cancelled after ${System.currentTimeMillis() - startTime}ms")
             throw e
         } catch (e: Exception) {
             logger.warn("Lean completion failed, falling back to simple", e)

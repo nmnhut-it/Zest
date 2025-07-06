@@ -99,7 +99,9 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
      * Track LLM call timing
      */
     fun trackLLMCallTime(completionId: String, timeMs: Long) {
-        activeCompletions[completionId]?.timingInfo?.llmCallTime = timeMs
+        if (timeMs > 0) {
+            activeCompletions[completionId]?.timingInfo?.llmCallTime = timeMs
+        }
     }
     
     /**
@@ -124,6 +126,13 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         session.timingInfo?.let { timing ->
             timing.cancelled = true
             timing.totalTime = System.currentTimeMillis() - session.startTime
+            
+            // Log cancellation details
+            logger.info("Completion cancelled: $completionId")
+            logger.info("  Total time: ${timing.totalTime}ms")
+            logger.info("  Context collection: ${timing.contextCollectionTime}ms") 
+            logger.info("  LLM call: ${timing.llmCallTime}ms")
+            logger.info("  Response parsing: ${timing.responseParsingTime}ms")
             
             // Add to history
             synchronized(timingHistory) {

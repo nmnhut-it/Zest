@@ -179,6 +179,8 @@ public final class LLMService {
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         URL url = new URL(apiUrl);
+        long elapsed = System.currentTimeMillis();
+
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
         try {
@@ -219,7 +221,6 @@ public final class LLMService {
             }
 
             // Read response
-            long elapsed = System.currentTimeMillis();
             String response = readResponse(connection);
             elapsed = System.currentTimeMillis() - elapsed;
 

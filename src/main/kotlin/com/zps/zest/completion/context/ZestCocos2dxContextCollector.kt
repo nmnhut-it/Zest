@@ -474,9 +474,6 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         val endLine = minOf(lines.size, cursorLineIndex + 21) // +21 to include cursor line + 20 after
         
         val truncatedMarked = buildString {
-            append(SYNTAX_GUIDANCE)
-            append("\n\n")
-            
             if (startLine > 0) {
                 append("/* ... content truncated ... */\n")
             }

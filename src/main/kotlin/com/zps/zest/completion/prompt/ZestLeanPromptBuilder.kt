@@ -3,16 +3,16 @@ package com.zps.zest.completion.prompt
 import com.zps.zest.completion.context.ZestLeanContextCollector
 
 /**
- * Builds prompts for lean completion strategy with full file context and reasoning
+ * Builds prompts for lean completion strategy with full file context
  */
 class ZestLeanPromptBuilder {
     
     /**
-     * Build a reasoning prompt that includes full file context
+     * Build a simplified prompt focused on completing the current line
      */
     fun buildReasoningPrompt(context: ZestLeanContextCollector.LeanContext): String {
         return """
-You are an expert code completion AI. Analyze the code context and provide a thoughtful completion.
+You are an expert code completion AI. Complete the rest of the current line at the cursor position.
 
 **File Context:**
 - File: ${context.fileName}
@@ -23,52 +23,38 @@ You are an expert code completion AI. Analyze the code context and provide a tho
 ${context.markedContent}
 ```
 
-**Analysis Instructions:**
-1. Understand the current context and what the user is likely trying to type
-2. Consider the file structure, imports, and existing patterns
-3. Provide a completion that follows the established code style
+**Instructions:**
+Complete ONLY what should come after <CURSOR> on the current line. Follow the existing code style and patterns.
 
 **Response Format:**
-You must provide your response in this EXACT format to ensure proper integration:
-
-<prefix>
-[Copy 1-2 lines of code that appear IMMEDIATELY BEFORE the cursor, exactly as shown]
-</prefix>
-
 <completion>
-[Your actual code completion - what should be inserted at the cursor]
+[Code to insert at cursor - complete the rest of the current line]
 </completion>
 
-<suffix>
-[Copy 1-2 lines of code that appear IMMEDIATELY AFTER the cursor, exactly as shown]
-</suffix>
+**Examples:**
 
-**Important Requirements:**
-- The <prefix> section must contain the exact code before the cursor (no modifications)
-- The <completion> section contains ONLY the new code to insert
-- The <suffix> section must contain the exact code after the cursor (no modifications)
-- Do NOT include the cursor marker (<CURSOR>) in any section
-- Follow the existing code style and patterns
-- Ensure the completion is syntactically correct
-- Completion should not exceed 5 lines and 50 words.
-
-**Note:** The completion should be a natural fragment that continues from the cursor - it doesn't need to be syntactically complete. It can end mid-statement, mid-block, or mid-expression, just like real typing.
-
-**Example Response Structure:**
-<prefix>
-    public User findBy
-</prefix>
-
+Example 1 - Cursor in new line (complete new statement):
+Given: `    <CURSOR>`
 <completion>
-Id(Long id) {
-        return userRepository.findById(id).orElse(null);
-    }
-</completion>
+if (user != null) {
+        return user.isActive();
+    }</completion>
 
-<suffix>
-    
-    public List<User> findAllActive() {
-</suffix>
+Example 2 - Cursor in middle of line (complete method call):
+Given: `String name = user.get<CURSOR>.toUpperCase();`
+<completion>
+Name()</completion>
+
+Example 3 - Cursor at end of line (complete statement):
+Given: `return orderRepository.findById(orderId).<CURSOR>`
+<completion>
+orElseThrow(() -> new OrderNotFoundException(orderId));</completion>
+
+**Important:**
+- Complete only the current line (stop at the line break)
+- If the statement naturally continues to the next line (e.g., multi-line method), include the continuation
+- Do NOT include any code that was already before the cursor
+- Do NOT add explanations or reasoning
         """.trimIndent()
     }
 }

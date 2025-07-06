@@ -1861,7 +1861,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 30L // 1.5 seconds after user stops typing
+        private const val AUTO_TRIGGER_DELAY_MS = 300L // 300ms after user stops typing
         private const val CACHE_EXPIRY_MS = 300000L // 5 minutes cache expiry
         private const val MAX_CACHE_SIZE = 50 // Maximum number of cached completions
 

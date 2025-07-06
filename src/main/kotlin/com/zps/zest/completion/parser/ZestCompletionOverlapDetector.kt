@@ -37,9 +37,33 @@ class ZestCompletionOverlapDetector {
         val contextAfterCursor = getContextAfterCursor(documentText, cursorOffset, 500)
 
         System.out.println("=== OVERLAP DETECTOR DEBUG ===")
-        System.out.println("Context before cursor (last 100 chars): '${contextBeforeCursor.takeLast(100)}'")
-        System.out.println("Context after cursor (first 100 chars): '${contextAfterCursor.take(100)}'")
-        System.out.println("Completion (first 100 chars): '${completionText.take(100)}${if (completionText.length > 100) "..." else ""}'")
+        // Make whitespace visible for debugging
+        val beforeDebug = contextBeforeCursor.takeLast(100)
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace(" ", "·")
+        val afterDebug = contextAfterCursor.take(100)
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace(" ", "·")
+        val completionDebug = completionText.take(100)
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace(" ", "·")
+            
+        System.out.println("Context before cursor (last 100 chars): '$beforeDebug'")
+        System.out.println("Context after cursor (first 100 chars): '$afterDebug'")
+        System.out.println("Completion (first 100 chars): '$completionDebug${if (completionText.length > 100) "..." else ""}'")
+        
+        // Check if cursor is on a blank line
+        val isOnBlankLine = contextAfterCursor.trimStart() != contextAfterCursor && 
+                           contextAfterCursor.trim().isNotEmpty()
+        if (isOnBlankLine) {
+            System.out.println("Cursor appears to be on a blank line")
+        }
 
         // First, try character-level prefix/suffix overlap detection
         var adjustedCompletion = completionText
@@ -74,7 +98,7 @@ class ZestCompletionOverlapDetector {
             }
         }
 
-        System.out.println("Final adjusted completion: '${adjustedCompletion.take(100)}${if (adjustedCompletion.length > 100) "..." else ""}'")
+        System.out.println("Final adjusted completion: '${adjustedCompletion.take(100).replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t").replace(" ", "·")}${if (adjustedCompletion.length > 100) "..." else ""}'")
 
         return OverlapResult(adjustedCompletion, prefixOverlap, suffixOverlap)
     }
@@ -151,6 +175,22 @@ class ZestCompletionOverlapDetector {
      */
     private fun findSuffixOverlap(completion: String, contextAfter: String): Int {
         if (completion.isEmpty() || contextAfter.isEmpty()) return 0
+
+        // Special handling: if context after cursor starts with newline/whitespace,
+        // we're on a blank line and should not consider it an overlap
+        if (contextAfter.trimStart() != contextAfter) {
+            // There's leading whitespace (including newlines) after cursor
+            // Only check for overlap if the completion also ends with similar whitespace pattern
+            val contextLeadingWhitespace = contextAfter.takeWhile { it.isWhitespace() }
+            val completionTrailingWhitespace = completion.takeLastWhile { it.isWhitespace() }
+            
+            // If completion doesn't end with whitespace but context starts with it,
+            // we're trying to insert on a blank line - no overlap
+            if (completionTrailingWhitespace.isEmpty() && contextLeadingWhitespace.contains('\n')) {
+                System.out.println("Cursor on blank line, no suffix overlap check needed")
+                return 0
+            }
+        }
 
         // Try exact character match from start of context
         val maxLength = minOf(completion.length, contextAfter.length)

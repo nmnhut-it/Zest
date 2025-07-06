@@ -336,7 +336,7 @@ class ZestCompletionProvider(private val project: Project) {
                     val queryParams =
                         LLMService.LLMQueryParams(prompt).useLiteCodeModel()  // Use full model for reasoning
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                            .withTemperature(0.5)  // Slightly higher for creative reasoning
+                            .withTemperature(0.8)  // Slightly higher for creative reasoning
                             .withStopSequences(getLeanStopSequences())
 
                     // Use cancellable request

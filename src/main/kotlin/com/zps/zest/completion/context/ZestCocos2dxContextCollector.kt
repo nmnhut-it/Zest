@@ -470,8 +470,8 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         }
         
         // Keep 20 lines before and after cursor
-        val startLine = maxOf(0, cursorLineIndex - 20)
-        val endLine = minOf(lines.size, cursorLineIndex + 21) // +21 to include cursor line + 20 after
+        val startLine = maxOf(0, cursorLineIndex - 10)
+        val endLine = minOf(lines.size, cursorLineIndex + 11) // +21 to include cursor line + 20 after
         
         val truncatedMarked = buildString {
             if (startLine > 0) {

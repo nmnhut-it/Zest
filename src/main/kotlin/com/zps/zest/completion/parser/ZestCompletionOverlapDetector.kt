@@ -141,6 +141,18 @@ class ZestCompletionOverlapDetector {
     private fun findPrefixOverlap(contextBefore: String, completion: String): Int {
         if (contextBefore.isEmpty() || completion.isEmpty()) return 0
 
+        // Special handling: if context before cursor ends with only whitespace after the last statement,
+        // we're on a blank line and should not check for overlaps with previous code
+        val lastNewlineIndex = contextBefore.lastIndexOf('\n')
+        if (lastNewlineIndex >= 0) {
+            val afterLastNewline = contextBefore.substring(lastNewlineIndex + 1)
+            // If everything after the last newline is whitespace, we're on a blank line
+            if (afterLastNewline.isBlank()) {
+                System.out.println("Cursor at start of blank line, no prefix overlap check needed")
+                return 0
+            }
+        }
+
         // Try exact character match from end of context
         val maxLength = minOf(contextBefore.length, completion.length)
 

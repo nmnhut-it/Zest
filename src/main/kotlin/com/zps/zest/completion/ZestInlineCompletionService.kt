@@ -41,6 +41,28 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val logger = Logger.getInstance(ZestInlineCompletionService::class.java)
     private val messageBusConnection = project.messageBus.connect()
     private val editorManager = FileEditorManager.getInstance(project)
+    
+    // Debug logging flag
+    private var debugLoggingEnabled = true
+    
+    /**
+     * Internal debug logging function
+     * @param message The message to log
+     * @param tag Optional tag for categorizing logs (default: "ZestService")
+     */
+    private fun log(message: String, tag: String = "ZestService") {
+        if (debugLoggingEnabled) {
+            println("[$tag] $message")
+        }
+    }
+    
+    /**
+     * Enable or disable debug logging
+     */
+    fun setDebugLogging(enabled: Boolean) {
+        debugLoggingEnabled = enabled
+        log("Debug logging ${if (enabled) "enabled" else "disabled"}")
+    }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val completionProvider = ZestCompletionProvider(project)

@@ -60,7 +60,7 @@ public final class LLMService implements Disposable {
     private static final int THREAD_POOL_SIZE = 5;
 
     // Debug flag
-    private boolean debugMode = false;
+    private boolean debugMode = true;
     
     // Flag to use optimized HTTP client (new)
     private boolean useOptimizedClient = true;

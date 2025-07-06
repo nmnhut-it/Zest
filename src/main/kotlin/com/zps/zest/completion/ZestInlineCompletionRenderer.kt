@@ -26,6 +26,28 @@ import java.awt.Rectangle
 class ZestInlineCompletionRenderer {
     private val logger = Logger.getInstance(ZestInlineCompletionRenderer::class.java)
     
+    // Debug logging flag
+    private var debugLoggingEnabled = true
+    
+    /**
+     * Internal debug logging function
+     * @param message The message to log
+     * @param tag Optional tag for categorizing logs (default: "ZestRenderer")
+     */
+    private fun log(message: String, tag: String = "ZestRenderer") {
+        if (debugLoggingEnabled) {
+            println("[$tag] $message")
+        }
+    }
+    
+    /**
+     * Enable or disable debug logging
+     */
+    fun setDebugLogging(enabled: Boolean) {
+        debugLoggingEnabled = enabled
+        log("Debug logging ${if (enabled) "enabled" else "disabled"}")
+    }
+    
     data class RenderingContext(
         val id: String,
         val editor: Editor,
@@ -63,20 +85,20 @@ class ZestInlineCompletionRenderer {
                 // Try to access editor to check if it's still valid
                 val currentCaretOffset = editor.caretModel.offset
                 if (currentCaretOffset != offset) {
-                    System.out.println("Caret moved, canceling completion display")
+                    log("Caret moved, canceling completion display")
                     return@invokeLater
                 }
             } catch (e: Exception) {
-                System.out.println("Editor disposed, canceling completion display")
+                log("Editor disposed, canceling completion display")
                 return@invokeLater
             }
             
             if (completion.insertText.isEmpty()) {
-                System.out.println("Empty completion text, nothing to display")
+                log("Empty completion text, nothing to display")
                 return@invokeLater
             }
             
-            System.out.println("Showing completion at offset $offset: '${completion.insertText.take(50)}'")
+            log("Showing completion at offset $offset: '${completion.insertText.take(50)}'", tag = "ZestRenderer")
             
             val id = "zest-completion-${System.currentTimeMillis()}"
             val inlays = mutableListOf<Inlay<*>>()
@@ -90,7 +112,7 @@ class ZestInlineCompletionRenderer {
                 callback(context)
                 
                 val renderTime = System.currentTimeMillis() - renderStartTime
-//                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups in ${renderTime}ms")
+//                log("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups in ${renderTime}ms")
                 
                 // Track inlay rendering time if we have a completion ID
                 completion.metadata?.requestId?.let { requestId ->
@@ -147,7 +169,7 @@ class ZestInlineCompletionRenderer {
                     }
                 }
                 if (disposedInlays > 0) {
-                    System.out.println("Detected $disposedInlays disposed inlays - clearing completion to prevent blinking")
+                    log("Detected $disposedInlays disposed inlays - clearing completion to prevent blinking")
                     // DON'T try to restore - just clear to prevent blinking
                     current = null
                 }
@@ -187,7 +209,7 @@ class ZestInlineCompletionRenderer {
                         }
                     }
                     
-                    System.out.println("Hidden completion: ${context.id}")
+                    log("Hidden completion: ${context.id}")
                 } catch (e: Exception) {
                     logger.warn("Error hiding completion", e)
                 }
@@ -240,7 +262,7 @@ class ZestInlineCompletionRenderer {
                     val inlay = createInlineInlay(editor, offset, firstLine)
                     if (inlay != null) {
                         inlays.add(inlay)
-                        System.out.println("SIMPLE strategy: rendered single line: '$firstLine' (traditional full acceptance)")
+                        log("SIMPLE strategy: rendered single line: '$firstLine' (traditional full acceptance)")
                     }
                 }
             }
@@ -269,13 +291,13 @@ class ZestInlineCompletionRenderer {
                         }
                     }
                     
-                    System.out.println("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays) with line-by-line acceptance")
+                    log("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays) with line-by-line acceptance")
                 }
             }
             
             ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
                 // METHOD_REWRITE: Not used for inline rendering (uses floating windows)
-                System.out.println("METHOD_REWRITE strategy: skipping inline rendering (uses floating windows)")
+                log("METHOD_REWRITE strategy: skipping inline rendering (uses floating windows)")
             }
         }
     }

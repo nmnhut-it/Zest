@@ -34,17 +34,8 @@ import java.util.*
 class ZestCompletionProvider(private val project: Project) {
     private val logger = Logger.getInstance(ZestCompletionProvider::class.java)
 
-    private val llmService by lazy {
-        try {
-            LLMService(project)
-        } catch (e: Exception) {
-            logger.warn("Failed to create LLMService instance", e)
-            throw IllegalStateException("LLMService not available", e)
-        }
-    }
-
     private val cancellableLLM by lazy { CancellableLLMRequest(project) }
-    
+
     // Add metrics service
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
 
@@ -89,7 +80,11 @@ class ZestCompletionProvider(private val project: Project) {
         strategy = newStrategy
     }
 
-    suspend fun requestCompletion(context: CompletionContext, requestId: Int, completionId: String? = null): ZestInlineCompletionList? {
+    suspend fun requestCompletion(
+        context: CompletionContext,
+        requestId: Int,
+        completionId: String? = null
+    ): ZestInlineCompletionList? {
         // Use the provided completionId for metrics tracking
         val metricsCompletionId = completionId ?: requestId.toString()
 
@@ -106,9 +101,11 @@ class ZestCompletionProvider(private val project: Project) {
     /**
      * Original simple completion strategy
      */
-    private suspend fun requestSimpleCompletion(context: CompletionContext, requestId: Int, completionId: String): ZestInlineCompletionList? {
-
-
+    private suspend fun requestSimpleCompletion(
+        context: CompletionContext,
+        requestId: Int,
+        completionId: String
+    ): ZestInlineCompletionList? {
         return try {
             logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
 
@@ -123,19 +120,14 @@ class ZestCompletionProvider(private val project: Project) {
 
                     if (ed != null) {
                         val text = ed.document.text
-
                         editorFuture.complete(Pair(ed, text))
                     } else {
                         editorFuture.complete(Pair(null, ""))
                     }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)    } catch (e: Exception) {
+                } catch (e: Exception) {
                     editorFuture.complete(Pair(null, ""))
                 }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
+            }
 
             val (editor, documentText) = try {
                 editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -144,7 +136,6 @@ class ZestCompletionProvider(private val project: Project) {
             }
 
             if (editor == null) {
-
                 logger.debug("No active editor found")
                 return null
             }
@@ -157,12 +148,10 @@ class ZestCompletionProvider(private val project: Project) {
 
 
             // Build prompt (thread-safe)
-
+            val promptStartTime = System.currentTimeMillis()
             val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
-
-
-
-            logger.debug("Prompt built, length: ${prompt.length}")
+            val promptBuildTime = System.currentTimeMillis() - promptStartTime
+            logger.debug("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}")
 
             // Query LLM with timeout and cancellation support
 
@@ -177,14 +166,13 @@ class ZestCompletionProvider(private val project: Project) {
                 val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
                 cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)val llmTime = System.currentTimeMillis() - llmStartTime
+
+
+            val llmTime = System.currentTimeMillis() - llmStartTime
             metricsService.trackLLMCallTime(completionId, llmTime)
 
 
             if (response == null) {
-
                 logger.debug("Completion request timed out")
                 return null
             }
@@ -202,7 +190,6 @@ class ZestCompletionProvider(private val project: Project) {
 
 
             if (cleanedCompletion.isBlank()) {
-
                 logger.debug("No valid completion after parsing")
                 return null
             }
@@ -210,7 +197,6 @@ class ZestCompletionProvider(private val project: Project) {
             val totalTime = System.currentTimeMillis() - startTime
 
             // Format the completion text using IntelliJ's code style
-
             val formattedCompletion =
                 cleanedCompletion //formatCompletionText(editor, cleanedCompletion, context.offset)
 
@@ -253,7 +239,11 @@ class ZestCompletionProvider(private val project: Project) {
     /**
      * New lean completion strategy with full file context and reasoning
      */
-    private suspend fun requestLeanCompletion(context: CompletionContext, requestId: Int, completionId: String): ZestInlineCompletionList? {
+    private suspend fun requestLeanCompletion(
+        context: CompletionContext,
+        requestId: Int,
+        completionId: String
+    ): ZestInlineCompletionList? {
         return try {
             logger.debug("Requesting lean completion for ${context.fileName} at offset ${context.offset}")
 
@@ -269,14 +259,11 @@ class ZestCompletionProvider(private val project: Project) {
                     } else {
                         editorFuture.complete(Pair(null, ""))
                     }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)    } catch (e: Exception) {
+
+                } catch (e: Exception) {
                     editorFuture.complete(Pair(null, ""))
                 }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
+            }
 
             val (editor, documentText) = try {
                 editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -301,9 +288,7 @@ class ZestCompletionProvider(private val project: Project) {
                     if (!collectionComplete.isCompleted) {
                         collectionComplete.complete(true)
                     }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)    }
+                }
             }
 
             // Wait for initial context or timeout
@@ -312,9 +297,9 @@ class ZestCompletionProvider(private val project: Project) {
             }
 
             // Use whatever context we have - get immediate context if async failed
-            val leanContext = if (enhancedContext != null) {
-                enhancedContext!!
-            } else {
+            val leanContext: ZestLeanContextCollector.LeanContext = enhancedContext?.let { context ->
+                context
+            } ?: run {
                 val contextFuture = java.util.concurrent.CompletableFuture<ZestLeanContextCollector.LeanContext>()
                 ApplicationManager.getApplication().invokeLater {
                     try {
@@ -323,24 +308,25 @@ class ZestCompletionProvider(private val project: Project) {
                     } catch (e: Exception) {
                         contextFuture.completeExceptionally(e)
                     }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)    }
+                }
                 try {
                     contextFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
                 } catch (e: Exception) {
                     logger.warn("Failed to collect lean context", e)
                     return null
                 }
-            
+            }
+
+            // Track context collection time once after collection is complete
             val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
-            
+            metricsService.trackContextCollectionTime(completionId, leanContextTime)
 
 
             // Build reasoning prompt
+            val promptStartTime = System.currentTimeMillis()
             val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-            logger.debug("Lean prompt built, length: ${prompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
+            val promptBuildTime = System.currentTimeMillis() - promptStartTime
+            logger.debug("Lean prompt built in ${promptBuildTime}ms, length: ${prompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
 
             // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()
@@ -354,9 +340,9 @@ class ZestCompletionProvider(private val project: Project) {
                 val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
                 cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
             }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)val llmTime = System.currentTimeMillis() - llmStartTime
+
+
+            val llmTime = System.currentTimeMillis() - llmStartTime
             metricsService.trackLLMCallTime(completionId, llmTime)
 
             if (response == null) {
@@ -418,26 +404,6 @@ class ZestCompletionProvider(private val project: Project) {
         }
     }
 
-    private suspend fun getCurrentEditor(): Editor? {
-        return try {
-            val editorFuture = java.util.concurrent.CompletableFuture<Editor?>()
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    editorFuture.complete(FileEditorManager.getInstance(project).selectedTextEditor)
-                } catch (e: Exception) {
-                    editorFuture.complete(null)
-                }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
-            
-            editorFuture.get(1, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            logger.warn("Failed to get current editor", e)
-            null
-        }
-    }
-
     private fun calculateConfidence(completion: String): Float {
         var confidence = 0.7f
 
@@ -457,78 +423,6 @@ class ZestCompletionProvider(private val project: Project) {
         }
 
         return confidence.coerceIn(0.0f, 1.0f)
-    }
-
-    /**
-     * Format the completion text using IntelliJ's code style settings
-     * This ensures the inserted code follows the project's formatting rules
-     */
-    private fun formatCompletionText(editor: Editor, completionText: String, offset: Int): String {
-        return try {
-            // If completion is very short or doesn't contain code structure, return as-is
-            if (completionText.length < 5 || !containsCodeStructure(completionText)) {
-                return completionText
-            }
-
-            // Get the PsiFile for the current editor
-            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
-            if (psiFile == null) {
-                logger.debug("Cannot format completion text: PsiFile is null")
-                return completionText
-            }
-
-            // Create a temporary document with the completion text in context
-            val documentText = editor.document.text
-            val beforeText = documentText.substring(0, offset)
-            val afterText = documentText.substring(offset)
-            val tempText = beforeText + completionText + afterText
-
-            // Format the region containing the completion
-            var formattedText = completionText
-            ApplicationManager.getApplication().runReadAction {
-                try {
-                    // Create a copy of the PSI file with the new text
-                    val tempPsiFile = psiFile.copy() as PsiFile
-                    val tempDocument = PsiDocumentManager.getInstance(project).getDocument(tempPsiFile)
-
-                    if (tempDocument != null) {
-                        WriteCommandAction.runWriteCommandAction(project) {
-                            tempDocument.setText(tempText)
-                            PsiDocumentManager.getInstance(project).commitDocument(tempDocument)
-
-                            // Format the range containing the completion
-                            val codeStyleManager = CodeStyleManager.getInstance(project)
-                            codeStyleManager.reformatRange(tempPsiFile, offset, offset + completionText.length)
-
-                            // Extract the formatted completion text
-                            formattedText = tempDocument.text.substring(offset, offset + completionText.length)
-                        }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)        }
-                } catch (e: Exception) {
-                    logger.debug("Failed to format completion text in temporary file: ${e.message}")
-                }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
-
-            formattedText
-        } catch (e: Exception) {
-            logger.warn("Failed to format completion text: ${e.message}")
-            completionText
-        }
-    }
-
-    /**
-     * Check if the completion text contains code structure that should be formatted
-     */
-    private fun containsCodeStructure(text: String): Boolean {
-        return text.contains('{') || text.contains('}') || text.contains('(') || text.contains(')') || text.contains(
-            '\n'
-        ) || text.contains(';') || text.contains('=') || text.contains("->") || text.contains("fun ") || text.contains("val ") || text.contains(
-            "var "
-        ) || text.contains("class ") || text.contains("if ") || text.contains("when ") || text.contains("for ")
     }
 
     /**
@@ -552,64 +446,67 @@ class ZestCompletionProvider(private val project: Project) {
     /**
      * Method rewrite strategy - shows floating window with method rewrites
      */
-    private suspend fun requestMethodRewrite(context: CompletionContext, requestId: Int, completionId: String): ZestInlineCompletionList? {
-
-
+    private fun requestMethodRewrite(
+        context: CompletionContext,
+        requestId: Int,
+        completionId: String
+    ): ZestInlineCompletionList? {
         return try {
             logger.debug("Requesting method rewrite for ${context.fileName} at offset ${context.offset}")
 
-            // Get current editor on EDT
+            val startTime = System.currentTimeMillis()
 
+            // Get current editor on EDT
             val editorFuture = java.util.concurrent.CompletableFuture<Editor?>()
             ApplicationManager.getApplication().invokeLater {
                 try {
                     val ed = FileEditorManager.getInstance(project).selectedTextEditor
-
                     editorFuture.complete(ed)
                 } catch (e: Exception) {
                     editorFuture.complete(null)
                 }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
-            
-
+            }
 
             val editor = try {
                 editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
             } catch (e: Exception) {
-
                 null
             }
 
             if (editor == null) {
-
                 logger.debug("No active editor found for method rewrite")
                 return null
             }
 
+            // Track method rewrite as a special completion
+            val rewriteStartTime = System.currentTimeMillis()
+
             // Trigger the method rewrite service (this will show floating window)
-
-
             // Make sure to trigger on EDT and don't wait for result
             ApplicationManager.getApplication().invokeLater {
-
                 try {
                     methodRewriteService.rewriteCurrentMethod(editor, context.offset)
 
+                    // Track completion time for method rewrite
+                    val rewriteTime = System.currentTimeMillis() - rewriteStartTime
+                    metricsService.trackLLMCallTime(completionId, rewriteTime)
                 } catch (e: Exception) {
-
+                    logger.warn("Method rewrite failed", e)
                     e.printStackTrace()
                 }
-            
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)}
+            }
+
+            val totalTime = System.currentTimeMillis() - startTime
+            logger.info("Method rewrite triggered in ${totalTime}ms for request $requestId")
 
             // Return empty completion list since we're showing inline diff instead
             ZestInlineCompletionList.EMPTY
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            metricsService.trackCompletionCancelled(completionId)
+            logger.debug("Method rewrite request was cancelled")
+            throw e
         } catch (e: Exception) {
-
             e.printStackTrace()
             logger.warn("Method rewrite request failed", e)
             null

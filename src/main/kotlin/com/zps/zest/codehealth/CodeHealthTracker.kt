@@ -134,7 +134,7 @@ class CodeHealthTracker(private val project: Project) :
         // Check if this is a Java file
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
         if (psiFile == null || !psiFile.name.endsWith(".java")) {
-            println("[CodeHealthTracker] Skipping non-Java file: ${psiFile?.name}")
+//            println("[CodeHealthTracker] Skipping non-Java file: ${psiFile?.name}")
             return
         }
         

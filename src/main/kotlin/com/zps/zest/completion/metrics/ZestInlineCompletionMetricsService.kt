@@ -20,6 +20,9 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     private val logger = Logger.getInstance(ZestInlineCompletionMetricsService::class.java)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
+    // Debug logging flag
+    private var debugLoggingEnabled = false
+    
     // Event queue for batching
     private val eventChannel = Channel<MetricEvent>(Channel.UNLIMITED)
     
@@ -57,7 +60,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     ) {
         if (!isEnabled.get()) return
         
-        println("[ZestMetrics] Tracking completion requested: $completionId")
+        log("Tracking completion requested: $completionId")
         
         val session = CompletionSession(
             completionId = completionId,
@@ -347,7 +350,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         scope.launch {
             try {
                 eventChannel.send(event)
-                println("[ZestMetrics] Queued event: ${event.eventType} for ${event.completionId}")
+                log("Queued event: ${event.eventType} for ${event.completionId}")
                 logger.debug("Queued metric event: ${event.eventType} for completion ${event.completionId}")
             } catch (e: Exception) {
                 logger.warn("Failed to queue metric event", e)
@@ -385,11 +388,11 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             val requestBody = event.toApiRequest()
             
             // Print event details for debugging
-            println("[ZestMetrics] Processing event: ${event.eventType}")
-            println("  - completionId: ${event.completionId}")
-            println("  - elapsed: ${event.elapsed}ms")
+            log("Processing event: ${event.eventType}")
+            log("  - completionId: ${event.completionId}")
+            log("  - elapsed: ${event.elapsed}ms")
             when (event) {
-                is MetricEvent.Select -> println("  - content length: ${event.completionContent.length}")
+                is MetricEvent.Select -> log("  - content length: ${event.completionContent.length}")
                 else -> {}
             }
             
@@ -565,6 +568,25 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         scope.cancel()
         eventChannel.close()
         activeCompletions.clear()
+    }
+    
+    /**
+     * Internal debug logging function
+     * @param message The message to log
+     * @param tag Optional tag for categorizing logs (default: "ZestMetrics")
+     */
+    private fun log(message: String, tag: String = "ZestMetrics") {
+        if (debugLoggingEnabled) {
+            println("[$tag] $message")
+        }
+    }
+    
+    /**
+     * Enable or disable debug logging
+     */
+    fun setDebugLogging(enabled: Boolean) {
+        debugLoggingEnabled = enabled
+        log("Debug logging ${if (enabled) "enabled" else "disabled"}")
     }
     
     companion object {

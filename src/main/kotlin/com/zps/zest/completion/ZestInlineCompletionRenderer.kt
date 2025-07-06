@@ -90,7 +90,7 @@ class ZestInlineCompletionRenderer {
                 callback(context)
                 
                 val renderTime = System.currentTimeMillis() - renderStartTime
-                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups in ${renderTime}ms")
+//                System.out.println("Successfully displayed completion with ${inlays.size} inlays and ${markups.size} markups in ${renderTime}ms")
                 
                 // Track inlay rendering time if we have a completion ID
                 completion.metadata?.requestId?.let { requestId ->

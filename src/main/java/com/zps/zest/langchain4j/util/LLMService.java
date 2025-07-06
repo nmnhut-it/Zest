@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j.util;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -19,21 +20,34 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import java.time.Duration;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Simple utility service for making LLM API calls.
- * This is a lightweight alternative to LlmApiCallStage that doesn't require CodeContext.
+ * Now with connection pooling and HTTP/2 support for better performance.
+ * Connection keep-alive is handled automatically by the HttpClient.
  */
 @Service(Service.Level.PROJECT)
-public final class LLMService {
+public final class LLMService implements Disposable {
 
     private static final Logger LOG = Logger.getInstance(LLMService.class);
     public static final Gson GSON = new Gson();
 
     private final Project project;
     private final ConfigurationManager config;
+    
+    // HTTP client with connection pooling (new)
+    private final HttpClient httpClient;
+    private final ExecutorService executorService;
+    
+    // Connection statistics (new)
+    private final ConnectionStats connectionStats = new ConnectionStats();
 
     // Configuration constants
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
@@ -41,14 +55,39 @@ public final class LLMService {
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 1000;
     private static final int DEFAULT_MAX_TOKENS = 8148;
+    
+    // Connection pool configuration (new)
+    private static final int THREAD_POOL_SIZE = 5;
 
     // Debug flag
     private boolean debugMode = false;
+    
+    // Flag to use optimized HTTP client (new)
+    private boolean useOptimizedClient = true;
 
     public LLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
-        LOG.info("Initialized LLMService for project: " + project.getName());
+        
+        // Create executor service for HTTP client (new)
+        this.executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE, r -> {
+            Thread t = new Thread(r, "LLMService-" + Thread.currentThread().getId());
+            t.setDaemon(true);
+            return t;
+        });
+        
+        // Create HTTP client with connection pooling and HTTP/2 support (new)
+        this.httpClient = HttpClient.newBuilder()
+            .executor(executorService)
+            .connectTimeout(Duration.ofMillis(CONNECTION_TIMEOUT_MS))
+            .version(HttpClient.Version.HTTP_2) // Prefer HTTP/2
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+            
+        LOG.info("Initialized LLMService with connection pooling for project: " + project.getName());
+        
+        // Warm up connections (new)
+        warmUpConnections();
     }
 
     /**
@@ -64,6 +103,14 @@ public final class LLMService {
      */
     public boolean isDebugMode() {
         return debugMode;
+    }
+    
+    /**
+     * Enable or disable optimized HTTP client (new)
+     */
+    public void setUseOptimizedClient(boolean useOptimizedClient) {
+        this.useOptimizedClient = useOptimizedClient;
+        LOG.info("Optimized client set to: " + useOptimizedClient);
     }
 
     /**
@@ -114,13 +161,36 @@ public final class LLMService {
      */
     @NotNull
     public CompletableFuture<String> queryAsync(@NotNull String prompt, @NotNull String model) {
-        return CompletableFuture.supplyAsync(() -> {
-            String result = query(prompt, model, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
-            if (result == null) {
-                throw new CompletionException(new RuntimeException("LLM query failed"));
+        LLMQueryParams params = new LLMQueryParams(prompt)
+                .withModel(model)
+                .withMaxTokens(DEFAULT_MAX_TOKENS);
+        return queryWithParamsAsync(params, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
+    }
+    
+    /**
+     * Asynchronous call with custom parameters (new)
+     */
+    @NotNull
+    public CompletableFuture<String> queryWithParamsAsync(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
+        if (useOptimizedClient) {
+            String apiUrl = config.getApiUrl();
+            String authToken = config.getAuthToken();
+
+            if (apiUrl == null || apiUrl.isEmpty()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("LLM API URL not configured"));
             }
-            return result;
-        });
+
+            return executeQueryWithRetryAsync(apiUrl, authToken, params, enumUsage, 1);
+        } else {
+            // Fallback to old implementation
+            return CompletableFuture.supplyAsync(() -> {
+                String result = queryWithParams(params, enumUsage);
+                if (result == null) {
+                    throw new CompletionException(new RuntimeException("LLM query failed"));
+                }
+                return result;
+            }, executorService);
+        }
     }
 
     /**
@@ -133,7 +203,13 @@ public final class LLMService {
     @Nullable
     public String queryWithParams(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         try {
-            return queryWithRetry(params, enumUsage);
+            if (useOptimizedClient) {
+                // Use async implementation and wait for result
+                return queryWithParamsAsync(params, enumUsage).get(params.getTimeoutMs(), TimeUnit.MILLISECONDS);
+            } else {
+                // Use original implementation
+                return queryWithRetry(params, enumUsage);
+            }
         } catch (Exception e) {
             LOG.error("Failed to query LLM with params", e);
             return null;
@@ -141,7 +217,7 @@ public final class LLMService {
     }
 
     /**
-     * Internal method to query with retry logic.
+     * Internal method to query with retry logic (original implementation).
      */
     private String queryWithRetry(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         String apiUrl = config.getApiUrl();
@@ -173,9 +249,104 @@ public final class LLMService {
 
         throw new IOException("All retry attempts failed", lastException);
     }
+    
+    /**
+     * Execute query with retry logic asynchronously (new)
+     */
+    private CompletableFuture<String> executeQueryWithRetryAsync(
+            String apiUrl, 
+            String authToken, 
+            LLMQueryParams params, 
+            ChatboxUtilities.EnumUsage enumUsage,
+            int attempt) {
+        
+        return executeQueryAsync(apiUrl, authToken, params, enumUsage)
+            .exceptionally(throwable -> {
+                LOG.warn("LLM query attempt " + attempt + " failed: " + throwable.getMessage());
+                
+                if (attempt < params.getMaxRetries()) {
+                    // Retry with exponential backoff
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS * attempt);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new CompletionException(e);
+                    }
+                    
+                    return executeQueryWithRetryAsync(apiUrl, authToken, params, enumUsage, attempt + 1).join();
+                } else {
+                    throw new CompletionException("All retry attempts failed", throwable);
+                }
+            });
+    }
+    
+    /**
+     * Executes the actual HTTP request asynchronously using HttpClient (new)
+     */
+    private CompletableFuture<String> executeQueryAsync(
+            String apiUrl, 
+            String authToken, 
+            LLMQueryParams params, 
+            ChatboxUtilities.EnumUsage enumUsage) {
+        
+        long startTime = System.currentTimeMillis();
+        connectionStats.incrementRequests();
+
+        // Prepare request body
+        String requestBody = createRequestBody(apiUrl, params, enumUsage);
+
+        if (debugMode) {
+            System.out.println("DEBUG: LLM Request URL: " + apiUrl);
+            System.out.println("DEBUG: LLM Request Body: " + requestBody);
+            System.out.println("DEBUG: LLM prompt: ");
+            System.out.println(params.getPrompt());
+        }
+
+        // Build HTTP request
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrl))
+                .timeout(Duration.ofMillis(READ_TIMEOUT_MS))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+
+        if (authToken != null && !authToken.isEmpty()) {
+            requestBuilder.header("Authorization", "Bearer " + authToken);
+        }
+
+        HttpRequest request = requestBuilder.build();
+
+        // Send request asynchronously
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .thenApply(response -> {
+                long elapsed = System.currentTimeMillis() - startTime;
+                connectionStats.recordLatency(elapsed);
+                
+                System.out.println("Llm request time: " + elapsed);
+                if (debugMode) {
+                    System.out.println("DEBUG: HTTP version: " + response.version());
+                    System.out.println("DEBUG: Status code: " + response.statusCode());
+                }
+
+                if (response.statusCode() != 200) {
+                    throw new CompletionException(new IOException(
+                        "API returned error code " + response.statusCode() + ": " + response.body()));
+                }
+
+                if (debugMode) {
+                    System.out.println("DEBUG: LLM Response: " + response.body());
+                }
+
+                try {
+                    return parseResponse(response.body(), apiUrl);
+                } catch (IOException e) {
+                    throw new CompletionException(e);
+                }
+            });
+    }
 
     /**
-     * Executes the actual HTTP request to the LLM API.
+     * Executes the actual HTTP request to the LLM API (original implementation).
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         URL url = new URL(apiUrl);
@@ -223,6 +394,10 @@ public final class LLMService {
             // Read response
             String response = readResponse(connection);
             elapsed = System.currentTimeMillis() - elapsed;
+            
+            // Track statistics (new)
+            connectionStats.incrementRequests();
+            connectionStats.recordLatency(elapsed);
 
             System.out.println("Llm request time: " + elapsed);
             if (debugMode) {
@@ -426,6 +601,55 @@ public final class LLMService {
         status.setHasAuthToken(config.getAuthToken() != null && !config.getAuthToken().isEmpty());
         return status;
     }
+    
+    /**
+     * Get connection statistics for monitoring (new)
+     */
+    public ConnectionStats getConnectionStats() {
+        return connectionStats;
+    }
+    
+    /**
+     * Preemptively establishes connections to the LLM API (new)
+     * Call this during startup or before heavy usage.
+     */
+    public void warmUpConnections() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Send a minimal request to establish connection
+                LLMQueryParams params = new LLMQueryParams("test")
+                    .withMaxTokens(1)
+                    .withMaxRetries(1);
+                queryWithParamsAsync(params, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                    .orTimeout(5, TimeUnit.SECONDS)
+                    .handle((result, throwable) -> {
+                        if (throwable != null) {
+                            LOG.debug("Failed to warm up connections", throwable);
+                        } else {
+                            LOG.info("Connection warmed up successfully");
+                        }
+                        return null;
+                    });
+            } catch (Exception e) {
+                LOG.debug("Failed to warm up connection", e);
+            }
+        }, executorService);
+    }
+    
+    @Override
+    public void dispose() {
+        // Shutdown executor service (new)
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        LOG.info("LLMService disposed");
+    }
 
     /**
      * Parameters for LLM queries.
@@ -570,6 +794,62 @@ public final class LLMService {
 
         public void setHasAuthToken(boolean hasAuthToken) {
             this.hasAuthToken = hasAuthToken;
+        }
+    }
+    
+    /**
+     * Connection statistics for monitoring (new)
+     */
+    public static class ConnectionStats {
+        private final AtomicLong totalRequests = new AtomicLong(0);
+        private final AtomicLong totalLatency = new AtomicLong(0);
+        private final AtomicLong minLatency = new AtomicLong(Long.MAX_VALUE);
+        private final AtomicLong maxLatency = new AtomicLong(0);
+        
+        public void incrementRequests() {
+            totalRequests.incrementAndGet();
+        }
+        
+        public void recordLatency(long latencyMs) {
+            totalLatency.addAndGet(latencyMs);
+            
+            // Update min latency
+            long currentMin;
+            do {
+                currentMin = minLatency.get();
+                if (latencyMs >= currentMin) break;
+            } while (!minLatency.compareAndSet(currentMin, latencyMs));
+            
+            // Update max latency
+            long currentMax;
+            do {
+                currentMax = maxLatency.get();
+                if (latencyMs <= currentMax) break;
+            } while (!maxLatency.compareAndSet(currentMax, latencyMs));
+        }
+        
+        public long getTotalRequests() {
+            return totalRequests.get();
+        }
+        
+        public long getAverageLatency() {
+            long requests = totalRequests.get();
+            return requests > 0 ? totalLatency.get() / requests : 0;
+        }
+        
+        public long getMinLatency() {
+            long min = minLatency.get();
+            return min == Long.MAX_VALUE ? 0 : min;
+        }
+        
+        public long getMaxLatency() {
+            return maxLatency.get();
+        }
+        
+        @Override
+        public String toString() {
+            return String.format("ConnectionStats[requests=%d, avgLatency=%dms, minLatency=%dms, maxLatency=%dms]",
+                getTotalRequests(), getAverageLatency(), getMinLatency(), getMaxLatency());
         }
     }
 }

@@ -41,6 +41,7 @@
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        <postStartupActivity implementation="com.zps.zest.completion.debug.EnableVerboseLoggingStartup"/>
         <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>

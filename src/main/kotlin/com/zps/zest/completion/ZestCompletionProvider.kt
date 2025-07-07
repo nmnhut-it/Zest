@@ -36,15 +36,15 @@ class ZestCompletionProvider(private val project: Project) {
 
     // Add metrics service
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
-    
+
     // Notification group for debug
     private val notificationGroup = NotificationGroupManager.getInstance()
         .getNotificationGroup("Zest Completion Debug")
-    
+
     // Debug logging flags
     private var debugLoggingEnabled = true
     private var verboseLoggingEnabled = false
-    
+
     /**
      * Internal debug logging function
      */
@@ -55,18 +55,22 @@ class ZestCompletionProvider(private val project: Project) {
             logger.debug("$prefix[$tag] $message")
         }
     }
-    
+
     /**
      * Show balloon notification for debugging
      */
-    private fun showDebugBalloon(title: String, content: String, type: NotificationType = NotificationType.INFORMATION) {
+    private fun showDebugBalloon(
+        title: String,
+        content: String,
+        type: NotificationType = NotificationType.INFORMATION
+    ) {
         if (debugLoggingEnabled) {
             notificationGroup
                 .createNotification(title, content, type)
                 .notify(project)
         }
     }
-    
+
     fun setDebugLogging(enabled: Boolean, verbose: Boolean = false) {
         debugLoggingEnabled = enabled
         verboseLoggingEnabled = verbose
@@ -123,7 +127,7 @@ class ZestCompletionProvider(private val project: Project) {
         log("  strategy: $strategy", "Provider")
         log("  requestId: $requestId", "Provider")
         log("  context: ${context.fileName} @ ${context.offset}", "Provider")
-        
+
         // Use the provided completionId for metrics tracking
         val metricsCompletionId = completionId ?: requestId.toString()
 
@@ -136,16 +140,18 @@ class ZestCompletionProvider(private val project: Project) {
                 log("Using SIMPLE strategy", "Provider")
                 requestSimpleCompletion(context, requestId, metricsCompletionId)
             }
+
             CompletionStrategy.LEAN -> {
                 log("Using LEAN strategy", "Provider")
                 requestLeanCompletion(context, requestId, metricsCompletionId)
             }
+
             CompletionStrategy.METHOD_REWRITE -> {
                 log("Using METHOD_REWRITE strategy", "Provider")
                 requestMethodRewrite(context, requestId, metricsCompletionId)
             }
         }
-        
+
         log("requestCompletion result: ${result?.items?.size ?: 0} items", "Provider")
         return result
     }
@@ -204,8 +210,8 @@ class ZestCompletionProvider(private val project: Project) {
             val contextCollectionTime = System.currentTimeMillis() - contextStartTime
             metricsService.trackContextCollectionTime(completionId, contextCollectionTime)
             log("Context collected in ${contextCollectionTime}ms", "Simple")
-            log("  Prefix length: ${simpleContext.prefix.length}", "Simple", 1)
-            log("  Suffix length: ${simpleContext.suffix.length}", "Simple", 1)
+            log("  Prefix length: ${simpleContext.prefixCode.length}", "Simple", 1)
+            log("  Suffix length: ${simpleContext.suffixCode.length}", "Simple", 1)
 
             // Build prompt (thread-safe)
             log("Building prompt...", "Simple")
@@ -219,7 +225,7 @@ class ZestCompletionProvider(private val project: Project) {
             // Query LLM with timeout and cancellation support
             log("Querying LLM...", "Simple")
             showDebugBalloon("LLM Query", "Sending request to LLM...", NotificationType.INFORMATION)
-            
+
             val llmStartTime = System.currentTimeMillis()
             var llmTime = 0L
             val response = try {
@@ -228,7 +234,7 @@ class ZestCompletionProvider(private val project: Project) {
                         LLMService.LLMQueryParams(prompt).useLiteCodeModel().withMaxTokens(MAX_COMPLETION_TOKENS)
                             .withTemperature(0.1)  // Low temperature for more deterministic completions
                             .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
-                    
+
                     log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1", "Simple", 1)
 
                     // Use cancellable request
@@ -252,7 +258,7 @@ class ZestCompletionProvider(private val project: Project) {
                 showDebugBalloon("LLM Failed", "No response from LLM", NotificationType.WARNING)
                 return null
             }
-            
+
             log("LLM response received: '${response.take(100)}...' (${response.length} chars)", "Simple")
             showDebugBalloon("LLM Response", "Got ${response.length} chars", NotificationType.INFORMATION)
 
@@ -264,7 +270,7 @@ class ZestCompletionProvider(private val project: Project) {
             )
             val parseTime = System.currentTimeMillis() - parseStartTime
             metricsService.trackResponseParsingTime(completionId, parseTime)
-            
+
             log("Parsed in ${parseTime}ms", "Simple")
             log("Cleaned completion: '${cleanedCompletion}' (${cleanedCompletion.length} chars)", "Simple")
 
@@ -286,11 +292,11 @@ class ZestCompletionProvider(private val project: Project) {
             log("Calculated confidence: $confidence", "Simple", 1)
 
             val item = ZestInlineCompletionItem(
-                insertText = formattedCompletion, 
+                insertText = formattedCompletion,
                 replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset, end = context.offset
-                ), 
-                confidence = confidence, 
+                ),
+                confidence = confidence,
                 metadata = CompletionMetadata(
                     model = "zest-llm-simple",
                     tokens = formattedCompletion.split("\\s+".toRegex()).size,
@@ -304,8 +310,12 @@ class ZestCompletionProvider(private val project: Project) {
             log("Created completion list with 1 item", "Simple")
 
             logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms) for request $requestId")
-            showDebugBalloon("Completion Ready", "Got: ${formattedCompletion.take(50)}...", NotificationType.INFORMATION)
-            
+            showDebugBalloon(
+                "Completion Ready",
+                "Got: ${formattedCompletion.take(50)}...",
+                NotificationType.INFORMATION
+            )
+
             result
 
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -422,7 +432,7 @@ class ZestCompletionProvider(private val project: Project) {
                     val queryParams =
                         LLMService.LLMQueryParams(prompt).useLiteCodeModel()  // Use full model for reasoning
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                            .withTemperature(0.8)  ; // Slightly higher for creative reasoning
+                            .withTemperature(0.8); // Slightly higher for creative reasoning
 //                            .withStopSequences(getLeanStopSequences())
 
                     // Use cancellable request

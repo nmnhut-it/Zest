@@ -12,6 +12,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.datatransfer.StringSelection
@@ -49,6 +50,10 @@ object CodeHealthNotification {
                 .addAction(object : AnAction("🚀 Fix Now") {
                     override fun actionPerformed(e: AnActionEvent) {
                         println("[CodeHealthNotification] User clicked View Details")
+                        
+                        // Track user viewing details
+                        sendHealthCheckViewMetrics(project, results, criticalIssues)
+                        
                         showDetailedReport(project, results)
                     }
                 })
@@ -80,9 +85,55 @@ object CodeHealthNotification {
             }
         }
         
-        // Always show the detailed report dialog if there are issues
-        if (totalIssues > 0) {
-            showDetailedReport(project, results)
+        // Send metrics for the health check
+        sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore)
+    }
+
+    /**
+     * Send health check metrics to remote server
+     */
+    private fun sendHealthCheckMetrics(
+        project: Project,
+        results: List<CodeHealthAnalyzer.MethodHealthResult>,
+        totalIssues: Int,
+        criticalIssues: Int,
+        highIssues: Int,
+        averageScore: Int
+    ) {
+        try {
+            val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
+            
+            // Create a unique ID for this health check
+            val healthCheckId = "health_check_${System.currentTimeMillis()}"
+            
+            // Collect detailed metrics
+            val issuesByCategory = results.flatMap { it.issues }
+                .filter { it.verified && !it.falsePositive }
+                .groupBy { it.issueCategory }
+                .mapValues { it.value.size }
+            
+            val metadata = mutableMapOf<String, Any>(
+                "critical_issues" to criticalIssues,
+                "high_issues" to highIssues,
+                "total_issues" to totalIssues,
+                "methods_analyzed" to results.size,
+                "average_health_score" to averageScore,
+                "timestamp" to System.currentTimeMillis(),
+                "issues_by_category" to issuesByCategory
+            )
+            
+            // Send view event (report shown)
+            metricsService.trackCustomEvent(
+                eventId = healthCheckId,
+                eventType = "CODE_HEALTH_LOGGING|show",
+                metadata = metadata
+            )
+            
+            println("[CodeHealthNotification] Sent health check metrics: critical=$criticalIssues, total=$totalIssues")
+            
+        } catch (e: Exception) {
+            // Don't fail the health check if metrics fail
+            println("[CodeHealthNotification] Failed to send metrics: ${e.message}")
         }
     }
 
@@ -91,6 +142,36 @@ object CodeHealthNotification {
             healthScore >= 80 -> NotificationType.INFORMATION
             healthScore >= 60 -> NotificationType.WARNING
             else -> NotificationType.ERROR
+        }
+    }
+
+    /**
+     * Send metrics when user views detailed report
+     */
+    private fun sendHealthCheckViewMetrics(
+        project: Project,
+        results: List<CodeHealthAnalyzer.MethodHealthResult>,
+        criticalIssues: Int
+    ) {
+        try {
+            val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
+            
+            val healthCheckId = "health_check_view_${System.currentTimeMillis()}"
+            
+            val metadata = mapOf(
+                "critical_issues" to criticalIssues,
+                "methods_with_issues" to results.count { it.issues.any { issue -> issue.verified && !issue.falsePositive } },
+                "user_action" to "fix_now_clicked"
+            )
+            
+            metricsService.trackCustomEvent(
+                eventId = healthCheckId,
+                eventType = "CODE_HEALTH_LOGGING|view",
+                metadata = metadata
+            )
+            
+        } catch (e: Exception) {
+            println("[CodeHealthNotification] Failed to send view metrics: ${e.message}")
         }
     }
 

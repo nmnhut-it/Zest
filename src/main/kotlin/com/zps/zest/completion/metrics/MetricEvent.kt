@@ -103,6 +103,32 @@ sealed class MetricEvent {
     ) : MetricEvent() {
         override val eventType = "anykey"
     }
+    
+    /**
+     * Custom event type for other metrics (e.g. Code Health)
+     */
+    data class Custom(
+        override val completionId: String,
+        val customTool: String,
+        override val elapsed: Long,
+        override val metadata: Map<String, Any> = emptyMap()
+    ) : MetricEvent() {
+        override val eventType = customTool.substringAfterLast("|")
+        
+        override fun toApiRequest(): Map<String, Any> {
+            return mutableMapOf<String, Any>(
+                "model" to "local-model-mini",
+                "stream" to false,
+                "custom_tool" to customTool,
+                "completion_id" to completionId,
+                "elapsed" to elapsed
+            ).apply {
+                if (metadata.isNotEmpty()) {
+                    this["metadata"] = metadata
+                }
+            }
+        }
+    }
 }
 
 /**

@@ -344,6 +344,26 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
+     * Track custom events (like Code Health metrics)
+     */
+    fun trackCustomEvent(
+        eventId: String,
+        eventType: String,
+        metadata: Map<String, Any> = emptyMap()
+    ) {
+        if (!isEnabled.get()) return
+        
+        log("Tracking custom event: $eventType for $eventId")
+        
+        sendEvent(MetricEvent.Custom(
+            completionId = eventId,
+            customTool = eventType,
+            elapsed = 0,
+            metadata = metadata
+        ))
+    }
+    
+    /**
      * Send an event to the processing queue
      */
     private fun sendEvent(event: MetricEvent) {
@@ -433,28 +453,35 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
      * Create a MetricEvent from the request body map
      */
     private fun createMetricEventFromRequest(requestBody: Map<String, Any>): MetricEvent {
-        val eventType = (requestBody["custom_tool"] as String).substringAfterLast("|")
+        val customTool = requestBody["custom_tool"] as String
+        val eventType = customTool.substringAfterLast("|")
         val completionId = requestBody["completion_id"] as String
         val elapsed = (requestBody["elapsed"] as Number).toLong()
         val metadata = (requestBody["metadata"] as? Map<String, Any>) ?: emptyMap()
         
-        return when (eventType) {
-            "request" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
-            "response" -> MetricEvent.CompletionResponse(
+        return when {
+            eventType == "request" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
+            eventType == "response" -> MetricEvent.CompletionResponse(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
                 elapsed = elapsed,
                 metadata = metadata
             )
-            "view" -> MetricEvent.View(completionId, elapsed, metadata)
-            "tab" -> MetricEvent.Select(
+            eventType == "view" -> MetricEvent.View(completionId, elapsed, metadata)
+            eventType == "tab" -> MetricEvent.Select(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
                 elapsed = elapsed,
                 metadata = metadata
             )
-            "anykey" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
-            "esc" -> MetricEvent.Decline(completionId, elapsed, metadata)
+            eventType == "anykey" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
+            eventType == "esc" -> MetricEvent.Decline(completionId, elapsed, metadata)
+            customTool.contains("CODE_HEALTH_LOGGING") -> MetricEvent.Custom(
+                completionId = completionId,
+                customTool = customTool,
+                elapsed = elapsed,
+                metadata = metadata
+            )
             else -> MetricEvent.CompletionRequest(completionId, elapsed, metadata) // Default
         }
     }

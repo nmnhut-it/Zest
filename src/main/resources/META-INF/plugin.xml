@@ -90,6 +90,7 @@
                 nonDefaultProject="true"/>
 
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
+        <notificationGroup id="Zest Completion Debug" displayType="BALLOON" isLogByDefault="false"/>
 
         <intentionAction>
             <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
@@ -278,6 +279,13 @@
                 class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
                 text="Zest Completion Timing Debug..."
                 description="Show detailed timing breakdown for recent completions">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <action id="Zest.ToggleCompletionDebug"
+                class="com.zps.zest.actions.ToggleCompletionDebugAction"
+                text="Toggle Completion Debug Logging"
+                description="Enable/disable verbose debug logging for completion">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

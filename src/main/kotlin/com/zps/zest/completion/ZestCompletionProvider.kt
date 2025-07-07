@@ -5,6 +5,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.completion.context.ZestSimpleContextCollector
@@ -34,6 +36,42 @@ class ZestCompletionProvider(private val project: Project) {
 
     // Add metrics service
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
+    
+    // Notification group for debug
+    private val notificationGroup = NotificationGroupManager.getInstance()
+        .getNotificationGroup("Zest Completion Debug")
+    
+    // Debug logging flags
+    private var debugLoggingEnabled = true
+    private var verboseLoggingEnabled = false
+    
+    /**
+     * Internal debug logging function
+     */
+    private fun log(message: String, tag: String = "Provider", level: Int = 0) {
+        if (debugLoggingEnabled && (level == 0 || verboseLoggingEnabled)) {
+            val prefix = if (level > 0) "[VERBOSE]" else ""
+            println("$prefix[$tag] $message")
+            logger.debug("$prefix[$tag] $message")
+        }
+    }
+    
+    /**
+     * Show balloon notification for debugging
+     */
+    private fun showDebugBalloon(title: String, content: String, type: NotificationType = NotificationType.INFORMATION) {
+        if (debugLoggingEnabled) {
+            notificationGroup
+                .createNotification(title, content, type)
+                .notify(project)
+        }
+    }
+    
+    fun setDebugLogging(enabled: Boolean, verbose: Boolean = false) {
+        debugLoggingEnabled = enabled
+        verboseLoggingEnabled = verbose
+        log("Debug logging ${if (enabled) "enabled" else "disabled"}, verbose: $verbose")
+    }
 
     // Request tracking for cancellation
     @Volatile
@@ -81,17 +119,35 @@ class ZestCompletionProvider(private val project: Project) {
         requestId: Int,
         completionId: String? = null
     ): ZestInlineCompletionList? {
+        log("=== requestCompletion called ===", "Provider")
+        log("  strategy: $strategy", "Provider")
+        log("  requestId: $requestId", "Provider")
+        log("  context: ${context.fileName} @ ${context.offset}", "Provider")
+        
         // Use the provided completionId for metrics tracking
         val metricsCompletionId = completionId ?: requestId.toString()
 
         // Update current request ID for cancellation
         currentRequestId = requestId
+        log("Set currentRequestId to $requestId", "Provider", 1)
 
-        return when (strategy) {
-            CompletionStrategy.SIMPLE -> requestSimpleCompletion(context, requestId, metricsCompletionId)
-            CompletionStrategy.LEAN -> requestLeanCompletion(context, requestId, metricsCompletionId)
-            CompletionStrategy.METHOD_REWRITE -> requestMethodRewrite(context, requestId, metricsCompletionId)
+        val result = when (strategy) {
+            CompletionStrategy.SIMPLE -> {
+                log("Using SIMPLE strategy", "Provider")
+                requestSimpleCompletion(context, requestId, metricsCompletionId)
+            }
+            CompletionStrategy.LEAN -> {
+                log("Using LEAN strategy", "Provider")
+                requestLeanCompletion(context, requestId, metricsCompletionId)
+            }
+            CompletionStrategy.METHOD_REWRITE -> {
+                log("Using METHOD_REWRITE strategy", "Provider")
+                requestMethodRewrite(context, requestId, metricsCompletionId)
+            }
         }
+        
+        log("requestCompletion result: ${result?.items?.size ?: 0} items", "Provider")
+        return result
     }
 
     /**
@@ -103,24 +159,27 @@ class ZestCompletionProvider(private val project: Project) {
         completionId: String
     ): ZestInlineCompletionList? {
         val startTime = System.currentTimeMillis()
+        log("=== requestSimpleCompletion started ===", "Simple")
 
         return try {
             logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
 
             // Get current editor and document text on EDT
-
+            log("Getting editor and document text...", "Simple", 1)
             val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
             ApplicationManager.getApplication().invokeLater {
                 try {
                     val ed = FileEditorManager.getInstance(project).selectedTextEditor
-
+                    log("Editor found: ${ed != null}", "Simple", 1)
                     if (ed != null) {
                         val text = ed.document.text
+                        log("Document text length: ${text.length}", "Simple", 1)
                         editorFuture.complete(Pair(ed, text))
                     } else {
                         editorFuture.complete(Pair(null, ""))
                     }
                 } catch (e: Exception) {
+                    log("ERROR getting editor: ${e.message}", "Simple")
                     editorFuture.complete(Pair(null, ""))
                 }
             }
@@ -128,28 +187,39 @@ class ZestCompletionProvider(private val project: Project) {
             val (editor, documentText) = try {
                 editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
             } catch (e: Exception) {
+                log("ERROR waiting for editor: ${e.message}", "Simple")
                 Pair(null, "")
             }
 
             if (editor == null) {
+                log("No active editor found", "Simple")
                 logger.debug("No active editor found")
                 return null
             }
 
             // Collect simple context (thread-safe)
+            log("Collecting context...", "Simple")
             val contextStartTime = System.currentTimeMillis()
             val simpleContext = simpleContextCollector.collectContext(editor, context.offset)
             val contextCollectionTime = System.currentTimeMillis() - contextStartTime
             metricsService.trackContextCollectionTime(completionId, contextCollectionTime)
-
+            log("Context collected in ${contextCollectionTime}ms", "Simple")
+            log("  Prefix length: ${simpleContext.prefix.length}", "Simple", 1)
+            log("  Suffix length: ${simpleContext.suffix.length}", "Simple", 1)
 
             // Build prompt (thread-safe)
+            log("Building prompt...", "Simple")
             val promptStartTime = System.currentTimeMillis()
             val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
             val promptBuildTime = System.currentTimeMillis() - promptStartTime
             logger.debug("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}")
+            log("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}", "Simple")
+            log("Prompt preview: '${prompt.take(200)}...'", "Simple", 1)
 
             // Query LLM with timeout and cancellation support
+            log("Querying LLM...", "Simple")
+            showDebugBalloon("LLM Query", "Sending request to LLM...", NotificationType.INFORMATION)
+            
             val llmStartTime = System.currentTimeMillis()
             var llmTime = 0L
             val response = try {
@@ -158,57 +228,70 @@ class ZestCompletionProvider(private val project: Project) {
                         LLMService.LLMQueryParams(prompt).useLiteCodeModel().withMaxTokens(MAX_COMPLETION_TOKENS)
                             .withTemperature(0.1)  // Low temperature for more deterministic completions
                             .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
+                    
+                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1", "Simple", 1)
 
                     // Use cancellable request
                     val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
-                    cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                    val result = cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                    log("LLM returned: ${result != null}", "Simple")
+                    result
                 }
             } finally {
                 // Always track LLM time, even if cancelled
                 llmTime = System.currentTimeMillis() - llmStartTime
+                log("LLM query took ${llmTime}ms", "Simple")
                 if (llmTime > 0) {
                     metricsService.trackLLMCallTime(completionId, llmTime)
                 }
             }
 
-
             if (response == null) {
+                log("LLM response is NULL - timeout or cancelled", "Simple")
                 logger.debug("Completion request timed out or was cancelled")
+                showDebugBalloon("LLM Failed", "No response from LLM", NotificationType.WARNING)
                 return null
             }
+            
+            log("LLM response received: '${response.take(100)}...' (${response.length} chars)", "Simple")
+            showDebugBalloon("LLM Response", "Got ${response.length} chars", NotificationType.INFORMATION)
 
             // Parse response with overlap detection (thread-safe, uses captured documentText)
+            log("Parsing response...", "Simple")
             val parseStartTime = System.currentTimeMillis()
             val cleanedCompletion = simpleResponseParser.parseResponseWithOverlapDetection(
                 response, documentText, context.offset, strategy = CompletionStrategy.SIMPLE
             )
             val parseTime = System.currentTimeMillis() - parseStartTime
             metricsService.trackResponseParsingTime(completionId, parseTime)
-
-
-
-
+            
+            log("Parsed in ${parseTime}ms", "Simple")
+            log("Cleaned completion: '${cleanedCompletion}' (${cleanedCompletion.length} chars)", "Simple")
 
             if (cleanedCompletion.isBlank()) {
+                log("WARNING: Cleaned completion is BLANK", "Simple")
                 logger.debug("No valid completion after parsing")
+                showDebugBalloon("Parse Failed", "No valid completion after parsing", NotificationType.WARNING)
                 return null
             }
 
             val totalTime = System.currentTimeMillis() - startTime
 
             // Format the completion text using IntelliJ's code style
-            val formattedCompletion =
-                cleanedCompletion //formatCompletionText(editor, cleanedCompletion, context.offset)
-
+            val formattedCompletion = cleanedCompletion
+            log("Formatted completion: '${formattedCompletion}'", "Simple", 1)
 
             // Create completion item with original response stored for re-processing
             val confidence = calculateConfidence(formattedCompletion)
-
+            log("Calculated confidence: $confidence", "Simple", 1)
 
             val item = ZestInlineCompletionItem(
-                insertText = formattedCompletion, replaceRange = ZestInlineCompletionItem.Range(
+                insertText = formattedCompletion, 
+                replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset, end = context.offset
-                ), confidence = confidence, metadata = CompletionMetadata(
+                ), 
+                confidence = confidence, 
+                metadata = CompletionMetadata(
                     model = "zest-llm-simple",
                     tokens = formattedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
@@ -217,21 +300,24 @@ class ZestCompletionProvider(private val project: Project) {
                 )
             )
 
-
             val result = ZestInlineCompletionList.single(item)
-
+            log("Created completion list with 1 item", "Simple")
 
             logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms) for request $requestId")
+            showDebugBalloon("Completion Ready", "Got: ${formattedCompletion.take(50)}...", NotificationType.INFORMATION)
+            
             result
 
         } catch (e: kotlinx.coroutines.CancellationException) {
+            log("Completion CANCELLED", "Simple")
             metricsService.trackCompletionCancelled(completionId)
             logger.debug("Completion request was cancelled after ${System.currentTimeMillis() - startTime}ms")
             throw e
         } catch (e: Exception) {
-
+            log("ERROR in simple completion: ${e.message}", "Simple")
             e.printStackTrace()
             logger.warn("Simple completion failed", e)
+            showDebugBalloon("Error", e.message ?: "Unknown error", NotificationType.ERROR)
             null
         }
     }

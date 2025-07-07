@@ -361,19 +361,72 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         val typedLength = currentOffset - context.offset
         
         if (typedLength <= 0) return true // User hasn't typed forward yet
-        if (typedLength > 20) return false // User typed too much
+        if (typedLength > 50) return false // User typed too much (increased from 20 to 50)
         
         return try {
             val documentText = editor.document.text
             val typedText = documentText.substring(context.offset, currentOffset)
-            val completionPrefix = completion.insertText.take(typedLength)
             
-            // Check both exact match and trimmed prefix match
-            typedText.equals(completionPrefix, ignoreCase = true) ||
-            completion.insertText.trim().startsWith(typedText.trim(), ignoreCase = true)
+            // Get the completion text and normalize it
+            val completionText = completion.insertText
+            
+            // First, check exact prefix match (for when indentation matches perfectly)
+            if (completionText.startsWith(typedText)) {
+                return true
+            }
+            
+            // Extract meaningful content without leading whitespace
+            val typedContentOnly = typedText.trimStart()
+            val completionContentOnly = completionText.trimStart()
+            
+            // If user hasn't typed any actual content yet (only whitespace), keep completion
+            if (typedContentOnly.isEmpty()) {
+                return true
+            }
+            
+            // Check if the meaningful content matches
+            if (completionContentOnly.startsWith(typedContentOnly, ignoreCase = true)) {
+                return true
+            }
+            
+            // Advanced check: Handle case where user types content that appears anywhere in first line
+            val completionFirstLine = completionText.lines().firstOrNull() ?: ""
+            val completionFirstLineContent = completionFirstLine.trimStart()
+            
+            // Check if what user typed appears at the start of the first line's content
+            if (completionFirstLineContent.startsWith(typedContentOnly, ignoreCase = true)) {
+                return true
+            }
+            
+            // Also check if the typed text appears after some whitespace in the completion
+            // This handles cases like typing "grossini" when completion is "    grossini.setPosition..."
+            val typedWords = typedContentOnly.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val completionWords = completionContentOnly.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            
+            // If user typed words match the beginning words of completion
+            if (typedWords.isNotEmpty() && completionWords.size >= typedWords.size) {
+                val wordsMatch = typedWords.indices.all { i ->
+                    completionWords[i].startsWith(typedWords[i], ignoreCase = true)
+                }
+                if (wordsMatch) {
+                    return true
+                }
+            }
+            
+            // Final fallback: very loose match for single word typing
+            if (typedWords.size == 1 && typedWords[0].length >= 3) {
+                // If user typed at least 3 characters of a single word
+                // and it matches the start of any word in the completion's first line
+                val typedWord = typedWords[0]
+                return completionWords.any { word ->
+                    word.startsWith(typedWord, ignoreCase = true)
+                }
+            }
+            
+            false
         } catch (e: Exception) {
             log("Error checking typed text match: ${e.message}", "Match", 1)
-            false
+            true // On error, default to keeping the completion
         }
     }
 
@@ -1650,23 +1703,51 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 // Update the renderer to show the remaining part of the completion
                                 val typedLength = currentOffset - context.offset
                                 if (typedLength > 0 && typedLength < completion.insertText.length) {
-                                    // Create a new completion with the remaining text
-                                    val remainingText = completion.insertText.substring(typedLength)
-                                    val updatedCompletion = completion.copy(
-                                        insertText = remainingText,
-                                        replaceRange = ZestInlineCompletionItem.Range(currentOffset, currentOffset)
-                                    )
-                                    
-                                    // Update the current state
-                                    currentCompletion = updatedCompletion
-                                    currentContext = CompletionContext.from(editor, currentOffset, manually = context.manually)
-                                    
-                                    // Re-render at the new position
-                                    ApplicationManager.getApplication().invokeLater {
-                                        renderer.hide()
-                                        renderer.show(editor, currentOffset, updatedCompletion, completionProvider.strategy) { renderingContext ->
-                                            log("Updated completion display after typing", "Document", 1)
+                                    try {
+                                        val documentText = editor.document.text
+                                        val typedText = documentText.substring(context.offset, currentOffset)
+                                        
+                                        // Find the best match position in the completion
+                                        val completionText = completion.insertText
+                                        var matchPosition = -1
+                                        
+                                        // First try exact match
+                                        if (completionText.startsWith(typedText)) {
+                                            matchPosition = typedLength
+                                        } else {
+                                            // Try to find where the typed content matches in the completion
+                                            val typedContentOnly = typedText.trimStart()
+                                            if (typedContentOnly.isNotEmpty()) {
+                                                // Look for the typed content in the completion
+                                                val index = completionText.indexOf(typedContentOnly, ignoreCase = true)
+                                                if (index >= 0) {
+                                                    matchPosition = index + typedContentOnly.length
+                                                }
+                                            }
                                         }
+                                        
+                                        if (matchPosition > 0 && matchPosition < completionText.length) {
+                                            // Create a new completion with the remaining text
+                                            val remainingText = completionText.substring(matchPosition)
+                                            val updatedCompletion = completion.copy(
+                                                insertText = remainingText,
+                                                replaceRange = ZestInlineCompletionItem.Range(currentOffset, currentOffset)
+                                            )
+                                            
+                                            // Update the current state
+                                            currentCompletion = updatedCompletion
+                                            currentContext = CompletionContext.from(editor, currentOffset, manually = context.manually)
+                                            
+                                            // Re-render at the new position
+                                            ApplicationManager.getApplication().invokeLater {
+                                                renderer.hide()
+                                                renderer.show(editor, currentOffset, updatedCompletion, completionProvider.strategy) { renderingContext ->
+                                                    log("Updated completion display after typing", "Document", 1)
+                                                }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        log("Error updating completion display: ${e.message}", "Document")
                                     }
                                 }
                             }

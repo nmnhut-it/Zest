@@ -54,6 +54,7 @@ orElseThrow(() -> new OrderNotFoundException(orderId));</completion>
 - Complete only the current line (stop at the line break)
 - If the statement naturally continues to the next line (e.g., multi-line method), include the continuation
 - Do NOT include any code that was already before the cursor
+- Do NOT include cursor tag `<CURSOR>` 
 - Do NOT add explanations or reasoning
         """.trimIndent()
     }

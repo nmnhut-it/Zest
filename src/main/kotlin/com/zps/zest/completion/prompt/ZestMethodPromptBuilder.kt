@@ -343,7 +343,7 @@ ${customInstruction}
 ${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
-Provide ONLY the rewritten method code without any explanations or markdown formatting.
+Provide ONLY the rewritten method code without any explanations or markdown formatting. Make sure you include method signature. 
 
 **Rewritten Method:**
         """.trimIndent()

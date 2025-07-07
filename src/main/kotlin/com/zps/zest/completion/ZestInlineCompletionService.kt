@@ -1377,10 +1377,10 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         val shouldDismiss = when {
                             offsetDiff < 0 -> {
                                 // User moved backwards - check if they moved far back
-                                kotlin.math.abs(offsetDiff) > 5 // Allow small backward movements
+                                kotlin.math.abs(offsetDiff) > 100 // Allow small backward movements
                             }
 
-                            offsetDiff > 100 -> {
+                            offsetDiff > 200 -> {
                                 // User moved too far forward
                                 true
                             }
@@ -1389,7 +1389,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 // User moved forward but within reasonable range
                                 // Check if the completion is still meaningful at this position
                                 val completion = currentCompletion
-                                if (completion != null) {
+                                if (completion != null && completion.insertText.isNotEmpty()) {
                                     // Check if user is typing characters that could match the completion
                                     val userTypedText = try {
                                         val documentText = editor.document.text
@@ -1410,8 +1410,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
 
                                     // Don't dismiss if user is typing text that matches the beginning of completion
-                                    if (userTypedText.isNotEmpty() && completion.insertText.startsWith(
-                                            userTypedText, ignoreCase = true
+                                    if (userTypedText.isNotEmpty() && completion.insertText.trim().startsWith(
+                                            userTypedText.trim(), ignoreCase = true
                                         )
                                     ) {
 
@@ -1430,8 +1430,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
                             else -> false // No movement, don't dismiss
                         }
-
-
 
                         if (shouldDismiss) {
 
@@ -1861,7 +1859,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 300L // 300ms after user stops typing
+        private const val AUTO_TRIGGER_DELAY_MS = 30L // 30ms after user stops typing
         private const val CACHE_EXPIRY_MS = 300000L // 5 minutes cache expiry
         private const val MAX_CACHE_SIZE = 50 // Maximum number of cached completions
 

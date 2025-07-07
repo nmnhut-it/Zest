@@ -272,6 +272,8 @@ public final class LLMService implements Disposable {
                         Thread.currentThread().interrupt();
                         throw new CompletionException(e);
                     }
+                    if (params.isLiteModel)
+                        params.withModel("local-model-mini");
                     
                     return executeQueryWithRetryAsync(apiUrl, authToken, params, enumUsage, attempt + 1).join();
                 } else {

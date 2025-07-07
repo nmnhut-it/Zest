@@ -21,7 +21,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     // Debug logging flag
-    private var debugLoggingEnabled = true
+    private var debugLoggingEnabled = false
     
     // Event queue for batching
     private val eventChannel = Channel<MetricEvent>(Channel.UNLIMITED)

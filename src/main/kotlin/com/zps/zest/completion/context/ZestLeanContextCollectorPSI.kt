@@ -187,11 +187,11 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                 onComplete(finalContext)
             }
             
-            println("ZestLeanContextCollectorPSI: Used preemptive analysis with ${cachedAnalysis.relatedClassContents.size} related classes")
+//            println("ZestLeanContextCollectorPSI: Used preemptive analysis with ${cachedAnalysis.relatedClassContents.size} related classes")
             return
         }
         
-        println("ZestLeanContextCollectorPSI: No preemptive analysis available, falling back to on-demand")
+//        println("ZestLeanContextCollectorPSI: No preemptive analysis available, falling back to on-demand")
         
         // Only do async analysis for Java files
         if (immediateContext.language != "java") {

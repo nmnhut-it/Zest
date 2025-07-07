@@ -115,20 +115,20 @@ class CodeHealthTracker(private val project: Project) :
     override fun getState(): State = state
     
     override fun loadState(state: State) {
-        println("[CodeHealthTracker] Loading state with ${state.modifiedMethods.size} persisted methods")
+//        println("[CodeHealthTracker] Loading state with ${state.modifiedMethods.size} persisted methods")
         this.state = state
         // Load persisted data into memory
         methodModifications.clear()
         state.modifiedMethods.forEach { serializable ->
             val method = serializable.toModifiedMethod()
             if (method.fqn.isNotBlank()) {
-                println("[CodeHealthTracker] Loaded method: ${method.fqn} (count: ${method.modificationCount})")
+//                println("[CodeHealthTracker] Loaded method: ${method.fqn} (count: ${method.modificationCount})")
                 methodModifications[method.fqn] = method
             } else {
-                println("[CodeHealthTracker] WARNING: Skipping method with empty FQN")
+//                println("[CodeHealthTracker] WARNING: Skipping method with empty FQN")
             }
         }
-        println("[CodeHealthTracker] State loaded. Total methods in memory: ${methodModifications.size}")
+//        println("[CodeHealthTracker] State loaded. Total methods in memory: ${methodModifications.size}")
     }
 
     override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
@@ -141,11 +141,11 @@ class CodeHealthTracker(private val project: Project) :
         
         when {
             fileName.endsWith(".java") -> {
-                println("[CodeHealthTracker] Document changed event received for Java file: $fileName")
+//                println("[CodeHealthTracker] Document changed event received for Java file: $fileName")
                 handleJavaDocument(document, editor, event)
             }
             jsTsTracker.shouldHandleFile(fileName) && CodeHealthConfigurable.ENABLE_JS_TS_SUPPORT -> {
-                println("[CodeHealthTracker] Document changed event received for JS/TS file: $fileName")
+//                println("[CodeHealthTracker] Document changed event received for JS/TS file: $fileName")
                 handleJsTsDocument(document, editor, fileName)
             }
             else -> {
@@ -163,17 +163,17 @@ class CodeHealthTracker(private val project: Project) :
                 ApplicationManager.getApplication().runReadAction {
                     val fqn = extractMethodFQN(document, editor.caretModel.offset)
                     if (fqn != null) {
-                        println("[CodeHealthTracker] Extracted FQN: $fqn")
+//                        println("[CodeHealthTracker] Extracted FQN: $fqn")
                         // Track in background thread
                         ApplicationManager.getApplication().executeOnPooledThread {
                             trackMethodModification(fqn)
                         }
                     } else {
-                        println("[CodeHealthTracker] No FQN extracted from document change")
+//                        println("[CodeHealthTracker] No FQN extracted from document change")
                     }
                 }
             } catch (e: Exception) {
-                println("[CodeHealthTracker] Error processing document change: ${e.message}")
+//                println("[CodeHealthTracker] Error processing document change: ${e.message}")
             }
         }
     }
@@ -186,70 +186,70 @@ class CodeHealthTracker(private val project: Project) :
                     jsTsTracker.handleJsTsDocument(document, editor, fileName)
                 }
             } catch (e: Exception) {
-                println("[CodeHealthTracker] Error processing JS/TS document: ${e.message}")
+//                println("[CodeHealthTracker] Error processing JS/TS document: ${e.message}")
             }
         }
     }
 
     private fun extractMethodFQN(document: Document, offset: Int): String? {
         if (project.isDisposed) {
-            println("[CodeHealthTracker] Project is disposed")
+//            println("[CodeHealthTracker] Project is disposed")
             return null
         }
         
         return try {
             val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
             if (psiFile == null) {
-                println("[CodeHealthTracker] PSI file is null")
+//                println("[CodeHealthTracker] PSI file is null")
                 return null
             }
             
             // Ensure it's a Java file
             if (!psiFile.name.endsWith(".java")) {
-                println("[CodeHealthTracker] Not a Java file: ${psiFile.name}")
+//                println("[CodeHealthTracker] Not a Java file: ${psiFile.name}")
                 return null
             }
             
             if (!psiFile.isValid) {
-                println("[CodeHealthTracker] PSI file is invalid")
+//                println("[CodeHealthTracker] PSI file is invalid")
                 return null
             }
             
-            println("[CodeHealthTracker] Looking for method at offset $offset in file ${psiFile.name}")
+//            println("[CodeHealthTracker] Looking for method at offset $offset in file ${psiFile.name}")
             
             val element = psiFile.findElementAt(offset)
             if (element == null) {
-                println("[CodeHealthTracker] No element found at offset $offset")
+//                println("[CodeHealthTracker] No element found at offset $offset")
                 return null
             }
             
-            println("[CodeHealthTracker] Found element: ${element.text} (${element.javaClass.simpleName})")
+//            println("[CodeHealthTracker] Found element: ${element.text} (${element.javaClass.simpleName})")
             
             val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
             if (method == null) {
-                println("[CodeHealthTracker] No method found at cursor position")
+//                println("[CodeHealthTracker] No method found at cursor position")
                 return null
             }
             
-            println("[CodeHealthTracker] Found method: ${method.name}")
+//            println("[CodeHealthTracker] Found method: ${method.name}")
             
             val containingClass = method.containingClass
             if (containingClass == null) {
-                println("[CodeHealthTracker] Method has no containing class")
+//                println("[CodeHealthTracker] Method has no containing class")
                 return null
             }
             
             val className = containingClass.qualifiedName
             if (className == null) {
-                println("[CodeHealthTracker] Class has no qualified name")
+//                println("[CodeHealthTracker] Class has no qualified name")
                 return null
             }
             
             val fqn = "$className.${method.name}"
-            println("[CodeHealthTracker] Extracted FQN: $fqn")
+//            println("[CodeHealthTracker] Extracted FQN: $fqn")
             fqn
         } catch (e: Exception) {
-            println("[CodeHealthTracker] Error extracting method FQN: ${e.message}")
+//            println("[CodeHealthTracker] Error extracting method FQN: ${e.message}")
             e.printStackTrace()
             null
         }
@@ -257,11 +257,11 @@ class CodeHealthTracker(private val project: Project) :
 
     fun trackMethodModification(fqn: String) {
         if (fqn.isBlank()) {
-            println("[CodeHealthTracker] WARNING: Attempting to track empty FQN")
+//            println("[CodeHealthTracker] WARNING: Attempting to track empty FQN")
             return
         }
         
-        println("[CodeHealthTracker] Tracking modification for: $fqn")
+//        println("[CodeHealthTracker] Tracking modification for: $fqn")
         
         // Limit the number of tracked methods
         if (methodModifications.size >= MAX_METHODS_TO_TRACK && !methodModifications.containsKey(fqn)) {
@@ -269,7 +269,7 @@ class CodeHealthTracker(private val project: Project) :
             methodModifications.entries
                 .minByOrNull { it.value.lastModified }
                 ?.let { 
-                    println("[CodeHealthTracker] Removing oldest method: ${it.key}")
+//                    println("[CodeHealthTracker] Removing oldest method: ${it.key}")
                     methodModifications.remove(it.key) 
                 }
         }
@@ -279,10 +279,10 @@ class CodeHealthTracker(private val project: Project) :
             if (existing != null) {
                 existing.modificationCount++
                 existing.lastModified = now
-                println("[CodeHealthTracker] Updated method $fqn: count=${existing.modificationCount}")
+//                println("[CodeHealthTracker] Updated method $fqn: count=${existing.modificationCount}")
                 existing
             } else {
-                println("[CodeHealthTracker] New method tracked: $fqn")
+//                println("[CodeHealthTracker] New method tracked: $fqn")
                 ModifiedMethod(fqn)
             }
         }
@@ -290,7 +290,7 @@ class CodeHealthTracker(private val project: Project) :
         // Queue for background review after inactivity
         BackgroundHealthReviewer.getInstance(project).updateMethodModificationTime(fqn, now)
         
-        println("[CodeHealthTracker] Total tracked methods: ${methodModifications.size}")
+//        println("[CodeHealthTracker] Total tracked methods: ${methodModifications.size}")
         
         // Persist state periodically
         persistStateAsync()
@@ -317,11 +317,11 @@ class CodeHealthTracker(private val project: Project) :
         
         val allMethods = (javaMethods + jsTsRegions).sortedByDescending { it.modificationCount }
         
-        println("[CodeHealthTracker] getModifiedMethodDetails() returning ${allMethods.size} items:")
-        println("[CodeHealthTracker]   - Java methods: ${javaMethods.size}")
-        println("[CodeHealthTracker]   - JS/TS regions: ${jsTsRegions.size}")
+//        println("[CodeHealthTracker] getModifiedMethodDetails() returning ${allMethods.size} items:")
+//        println("[CodeHealthTracker]   - Java methods: ${javaMethods.size}")
+//        println("[CodeHealthTracker]   - JS/TS regions: ${jsTsRegions.size}")
         allMethods.forEach { method ->
-            println("[CodeHealthTracker]   - ${method.fqn} (count: ${method.modificationCount}, last: ${method.lastModified})")
+//            println("[CodeHealthTracker]   - ${method.fqn} (count: ${method.modificationCount}, last: ${method.lastModified})")
         }
         return allMethods
     }
@@ -336,7 +336,7 @@ class CodeHealthTracker(private val project: Project) :
     }
     
     fun clearAllTrackedMethods() {
-        println("[CodeHealthTracker] Clearing all tracked methods and regions")
+//        println("[CodeHealthTracker] Clearing all tracked methods and regions")
         methodModifications.clear()
         jsTsTracker.clearAllRegions()
         state.modifiedMethods.clear()
@@ -344,7 +344,7 @@ class CodeHealthTracker(private val project: Project) :
     }
     
     fun addTestMethod() {
-        println("[CodeHealthTracker] Adding test method for debugging")
+//        println("[CodeHealthTracker] Adding test method for debugging")
         val testFqn = "com.example.TestClass.testMethod"
         trackMethodModification(testFqn)
     }
@@ -380,7 +380,7 @@ class CodeHealthTracker(private val project: Project) :
             return
         }
         
-        println("[CodeHealth] Starting code health analysis...")
+//        println("[CodeHealth] Starting code health analysis...")
         
         // Notify status bar widget that analysis is starting
         statusBarWidget?.notifyAnalysisStarted("Preparing analysis...")
@@ -402,13 +402,13 @@ class CodeHealthTracker(private val project: Project) :
             try {
                 val reviewer = BackgroundHealthReviewer.getInstance(project)
                 val preReviewedMethods = reviewer.getReviewedMethods()
-                println("[CodeHealth] Found ${preReviewedMethods.size} pre-reviewed methods")
+//                println("[CodeHealth] Found ${preReviewedMethods.size} pre-reviewed methods")
                 
                 val methods = getModifiedMethodDetails()
                     .filter { it.fqn.isNotBlank() } // Filter out empty FQNs
                 
                 if (methods.isEmpty() && preReviewedMethods.isEmpty()) {
-                    println("[CodeHealth] No methods to analyze")
+//                    println("[CodeHealth] No methods to analyze")
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("Zest Code Guardian")
@@ -429,9 +429,9 @@ class CodeHealthTracker(private val project: Project) :
                 val allMethodFQNs = methods.map { it.fqn }
                 val reviewUnits = optimizer.optimizeReviewUnits(allMethodFQNs)
                 
-                println("[CodeHealth] Optimized into ${reviewUnits.size} review units:")
+//                println("[CodeHealth] Optimized into ${reviewUnits.size} review units:")
                 reviewUnits.forEach { unit ->
-                    println("[CodeHealth] - ${unit.getDescription()}")
+//                    println("[CodeHealth] - ${unit.getDescription()}")
                 }
                 
                 // Separate pre-reviewed units from new ones
@@ -447,7 +447,7 @@ class CodeHealthTracker(private val project: Project) :
                     }
                 }
                 
-                println("[CodeHealth] ${needsReviewUnits.size} units need review, ${preReviewedUnits.size} already reviewed")
+//                println("[CodeHealth] ${needsReviewUnits.size} units need review, ${preReviewedUnits.size} already reviewed")
                 
                 // Update status bar with progress
                 statusBarWidget?.notifyAnalysisProgress(0, needsReviewUnits.size)
@@ -482,7 +482,7 @@ class CodeHealthTracker(private val project: Project) :
                     val results = analyzer.analyzeReviewUnitsAsync(limitedUnits, optimizer, progressCallback)
                     
                     val analysisTime = System.currentTimeMillis() - startTime
-                    println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
+//                    println("[CodeHealth] Fresh analysis completed in ${analysisTime}ms. Found ${results.size} results")
                     results
                 } else {
                     emptyList()
@@ -495,7 +495,7 @@ class CodeHealthTracker(private val project: Project) :
                 
                 // Combine pre-reviewed and fresh results
                 val allResults = preReviewedResults + freshResults
-                println("[CodeHealth] Total results: ${allResults.size} (${preReviewedResults.size} cached, ${freshResults.size} fresh)")
+//                println("[CodeHealth] Total results: ${allResults.size} (${preReviewedResults.size} cached, ${freshResults.size} fresh)")
                 
                 // Store results for status bar widget
                 lastAnalysisResults = allResults
@@ -508,7 +508,7 @@ class CodeHealthTracker(private val project: Project) :
                     val verifiedIssues = allResults.sumOf { result -> 
                         result.issues.count { it.verified && !it.falsePositive } 
                     }
-                    println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
+//                    println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
                     
                     ApplicationManager.getApplication().invokeLater {
                         if (!project.isDisposed) {
@@ -535,7 +535,7 @@ class CodeHealthTracker(private val project: Project) :
                 state.lastCheckTime = System.currentTimeMillis()
                 
             } catch (e: Exception) {
-                println("[CodeHealth] ERROR during analysis: ${e.message}")
+//                println("[CodeHealth] ERROR during analysis: ${e.message}")
                 e.printStackTrace()
                 
                 statusBarWidget?.notifyError("Analysis failed: ${e.message}")
@@ -552,7 +552,7 @@ class CodeHealthTracker(private val project: Project) :
                 }
             } finally {
                 isAnalysisRunning.set(false)
-                println("[CodeHealth] Analysis finished")
+//                println("[CodeHealth] Analysis finished")
             }
         }
     }
@@ -563,7 +563,7 @@ class CodeHealthTracker(private val project: Project) :
             val statusBar = windowManager.getStatusBar(project)
             statusBar?.getWidget(com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidget.WIDGET_ID) as? com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidget
         } catch (e: Exception) {
-            println("[CodeHealth] Could not get status bar widget: ${e.message}")
+//            println("[CodeHealth] Could not get status bar widget: ${e.message}")
             null
         }
     }
@@ -633,7 +633,7 @@ class SimpleTaskQueue(private val delayMs: Long = 100L) {
             try {
                 task()
             } catch (e: Exception) {
-                println("[SimpleTaskQueue] Error executing task: ${e.message}")
+//                println("[SimpleTaskQueue] Error executing task: ${e.message}")
             }
         }, delayMs, TimeUnit.MILLISECONDS)
     }

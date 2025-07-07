@@ -36,7 +36,7 @@ class JsTsHealthTracker(private val project: Project) {
         val offset = editor.caretModel.offset
         val lineNumber = document.getLineNumber(offset)
         
-        println("[JsTsHealthTracker] Document changed in $fileName at line ${lineNumber + 1}")
+//        println("[JsTsHealthTracker] Document changed in $fileName at line ${lineNumber + 1}")
         
         // Extract region context
         val regionContext = contextHelper.extractRegionContext(document, lineNumber, CONTEXT_LINES)
@@ -87,7 +87,7 @@ class JsTsHealthTracker(private val project: Project) {
             removeOldestRegion()
         }
         
-        println("[JsTsHealthTracker] Total tracked regions: ${regionModifications.size}")
+//        println("[JsTsHealthTracker] Total tracked regions: ${regionModifications.size}")
     }
     
     /**
@@ -117,7 +117,7 @@ class JsTsHealthTracker(private val project: Project) {
         regionModifications.entries
             .minByOrNull { it.value.lastModified }
             ?.let { oldest ->
-                println("[JsTsHealthTracker] Removing oldest region: ${oldest.key}")
+//                println("[JsTsHealthTracker] Removing oldest region: ${oldest.key}")
                 regionModifications.remove(oldest.key)
             }
     }

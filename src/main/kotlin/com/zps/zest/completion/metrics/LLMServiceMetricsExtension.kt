@@ -78,9 +78,9 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             append(gson.toJson(requestBody).replace("'", "\\'"))
             append("'")
         }
-        println("[ZestMetrics] Sending metric request with enumUsage: $enumUsage")
-        println(curlCommand)
-        println()
+//        println("[ZestMetrics] Sending metric request with enumUsage: $enumUsage")
+//        println(curlCommand)
+//        println()
         
         // Send HTTP request
         val url = URL(apiUrl)
@@ -112,7 +112,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             val responseCode = connection.responseCode
             val success = responseCode in 200..299
             
-            println("[ZestMetrics] Response code: $responseCode (success: $success)")
+//            println("[ZestMetrics] Response code: $responseCode (success: $success)")
             
             // Read response body - use errorStream for non-2xx codes
             val responseBody = try {
@@ -129,9 +129,9 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                 "Error reading response: ${e.message}"
             }
             
-            println("[ZestMetrics] Response body:")
-            println(responseBody)
-            println()
+//            println("[ZestMetrics] Response body:")
+//            println(responseBody)
+//            println()
             
             success
         } finally {
@@ -140,7 +140,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         
     } catch (e: Exception) {
         // Log the error for debugging
-        println("[ZestMetrics] Error sending metrics: ${e.message}")
+//        println("[ZestMetrics] Error sending metrics: ${e.message}")
         e.printStackTrace()
         // Silently fail - metrics are non-critical
         false

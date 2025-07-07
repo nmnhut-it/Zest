@@ -54,7 +54,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("Zest Completion Debug")
 
     // Debug logging flags
-    private var debugLoggingEnabled = true
+    private var debugLoggingEnabled = false
     private var verboseLoggingEnabled = false // NEW: Even more detailed logging
 
     /**

@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.async.AsyncClassAnalyzer
+import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
 
 /**
  * Lean context collector that uses PSI (Program Structure Interface) for accurate Java code analysis
@@ -24,7 +25,7 @@ import com.zps.zest.completion.async.AsyncClassAnalyzer
 class ZestLeanContextCollectorPSI(private val project: Project) {
 
     companion object {
-        const val MAX_CONTEXT_LENGTH = 300
+        const val MAX_CONTEXT_LENGTH = 3000
         const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
         const val SIMILARITY_THRESHOLD = 0.6
@@ -42,7 +43,11 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         val contextType: CursorContextType,
         val isTruncated: Boolean = false,
         val preservedMethods: Set<String> = emptySet(),
-        val preservedFields: Set<String> = emptySet()
+        val preservedFields: Set<String> = emptySet(),
+        // New fields for async analysis results
+        val calledMethods: Set<String> = emptySet(),
+        val usedClasses: Set<String> = emptySet(),
+        val relatedClassContents: Map<String, String> = emptyMap()
     )
 
     enum class CursorContextType {
@@ -144,7 +149,7 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
     }
 
     /**
-     * Collect context with async dependency analysis for better method preservation
+     * Collect context with full async analysis for better method preservation and related content
      */
     fun collectWithDependencyAnalysis(
         editor: Editor,
@@ -154,17 +159,49 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         // First, get immediate context
         val immediateContext = collectFullFileContext(editor, offset)
         
-        // Invoke callback immediately on EDT
-        ApplicationManager.getApplication().invokeLater {
-            onComplete(immediateContext)
+        // Check if we have preemptive analysis available
+        val preemptiveService = project.getService(PreemptiveAsyncAnalyzerService::class.java)
+        val cachedAnalysis = preemptiveService?.getCachedAnalysis(editor, offset)
+        
+        if (cachedAnalysis != null) {
+            // We have cached analysis! Use it immediately
+            val enhancedContext = immediateContext.copy(
+                calledMethods = cachedAnalysis.calledMethods,
+                usedClasses = cachedAnalysis.usedClasses,
+                relatedClassContents = cachedAnalysis.relatedClassContents,
+                preservedMethods = immediateContext.preservedMethods.plus(cachedAnalysis.calledMethods)
+            )
+            
+            // Re-process with all dependency information
+            val finalContext = ApplicationManager.getApplication().runReadAction<LeanContext> {
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+                if (psiFile is PsiJavaFile) {
+                    recreateContextWithFullAnalysis(psiFile, enhancedContext, offset)
+                } else {
+                    enhancedContext
+                }
+            }
+            
+            // Invoke callback immediately with enhanced context
+            ApplicationManager.getApplication().invokeLater {
+                onComplete(finalContext)
+            }
+            
+            println("ZestLeanContextCollectorPSI: Used preemptive analysis with ${cachedAnalysis.relatedClassContents.size} related classes")
+            return
         }
-
+        
+        println("ZestLeanContextCollectorPSI: No preemptive analysis available, falling back to on-demand")
+        
         // Only do async analysis for Java files
         if (immediateContext.language != "java") {
+            ApplicationManager.getApplication().invokeLater {
+                onComplete(immediateContext)
+            }
             return
         }
 
-        // Analyze dependencies asynchronously
+        // Analyze the current method asynchronously
         ApplicationManager.getApplication().executeOnPooledThread {
             ApplicationManager.getApplication().runReadAction {
                 val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
@@ -174,38 +211,57 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                     val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
 
                     if (containingMethod != null && containingClass != null) {
+                        var latestContext = immediateContext
+                        
+                        // First do quick dependency analysis
                         asyncAnalyzer.analyzeDependenciesForContext(
                             containingClass,
                             containingMethod
                         ) { methodsToPreserve, fieldsToPreserve ->
-                            // Add current method and similar methods
-                            val enhancedMethodsToPreserve = methodsToPreserve.toMutableSet()
-                            enhancedMethodsToPreserve.add(containingMethod.name)
-                            
-                            // Find methods with similar names
-                            containingClass.methods.forEach { method ->
-                                if (method.name != containingMethod.name &&
-                                    calculateMethodNameSimilarity(method.name, containingMethod.name) >= SIMILARITY_THRESHOLD
-                                ) {
-                                    enhancedMethodsToPreserve.add(method.name)
+                            // Update context with dependency info
+                            latestContext = latestContext.copy(
+                                preservedMethods = methodsToPreserve.plus(containingMethod.name),
+                                preservedFields = fieldsToPreserve
+                            )
+                        }
+                        
+                        // Then do full async analysis
+                        asyncAnalyzer.analyzeMethodAsync(
+                            containingMethod,
+                            onProgress = { analysisResult ->
+                                // Update context with analysis results
+                                latestContext = latestContext.copy(
+                                    calledMethods = analysisResult.calledMethods,
+                                    usedClasses = analysisResult.usedClasses,
+                                    relatedClassContents = analysisResult.relatedClassContents,
+                                    preservedMethods = latestContext.preservedMethods.plus(analysisResult.calledMethods)
+                                )
+                                
+                                // Send progressive updates
+                                ApplicationManager.getApplication().invokeLater {
+                                    onComplete(latestContext)
+                                }
+                            },
+                            onComplete = {
+                                // Re-process with all dependency information
+                                val finalContext = ApplicationManager.getApplication().runReadAction<LeanContext> {
+                                    recreateContextWithFullAnalysis(
+                                        psiFile,
+                                        latestContext,
+                                        offset
+                                    )
+                                }
+                                
+                                // Final callback
+                                ApplicationManager.getApplication().invokeLater {
+                                    onComplete(finalContext)
                                 }
                             }
-
-                            // Re-process with dependency information
-                            val enhancedContext = ApplicationManager.getApplication().runReadAction<LeanContext> {
-                                recreateContextWithDependencies(
-                                    psiFile,
-                                    immediateContext,
-                                    enhancedMethodsToPreserve,
-                                    fieldsToPreserve,
-                                    offset
-                                )
-                            }
-
-                            // Invoke callback on EDT
-                            ApplicationManager.getApplication().invokeLater {
-                                onComplete(enhancedContext)
-                            }
+                        )
+                    } else {
+                        // No method at cursor, return immediate context
+                        ApplicationManager.getApplication().invokeLater {
+                            onComplete(immediateContext)
                         }
                     }
                 }
@@ -238,6 +294,33 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             markedContent = finalMarkedContent,
             preservedMethods = preservedMethods,
             preservedFields = preservedFields
+        )
+    }
+
+    /**
+     * Recreate context with full analysis information
+     */
+    private fun recreateContextWithFullAnalysis(
+        psiFile: PsiJavaFile,
+        context: LeanContext,
+        cursorOffset: Int
+    ): LeanContext {
+        val document = PsiDocumentManager.getInstance(project).getDocument(psiFile) ?: return context
+        val text = document.text
+        val markedContent = text.substring(0, cursorOffset) + "[CURSOR]" + text.substring(cursorOffset)
+        
+        // Include all methods that are called or preserved
+        val allPreservedMethods = context.preservedMethods.plus(context.calledMethods)
+        
+        val (finalContent, finalMarkedContent) = if (markedContent.length > MAX_CONTEXT_LENGTH) {
+            collapseJavaMethodsWithPSI(psiFile, markedContent, cursorOffset, allPreservedMethods)
+        } else {
+            Pair(text, markedContent)
+        }
+        
+        return context.copy(
+            fullContent = finalContent,
+            markedContent = finalMarkedContent
         )
     }
 

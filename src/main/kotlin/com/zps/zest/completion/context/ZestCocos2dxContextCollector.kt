@@ -12,7 +12,7 @@ import com.intellij.openapi.project.Project
 class ZestCocos2dxContextCollector(private val project: Project) {
 
     companion object {
-        private const val MAX_CONTEXT_LENGTH = 300  // Increased since we're just keeping 40 lines total
+        private const val MAX_CONTEXT_LENGTH = 1000  // Increased since we're just keeping 40 lines total
 
         // Cocos2d-x specific patterns
         private val COCOS_NODE_TYPES = listOf(
@@ -470,8 +470,8 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         }
         
         // Keep 20 lines before and after cursor
-        val startLine = maxOf(0, cursorLineIndex - 3)
-        val endLine = minOf(lines.size, cursorLineIndex + 4) // +21 to include cursor line + 20 after
+        val startLine = maxOf(0, cursorLineIndex - 20)
+        val endLine = minOf(lines.size, cursorLineIndex + 21) // +21 to include cursor line + 20 after
         
         val truncatedMarked = buildString {
             if (startLine > 0) {

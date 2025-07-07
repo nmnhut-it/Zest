@@ -8,7 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.zps.zest.browser.utils.ChatboxUtilities
-import com.zps.zest.completion.context.ZestLeanContextCollector
+import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.completion.context.ZestSimpleContextCollector
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.CompletionMetadata
@@ -23,8 +23,11 @@ import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
 import com.zps.zest.langchain4j.util.LLMService
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.*
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Completion provider with multiple strategies (A/B testing)
@@ -122,8 +125,8 @@ class ZestCompletionProvider(private val project: Project) {
     private val simpleResponseParser = ZestSimpleResponseParser()
 
     // Lean strategy components
-    private val leanContextCollector = ZestLeanContextCollector(project)
-    private val leanPromptBuilder = ZestLeanPromptBuilder()
+    private val leanContextCollector = ZestLeanContextCollectorPSI(project)
+    private val leanPromptBuilder = ZestLeanPromptBuilder(project)
     private val leanResponseParser = ZestLeanResponseParser()
 
     // Method rewrite strategy components
@@ -437,50 +440,48 @@ class ZestCompletionProvider(private val project: Project) {
                 return null
             }
 
-            // Use async collection with timeout
+            // Use async collection with preemptive analysis
             val leanContextStartTime = System.currentTimeMillis()
-            var enhancedContext: ZestLeanContextCollector.LeanContext? = null
-            val collectionComplete = kotlinx.coroutines.CompletableDeferred<Boolean>()
-
-            // Start async collection - this handles EDT properly internally
+            log("Starting lean context collection...", "Lean")
+            
+            // Collect context with dependency analysis (will use preemptive cache if available)
+            val contextDeferred = kotlinx.coroutines.CompletableDeferred<ZestLeanContextCollectorPSI.LeanContext?>()
+            
             ApplicationManager.getApplication().invokeLater {
-                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { context ->
-                    enhancedContext = context
-                    if (!collectionComplete.isCompleted) {
-                        collectionComplete.complete(true)
+                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
+                    log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
+                    log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
+                    log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
+                    if (!contextDeferred.isCompleted) {
+                        contextDeferred.complete(ctx)
                     }
                 }
             }
-
-            // Wait for initial context or timeout
-            withTimeoutOrNull(10) {
-                collectionComplete.await()
+            
+            // Wait for context with timeout
+            val leanContext = try {
+                withTimeoutOrNull(2000) {  // 2 seconds max wait
+                    contextDeferred.await()
+                }
+            } catch (e: Exception) {
+                log("Exception waiting for context: ${e.message}", "Lean")
+                null
             }
-
-            // Use whatever context we have - get immediate context if async failed
-            val leanContext: ZestLeanContextCollector.LeanContext = enhancedContext?.let { context ->
-                context
-            } ?: run {
-                val contextFuture = java.util.concurrent.CompletableFuture<ZestLeanContextCollector.LeanContext>()
-                ApplicationManager.getApplication().invokeLater {
-                    try {
-                        val ctx = leanContextCollector.collectFullFileContext(editor, context.offset)
-                        contextFuture.complete(ctx)
-                    } catch (e: Exception) {
-                        contextFuture.completeExceptionally(e)
-                    }
-                }
-                try {
-                    contextFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
-                } catch (e: Exception) {
-                    logger.warn("Failed to collect lean context", e)
-                    return null
-                }
+            
+            if (leanContext == null) {
+                log("No context available, returning null", "Lean")
+                return null
             }
 
             // Track context collection time once after collection is complete
             val leanContextTime = System.currentTimeMillis() - leanContextStartTime
             metricsService.trackContextCollectionTime(completionId, leanContextTime)
+            
+            log("Lean context collected in ${leanContextTime}ms", "Lean")
+            log("  Has related classes: ${leanContext.relatedClassContents.isNotEmpty()}", "Lean")
+            log("  Called methods: ${leanContext.calledMethods.size}", "Lean")
+            log("  Used classes: ${leanContext.usedClasses.size}", "Lean")
+            log("  Preserved methods: ${leanContext.preservedMethods.size}", "Lean")
 
 
             // Build reasoning prompt
@@ -518,6 +519,13 @@ class ZestCompletionProvider(private val project: Project) {
             
             val promptBuildTime = System.currentTimeMillis() - promptStartTime
             logger.debug("Lean prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
+            
+            // Log enhanced context info
+            if (leanContext.relatedClassContents.isNotEmpty()) {
+                logger.debug("Enhanced context includes ${leanContext.relatedClassContents.size} related classes")
+                logger.debug("Called methods: ${leanContext.calledMethods.take(5).joinToString(", ")}")
+                logger.debug("Used classes: ${leanContext.usedClasses.take(3).joinToString(", ")}")
+            }
 
             // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()

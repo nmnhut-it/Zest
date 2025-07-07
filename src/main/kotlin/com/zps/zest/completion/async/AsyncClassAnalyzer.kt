@@ -1,6 +1,7 @@
 package com.zps.zest.completion.async
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.psi.*
@@ -174,7 +175,9 @@ class AsyncClassAnalyzer(private val project: Project) {
             if (type is PsiClassType) {
                 type.resolve()?.let { psiClass ->
                     if (!isJavaLangClass(psiClass)) {
-                        usedClasses.add(psiClass.qualifiedName ?: psiClass.name ?: "")
+                        val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                        usedClasses.add(className)
+                        println("AsyncClassAnalyzer: Found class in parameter type: $className")
                     }
                 }
             }
@@ -185,7 +188,9 @@ class AsyncClassAnalyzer(private val project: Project) {
             if (returnType is PsiClassType) {
                 returnType.resolve()?.let { psiClass ->
                     if (!isJavaLangClass(psiClass)) {
-                        usedClasses.add(psiClass.qualifiedName ?: psiClass.name ?: "")
+                        val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                        usedClasses.add(className)
+                        println("AsyncClassAnalyzer: Found class in return type: $className")
                     }
                 }
             }
@@ -215,6 +220,21 @@ class AsyncClassAnalyzer(private val project: Project) {
                 expression.methodExpression.referenceName?.let {
                     calledMethods.add(it)
                 }
+                
+                // Also check the method's return type
+                expression.resolveMethod()?.let { method ->
+                    method.returnType?.let { returnType ->
+                        if (returnType is PsiClassType) {
+                            returnType.resolve()?.let { psiClass ->
+                                if (!isJavaLangClass(psiClass)) {
+                                    val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                                    usedClasses.add(className)
+                                    println("AsyncClassAnalyzer: Found class from method return type: $className")
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             override fun visitReferenceExpression(expression: PsiReferenceExpression) {
@@ -223,11 +243,25 @@ class AsyncClassAnalyzer(private val project: Project) {
                 when (resolved) {
                     is PsiField -> {
                         usedFields.add(resolved.name)
+                        // Also check field type
+                        resolved.type.let { fieldType ->
+                            if (fieldType is PsiClassType) {
+                                fieldType.resolve()?.let { psiClass ->
+                                    if (!isJavaLangClass(psiClass)) {
+                                        val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                                        usedClasses.add(className)
+                                        println("AsyncClassAnalyzer: Found class from field type: $className")
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     is PsiClass -> {
                         if (!isJavaLangClass(resolved)) {
-                            usedClasses.add(resolved.qualifiedName ?: resolved.name ?: "")
+                            val className = resolved.qualifiedName ?: resolved.name ?: ""
+                            usedClasses.add(className)
+                            println("AsyncClassAnalyzer: Found used class in reference: $className")
                         }
                     }
                 }
@@ -237,7 +271,40 @@ class AsyncClassAnalyzer(private val project: Project) {
                 super.visitNewExpression(expression)
                 expression.classReference?.resolve()?.let { psiClass ->
                     if (psiClass is PsiClass && !isJavaLangClass(psiClass)) {
-                        usedClasses.add(psiClass.qualifiedName ?: psiClass.name ?: "")
+                        val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                        usedClasses.add(className)
+                        println("AsyncClassAnalyzer: Found used class in new expression: $className")
+                    }
+                }
+            }
+            
+            override fun visitLocalVariable(variable: PsiLocalVariable) {
+                super.visitLocalVariable(variable)
+                // Check variable type
+                variable.type.let { varType ->
+                    if (varType is PsiClassType) {
+                        varType.resolve()?.let { psiClass ->
+                            if (!isJavaLangClass(psiClass)) {
+                                val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                                usedClasses.add(className)
+                                println("AsyncClassAnalyzer: Found class from local variable type: $className")
+                            }
+                        }
+                    }
+                }
+            }
+            
+            override fun visitTypeElement(typeElement: PsiTypeElement) {
+                super.visitTypeElement(typeElement)
+                // Check any type references
+                val type = typeElement.type
+                if (type is PsiClassType) {
+                    type.resolve()?.let { psiClass ->
+                        if (!isJavaLangClass(psiClass)) {
+                            val className = psiClass.qualifiedName ?: psiClass.name ?: ""
+                            usedClasses.add(className)
+                            println("AsyncClassAnalyzer: Found class from type element: $className")
+                        }
                     }
                 }
             }
@@ -247,15 +314,36 @@ class AsyncClassAnalyzer(private val project: Project) {
     private fun loadClassContent(className: String, relatedClassContents: MutableMap<String, String>) {
         if (className.isEmpty()) return
 
-        // Use existing ClassAnalyzer to get class structure
-        val psiClass = JavaPsiFacade.getInstance(project)
-            .findClass(className, GlobalSearchScope.projectScope(project))
+        // Try different scopes to find the class
+        val scopes = mutableListOf(
+            GlobalSearchScope.projectScope(project),
+            GlobalSearchScope.allScope(project)
+        )
+        
+        // Add module scope if available
+        val moduleManager = ModuleManager.getInstance(project)
+        val firstModule = moduleManager.modules.firstOrNull()
+        if (firstModule != null) {
+            scopes.add(GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(firstModule))
+        }
+        
+        var psiClass: PsiClass? = null
+        for (scope in scopes) {
+            psiClass = JavaPsiFacade.getInstance(project).findClass(className, scope)
+            if (psiClass != null) {
+                println("AsyncClassAnalyzer: Found class $className in scope: $scope")
+                break
+            }
+        }
 
         if (psiClass != null && !isJavaLangClass(psiClass)) {
             val classStructure = buildString {
                 ClassAnalyzer.appendClassStructure(this, psiClass)
             }
             relatedClassContents[className] = classStructure
+            println("AsyncClassAnalyzer: Loaded class content for $className, size: ${classStructure.length}")
+        } else {
+            println("AsyncClassAnalyzer: Could not find class $className in any scope or it's a Java lang class")
         }
     }
 

@@ -4,6 +4,7 @@ import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
 
 /**
  * Simplified startup activity for Zest completion services
@@ -20,6 +21,11 @@ class ZestCompletionStartupActivity : ProjectActivity {
             if (!config.isInlineCompletionEnabled()) {
                 logger.info("Inline completion disabled by configuration, skipping initialization")
                 return
+            }
+            
+            // Initialize the preemptive analyzer service
+            project.serviceOrNull<PreemptiveAsyncAnalyzerService>()?.let {
+                logger.info("Preemptive async analyzer service initialized")
             }
             
             // Initialize the completion service only if enabled

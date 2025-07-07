@@ -5,9 +5,99 @@ import com.zps.zest.completion.context.ZestSimpleContextCollector
 /**
  * Simple prompt builder focused on fill-in-the-middle completion using prefix/suffix context
  * Now includes support for Qwen 2.5 Coder FIM format and example-enhanced prompts
+ * Updated to support structured prompts with separate system and user components
  */
 class ZestSimplePromptBuilder {
     
+    companion object {
+        // System prompt for FIM completion - cacheable
+        private const val FIM_SYSTEM_PROMPT = """You are a code completion assistant. Complete code at the cursor position following these rules:
+- Only output the code that should be inserted at the cursor
+- Follow the existing code style and patterns
+- Do not include explanations or markdown
+- Stop at natural completion points (end of line, closing brackets, etc.)"""
+
+        // System prompt for instruction-based completion - cacheable  
+        private const val INSTRUCTION_SYSTEM_PROMPT = """You are an expert code completion AI. Your task is to complete code at the cursor position marked as <CURSOR>.
+
+Rules:
+1. Output ONLY the code to insert at the cursor position
+2. Do not repeat any code that appears before or after the cursor
+3. Follow the existing code style, indentation, and naming conventions
+4. Complete based on context and common patterns
+5. No explanations, comments, or markdown - just code"""
+        
+        // System prompt for text completion - cacheable
+        private const val TEXT_SYSTEM_PROMPT = """You are a text completion assistant. Complete the text at the marked position naturally and coherently."""
+    }
+    
+    /**
+     * Build structured prompt with separate system and user components
+     */
+    fun buildStructuredPrompt(context: ZestSimpleContextCollector.SimpleContext): StructuredPrompt {
+        return when {
+            isCodeLanguage(context.language) -> buildStructuredFimPrompt(context)
+            else -> buildStructuredTextPrompt(context)
+        }
+    }
+    
+    /**
+     * Build structured instruction prompt with examples
+     */
+    fun buildStructuredInstructionPrompt(context: ZestSimpleContextCollector.SimpleContext): StructuredPrompt {
+        val contextType = detectContextType(context)
+        val examples = getContextSpecificExamples(context.language, contextType)
+        
+        return StructuredPrompt(
+            systemPrompt = INSTRUCTION_SYSTEM_PROMPT,
+            userPrompt = """Language: ${context.language}
+Context: ${getContextDescription(contextType)}
+
+Examples for this context:
+$examples
+
+Code to complete:
+${context.prefixCode}<CURSOR>${context.suffixCode}""",
+            metadata = mapOf(
+                "language" to context.language,
+                "contextType" to contextType.name
+            )
+        )
+    }
+    
+    /**
+     * Build structured FIM prompt - FIM format doesn't need system prompt
+     */
+    private fun buildStructuredFimPrompt(context: ZestSimpleContextCollector.SimpleContext): StructuredPrompt {
+        return StructuredPrompt(
+            systemPrompt = "", // FIM format is self-contained
+            userPrompt = """<|fim_prefix|>${context.prefixCode}<|fim_suffix|>${context.suffixCode}<|fim_middle|>""",
+            metadata = mapOf(
+                "format" to "fim",
+                "language" to context.language
+            )
+        )
+    }
+    
+    /**
+     * Build structured text completion prompt
+     */
+    private fun buildStructuredTextPrompt(context: ZestSimpleContextCollector.SimpleContext): StructuredPrompt {
+        return StructuredPrompt(
+            systemPrompt = TEXT_SYSTEM_PROMPT,
+            userPrompt = """Complete the following text:
+
+${context.prefixCode}[COMPLETE HERE]${context.suffixCode}
+
+Text to insert at [COMPLETE HERE]:""",
+            metadata = mapOf(
+                "format" to "text",
+                "language" to context.language
+            )
+        )
+    }
+    
+    // Keep old methods for backward compatibility
     fun buildCompletionPrompt(context: ZestSimpleContextCollector.SimpleContext): String {
         return when {
             isCodeLanguage(context.language) -> buildFimPrompt(context)

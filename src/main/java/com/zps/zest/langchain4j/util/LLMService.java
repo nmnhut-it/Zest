@@ -453,12 +453,23 @@ public final class LLMService implements Disposable {
 
         root.add("params", paramsObj);
 
+        // Build messages array with system and user messages
+        com.google.gson.JsonArray messages = new com.google.gson.JsonArray();
+        
+        // Add system message if present
+        if (params.getSystemPrompt() != null && !params.getSystemPrompt().isEmpty()) {
+            JsonObject systemMessage = new JsonObject();
+            systemMessage.addProperty("role", "system");
+            systemMessage.addProperty("content", params.getSystemPrompt());
+            messages.add(systemMessage);
+        }
+
+        // Add user message
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");
         message.addProperty("content", params.getPrompt());
-
-        com.google.gson.JsonArray messages = new com.google.gson.JsonArray();
         messages.add(message);
+        
         root.add("messages", messages);
 
         // Add empty arrays/objects for compatibility
@@ -658,6 +669,7 @@ public final class LLMService implements Disposable {
      */
     public static class LLMQueryParams {
         private final String prompt;
+        private String systemPrompt; // System prompt for better caching
         private String model;
         private int maxRetries = MAX_RETRY_ATTEMPTS;
         private long timeoutMs = READ_TIMEOUT_MS;
@@ -667,6 +679,11 @@ public final class LLMService implements Disposable {
 
         public LLMQueryParams(@NotNull String prompt) {
             this.prompt = prompt;
+        }
+
+        public LLMQueryParams withSystemPrompt(@NotNull String systemPrompt) {
+            this.systemPrompt = systemPrompt;
+            return this;
         }
 
         public LLMQueryParams withModel(@NotNull String model) {
@@ -707,6 +724,10 @@ public final class LLMService implements Disposable {
         // Getters
         public String getPrompt() {
             return prompt + (isLiteModel ? "\n/no_think" : "");
+        }
+
+        public String getSystemPrompt() {
+            return systemPrompt;
         }
 
         public String getModel() {

@@ -12,13 +12,6 @@ import com.intellij.openapi.project.Project
 @Deprecated("Use ZestLeanContextCollectorPSI directly", ReplaceWith("ZestLeanContextCollectorPSI"))
 class ZestLeanContextCollector(private val project: Project) {
 
-    companion object {
-        // Forward constants for compatibility
-        const val MAX_CONTEXT_LENGTH = 8000
-        const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
-        const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
-        const val SIMILARITY_THRESHOLD = 0.6
-    }
 
     private val psiCollector = ZestLeanContextCollectorPSI(project)
 

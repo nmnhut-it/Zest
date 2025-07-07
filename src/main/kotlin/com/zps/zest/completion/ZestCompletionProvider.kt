@@ -18,7 +18,10 @@ import com.zps.zest.completion.parser.ZestLeanResponseParser
 import com.zps.zest.completion.parser.ZestSimpleResponseParser
 import com.zps.zest.completion.prompt.ZestLeanPromptBuilder
 import com.zps.zest.completion.prompt.ZestSimplePromptBuilder
+import com.zps.zest.completion.prompt.PromptMigrationHelper
+import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
+import com.zps.zest.completion.metrics.PromptCachingMetrics
 import com.zps.zest.langchain4j.util.LLMService
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.*
@@ -36,6 +39,7 @@ class ZestCompletionProvider(private val project: Project) {
 
     // Add metrics service
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
+    private val cachingMetrics by lazy { PromptCachingMetrics.getInstance(project) }
 
     // Notification group for debug
     private val notificationGroup = NotificationGroupManager.getInstance()
@@ -243,11 +247,41 @@ class ZestCompletionProvider(private val project: Project) {
             // Build prompt (thread-safe)
             log("Building prompt...", "Simple")
             val promptStartTime = System.currentTimeMillis()
-            val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
+            
+            val config = PromptCachingConfig.getInstance(project)
+            
+            // Use structured prompt if enabled, fallback to old method
+            val (systemPrompt, userPrompt) = if (config.enableStructuredPrompts && config.enableForSimpleStrategy) {
+                try {
+                    val structuredPrompt = simplePromptBuilder.buildStructuredPrompt(simpleContext)
+                    log("Using structured prompt - system: ${structuredPrompt.systemPrompt.length} chars, user: ${structuredPrompt.userPrompt.length} chars", "Simple")
+                    
+                    // Log comparison for analysis
+                    if (config.logPromptComparison) {
+                        val oldPrompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
+                        PromptMigrationHelper.logPromptStructure("SIMPLE", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
+                    }
+                    
+                    // Track metrics
+                    cachingMetrics.recordStructuredRequest(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
+                    
+                    Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
+                } catch (e: Exception) {
+                    log("Error building structured prompt: ${e.message}", "Simple")
+                    val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
+                    Pair("", prompt)
+                }
+            } else {
+                log("Using legacy prompt builder (structured prompts disabled)", "Simple")
+                val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
+                cachingMetrics.recordLegacyRequest()
+                Pair("", prompt)
+            }
+            
             val promptBuildTime = System.currentTimeMillis() - promptStartTime
-            logger.debug("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}")
-            log("Prompt built in ${promptBuildTime}ms, length: ${prompt.length}", "Simple")
-            log("Prompt preview: '${prompt.take(200)}...'", "Simple", 1)
+            logger.debug("Prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}")
+            log("Prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}", "Simple")
+            log("User prompt preview: '${userPrompt.take(200)}...'", "Simple", 1)
 
             // Query LLM with timeout and cancellation support
             log("Querying LLM...", "Simple")
@@ -257,12 +291,14 @@ class ZestCompletionProvider(private val project: Project) {
             var llmTime = 0L
             val response = try {
                 withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                    val queryParams =
-                        LLMService.LLMQueryParams(prompt).useLiteCodeModel().withMaxTokens(MAX_COMPLETION_TOKENS)
+                    val queryParams = LLMService.LLMQueryParams(userPrompt)
+                            .withSystemPrompt(systemPrompt)
+                            .useLiteCodeModel()
+                            .withMaxTokens(MAX_COMPLETION_TOKENS)
                             .withTemperature(0.1)  // Low temperature for more deterministic completions
                             .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
 
-                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1", "Simple", 1)
+                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1, hasSystemPrompt=${systemPrompt.isNotEmpty()}", "Simple", 1)
 
                     // Use cancellable request
                     val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
@@ -449,19 +485,50 @@ class ZestCompletionProvider(private val project: Project) {
 
             // Build reasoning prompt
             val promptStartTime = System.currentTimeMillis()
-            val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+            
+            val config = PromptCachingConfig.getInstance(project)
+            
+            // Use structured prompt if enabled, fallback to old method
+            val (systemPrompt, userPrompt) = if (config.enableStructuredPrompts && config.enableForLeanStrategy) {
+                try {
+                    val structuredPrompt = leanPromptBuilder.buildStructuredReasoningPrompt(leanContext)
+                    logger.debug("Using structured lean prompt - system: ${structuredPrompt.systemPrompt.length} chars, user: ${structuredPrompt.userPrompt.length} chars")
+                    
+                    // Log comparison for analysis
+                    if (config.logPromptComparison) {
+                        val oldPrompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+                        PromptMigrationHelper.logPromptStructure("LEAN", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
+                    }
+                    
+                    // Track metrics
+                    cachingMetrics.recordStructuredRequest(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
+                    
+                    Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
+                } catch (e: Exception) {
+                    logger.debug("Error building structured lean prompt: ${e.message}")
+                    val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+                    Pair("", prompt)
+                }
+            } else {
+                logger.debug("Using legacy lean prompt builder (structured prompts disabled)")
+                val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+                cachingMetrics.recordLegacyRequest()
+                Pair("", prompt)
+            }
+            
             val promptBuildTime = System.currentTimeMillis() - promptStartTime
-            logger.debug("Lean prompt built in ${promptBuildTime}ms, length: ${prompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
+            logger.debug("Lean prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
 
             // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()
             var llmTime = 0L
             val response = try {
                 withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
-                    val queryParams =
-                        LLMService.LLMQueryParams(prompt).useLiteCodeModel()  // Use full model for reasoning
+                    val queryParams = LLMService.LLMQueryParams(userPrompt)
+                            .withSystemPrompt(systemPrompt)
+                            .useLiteCodeModel()  // Use full model for reasoning
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                            .withTemperature(0.8); // Slightly higher for creative reasoning
+                            .withTemperature(0.5); // Slightly higher for creative reasoning
 //                            .withStopSequences(getLeanStopSequences())
 
                     // Use cancellable request
@@ -653,6 +720,6 @@ class ZestCompletionProvider(private val project: Project) {
 
         private const val LEAN_COMPLETION_TIMEOUT_MS = 150000L  // 15 seconds for reasoning
         private const val LEAN_MAX_COMPLETION_TOKENS =
-            64  // Limited tokens for focused completions (reasoning + completion)
+            256  // Limited tokens for focused completions (reasoning + completion)
     }
 }

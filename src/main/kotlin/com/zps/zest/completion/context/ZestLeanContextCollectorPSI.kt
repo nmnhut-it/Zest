@@ -24,7 +24,7 @@ import com.zps.zest.completion.async.AsyncClassAnalyzer
 class ZestLeanContextCollectorPSI(private val project: Project) {
 
     companion object {
-        const val MAX_CONTEXT_LENGTH = 1500
+        const val MAX_CONTEXT_LENGTH = 300
         const val METHOD_BODY_PLACEHOLDER = " { /* method body hidden */ }"
         const val FUNCTION_BODY_PLACEHOLDER = " { /* function body hidden */ }"
         const val SIMILARITY_THRESHOLD = 0.6

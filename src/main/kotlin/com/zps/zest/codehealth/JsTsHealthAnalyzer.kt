@@ -2,6 +2,7 @@ package com.zps.zest.codehealth
 
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
@@ -14,7 +15,7 @@ import com.google.gson.JsonObject
  */
 class JsTsHealthAnalyzer(private val project: Project) {
     
-    private val llmService: LLMService(project)
+    private val llmService: LLMService = project.service()
     private val contextHelper = JsTsContextHelper(project)
     private val gson = Gson()
     
@@ -73,6 +74,8 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 onComplete(createEmptyResult(region))
             }
             
+        } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
+            throw e // Must rethrow
         } catch (e: Exception) {
             println("[JsTsHealthAnalyzer] Error analyzing region ${region.getIdentifier()}: ${e.message}")
             e.printStackTrace()
@@ -161,6 +164,8 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 summary = summary
             )
             
+        } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
+            throw e // Must rethrow
         } catch (e: Exception) {
             println("[JsTsHealthAnalyzer] Error parsing response: ${e.message}")
             createEmptyResult(region)
@@ -178,7 +183,11 @@ class JsTsHealthAnalyzer(private val project: Project) {
         
         // Try to get line numbers array
         issueObject.getAsJsonArray("lineNumbers")?.forEach { element ->
-            element.asInt?.let { lineNumbers.add(it) }
+            try {
+                lineNumbers.add(element.asInt)
+            } catch (_: Exception) {
+                // Ignore non-integer elements
+            }
         }
         
         return lineNumbers

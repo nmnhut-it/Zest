@@ -19,10 +19,10 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     private val checkTimeField = JBTextField(10)
     private val maxMethodsField = JBTextField(10)
     private val skipVerificationCheckBox = JBCheckBox("Skip verification step (faster analysis)")
-    private val enableJsTsCheckBox = JBCheckBox("Enable JavaScript/TypeScript support", false)
+    private val enableJsTsCheckBox = JBCheckBox("Enable JavaScript/TypeScript support", true)
     
     companion object {
-        var ENABLE_JS_TS_SUPPORT = false // Static flag for JS/TS support
+        var ENABLE_JS_TS_SUPPORT = true // Static flag for JS/TS support
     }
     
     override fun getDisplayName(): String = "Code Health"

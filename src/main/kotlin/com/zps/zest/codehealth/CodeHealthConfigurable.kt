@@ -19,7 +19,11 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     private val checkTimeField = JBTextField(10)
     private val maxMethodsField = JBTextField(10)
     private val skipVerificationCheckBox = JBCheckBox("Skip verification step (faster analysis)")
-    private val javaOnlyCheckBox = JBCheckBox("Analyze Java files only", true)
+    private val enableJsTsCheckBox = JBCheckBox("Enable JavaScript/TypeScript support", false)
+    
+    companion object {
+        var ENABLE_JS_TS_SUPPORT = false // Static flag for JS/TS support
+    }
     
     override fun getDisplayName(): String = "Code Health"
     
@@ -32,6 +36,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         checkTimeField.text = state.checkTime
         maxMethodsField.text = CodeHealthTracker.MAX_METHODS_TO_TRACK.toString()
         skipVerificationCheckBox.isSelected = CodeHealthAnalyzer.SKIP_VERIFICATION
+        enableJsTsCheckBox.isSelected = ENABLE_JS_TS_SUPPORT
         
         return FormBuilder.createFormBuilder()
             .addComponent(JBLabel("Code Health monitors methods you modify throughout the day and analyzes them for potential issues."))
@@ -40,7 +45,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
             .addLabeledComponent("Check time (HH:MM):", checkTimeField)
             .addLabeledComponent("Max methods to track:", maxMethodsField)
             .addComponent(skipVerificationCheckBox)
-            .addComponent(javaOnlyCheckBox)
+            .addComponent(enableJsTsCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel.apply {
                 border = JBUI.Borders.empty(5)
@@ -53,7 +58,8 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         
         return enabledCheckBox.isSelected != state.enabled ||
                 checkTimeField.text != state.checkTime ||
-                skipVerificationCheckBox.isSelected != CodeHealthAnalyzer.SKIP_VERIFICATION
+                skipVerificationCheckBox.isSelected != CodeHealthAnalyzer.SKIP_VERIFICATION ||
+                enableJsTsCheckBox.isSelected != ENABLE_JS_TS_SUPPORT
     }
     
     override fun apply() {
@@ -63,6 +69,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         state.enabled = enabledCheckBox.isSelected
         state.checkTime = checkTimeField.text
         CodeHealthAnalyzer.SKIP_VERIFICATION = skipVerificationCheckBox.isSelected
+        ENABLE_JS_TS_SUPPORT = enableJsTsCheckBox.isSelected
         
         // Validate time format
         try {
@@ -80,5 +87,6 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
         enabledCheckBox.isSelected = state.enabled
         checkTimeField.text = state.checkTime
         skipVerificationCheckBox.isSelected = CodeHealthAnalyzer.SKIP_VERIFICATION
+        enableJsTsCheckBox.isSelected = ENABLE_JS_TS_SUPPORT
     }
 }

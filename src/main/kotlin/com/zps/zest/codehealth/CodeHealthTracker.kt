@@ -57,6 +57,9 @@ class CodeHealthTracker(private val project: Project) :
     // Async processing
     private val documentProcessingQueue = SimpleTaskQueue(delayMs = DEBOUNCE_DELAY_MS)
     val isAnalysisRunning = AtomicBoolean(false)
+    
+    // JS/TS support
+    private val jsTsTracker = JsTsHealthTracker(project)
 
     /**
      * Data class representing a modified method
@@ -131,15 +134,28 @@ class CodeHealthTracker(private val project: Project) :
     override fun documentChanged(document: Document, editor: Editor, event: DocumentEvent) {
         if (!state.enabled) return
         
-        // Check if this is a Java file
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
-        if (psiFile == null || !psiFile.name.endsWith(".java")) {
-//            println("[CodeHealthTracker] Skipping non-Java file: ${psiFile?.name}")
-            return
+        if (psiFile == null) return
+        
+        val fileName = psiFile.name
+        
+        when {
+            fileName.endsWith(".java") -> {
+                println("[CodeHealthTracker] Document changed event received for Java file: $fileName")
+                handleJavaDocument(document, editor, event)
+            }
+            jsTsTracker.shouldHandleFile(fileName) && CodeHealthConfigurable.ENABLE_JS_TS_SUPPORT -> {
+                println("[CodeHealthTracker] Document changed event received for JS/TS file: $fileName")
+                handleJsTsDocument(document, editor, fileName)
+            }
+            else -> {
+                // Skip other file types
+                return
+            }
         }
-        
-        println("[CodeHealthTracker] Document changed event received for Java file: ${psiFile.name}")
-        
+    }
+    
+    private fun handleJavaDocument(document: Document, editor: Editor, event: DocumentEvent) {
         // Queue document processing to avoid blocking EDT
         documentProcessingQueue.submit {
             try {
@@ -158,6 +174,19 @@ class CodeHealthTracker(private val project: Project) :
                 }
             } catch (e: Exception) {
                 println("[CodeHealthTracker] Error processing document change: ${e.message}")
+            }
+        }
+    }
+    
+    private fun handleJsTsDocument(document: Document, editor: Editor, fileName: String) {
+        // Queue document processing for JS/TS files
+        documentProcessingQueue.submit {
+            try {
+                ApplicationManager.getApplication().runReadAction {
+                    jsTsTracker.handleJsTsDocument(document, editor, fileName)
+                }
+            } catch (e: Exception) {
+                println("[CodeHealthTracker] Error processing JS/TS document: ${e.message}")
             }
         }
     }
@@ -282,12 +311,19 @@ class CodeHealthTracker(private val project: Project) :
     fun getModifiedMethods(): Set<String> = methodModifications.keys.toSet()
 
     fun getModifiedMethodDetails(): List<ModifiedMethod> {
-        val methods = methodModifications.values.sortedByDescending { it.modificationCount }
-        println("[CodeHealthTracker] getModifiedMethodDetails() returning ${methods.size} methods:")
-        methods.forEach { method ->
+        // Combine Java methods and JS/TS regions
+        val javaMethods = methodModifications.values.toList()
+        val jsTsRegions = jsTsTracker.getModifiedRegionsAsMethods()
+        
+        val allMethods = (javaMethods + jsTsRegions).sortedByDescending { it.modificationCount }
+        
+        println("[CodeHealthTracker] getModifiedMethodDetails() returning ${allMethods.size} items:")
+        println("[CodeHealthTracker]   - Java methods: ${javaMethods.size}")
+        println("[CodeHealthTracker]   - JS/TS regions: ${jsTsRegions.size}")
+        allMethods.forEach { method ->
             println("[CodeHealthTracker]   - ${method.fqn} (count: ${method.modificationCount}, last: ${method.lastModified})")
         }
-        return methods
+        return allMethods
     }
 
     fun clearOldEntries() {
@@ -295,11 +331,14 @@ class CodeHealthTracker(private val project: Project) :
         methodModifications.entries.removeIf { it.value.lastModified < cutoffTime }
         // Also remove any entries with empty FQN
         methodModifications.entries.removeIf { it.key.isBlank() }
+        // Clear old JS/TS regions
+        jsTsTracker.clearOldRegions(cutoffTime)
     }
     
     fun clearAllTrackedMethods() {
-        println("[CodeHealthTracker] Clearing all tracked methods")
+        println("[CodeHealthTracker] Clearing all tracked methods and regions")
         methodModifications.clear()
+        jsTsTracker.clearAllRegions()
         state.modifiedMethods.clear()
         persistStateAsync()
     }

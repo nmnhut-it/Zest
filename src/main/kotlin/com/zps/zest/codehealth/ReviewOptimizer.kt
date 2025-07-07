@@ -20,17 +20,20 @@ class ReviewOptimizer(private val project: Project) {
         val className: String,
         val methods: List<String>,
         val filePath: String? = null,
-        val lineCount: Int = 0
+        val lineCount: Int = 0,
+        val language: String = "java" // Add language field
     ) {
         enum class ReviewType {
             WHOLE_FILE,      // Review entire small file
-            METHOD_GROUP     // Review group of methods from same class
+            METHOD_GROUP,    // Review group of methods from same class
+            JS_TS_REGION    // Review JS/TS region
         }
         
         fun getIdentifier(): String {
             return when (type) {
                 ReviewType.WHOLE_FILE -> "file:$className"
                 ReviewType.METHOD_GROUP -> "class:$className:${methods.sorted().joinToString(",")}"
+                ReviewType.JS_TS_REGION -> "region:$className" // For JS/TS, className is the region identifier
             }
         }
         
@@ -38,6 +41,7 @@ class ReviewOptimizer(private val project: Project) {
             return when (type) {
                 ReviewType.WHOLE_FILE -> "Entire file: $className ($lineCount lines)"
                 ReviewType.METHOD_GROUP -> "Class $className: ${methods.size} methods (${methods.joinToString(", ")})"
+                ReviewType.JS_TS_REGION -> "JS/TS Region: $className"
             }
         }
     }
@@ -46,6 +50,36 @@ class ReviewOptimizer(private val project: Project) {
      * Groups methods by class and identifies small files for whole-file review
      */
     fun optimizeReviewUnits(methodFQNs: List<String>): List<ReviewUnit> {
+        val reviewUnits = mutableListOf<ReviewUnit>()
+        
+        // Separate Java methods from JS/TS regions
+        val javaMethods = mutableListOf<String>()
+        val jsTsRegions = mutableListOf<String>()
+        
+        methodFQNs.forEach { fqn ->
+            when {
+                fqn.contains(".js:") || fqn.contains(".ts:") -> jsTsRegions.add(fqn)
+                else -> javaMethods.add(fqn)
+            }
+        }
+        
+        // Process Java methods
+        if (javaMethods.isNotEmpty()) {
+            reviewUnits.addAll(optimizeJavaReviewUnits(javaMethods))
+        }
+        
+        // Process JS/TS regions
+        if (jsTsRegions.isNotEmpty()) {
+            reviewUnits.addAll(optimizeJsTsReviewUnits(jsTsRegions))
+        }
+        
+        return reviewUnits
+    }
+    
+    /**
+     * Optimize Java methods into review units
+     */
+    private fun optimizeJavaReviewUnits(methodFQNs: List<String>): List<ReviewUnit> {
         // Group methods by class
         val methodsByClass = methodFQNs.groupBy { fqn ->
             fqn.substringBeforeLast(".")
@@ -76,7 +110,8 @@ class ReviewOptimizer(private val project: Project) {
                         className = className,
                         methods = methods.map { it.substringAfterLast(".") },
                         filePath = filePath,
-                        lineCount = lineCount
+                        lineCount = lineCount,
+                        language = "java"
                     ))
                 } else {
                     // For large files, group methods
@@ -84,7 +119,8 @@ class ReviewOptimizer(private val project: Project) {
                         type = ReviewUnit.ReviewType.METHOD_GROUP,
                         className = className,
                         methods = methods.map { it.substringAfterLast(".") },
-                        filePath = filePath
+                        filePath = filePath,
+                        language = "java"
                     ))
                 }
             } else {
@@ -92,9 +128,43 @@ class ReviewOptimizer(private val project: Project) {
                 reviewUnits.add(ReviewUnit(
                     type = ReviewUnit.ReviewType.METHOD_GROUP,
                     className = className,
-                    methods = methods.map { it.substringAfterLast(".") }
+                    methods = methods.map { it.substringAfterLast(".") },
+                    language = "java"
                 ))
             }
+        }
+        
+        return reviewUnits
+    }
+    
+    /**
+     * Optimize JS/TS regions into review units
+     */
+    private fun optimizeJsTsReviewUnits(regionIdentifiers: List<String>): List<ReviewUnit> {
+        // Group regions by file
+        val regionsByFile = regionIdentifiers.groupBy { identifier ->
+            identifier.substringBefore(":")
+        }
+        
+        val reviewUnits = mutableListOf<ReviewUnit>()
+        
+        regionsByFile.forEach { (filePath, regions) ->
+            // For JS/TS, we'll create one review unit per file
+            // containing all the regions in that file
+            val language = when {
+                filePath.endsWith(".ts") -> "typescript"
+                filePath.endsWith(".js") -> "javascript"
+                else -> "javascript"
+            }
+            
+            reviewUnits.add(ReviewUnit(
+                type = ReviewUnit.ReviewType.JS_TS_REGION,
+                className = filePath, // Use file path as identifier
+                methods = regions, // Store region identifiers
+                filePath = filePath,
+                lineCount = 0, // Will be determined when reading file
+                language = language
+            ))
         }
         
         return reviewUnits
@@ -107,6 +177,7 @@ class ReviewOptimizer(private val project: Project) {
         return when (unit.type) {
             ReviewUnit.ReviewType.WHOLE_FILE -> prepareWholeFileContext(unit)
             ReviewUnit.ReviewType.METHOD_GROUP -> prepareMethodGroupContext(unit)
+            ReviewUnit.ReviewType.JS_TS_REGION -> prepareJsTsRegionContext(unit)
         }
     }
     
@@ -252,7 +323,9 @@ class ReviewOptimizer(private val project: Project) {
         val methods: List<MethodInfo> = emptyList(),
         val imports: List<String> = emptyList(),
         val classContext: ClassContext? = null,
-        val surroundingCode: String? = null
+        val surroundingCode: String? = null,
+        val language: String = "java", // Add language field
+        val regionContexts: List<JsTsRegionContext> = emptyList() // For JS/TS regions
     ) {
         companion object {
             fun empty(className: String) = ReviewContext(
@@ -265,6 +338,85 @@ class ReviewOptimizer(private val project: Project) {
             return when (reviewType) {
                 "whole_file" -> buildWholeFilePrompt()
                 "method_group" -> buildMethodGroupPrompt()
+                "js_ts_region" -> buildJsTsRegionPrompt()
+                else -> "No context available"
+            }
+        }
+        
+        private fun buildWholeFilePrompt(): String {
+            return """
+                |Review Type: Entire File
+                |File: $className
+                |Size: $lineCount lines
+                |Modified methods: ${methodNames.joinToString(", ")}
+                |
+                |File Content:
+                |```java
+                |$fileContent
+                |```
+            """.trimMargin()
+        }
+        
+        private fun buildMethodGroupPrompt(): String {
+            return """
+                |Review Type: Method Group
+                |Class: $className
+                |Methods to review: ${methods.map { it.name }.joinToString(", ")}
+                |
+                |Class Context:
+                |${classContext?.let {
+                    """
+                    |- Super class: ${it.superClass ?: "None"}
+                    |- Interfaces: ${it.interfaces.joinToString(", ")}
+                    |- Fields: ${it.fields.size}
+                    |- Constructors: ${it.constructors}
+                    |- Abstract: ${it.isAbstract}
+                    """.trimIndent()
+                } ?: "Not available"}
+                |
+                |Methods to Review:
+                |${methods.joinToString("\n\n") { method ->
+                    """
+                    |Method: ${method.name} (line ${method.startLine})
+                    |${method.annotations.joinToString("\n")}
+                    |${method.signature}
+                    |${method.body}
+                    """.trimMargin()
+                }}
+                |
+                |${surroundingCode?.let { 
+                    """
+                    |Related Methods:
+                    |$it
+                    """.trimMargin()
+                } ?: ""}
+            """.trimMargin()
+        }
+        
+        private fun buildJsTsRegionPrompt(): String {
+            return """
+                |Review Type: JS/TS Code Regions
+                |File: $className
+                |Language: $language
+                |Regions to review: ${regionContexts.size}
+                |
+                |IMPORTANT: These are PARTIAL views of the file (±20 lines around changes).
+                |Don't flag missing imports or undefined variables that might exist elsewhere.
+                |
+                |${regionContexts.joinToString("\n\n") { region ->
+                    """
+                    |Region ${region.regionId}:
+                    |Lines ${region.startLine + 1} to ${region.endLine + 1}
+                    |Framework: ${region.framework}
+                    |
+                    |```$language
+                    |${region.content}
+                    |```
+                    """.trimMargin()
+                }}
+            """.trimMargin()
+        }
+    }
                 else -> "No context available"
             }
         }
@@ -336,4 +488,65 @@ class ReviewOptimizer(private val project: Project) {
         val isAbstract: Boolean,
         val constructors: Int
     )
+    
+    data class JsTsRegionContext(
+        val regionId: String,
+        val startLine: Int,
+        val endLine: Int,
+        val content: String,
+        val framework: String
+    )
+    
+    /**
+     * Prepare context for JS/TS regions
+     */
+    private fun prepareJsTsRegionContext(unit: ReviewUnit): ReviewContext {
+        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
+            val filePath = unit.filePath ?: return@compute ReviewContext.empty(unit.className)
+            
+            val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                .findFileByPath(filePath)
+                ?: return@compute ReviewContext.empty(unit.className)
+                
+            val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
+                ?: return@compute ReviewContext.empty(unit.className)
+                
+            val document = com.intellij.psi.PsiDocumentManager.getInstance(project)
+                .getDocument(psiFile)
+                ?: return@compute ReviewContext.empty(unit.className)
+                
+            val contextHelper = JsTsContextHelper(project)
+            val regionContexts = mutableListOf<JsTsRegionContext>()
+            
+            // Process each region identifier
+            unit.methods.forEach { regionId ->
+                val parts = regionId.split(":")
+                if (parts.size == 2) {
+                    val lineNumber = parts[1].toIntOrNull() ?: return@forEach
+                    
+                    val regionContext = contextHelper.extractRegionContext(
+                        document,
+                        lineNumber,
+                        20 // Context lines
+                    )
+                    
+                    regionContexts.add(JsTsRegionContext(
+                        regionId = regionId,
+                        startLine = regionContext.startLine,
+                        endLine = regionContext.endLine,
+                        content = regionContext.markedText,
+                        framework = regionContext.framework.name
+                    ))
+                }
+            }
+            
+            ReviewContext(
+                className = unit.className,
+                reviewType = "js_ts_region",
+                language = unit.language,
+                regionContexts = regionContexts,
+                lineCount = document.lineCount
+            )
+        }
+    }
 }

@@ -56,6 +56,9 @@ class CodeHealthAnalyzer(private val project: Project) {
     
     // Rate limiter for LLM calls
     private val llmRateLimiter = RateLimiter(LLM_DELAY_MS)
+    
+    // JS/TS analyzer
+    private val jsTsAnalyzer = JsTsHealthAnalyzer(project)
 
     /**
      * Health issue data class - completely flexible, LLM decides everything
@@ -225,6 +228,13 @@ class CodeHealthAnalyzer(private val project: Project) {
             return
         }
         
+        // Check if this is a JS/TS region (format: filename.js:lineNumber)
+        if (method.fqn.contains(".js:") || method.fqn.contains(".ts:")) {
+            println("[CodeHealthAnalyzer] Detected JS/TS region: ${method.fqn}")
+            analyzeJsTsRegionAsync(method, onComplete)
+            return
+        }
+        
         // Check if already analyzed
         if (results.containsKey(method.fqn)) {
             println("[CodeHealthAnalyzer] Method ${method.fqn} already analyzed, skipping")
@@ -310,6 +320,50 @@ class CodeHealthAnalyzer(private val project: Project) {
                 e.printStackTrace()
                 onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
             }
+        }
+    }
+    
+    /**
+     * Analyze a JS/TS region asynchronously
+     */
+    private fun analyzeJsTsRegionAsync(
+        method: CodeHealthTracker.ModifiedMethod,
+        onComplete: (MethodHealthResult) -> Unit
+    ) {
+        // Check if already analyzed
+        if (results.containsKey(method.fqn)) {
+            println("[CodeHealthAnalyzer] JS/TS region ${method.fqn} already analyzed, skipping")
+            onComplete(results[method.fqn]!!)
+            return
+        }
+        
+        // Convert to ModifiedRegion
+        val parts = method.fqn.split(":")
+        if (parts.size != 2) {
+            println("[CodeHealthAnalyzer] Invalid JS/TS region format: ${method.fqn}")
+            onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
+            return
+        }
+        
+        val filePath = parts[0]
+        val centerLine = parts[1].toIntOrNull() ?: 0
+        val language = if (filePath.endsWith(".ts")) "ts" else "js"
+        
+        val region = ModifiedRegion(
+            filePath = filePath,
+            centerLine = centerLine,
+            startLine = (centerLine - 20).coerceAtLeast(0),
+            endLine = centerLine + 20,
+            language = language,
+            framework = null,
+            modificationCount = method.modificationCount,
+            lastModified = method.lastModified
+        )
+        
+        // Use JS/TS analyzer
+        jsTsAnalyzer.analyzeRegion(region) { result ->
+            results[method.fqn] = result
+            onComplete(result)
         }
     }
 
@@ -966,6 +1020,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                     ReviewOptimizer.ReviewUnit.ReviewType.METHOD_GROUP -> {
                         analyzeMethodGroup(unit, context)
                     }
+                    ReviewOptimizer.ReviewUnit.ReviewType.JS_TS_REGION -> {
+                        analyzeJsTsRegions(unit, context)
+                    }
                 }
                 
                 onComplete(results)
@@ -1232,6 +1289,166 @@ class CodeHealthAnalyzer(private val project: Project) {
         }
         
         return issues
+    }
+    
+    /**
+     * Analyze JS/TS regions
+     */
+    private fun analyzeJsTsRegions(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext
+    ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Analyzing JS/TS regions: ${unit.className}")
+        
+        val prompt = """
+            Analyze these JavaScript/TypeScript code regions for potential issues.
+            
+            File: ${unit.className}
+            Language: ${context.language}
+            Regions analyzed: ${context.regionContexts.size}
+            
+            ${context.toPromptContext()}
+            
+            IMPORTANT: You're seeing PARTIAL views of the file (±20 lines around changes).
+            - DON'T flag missing imports or undefined variables that might exist elsewhere
+            - DON'T assume architectural issues you can't fully see
+            - DO focus on issues clearly visible in these code fragments
+            - BE CONSERVATIVE - only flag issues you're confident about
+            
+            Analyze for:
+            - Obvious syntax errors or bugs visible in fragments
+            - Clear logic errors
+            - Performance issues in visible code
+            - Security concerns (eval, innerHTML, etc.)
+            - Framework-specific issues if applicable
+            
+            Return ONLY valid JSON with results for EACH region:
+            {
+                "regions": [
+                    {
+                        "regionId": "filename.js:lineNumber",
+                        "summary": "Brief assessment",
+                        "healthScore": 85,
+                        "issues": [
+                            {
+                                "category": "Category",
+                                "severity": 3,
+                                "title": "Issue title",
+                                "description": "What's wrong in this fragment",
+                                "impact": "Consequences",
+                                "suggestedFix": "How to fix",
+                                "confidence": 0.9
+                            }
+                        ]
+                    }
+                ]
+            }
+        """.trimIndent()
+        
+        return callLLMForJsTsAnalysis(unit, context, prompt)
+    }
+    
+    /**
+     * Call LLM for JS/TS analysis
+     */
+    private fun callLLMForJsTsAnalysis(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext,
+        prompt: String
+    ): List<MethodHealthResult> {
+        try {
+            // Rate limit LLM calls
+            llmRateLimiter.acquire()
+            
+            val params = LLMService.LLMQueryParams(prompt)
+                .useLiteCodeModel()
+                .withMaxTokens(4096)
+            
+            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+            
+            return if (response != null) {
+                parseJsTsAnalysisResponse(unit, context, response)
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR calling LLM for JS/TS ${unit.getDescription()}: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    /**
+     * Parse LLM response for JS/TS analysis
+     */
+    private fun parseJsTsAnalysisResponse(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext,
+        response: String
+    ): List<MethodHealthResult> {
+        try {
+            val results = mutableListOf<MethodHealthResult>()
+            val gson = Gson()
+            
+            // Extract JSON content
+            val jsonStart = response.indexOf("{")
+            val jsonEnd = response.lastIndexOf("}")
+            if (jsonStart == -1 || jsonEnd == -1) return emptyList()
+            
+            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
+            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            val regionsArray = jsonObject.getAsJsonArray("regions")
+            
+            regionsArray?.forEach { element ->
+                val regionObject = element.asJsonObject
+                
+                val regionId = regionObject.get("regionId")?.asString ?: return@forEach
+                val summary = regionObject.get("summary")?.asString ?: "Analysis completed"
+                val healthScore = regionObject.get("healthScore")?.asInt ?: 85
+                
+                // Parse issues for this region
+                val issues = mutableListOf<HealthIssue>()
+                val issuesArray = regionObject.getAsJsonArray("issues")
+                
+                issuesArray?.forEach { issueElement ->
+                    val issueObject = issueElement.asJsonObject
+                    
+                    issues.add(HealthIssue(
+                        issueCategory = issueObject.get("category")?.asString ?: "Unknown",
+                        severity = issueObject.get("severity")?.asInt ?: 3,
+                        title = issueObject.get("title")?.asString ?: "Unknown Issue",
+                        description = issueObject.get("description")?.asString ?: "",
+                        impact = issueObject.get("impact")?.asString ?: "",
+                        suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
+                        confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
+                        verified = true, // Pre-verified for JS/TS
+                        verificationReason = "Verified through region analysis",
+                        codeSnippet = issueObject.get("codeSnippet")?.asString,
+                        callerSnippets = emptyList()
+                    ))
+                }
+                
+                // Find the region context
+                val regionContext = context.regionContexts.find { it.regionId == regionId }
+                val modificationCount = unit.methods.count { it == regionId }
+                
+                results.add(MethodHealthResult(
+                    fqn = regionId,
+                    issues = issues,
+                    impactedCallers = emptyList(), // JS/TS doesn't track callers
+                    healthScore = healthScore,
+                    modificationCount = modificationCount,
+                    codeContext = regionContext?.content ?: "",
+                    summary = summary
+                ))
+            }
+            
+            return results
+            
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] ERROR parsing JS/TS analysis response: ${e.message}")
+            e.printStackTrace()
+            return emptyList()
+        }
     }
     
     fun dispose() {

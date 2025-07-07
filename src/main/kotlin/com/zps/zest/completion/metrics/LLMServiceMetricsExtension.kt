@@ -1,16 +1,13 @@
 package com.zps.zest.completion.metrics
 
 import com.google.gson.Gson
-import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.ConfigurationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStreamWriter
-import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -27,7 +24,8 @@ suspend fun LLMService.sendInlineCompletionMetrics(
     completionId: String,
     elapsed: Long,
     completionContent: String? = null,
-    metadata: Map<String, Any>? = null
+    metadata: Map<String, Any>? = null,
+    enumUsage: String
 ): Boolean = withContext(Dispatchers.IO) {
     try {
         val configStatus = getConfigStatus()
@@ -52,7 +50,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         val requestBody = JsonObject().apply {
             addProperty("model", "local-model-mini")
             addProperty("stream", false)
-            addProperty("custom_tool", "Zest|INLINE_COMPLETION_LOGGING|$eventType")
+            addProperty("custom_tool", "Zest|$enumUsage|$eventType")
             addProperty("completion_id", completionId)
             add("messages", dummyMsg)
             addProperty("elapsed", elapsed)
@@ -80,9 +78,9 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             append(gson.toJson(requestBody).replace("'", "\\'"))
             append("'")
         }
-////        println("[ZestMetrics] Sending metric request:")
-////        println(curlCommand)
-////        println()
+        println("[ZestMetrics] Sending metric request with enumUsage: $enumUsage")
+        println(curlCommand)
+        println()
         
         // Send HTTP request
         val url = URL(apiUrl)
@@ -114,7 +112,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             val responseCode = connection.responseCode
             val success = responseCode in 200..299
             
-//            println("[ZestMetrics] Response code: $responseCode (success: $success)")
+            println("[ZestMetrics] Response code: $responseCode (success: $success)")
             
             // Read response body - use errorStream for non-2xx codes
             val responseBody = try {
@@ -131,9 +129,9 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                 "Error reading response: ${e.message}"
             }
             
-//            println("[ZestMetrics] Response body:")
-//            println(responseBody)
-//            println()
+            println("[ZestMetrics] Response body:")
+            println(responseBody)
+            println()
             
             success
         } finally {
@@ -142,7 +140,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         
     } catch (e: Exception) {
         // Log the error for debugging
-//        println("[ZestMetrics] Error sending metrics: ${e.message}")
+        println("[ZestMetrics] Error sending metrics: ${e.message}")
         e.printStackTrace()
         // Silently fail - metrics are non-critical
         false
@@ -152,7 +150,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
 /**
  * Convenience method to send a metric event
  */
-suspend fun LLMService.sendMetricEvent(event: MetricEvent): Boolean {
+suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): Boolean {
     val metadata = event.metadata
     
     val completionContent = when (event) {
@@ -166,7 +164,8 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent): Boolean {
         completionId = event.completionId,
         elapsed = event.elapsed,
         completionContent = completionContent,
-        metadata = metadata.takeIf { it.isNotEmpty() }
+        metadata = metadata.takeIf { it.isNotEmpty() },
+        enumUsage = enumUsage
     )
 }
 

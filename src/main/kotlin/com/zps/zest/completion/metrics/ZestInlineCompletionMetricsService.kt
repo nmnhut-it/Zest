@@ -21,7 +21,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     // Debug logging flag
-    private var debugLoggingEnabled = false
+    private var debugLoggingEnabled = true
     
     // Event queue for batching
     private val eventChannel = Channel<MetricEvent>(Channel.UNLIMITED)
@@ -413,6 +413,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             log("  - elapsed: ${event.elapsed}ms")
             when (event) {
                 is MetricEvent.Select -> log("  - content length: ${event.completionContent.length}")
+                is MetricEvent.Custom -> log("  - custom tool: ${event.customTool}")
                 else -> {}
             }
             
@@ -422,8 +423,23 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 .withMaxTokens(1) // Minimal tokens for metrics
                 .withMaxRetries(1) // Don't retry metrics too much
             
+            // Determine the enum usage based on event type
+            val enumUsage = when (event) {
+                is MetricEvent.Custom -> {
+                    // For custom events, extract the enum usage from the custom tool
+                    if (event.customTool.contains("CODE_HEALTH_LOGGING")) {
+                        "CODE_HEALTH_LOGGING"
+                    } else {
+                        "INLINE_COMPLETION_LOGGING"
+                    }
+                }
+                else -> "INLINE_COMPLETION_LOGGING"
+            }
+            
             // Send the metric using a custom API call
-            sendMetricToApi(requestBody, params)
+            sendMetricToApi(requestBody, params, enumUsage)
+            
+            log("Sent metric with enumUsage: $enumUsage")
             
             logger.debug("Sent metric event: ${event.eventType} for ${event.completionId}")
             
@@ -435,13 +451,13 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     /**
      * Send metric to API using LLMService infrastructure
      */
-    private fun sendMetricToApi(requestBody: Map<String, Any>, params: LLMService.LLMQueryParams) {
+    private fun sendMetricToApi(requestBody: Map<String, Any>, params: LLMService.LLMQueryParams, enumUsage: String) {
         // This is a fire-and-forget operation
         scope.launch {
             try {
                 // Use the extension method to send metrics
                 val event = createMetricEventFromRequest(requestBody)
-                llmService.sendMetricEvent(event)
+                llmService.sendMetricEvent(event, enumUsage)
             } catch (e: Exception) {
                 // Log but don't fail - metrics are non-critical
                 logger.debug("Metric submission failed", e)

@@ -743,7 +743,7 @@ public final class LLMService implements Disposable {
 
             // During office hours (8:30 AM - 5:30 PM), use local-model if available
             if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
-                this.model = "local-model";
+                this.model = "local-model-mini";
                 LOG.info("Within office hours (" + currentTime + "), using local-model for lite mode");
             } else {
                 // Outside office hours, use mini model

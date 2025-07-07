@@ -144,7 +144,7 @@ object CodeHealthNotification {
             // Send view event (report shown)
             metricsService.trackCustomEvent(
                 eventId = healthCheckId,
-                eventType = "CODE_HEALTH_LOGGING|show",
+                eventType = "CODE_HEALTH_LOGGING|response",
                 metadata = metadata
             )
             

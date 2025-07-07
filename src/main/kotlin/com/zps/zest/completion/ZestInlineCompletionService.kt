@@ -1823,7 +1823,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
 
     companion object {
-        private const val AUTO_TRIGGER_DELAY_MS = 30L // 30ms after user stops typing
+        private const val AUTO_TRIGGER_DELAY_MS = 100L // 30ms after user stops typing
 
         /**
          * Notify all active inline completion services that configuration has changed

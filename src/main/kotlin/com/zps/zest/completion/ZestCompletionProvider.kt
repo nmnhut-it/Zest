@@ -65,9 +65,36 @@ class ZestCompletionProvider(private val project: Project) {
         type: NotificationType = NotificationType.INFORMATION
     ) {
         if (debugLoggingEnabled) {
-            notificationGroup
-                .createNotification(title, content, type)
-                .notify(project)
+            // Update status bar instead of showing balloon
+            updateStatusBarText("$title: $content")
+        }
+    }
+    
+    /**
+     * Update status bar widget text
+     */
+    private fun updateStatusBarText(message: String) {
+        try {
+            ApplicationManager.getApplication().invokeLater {
+                val statusBar = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project)
+                statusBar?.info = message
+                
+                // Update the widget with specific status
+                try {
+                    val widget = com.intellij.openapi.wm.WindowManager.getInstance()
+                        .getStatusBar(project)
+                        ?.getWidget("ZestCompletionStatus")
+                    
+                    if (widget is com.zps.zest.completion.ui.ZestCompletionStatusBarWidget) {
+                        widget.updateDebugStatus(message)
+                    }
+                } catch (e: Exception) {
+                    // Widget might not be available yet
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback to console logging
+            log("Status: $message", "Widget")
         }
     }
 
@@ -256,6 +283,7 @@ class ZestCompletionProvider(private val project: Project) {
                 log("LLM response is NULL - timeout or cancelled", "Simple")
                 logger.debug("Completion request timed out or was cancelled")
                 showDebugBalloon("LLM Failed", "No response from LLM", NotificationType.WARNING)
+                updateStatusBarText("No completion available")
                 return null
             }
 
@@ -278,6 +306,7 @@ class ZestCompletionProvider(private val project: Project) {
                 log("WARNING: Cleaned completion is BLANK", "Simple")
                 logger.debug("No valid completion after parsing")
                 showDebugBalloon("Parse Failed", "No valid completion after parsing", NotificationType.WARNING)
+                updateStatusBarText("No completion available")
                 return null
             }
 
@@ -450,6 +479,7 @@ class ZestCompletionProvider(private val project: Project) {
 
             if (response == null) {
                 logger.debug("Lean completion request timed out or was cancelled")
+                updateStatusBarText("No completion available")
                 return null
             }
 
@@ -469,6 +499,7 @@ class ZestCompletionProvider(private val project: Project) {
 
             if (reasoningResult.completionText.isBlank()) {
                 logger.debug("No valid completion after lean parsing")
+                updateStatusBarText("No completion available")
                 return null
             }
 

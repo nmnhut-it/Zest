@@ -81,9 +81,36 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         type: NotificationType = NotificationType.INFORMATION
     ) {
         if (debugLoggingEnabled) {
-            notificationGroup
-                .createNotification(title, content, type)
-                .notify(project)
+            // Update status bar widget instead of showing balloon
+            updateStatusBarText("$title: $content")
+        }
+    }
+    
+    /**
+     * Update status bar widget text
+     */
+    private fun updateStatusBarText(message: String) {
+        try {
+            ApplicationManager.getApplication().invokeLater {
+                val statusBar = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project)
+                statusBar?.info = message
+                
+                // Update the widget with specific status
+                try {
+                    val widget = com.intellij.openapi.wm.WindowManager.getInstance()
+                        .getStatusBar(project)
+                        ?.getWidget("ZestCompletionStatus")
+                    
+                    if (widget is com.zps.zest.completion.ui.ZestCompletionStatusBarWidget) {
+                        widget.updateDebugStatus(message)
+                    }
+                } catch (e: Exception) {
+                    // Widget might not be available yet
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback to console logging if widget not available
+            log("Status: $message", "Widget")
         }
     }
 
@@ -420,6 +447,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             "Calling ${completionProvider.strategy} provider",
                             NotificationType.INFORMATION
                         )
+                        updateStatusBarText("Requesting completion...")
 
                         val startTime = System.currentTimeMillis()
                         val completions = completionProvider.requestCompletion(context, requestId, completionId)
@@ -439,6 +467,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         if (completions == null) {
                             log("Provider returned NULL completions!", "Provider")
                             showDebugBalloon("No Completion", "Provider returned null", NotificationType.WARNING)
+                            updateStatusBarText("No completion available")
                         } else if (completions.isEmpty()) {
                             log("Provider returned EMPTY completions!", "Provider")
                             showDebugBalloon(
@@ -446,6 +475,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 "Provider returned empty list",
                                 NotificationType.WARNING
                             )
+                            updateStatusBarText("No completion available")
                         }
 
                         // Track completion completed (response received)
@@ -851,6 +881,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
         clearCurrentCompletion()
         showDebugBalloon("Dismissed", "Completion dismissed", NotificationType.INFORMATION)
+        updateStatusBarText("") // Clear status bar
     }
 
     /**
@@ -1055,6 +1086,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 log("No completions available (null: ${completions == null})", "Response")
                 logger.debug("No completions available")
                 showDebugBalloon("No Completion", "No suggestions available", NotificationType.WARNING)
+                updateStatusBarText("No completion available")
                 return
             }
 
@@ -1199,6 +1231,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
             project.messageBus.syncPublisher(Listener.TOPIC).completionAccepted(AcceptType.FULL_COMPLETION)
             showDebugBalloon("Accepted", "Completion accepted ($acceptType)", NotificationType.INFORMATION)
+            updateStatusBarText("") // Clear status bar after acceptance
 
             // NEW: Schedule next completion for full acceptance (not line-by-line)
             val shouldTriggerNext = continuousCompletionEnabled && when {

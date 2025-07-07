@@ -45,6 +45,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         private val ICON_ACCEPTING = AllIcons.Process.Step_2 // Another process icon for accepting
         private val ICON_IDLE = AllIcons.General.InspectionsOK // Green check for idle
         private val ICON_ERROR = AllIcons.General.Error // Red error icon
+        private val ICON_WARNING = AllIcons.General.Warning // Yellow warning icon
 
         // Method rewrite specific icons
         private val ICON_METHOD_ANALYZING = AllIcons.Process.Step_3 // Brain icon for analyzing
@@ -61,6 +62,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
 
     enum class CompletionState(val displayText: String, val icon: Icon, val tooltip: String) {
         REQUESTING("⏳ Requesting...", ICON_REQUESTING, "Zest completion is being requested from AI"),
+        LLM_RESPONDING("🤖 LLM Responding...", ICON_REQUESTING, "Receiving response from AI model"),
+        PARSING("🔍 Parsing...", ICON_REQUESTING, "Parsing AI response"),
+        RESPONSE_EMPTY("❌ Empty Response", ICON_ERROR, "AI returned empty response"),
+        NO_COMPLETION("⚠️ No Completion", ICON_WARNING, "No valid completion after parsing"),
+        CACHE_HIT("💾 From Cache", ICON_WAITING, "Using cached completion"),
         WAITING("💡 Ready", ICON_WAITING, "Zest completion is ready - press Tab to accept"),
         ACCEPTING("⚡ Accepting...", ICON_ACCEPTING, "Zest completion is being accepted"),
         IDLE("💤 Idle", ICON_IDLE, "Zest completion is idle - ready for new requests"),
@@ -97,9 +103,13 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 "Completion: ${currentCompletionState.tooltip}"
             }
 
-            val statusInfo = if (methodRewriteStatus.isNotEmpty()) {
-                "\nStatus: $methodRewriteStatus"
-            } else ""
+            val statusInfo = if (methodRewriteStatus.isNotEmpty() && !methodRewriteStatus.contains(":")) {
+                "\nLast Event: $methodRewriteStatus"
+            } else if (methodRewriteStatus.contains(":")) {
+                "\n$methodRewriteStatus"
+            } else {
+                ""
+            }
 
             val strategy = "\nStrategy: ${getStrategyName()}"
             
@@ -346,7 +356,67 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     }
 
     /**
-     * Update method rewrite state and optionally clear completion state focus
+     * Update status with specific debug message
+     * This is called from the completion service to show detailed status
+     */
+    fun updateDebugStatus(message: String) {
+        ApplicationManager.getApplication().invokeLater {
+            // Parse the message to determine the appropriate state
+            when {
+                message.contains("LLM Query:", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.REQUESTING)
+                }
+                message.contains("LLM Response:", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.LLM_RESPONDING)
+                }
+                message.contains("Parsing", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.PARSING)
+                }
+                message.contains("No response", ignoreCase = true) || 
+                message.contains("returned null", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.RESPONSE_EMPTY)
+                }
+                message.contains("Empty Completion", ignoreCase = true) || 
+                message.contains("returned empty", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.RESPONSE_EMPTY)
+                }
+                message.contains("No Completion", ignoreCase = true) || 
+                message.contains("No suggestions", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.NO_COMPLETION)
+                }
+                message.contains("Parse Failed", ignoreCase = true) || 
+                message.contains("No valid completion", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.NO_COMPLETION)
+                }
+                message.contains("Cache Hit", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.CACHE_HIT)
+                }
+                message.contains("Completion Ready", ignoreCase = true) || 
+                message.contains("Press Tab", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.WAITING)
+                }
+                message.contains("Rate Limited", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.RATE_LIMITED)
+                }
+                message.contains("Error", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.ERROR)
+                }
+                message.contains("Accepted", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.ACCEPTING)
+                }
+                message.contains("Dismissed", ignoreCase = true) || 
+                message.contains("State Refreshed", ignoreCase = true) -> {
+                    updateCompletionState(CompletionState.IDLE)
+                }
+            }
+            
+            // Store the full message for tooltip
+            methodRewriteStatus = message
+        }
+    }
+    
+    /**
+     * Show method rewrite state and optionally clear completion state focus
      */
     fun updateMethodRewriteState(newState: MethodRewriteState, status: String = "") {
         logger.info("Method rewrite state: ${newState.displayText} - $status")
@@ -414,6 +484,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         } else {
             when (currentCompletionState) {
                 CompletionState.REQUESTING -> "Zest: ⏳ Requesting..."
+                CompletionState.LLM_RESPONDING -> "Zest: 🤖 LLM Responding..."
+                CompletionState.PARSING -> "Zest: 🔍 Parsing..."
+                CompletionState.RESPONSE_EMPTY -> "Zest: ❌ Empty Response"
+                CompletionState.NO_COMPLETION -> "Zest: ⚠️ No Completion"
+                CompletionState.CACHE_HIT -> "Zest: 💾 From Cache"
                 CompletionState.WAITING -> "Zest: 💡 Ready"
                 CompletionState.ACCEPTING -> "Zest: ⚡ Accepting..."
                 CompletionState.IDLE -> "Zest" // Just "Zest" when idle/waiting for timer

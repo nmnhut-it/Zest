@@ -539,31 +539,72 @@ public class ClassAnalyzer {
             }
         }
         context.append(" {\n");
-
-        // Add constructors
-        for (PsiMethod constructor : cls.getConstructors()) {
-            if (constructor.hasModifierProperty(PsiModifier.PUBLIC) ||
-                    constructor.hasModifierProperty(PsiModifier.PROTECTED)) {
+        
+        // Add fields
+        PsiField[] fields = cls.getFields();
+        if (fields.length > 0) {
+            context.append("    // Fields\n");
+            for (PsiField field : fields) {
+                // Skip synthetic fields
+                if (field.getName().contains("$")) continue;
+                
                 context.append("    ");
-                if (constructor.hasModifierProperty(PsiModifier.PUBLIC)) context.append("public ");
-                if (constructor.hasModifierProperty(PsiModifier.PROTECTED)) context.append("protected ");
-                context.append(cls.getName()).append("(");
-
-                PsiParameter[] parameters = constructor.getParameterList().getParameters();
-                for (int i = 0; i < parameters.length; i++) {
-                    PsiParameter param = parameters[i];
-                    context.append(param.getType().getPresentableText())
-                            .append(" ")
-                            .append(param.getName());
-                    if (i < parameters.length - 1) {
-                        context.append(", ");
+                
+                // Add modifiers
+                if (field.hasModifierProperty(PsiModifier.PUBLIC)) context.append("public ");
+                if (field.hasModifierProperty(PsiModifier.PROTECTED)) context.append("protected ");
+                if (field.hasModifierProperty(PsiModifier.PRIVATE)) context.append("private ");
+                if (field.hasModifierProperty(PsiModifier.STATIC)) context.append("static ");
+                if (field.hasModifierProperty(PsiModifier.FINAL)) context.append("final ");
+                
+                // Add type and name
+                PsiType fieldType = field.getType();
+                context.append(fieldType.getPresentableText()).append(" ");
+                context.append(field.getName());
+                
+                // Add initializer if it's a constant
+                if (field.hasModifierProperty(PsiModifier.FINAL) && field.hasModifierProperty(PsiModifier.STATIC)) {
+                    PsiExpression initializer = field.getInitializer();
+                    if (initializer != null && initializer instanceof PsiLiteralExpression) {
+                        context.append(" = ").append(initializer.getText());
                     }
                 }
-                context.append(");\n");
+                
+                context.append(";\n");
             }
+            context.append("\n");
+        }
+
+        // Add constructors
+        PsiMethod[] constructors = cls.getConstructors();
+        if (constructors.length > 0) {
+            context.append("    // Constructors\n");
+            for (PsiMethod constructor : constructors) {
+                if (constructor.hasModifierProperty(PsiModifier.PUBLIC) ||
+                        constructor.hasModifierProperty(PsiModifier.PROTECTED)) {
+                    context.append("    ");
+                    if (constructor.hasModifierProperty(PsiModifier.PUBLIC)) context.append("public ");
+                    if (constructor.hasModifierProperty(PsiModifier.PROTECTED)) context.append("protected ");
+                    context.append(cls.getName()).append("(");
+
+                    PsiParameter[] parameters = constructor.getParameterList().getParameters();
+                    for (int i = 0; i < parameters.length; i++) {
+                        PsiParameter param = parameters[i];
+                        context.append(param.getType().getPresentableText())
+                                .append(" ")
+                                .append(param.getName());
+                        if (i < parameters.length - 1) {
+                            context.append(", ");
+                        }
+                    }
+                    context.append(");\n");
+                }
+            }
+            context.append("\n");
         }
 
         // Add public method signatures
+        context.append("    // Methods\n");
         for (PsiMethod method : cls.getMethods()) {
             if (!method.isConstructor() && method.hasModifierProperty(PsiModifier.PUBLIC)) {
                 context.append("    ");

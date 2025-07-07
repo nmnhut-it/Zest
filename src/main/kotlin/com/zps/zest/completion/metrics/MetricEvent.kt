@@ -12,7 +12,7 @@ sealed class MetricEvent {
     /**
      * Convert the event to an API request format
      */
-    fun toApiRequest(): Map<String, Any> {
+    open fun toApiRequest(): Map<String, Any> {
         val baseRequest = mutableMapOf<String, Any>(
             "model" to "local-model-mini",
             "stream" to false,
@@ -25,6 +25,10 @@ sealed class MetricEvent {
         when (this) {
             is Select -> baseRequest["completion_content"] = completionContent
             is CompletionResponse -> baseRequest["completion_content"] = completionContent
+            is Custom -> {
+                // For custom events, use the custom tool string
+                baseRequest["custom_tool"] = customTool
+            }
             else -> { /* No additional fields for other events */ }
         }
         
@@ -114,20 +118,6 @@ sealed class MetricEvent {
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
         override val eventType = customTool.substringAfterLast("|")
-        
-        override fun toApiRequest(): Map<String, Any> {
-            return mutableMapOf<String, Any>(
-                "model" to "local-model-mini",
-                "stream" to false,
-                "custom_tool" to customTool,
-                "completion_id" to completionId,
-                "elapsed" to elapsed
-            ).apply {
-                if (metadata.isNotEmpty()) {
-                    this["metadata"] = metadata
-                }
-            }
-        }
     }
 }
 

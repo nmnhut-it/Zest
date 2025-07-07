@@ -8,15 +8,20 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
+import javax.swing.event.HyperlinkEvent
+import javax.swing.event.HyperlinkListener
 
 /**
  * Code Health notification system with HTML/CSS-based UI
@@ -39,49 +44,64 @@ object CodeHealthNotification {
 
         println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
 
-        // Only show balloon notification if there are critical issues
-        if (criticalIssues > 0) {
-            val title = "🚨 Zest Guardian Alert: Critical Risk Detected"
-            val content = "🔥 $criticalIssues Critical Risks - Fix Now to Prevent Crashes"
-            
-            val notification = NotificationGroupManager.getInstance()
-                .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                .createNotification(title, content, NotificationType.ERROR)
-                .addAction(object : AnAction("🚀 Fix Now") {
-                    override fun actionPerformed(e: AnActionEvent) {
-                        println("[CodeHealthNotification] User clicked View Details")
-                        
-                        // Track user viewing details
-                        sendHealthCheckViewMetrics(project, results, criticalIssues)
-                        
-                        showDetailedReport(project, results)
-                    }
-                })
-            
-            notification.notify(project)
-        } else if (totalIssues > 0) {
-            // For non-critical issues, just update status bar without balloon
-            println("[CodeHealthNotification] Non-critical issues found, status bar updated")
-            
-            // Optionally show a subtle notification that auto-dismisses quickly
-            if (totalIssues > 5) {
+        // Show notification based on issue severity
+        when {
+            criticalIssues > 0 -> {
+                val title = "🚨 Zest Guardian Alert: Critical Risk Detected"
+                val content = "🔥 $criticalIssues Critical Risks - Fix Now to Prevent Crashes"
+                
+                val notification = NotificationGroupManager.getInstance()
+                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                    .createNotification(title, content, NotificationType.ERROR)
+                    .addAction(object : AnAction("🚀 Fix Now") {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            println("[CodeHealthNotification] User clicked View Details")
+                            
+                            // Track user viewing details
+                            sendHealthCheckViewMetrics(project, results, criticalIssues)
+                            
+                            showDetailedReport(project, results)
+                        }
+                    })
+                
+                notification.notify(project)
+            }
+            totalIssues > 0 -> {
+                // For non-critical issues, show notification with view details option
+                println("[CodeHealthNotification] Non-critical issues found")
+                
+                val title = "⚡ Zest Code Guardian"
+                val content = "💡 $totalIssues ${if (totalIssues == 1) "Issue" else "Issues"} Found - Quick Wins Available"
+                
+                val notification = NotificationGroupManager.getInstance()
+                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                    .createNotification(title, content, NotificationType.WARNING)
+                    .addAction(object : AnAction("👀 View Details") {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            println("[CodeHealthNotification] User clicked View Details for warnings")
+                            
+                            // Track user viewing details
+                            sendHealthCheckViewMetrics(project, results, 0)
+                            
+                            showDetailedReport(project, results)
+                        }
+                    })
+                
+                notification.notify(project)
+            }
+            else -> {
+                // No issues found
+                println("[CodeHealthNotification] No issues found")
+                
                 val notification = NotificationGroupManager.getInstance()
                     .getNotificationGroup(NOTIFICATION_GROUP_ID)
                     .createNotification(
-                        "⚡ Zest Code Guardian",
-                        "💡 $totalIssues Quick Wins Found - 5 Min to Review",
-                        NotificationType.WARNING
+                        "✨ Zest Code Guardian",
+                        "🏆 Your code is clean - no issues detected!",
+                        NotificationType.INFORMATION
                     )
                 
                 notification.notify(project)
-                
-                // Auto-expire after 3 seconds
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    Thread.sleep(3000)
-                    ApplicationManager.getApplication().invokeLater {
-                        notification.expire()
-                    }
-                }
             }
         }
         
@@ -118,7 +138,6 @@ object CodeHealthNotification {
                 "total_issues" to totalIssues,
                 "methods_analyzed" to results.size,
                 "average_health_score" to averageScore,
-                "timestamp" to System.currentTimeMillis(),
                 "issues_by_category" to issuesByCategory
             )
             
@@ -212,6 +231,22 @@ object CodeHealthNotification {
                 text = htmlContent
                 isEditable = false
                 caretPosition = 0
+                
+                // Add hyperlink listener for "Fix now" links
+                addHyperlinkListener(object : HyperlinkListener {
+                    override fun hyperlinkUpdate(e: HyperlinkEvent) {
+                        println("[CodeHealthNotification] Hyperlink event: ${e.eventType}, URL: ${e.url}, Description: ${e.description}")
+                        
+                        if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+                            val url = e.description ?: e.url?.toString() ?: return
+                            println("[CodeHealthNotification] Hyperlink activated: $url")
+                            
+                            if (url.startsWith("fix://")) {
+                                handleFixNowClick(url)
+                            }
+                        }
+                    }
+                })
             }
             
             val scrollPane = JBScrollPane(editorPane).apply {
@@ -240,6 +275,237 @@ object CodeHealthNotification {
             panel.add(buttonPanel, BorderLayout.SOUTH)
             
             return panel
+        }
+        
+        /**
+         * Handle "Fix now" button clicks
+         */
+        private fun handleFixNowClick(url: String) {
+            println("[CodeHealthNotification] handleFixNowClick called with URL: $url")
+            
+            try {
+                // Extract issue ID from URL (format: fix://resultIndex_issueIndex)
+                val issueId = url.removePrefix("fix://")
+                println("[CodeHealthNotification] Extracted issue ID: $issueId")
+                
+                val parts = issueId.split("_")
+                if (parts.size != 2) {
+                    println("[CodeHealthNotification] Invalid issue ID format: $issueId")
+                    return
+                }
+                
+                val resultIndex = parts[0].toIntOrNull() ?: run {
+                    println("[CodeHealthNotification] Invalid result index: ${parts[0]}")
+                    return
+                }
+                val issueIndex = parts[1].toIntOrNull() ?: run {
+                    println("[CodeHealthNotification] Invalid issue index: ${parts[1]}")
+                    return
+                }
+                
+                println("[CodeHealthNotification] Result index: $resultIndex, Issue index: $issueIndex")
+                
+                // Get the specific issue
+                if (resultIndex >= results.size) {
+                    println("[CodeHealthNotification] Result index out of bounds: $resultIndex >= ${results.size}")
+                    return
+                }
+                val result = results[resultIndex]
+                val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                if (issueIndex >= verifiedIssues.size) {
+                    println("[CodeHealthNotification] Issue index out of bounds: $issueIndex >= ${verifiedIssues.size}")
+                    return
+                }
+                
+                val issue = verifiedIssues.sortedByDescending { it.severity }[issueIndex]
+                println("[CodeHealthNotification] Found issue: ${issue.title}")
+                
+                // Generate fix prompt
+                val fixPrompt = generateFixPrompt(result, issue)
+                println("[CodeHealthNotification] Generated fix prompt (${fixPrompt.length} chars)")
+                
+                // Send to chat box
+                sendPromptToChatBox(fixPrompt, result.fqn, issue)
+                
+                // Track metrics
+                trackFixNowClick(issue)
+                
+                // Close the dialog
+                println("[CodeHealthNotification] Closing dialog")
+                close(OK_EXIT_CODE)
+                
+            } catch (e: Exception) {
+                println("[CodeHealthNotification] Error handling fix click: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+        
+        /**
+         * Generate a prompt for fixing a specific issue
+         */
+        private fun generateFixPrompt(result: CodeHealthAnalyzer.MethodHealthResult, issue: CodeHealthAnalyzer.HealthIssue): String {
+            // Determine file type from FQN or context
+            val isJsTsFile = result.fqn.contains(".js:") || result.fqn.contains(".ts:") || 
+                           result.fqn.contains(".jsx:") || result.fqn.contains(".tsx:") ||
+                           result.fqn.contains(".mjs:") || result.fqn.contains(".mts:")
+            
+            val isCocosFile = result.codeContext.contains("cc.") || 
+                            result.codeContext.contains("cocos2d") ||
+                            result.fqn.contains("cocos")
+            
+            val language = when {
+                result.fqn.contains(".ts:") || result.fqn.contains(".tsx:") || result.fqn.contains(".mts:") -> "typescript"
+                result.fqn.contains(".js:") || result.fqn.contains(".jsx:") || result.fqn.contains(".mjs:") -> if (isCocosFile) "cocos2d-x-js" else "javascript"
+                result.fqn.endsWith(".java") || result.fqn.contains(".java.") -> "java"
+                result.fqn.endsWith(".kt") || result.fqn.contains(".kt.") -> "kotlin"
+                else -> "java" // default
+            }
+            
+            return buildString {
+                appendLine("Please help me fix this code issue detected by Code Guardian:")
+                appendLine()
+                
+                if (isJsTsFile) {
+                    // For JS/TS files, the FQN is in format: filename:line-range
+                    appendLine("**File:** `${result.fqn.substringBefore(":")}`")
+                    val lineRange = result.fqn.substringAfter(":")
+                    appendLine("**Location:** Lines $lineRange")
+                    
+                    if (isCocosFile) {
+                        appendLine("**Framework:** Cocos2d-x JavaScript")
+                        appendLine()
+                        appendLine("**Important:** Use OLD VERSION cocos2d-x-js syntax:")
+                        appendLine("- Use `cc.Node()` instead of `cc.Node.create()`")
+                        appendLine("- Use `cc.Sprite()` instead of `cc.Sprite.create()`")
+                        appendLine("- Use `.extend()` pattern for class inheritance")
+                        appendLine("- Use object literal methods: `methodName: function() {...}`")
+                    }
+                } else {
+                    // For Java/Kotlin, it's a method FQN
+                    appendLine("**Method:** `${result.fqn}`")
+                }
+                
+                appendLine()
+                appendLine("**Issue Type:** ${issue.issueCategory}")
+                appendLine("**Severity:** ${issue.severity}/5")
+                appendLine("**Title:** ${issue.title}")
+                appendLine()
+                appendLine("**Description:** ${issue.description}")
+                appendLine()
+                appendLine("**Impact if not fixed:** ${issue.impact}")
+                appendLine()
+                appendLine("**Suggested fix:** ${issue.suggestedFix}")
+                appendLine()
+                
+                if (result.codeContext.isNotBlank()) {
+                    appendLine("**Current code:**")
+                    appendLine("```$language")
+                    appendLine(result.codeContext)
+                    appendLine("```")
+                    appendLine()
+                }
+                
+                if (issue.codeSnippet != null && issue.codeSnippet.isNotBlank()) {
+                    appendLine("**Problematic code snippet:**")
+                    appendLine("```$language")
+                    appendLine(issue.codeSnippet)
+                    appendLine("```")
+                    appendLine()
+                }
+                
+                if (issue.lineNumbers.isNotEmpty()) {
+                    appendLine("**Affected lines:** ${issue.lineNumbers.joinToString(", ")}")
+                    appendLine()
+                }
+                
+                if (!isJsTsFile && issue.callerSnippets.isNotEmpty()) {
+                    // Caller snippets are only available for Java/Kotlin
+                    appendLine("**Example usage in callers:**")
+                    issue.callerSnippets.take(2).forEach { snippet ->
+                        appendLine("- Called by `${snippet.callerFqn}`: ${snippet.context}")
+                    }
+                    appendLine()
+                }
+                
+                appendLine("Please provide the fixed code with explanations of the changes made.")
+            }
+        }
+        
+        /**
+         * Send the fix prompt to chat box
+         */
+        private fun sendPromptToChatBox(prompt: String, methodFqn: String, issue: CodeHealthAnalyzer.HealthIssue) {
+            println("[CodeHealthNotification] Sending fix prompt to chat box for: $methodFqn - ${issue.title}")
+            
+            // Check if it's a Cocos2d-x file
+            val isCocosFile = prompt.contains("cocos2d-x") || prompt.contains("cc.") || methodFqn.contains("cocos")
+            
+            // Determine the language from the FQN
+            val language = when {
+                isCocosFile -> "Cocos2d-x JavaScript"
+                methodFqn.contains(".ts:") || methodFqn.contains(".tsx:") || methodFqn.contains(".mts:") -> "TypeScript"
+                methodFqn.contains(".js:") || methodFqn.contains(".jsx:") || methodFqn.contains(".mjs:") -> "JavaScript"
+                methodFqn.endsWith(".java") || methodFqn.contains(".java.") -> "Java"
+                methodFqn.endsWith(".kt") || methodFqn.contains(".kt.") -> "Kotlin"
+                else -> "code"
+            }
+            
+            val systemPrompt = if (isCocosFile) {
+                "You are a helpful AI assistant that fixes Cocos2d-x JavaScript code issues. " +
+                "Always use OLD VERSION cocos2d-x-js syntax: use cc.Node() instead of cc.Node.create(), " +
+                "use cc.Sprite() instead of cc.Sprite.create(), use .extend() pattern for class inheritance. " +
+                "Focus on the specific issue described and provide clear, working code as the solution. " +
+                "Explain what changes you made and why they fix the issue."
+            } else {
+                "You are a helpful AI assistant that fixes $language code issues. " +
+                "Focus on the specific issue described and provide clear, working code as the solution. " +
+                "Explain what changes you made and why they fix the issue."
+            }
+            
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat")
+            if (toolWindow != null) {
+                ApplicationManager.getApplication().invokeLater {
+                    toolWindow.activate {
+                        // Click new chat button first
+                        ChatboxUtilities.clickNewChatButton(project)
+                        
+                        // Send the prompt and submit
+                        ChatboxUtilities.sendTextAndSubmit(
+                            project, 
+                            prompt, 
+                            true, 
+                            systemPrompt,
+                            false, 
+                            ChatboxUtilities.EnumUsage.CODE_HEALTH
+                        )
+                    }
+                }
+            }
+        }
+        
+        /**
+         * Track metrics for fix now click
+         */
+        private fun trackFixNowClick(issue: CodeHealthAnalyzer.HealthIssue) {
+            try {
+                val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
+                
+                val metadata = mapOf(
+                    "issue_category" to issue.issueCategory,
+                    "severity" to issue.severity,
+                    "issue_title" to issue.title,
+                    "user_action" to "fix_now_clicked"
+                )
+                
+                metricsService.trackCustomEvent(
+                    eventId = "health_fix_${System.currentTimeMillis()}",
+                    eventType = "CODE_HEALTH_LOGGING|fix",
+                    metadata = metadata
+                )
+                
+            } catch (e: Exception) {
+                println("[CodeHealthNotification] Failed to track fix click: ${e.message}")
+            }
         }
 
         private fun generateHtmlReport(): String {
@@ -386,6 +652,16 @@ object CodeHealthNotification {
                         text-align: right;
                         font-weight: bold;
                     }
+                    
+                    a {
+                        color: ${if (isDarkTheme) "#6897bb" else "#2470b3"};
+                        text-decoration: none;
+                        font-weight: bold;
+                    }
+                    
+                    a:hover {
+                        text-decoration: underline;
+                    }
                 </style>
                 </head>
                 <body>
@@ -444,7 +720,10 @@ object CodeHealthNotification {
                                         Found: ${verifiedIssues.size} issues
                                     </div>
                                     
-                                    ${verifiedIssues.sortedByDescending { it.severity }.joinToString("") { issue ->
+                                    ${verifiedIssues.sortedByDescending { it.severity }.mapIndexed { issueIndex, issue ->
+                                        // Create a unique ID for this issue
+                                        val issueId = "${results.indexOf(result)}_$issueIndex"
+                                        
                                         """
                                         <div class="issue">
                                             <div class="issue-header">
@@ -469,9 +748,13 @@ object CodeHealthNotification {
                                                 <span class="label">How to fix:</span><br/>
                                                 ${escapeHtml(issue.suggestedFix)}
                                             </div>
+                                            
+                                            <div style="text-align: right; margin-top: 10px;">
+                                                <b><a href="fix://$issueId" style="color: ${if (isDarkTheme) "#4a9eff" else "#0066cc"}; font-size: 14px;">🔧 Fix now with AI</a></b>
+                                            </div>
                                         </div>
                                         """.trimIndent()
-                                    }}
+                                    }.joinToString("")}
                                 </div>
                                 """.trimIndent()
                             }}

@@ -353,12 +353,20 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     }
     
     /**
-     * Track custom events (like Code Health metrics)
+     * Update the actual model for a completion session
      */
+    fun updateSessionModel(completionId: String, actualModel: String) {
+        activeCompletions[completionId]?.let { session ->
+            // Create a new session with updated model (since it's a data class)
+            val updatedSession = session.copy(actualModel = actualModel)
+            activeCompletions[completionId] = updatedSession
+            log("Updated session model for $completionId to $actualModel")
+        }
+    }
     fun trackCustomEvent(
         eventId: String,
         eventType: String,
-        actualModel: String = "local-model-mini",
+        actualModel: String ,
         metadata: Map<String, Any> = emptyMap()
     ) {
         if (!isEnabled.get()) return
@@ -422,17 +430,12 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             log("Processing event: ${event.eventType}")
             log("  - completionId: ${event.completionId}")
             log("  - elapsed: ${event.elapsed}ms")
+            log("  - actualModel: ${event.actualModel}")
             when (event) {
                 is MetricEvent.Select -> log("  - content length: ${event.completionContent.length}")
                 is MetricEvent.Custom -> log("  - custom tool: ${event.customTool}")
                 else -> {}
             }
-            
-            // Create a minimal LLM query params for metrics
-            val params = LLMService.LLMQueryParams("")
-                .withModel("local-model-mini")
-                .withMaxTokens(1) // Minimal tokens for metrics
-                .withMaxRetries(1) // Don't retry metrics too much
             
             // Determine the enum usage based on event type
             val enumUsage = when (event) {
@@ -447,10 +450,10 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 else -> "INLINE_COMPLETION_LOGGING"
             }
             
-            // Send the metric using a custom API call
-            sendMetricToApi(requestBody, params, enumUsage)
+            // Send the metric using the extension method
+            sendMetricToApi(requestBody, enumUsage)
             
-            log("Sent metric with enumUsage: $enumUsage")
+            log("Sent metric with enumUsage: $enumUsage and actualModel: ${event.actualModel}")
             
             logger.debug("Sent metric event: ${event.eventType} for ${event.completionId}")
             
@@ -462,7 +465,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     /**
      * Send metric to API using LLMService infrastructure
      */
-    private fun sendMetricToApi(requestBody: Map<String, Any>, params: LLMService.LLMQueryParams, enumUsage: String) {
+    private fun sendMetricToApi(requestBody: Map<String, Any>, enumUsage: String) {
         // This is a fire-and-forget operation
         scope.launch {
             try {

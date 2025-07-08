@@ -290,7 +290,8 @@ public final class LLMService implements Disposable {
             String authToken, 
             LLMQueryParams params, 
             ChatboxUtilities.EnumUsage enumUsage) {
-        
+        apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+        authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
         long startTime = System.currentTimeMillis();
         connectionStats.incrementRequests();
 
@@ -319,6 +320,7 @@ public final class LLMService implements Disposable {
         HttpRequest request = requestBuilder.build();
 
         // Send request asynchronously
+        String finalApiUrl = apiUrl;
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(response -> {
                 long elapsed = System.currentTimeMillis() - startTime;
@@ -340,7 +342,7 @@ public final class LLMService implements Disposable {
                 }
 
                 try {
-                    return parseResponse(response.body(), apiUrl);
+                    return parseResponse(response.body(), finalApiUrl);
                 } catch (IOException e) {
                     throw new CompletionException(e);
                 }
@@ -351,7 +353,10 @@ public final class LLMService implements Disposable {
      * Executes the actual HTTP request to the LLM API (original implementation).
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
+        apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
         URL url = new URL(apiUrl);
+        authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+
         long elapsed = System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -592,6 +597,7 @@ public final class LLMService implements Disposable {
     private boolean isOpenWebUIApi(String apiUrl) {
         return apiUrl.contains("openwebui") ||
                 apiUrl.contains("chat.zingplay") ||
+                apiUrl.contains("litellm.zingplay") ||
                 apiUrl.contains("talk.zingplay");
     }
 

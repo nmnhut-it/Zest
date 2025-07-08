@@ -100,7 +100,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         val healthScore: Int,
         val modificationCount: Int,
         val codeContext: String = "",
-        val summary: String = ""  // Overall method health summary
+        val summary: String = "",  // Overall method health summary
+        val actualModel: String = "local-model-mini"  // Model used for analysis
     )
 
     /**
@@ -224,7 +225,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     ) {
         if (method.fqn.isBlank()) {
             println("[CodeHealthAnalyzer] WARNING: Skipping method with empty FQN")
-            onComplete(createFallbackResult("", "", emptyList(), method.modificationCount))
+            onComplete(createFallbackResult("", "", emptyList(), method.modificationCount, "local-model-mini"))
             return
         }
         
@@ -258,7 +259,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 if (context.isEmpty() || context.contains("Method not found")) {
                     println("[CodeHealthAnalyzer] WARNING: No context found for ${method.fqn}")
-                    onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount))
+                    onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount, "local-model-mini"))
                     return@executeOnPooledThread
                 }
                 
@@ -318,7 +319,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             } catch (e: Exception) {
                 println("[CodeHealthAnalyzer] ERROR analyzing ${method.fqn}: ${e.message}")
                 e.printStackTrace()
-                onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
+                onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount, "local-model-mini"))
             }
         }
     }
@@ -341,7 +342,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         val parts = method.fqn.split(":")
         if (parts.size != 2) {
             println("[CodeHealthAnalyzer] Invalid JS/TS region format: ${method.fqn}")
-            onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
+            onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount, "local-model-mini"))
             return
         }
         
@@ -396,6 +397,10 @@ class CodeHealthAnalyzer(private val project: Project) {
                     .withMaxTokens(4096)
                     .withTemperature(0.3)
                 
+                // Track the actual model being used
+                val actualModel = params.getModel()
+                println("[CodeHealthAnalyzer] Using model: $actualModel for ${method.fqn}")
+                
                 // Create a future with timeout
                 val future = CompletableFuture.supplyAsync({
                     llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
@@ -413,7 +418,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 if (response != null) {
                     println("[CodeHealthAnalyzer] LLM succeeded on attempt $attempt in ${elapsed}ms for ${method.fqn}")
                     llmRateLimiter.recordSuccess()
-                    return parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response)
+                    return parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response, actualModel)
                 } else {
                     println("[CodeHealthAnalyzer] LLM returned null on attempt $attempt for ${method.fqn}")
                     lastException = Exception("LLM returned null response")
@@ -445,7 +450,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             healthScore = 85, // Conservative score when analysis fails
             modificationCount = method.modificationCount,
             codeContext = context,
-            summary = "Analysis failed: ${lastException?.message ?: "Unknown error"}"
+            summary = "Analysis failed: ${lastException?.message ?: "Unknown error"}",
+            actualModel = "local-model-mini" // Default model when analysis fails
         )
     }
 
@@ -504,7 +510,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         callers: List<String>,
         callerSnippets: List<CallerSnippet>,
         modificationCount: Int,
-        llmResponse: String
+        llmResponse: String,
+        actualModel: String
     ): MethodHealthResult {
         return try {
             val gson = Gson()
@@ -513,7 +520,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             val jsonStart = llmResponse.indexOf("{")
             val jsonEnd = llmResponse.lastIndexOf("}")
             if (jsonStart == -1 || jsonEnd == -1) {
-                return createFallbackResult(fqn, context, callers, modificationCount)
+                return createFallbackResult(fqn, context, callers, modificationCount, actualModel)
             }
             
             val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
@@ -572,12 +579,13 @@ class CodeHealthAnalyzer(private val project: Project) {
                 healthScore = healthScore,
                 modificationCount = modificationCount,
                 codeContext = context,
-                summary = summary
+                summary = summary,
+                actualModel = actualModel
             )
         } catch (e: Exception) {
             println("[CodeHealthAnalyzer] Error parsing detection response: ${e.message}")
             e.printStackTrace()
-            createFallbackResult(fqn, context, callers, modificationCount)
+            createFallbackResult(fqn, context, callers, modificationCount, actualModel)
         }
     }
 
@@ -601,6 +609,10 @@ class CodeHealthAnalyzer(private val project: Project) {
                 .useLiteCodeModel()
                 .withMaxTokens(2048)
                 .withTemperature(0.1) // Lower temperature for more consistent verification
+            
+            // Track the actual model
+            val actualModel = params.getModel()
+            println("[CodeHealthAnalyzer] Using model for verification: $actualModel")
             
             val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
             val elapsed = System.currentTimeMillis() - startTime
@@ -706,7 +718,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         fqn: String,
         context: String,
         callers: List<String>,
-        modificationCount: Int
+        modificationCount: Int,
+        actualModel: String = "local-model-mini"
     ): MethodHealthResult {
         return MethodHealthResult(
             fqn = fqn,
@@ -715,7 +728,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             healthScore = 85,
             modificationCount = modificationCount,
             codeContext = context,
-            summary = "Unable to perform detailed analysis"
+            summary = "Unable to perform detailed analysis",
+            actualModel = actualModel
         )
     }
 
@@ -1153,10 +1167,14 @@ class CodeHealthAnalyzer(private val project: Project) {
                 .useLiteCodeModel()
                 .withMaxTokens(4096)
             
+            // Track the actual model
+            val actualModel = params.getModel()
+            println("[CodeHealthAnalyzer] Using model for file analysis: $actualModel")
+            
             val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
             
             return if (response != null) {
-                parseFileAnalysisResponse(unit, context, response)
+                parseFileAnalysisResponse(unit, context, response, actualModel)
             } else {
                 emptyList()
             }
@@ -1172,7 +1190,8 @@ class CodeHealthAnalyzer(private val project: Project) {
     private fun parseFileAnalysisResponse(
         unit: ReviewOptimizer.ReviewUnit,
         context: ReviewOptimizer.ReviewContext,
-        response: String
+        response: String,
+        actualModel: String
     ): List<MethodHealthResult> {
         try {
             val results = mutableListOf<MethodHealthResult>()
@@ -1225,7 +1244,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                     healthScore = healthScore,
                     modificationCount = 1, // Default
                     codeContext = "", // Already in context
-                    summary = summary
+                    summary = summary,
+                    actualModel = actualModel
                 ))
             }
             
@@ -1364,10 +1384,14 @@ class CodeHealthAnalyzer(private val project: Project) {
                 .useLiteCodeModel()
                 .withMaxTokens(4096)
             
+            // Track the actual model
+            val actualModel = params.getModel()
+            println("[CodeHealthAnalyzer] Using model for JS/TS analysis: $actualModel")
+            
             val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
             
             return if (response != null) {
-                parseJsTsAnalysisResponse(unit, context, response)
+                parseJsTsAnalysisResponse(unit, context, response, actualModel)
             } else {
                 emptyList()
             }
@@ -1383,7 +1407,8 @@ class CodeHealthAnalyzer(private val project: Project) {
     private fun parseJsTsAnalysisResponse(
         unit: ReviewOptimizer.ReviewUnit,
         context: ReviewOptimizer.ReviewContext,
-        response: String
+        response: String,
+        actualModel: String
     ): List<MethodHealthResult> {
         try {
             val results = mutableListOf<MethodHealthResult>()
@@ -1438,7 +1463,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                     healthScore = healthScore,
                     modificationCount = modificationCount,
                     codeContext = regionContext?.content ?: "",
-                    summary = summary
+                    summary = summary,
+                    actualModel = actualModel
                 ))
             }
             

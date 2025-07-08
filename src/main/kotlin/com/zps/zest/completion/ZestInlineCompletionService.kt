@@ -604,11 +604,17 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         log("Context info: $contextInfo", "Metrics", 1)
 
                         // Determine the actual model based on strategy
-                        val actualModel = when (completionProvider.strategy) {
-                            ZestCompletionProvider.CompletionStrategy.SIMPLE -> "local-model-mini"
-                            ZestCompletionProvider.CompletionStrategy.LEAN -> "local-model-mini"
-                            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "local-model-mini"
+                        // This is a placeholder - the actual model will be determined when the LLM is called
+                        // For now, we'll use the expected model based on office hours
+                        val currentTime = java.time.LocalTime.now()
+                        val officeStart = java.time.LocalTime.of(8, 30)
+                        val officeEnd = java.time.LocalTime.of(17, 30)
+                        val actualModel = if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
+                            "local-model-mini"
+                        } else {
+                            "local-model-mini"
                         }
+                        log("Expected model based on time: $actualModel", "Metrics", 1)
 
                         // Check cache first for SIMPLE and LEAN strategies
                         if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE || completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
@@ -628,12 +634,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 // Store the FULL completion for acceptance
                                 currentCompletion = cached.fullCompletion
 
+                                // Get actual model from cached completion metadata
+                                val cachedActualModel = cached.fullCompletion.metadata?.model ?: actualModel
+
                                 // Track completion requested with the cached completion's ID
                                 metricsService.trackCompletionRequested(
                                     completionId = cached.fullCompletion.completionId,
                                     strategy = completionProvider.strategy.name,
                                     fileType = fileType,
-                                    actualModel = actualModel,
+                                    actualModel = cachedActualModel,
                                     contextInfo = contextInfo + mapOf("from_cache" to true)
                                 )
 
@@ -647,11 +656,12 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         }
 
                         // Only track new request if not from cache
+                        // Use placeholder model for now - actual model will be known after LLM call
                         metricsService.trackCompletionRequested(
                             completionId = completionId,
                             strategy = completionProvider.strategy.name,
                             fileType = fileType,
-                            actualModel = actualModel,
+                            actualModel = actualModel,  // This is the expected model
                             contextInfo = contextInfo + mapOf("from_cache" to false)
                         )
 
@@ -702,6 +712,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         }
 
                         // Track completion completed (response received)
+                        // Get actual model from the completion metadata if available
+                        val responseActualModel = completions?.firstItem()?.metadata?.model
+                        if (responseActualModel != null && responseActualModel != actualModel) {
+                            // Update the session with the actual model used
+                            metricsService.updateSessionModel(completionId, responseActualModel)
+                        }
+                        
                         metricsService.trackCompletionCompleted(
                             completionId = completionId, completionContent = insertText, responseTime = elapsed
                         )
@@ -1598,7 +1615,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         val shouldDismiss = when {
                             offsetDiff < 0 -> {
                                 // User moved backwards - check if they moved far back
-                                kotlin.math.abs(offsetDiff) > 5 // Reduced from 100 to be more sensitive to backward movement
+                                kotlin.math.abs(offsetDiff) > 20 // Reduced from 100 to be more sensitive to backward movement
                             }
 
                             offsetDiff > 200 -> {
@@ -1676,50 +1693,50 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     log("Document changed (non-programmatic)", "Document", 1)
 
                     // Cancel any pending timer on document change
-                    cancelPendingTimer()
+//                    cancelPendingTimer()
 
                     // Cancel any active request if user is typing
-                    if (requestState.currentRequestState == CompletionRequestState.RequestState.REQUESTING && requestState.activeRequestId != null) {
-                        log("Cancelling active request due to typing", "Document")
-                        currentCompletionJob?.cancel()
-                        // Don't null out activeRequestId here - let the job handle it
-                        requestState.currentRequestState = CompletionRequestState.RequestState.IDLE
-                    }
+//                    if (requestState.currentRequestState == CompletionRequestState.RequestState.REQUESTING && requestState.activeRequestId != null) {
+//                        log("Cancelling active request due to typing", "Document")
+////                        currentCompletionJob?.cancel()
+//                        // Don't null out activeRequestId here - let the job handle it
+//                        requestState.currentRequestState = CompletionRequestState.RequestState.IDLE
+//                    }
 
                     // Check if we should clear the displayed completion when user types
                     if (currentCompletion != null && !acceptanceState.isAcceptingCompletion) {
                         val completion = currentCompletion!!
                         val context = currentContext
-                        
+
                         if (context != null) {
                             val currentOffset = editor.caretModel.offset
                             val shouldKeepCompletion = isTypedTextMatchingCompletion(context, currentOffset, completion, editor)
-                            
+
                             if (!shouldKeepCompletion) {
                                 val typedLength = currentOffset - context.offset
                                 log("User typed non-matching text - clearing displayed completion", "Document")
-                                
+
                                 // Track completion dismissed due to user typing
                                 currentCompletion?.completionId?.let { completionId ->
                                     val reason = if (typedLength > 20) "user_typed_too_much" else "user_typed_mismatch"
                                     trackCompletionDismissed(completionId, reason, checkPartialAcceptance = false)
                                 }
-                                
+
                                 clearCurrentCompletion()
                             } else {
                                 log("User typing matches completion - keeping it displayed", "Document", 1)
-                                
+
                                 // Update the renderer to show the remaining part of the completion
                                 val typedLength = currentOffset - context.offset
                                 if (typedLength > 0 && typedLength < completion.insertText.length) {
                                     try {
                                         val documentText = editor.document.text
                                         val typedText = documentText.substring(context.offset, currentOffset)
-                                        
+
                                         // Find the best match position in the completion
                                         val completionText = completion.insertText
                                         var matchPosition = -1
-                                        
+
                                         // First try exact match
                                         if (completionText.startsWith(typedText)) {
                                             matchPosition = typedLength
@@ -1734,7 +1751,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                                 }
                                             }
                                         }
-                                        
+
                                         if (matchPosition > 0 && matchPosition < completionText.length) {
                                             // Create a new completion with the remaining text
                                             val remainingText = completionText.substring(matchPosition)
@@ -1742,11 +1759,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                                 insertText = remainingText,
                                                 replaceRange = ZestInlineCompletionItem.Range(currentOffset, currentOffset)
                                             )
-                                            
+
                                             // Update the current state
                                             currentCompletion = updatedCompletion
                                             currentContext = CompletionContext.from(editor, currentOffset, manually = context.manually)
-                                            
+
                                             // Re-render at the new position
                                             ApplicationManager.getApplication().invokeLater {
                                                 renderer.hide()

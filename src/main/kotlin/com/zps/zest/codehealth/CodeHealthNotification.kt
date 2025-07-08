@@ -35,6 +35,9 @@ object CodeHealthNotification {
             println("[CodeHealthNotification] No results to show")
             return
         }
+        
+        // Get the actual model from the first result (they should all use the same model)
+        val actualModel = results.firstOrNull()?.actualModel ?: "local-model-mini"
 
         val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
         val totalIssues = realIssues.size
@@ -106,7 +109,7 @@ object CodeHealthNotification {
         }
         
         // Send metrics for the health check
-        sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore)
+        sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore, actualModel)
     }
 
     /**
@@ -118,7 +121,8 @@ object CodeHealthNotification {
         totalIssues: Int,
         criticalIssues: Int,
         highIssues: Int,
-        averageScore: Int
+        averageScore: Int,
+        actualModel: String
     ) {
         try {
             val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
@@ -145,7 +149,7 @@ object CodeHealthNotification {
             metricsService.trackCustomEvent(
                 eventId = healthCheckId,
                 eventType = "CODE_HEALTH_LOGGING|response",
-                actualModel = "local-model-mini",
+                actualModel = actualModel,
                 metadata = metadata
             )
             

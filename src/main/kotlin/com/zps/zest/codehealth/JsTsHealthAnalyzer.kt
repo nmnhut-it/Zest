@@ -60,13 +60,17 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 .withMaxTokens(2048)
                 .withTemperature(0.3)
             
+            // Track the actual model being used
+            val actualModel = params.getModel()
+            println("[JsTsHealthAnalyzer] Using model: $actualModel for ${region.getIdentifier()}")
+            
             val response = llmService.queryWithParams(
                 params, 
                 com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH
             )
             
             if (response != null) {
-                val result = parseAnalysisResponse(region, context, response)
+                val result = parseAnalysisResponse(region, context, response, actualModel)
                 println("[JsTsHealthAnalyzer] Analysis complete for ${region.getIdentifier()}: ${result.issues.size} issues found")
                 onComplete(result)
             } else {
@@ -116,7 +120,8 @@ class JsTsHealthAnalyzer(private val project: Project) {
     private fun parseAnalysisResponse(
         region: ModifiedRegion,
         context: RegionAnalysisContext,
-        llmResponse: String
+        llmResponse: String,
+        actualModel: String
     ): CodeHealthAnalyzer.MethodHealthResult {
         return try {
             // Extract JSON content
@@ -161,14 +166,15 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 healthScore = healthScore,
                 modificationCount = region.modificationCount,
                 codeContext = context.regionContext.markedText,
-                summary = summary
+                summary = summary,
+                actualModel = actualModel
             )
             
         } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
             throw e // Must rethrow
         } catch (e: Exception) {
             println("[JsTsHealthAnalyzer] Error parsing response: ${e.message}")
-            createEmptyResult(region)
+            createEmptyResult(region, actualModel)
         }
     }
     
@@ -196,7 +202,7 @@ class JsTsHealthAnalyzer(private val project: Project) {
     /**
      * Create empty result for failed analysis
      */
-    private fun createEmptyResult(region: ModifiedRegion): CodeHealthAnalyzer.MethodHealthResult {
+    private fun createEmptyResult(region: ModifiedRegion, actualModel: String = "local-model-mini"): CodeHealthAnalyzer.MethodHealthResult {
         return CodeHealthAnalyzer.MethodHealthResult(
             fqn = region.getIdentifier(),
             issues = emptyList(),
@@ -204,7 +210,8 @@ class JsTsHealthAnalyzer(private val project: Project) {
             healthScore = 85,
             modificationCount = region.modificationCount,
             codeContext = "",
-            summary = "Analysis failed or no issues found"
+            summary = "Analysis failed or no issues found",
+            actualModel = actualModel
         )
     }
     

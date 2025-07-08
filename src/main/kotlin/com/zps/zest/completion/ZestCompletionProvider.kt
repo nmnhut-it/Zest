@@ -292,7 +292,8 @@ class ZestCompletionProvider(private val project: Project) {
 
             val llmStartTime = System.currentTimeMillis()
             var llmTime = 0L
-            val response = try {
+            var actualModel = "local-model-mini" // Default model
+            val responseWithModel = try {
                 withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
                     val queryParams = LLMService.LLMQueryParams(userPrompt)
                             .withSystemPrompt(systemPrompt)
@@ -301,7 +302,11 @@ class ZestCompletionProvider(private val project: Project) {
                             .withTemperature(0.1)  // Low temperature for more deterministic completions
                             .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
 
-                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1, hasSystemPrompt=${systemPrompt.isNotEmpty()}", "Simple", 1)
+                    // Track the actual model being used
+                    actualModel = queryParams.getModel()
+                    log("Using model: $actualModel", "Simple")
+
+                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1, hasSystemPrompt=${systemPrompt.isNotEmpty()}, model=$actualModel", "Simple", 1)
 
                     // Use cancellable request
                     val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
@@ -317,6 +322,8 @@ class ZestCompletionProvider(private val project: Project) {
                     metricsService.trackLLMCallTime(completionId, llmTime)
                 }
             }
+            
+            val response = responseWithModel
 
             if (response == null) {
                 log("LLM response is NULL - timeout or cancelled", "Simple")
@@ -366,7 +373,7 @@ class ZestCompletionProvider(private val project: Project) {
                 ),
                 confidence = confidence,
                 metadata = CompletionMetadata(
-                    model = "zest-llm-simple",
+                    model = actualModel,  // Use the actual model instead of hardcoded
                     tokens = formattedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
                     requestId = UUID.randomUUID().toString(),
@@ -530,6 +537,7 @@ class ZestCompletionProvider(private val project: Project) {
             // Query LLM with higher timeout for reasoning and cancellation support
             val llmStartTime = System.currentTimeMillis()
             var llmTime = 0L
+            var actualModel = "local-model-mini" // Default model
             val response = try {
                 withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
                     val queryParams = LLMService.LLMQueryParams(userPrompt)
@@ -538,6 +546,10 @@ class ZestCompletionProvider(private val project: Project) {
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
                             .withTemperature(0.5); // Slightly higher for creative reasoning
 //                            .withStopSequences(getLeanStopSequences())
+                    
+                    // Track the actual model being used
+                    actualModel = queryParams.getModel()
+                    log("Using model for LEAN: $actualModel", "Lean")
 
                     // Use cancellable request
                     val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
@@ -591,7 +603,7 @@ class ZestCompletionProvider(private val project: Project) {
                 insertText = formattedCompletion, replaceRange = ZestInlineCompletionItem.Range(
                     start = context.offset, end = context.offset
                 ), confidence = reasoningResult.confidence, metadata = CompletionMetadata(
-                    model = "zest-llm-lean",
+                    model = actualModel,  // Use the actual model
                     tokens = formattedCompletion.split("\\s+".toRegex()).size,
                     latency = totalTime,
                     requestId = UUID.randomUUID().toString(),

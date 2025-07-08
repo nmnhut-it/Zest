@@ -23,6 +23,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
     eventType: String,
     completionId: String,
     elapsed: Long,
+    actualModel: String,
     completionContent: String? = null,
     metadata: Map<String, Any>? = null,
     enumUsage: String
@@ -48,7 +49,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
 
         // Build minimal request body
         val requestBody = JsonObject().apply {
-            addProperty("model", "local-model-mini")
+            addProperty("model", actualModel)
             addProperty("stream", false)
             addProperty("custom_tool", "Zest|$enumUsage|$eventType")
             addProperty("completion_id", completionId)
@@ -163,6 +164,7 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): B
         eventType = event.eventType,
         completionId = event.completionId,
         elapsed = event.elapsed,
+        actualModel = event.actualModel,
         completionContent = completionContent,
         metadata = metadata.takeIf { it.isNotEmpty() },
         enumUsage = enumUsage

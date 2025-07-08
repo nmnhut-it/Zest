@@ -56,6 +56,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         completionId: String,
         strategy: String,
         fileType: String,
+        actualModel: String,
         contextInfo: Map<String, Any> = emptyMap()
     ) {
         if (!isEnabled.get()) return
@@ -67,6 +68,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             startTime = System.currentTimeMillis(),
             strategy = strategy,
             fileType = fileType,
+            actualModel = actualModel,
             contextInfo = contextInfo,
             hasViewed = false
         )
@@ -83,6 +85,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         sendEvent(MetricEvent.CompletionRequest(
             completionId = completionId,
+            actualModel = actualModel,
             elapsed = 0,
             metadata = mapOf(
                 "strategy" to strategy,
@@ -171,6 +174,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         sendEvent(MetricEvent.View(
             completionId = completionId,
+            actualModel = session.actualModel,
             elapsed = elapsed,
             metadata = mapOf(
                 "completion_length" to completionLength,
@@ -196,6 +200,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         sendEvent(MetricEvent.CompletionResponse(
             completionId = completionId,
             completionContent = completionContent,
+            actualModel = session.actualModel,
             elapsed = elapsed,
             metadata = mapOf(
                 "response_time" to responseTime,
@@ -221,6 +226,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         sendEvent(MetricEvent.Decline(
             completionId = completionId,
+            actualModel = session.actualModel,
             elapsed = elapsed,
             metadata = mapOf("reason" to reason)
         ))
@@ -243,6 +249,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         sendEvent(MetricEvent.Dismiss(
             completionId = completionId,
+            actualModel = session.actualModel,
             elapsed = elapsed,
             metadata = mapOf("reason" to reason)
         ))
@@ -268,6 +275,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         if ((session.partialAcceptances ?: 0) > 0) {
             sendEvent(MetricEvent.Dismiss(
                 completionId = completionId,
+                actualModel = session.actualModel,
                 elapsed = elapsed,
                 metadata = mapOf(
                     "reason" to reason,
@@ -324,6 +332,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         sendEvent(MetricEvent.Select(
             completionId = completionId,
             completionContent = completionContent,
+            actualModel = session.actualModel,
             elapsed = elapsed,
             metadata = mapOf(
                 "accept_type" to acceptType,
@@ -349,6 +358,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     fun trackCustomEvent(
         eventId: String,
         eventType: String,
+        actualModel: String = "local-model-mini",
         metadata: Map<String, Any> = emptyMap()
     ) {
         if (!isEnabled.get()) return
@@ -358,6 +368,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         sendEvent(MetricEvent.Custom(
             completionId = eventId,
             customTool = eventType,
+            actualModel = actualModel,
             elapsed = 0,
             metadata = metadata
         ))
@@ -474,31 +485,35 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val completionId = requestBody["completion_id"] as String
         val elapsed = (requestBody["elapsed"] as Number).toLong()
         val metadata = (requestBody["metadata"] as? Map<String, Any>) ?: emptyMap()
+        val actualModel = requestBody["model"] as? String ?: "local-model-mini"
         
         return when {
-            eventType == "request" -> MetricEvent.CompletionRequest(completionId, elapsed, metadata)
+            eventType == "request" -> MetricEvent.CompletionRequest(completionId, actualModel, elapsed, metadata)
             eventType == "response" -> MetricEvent.CompletionResponse(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
+                actualModel = actualModel,
                 elapsed = elapsed,
                 metadata = metadata
             )
-            eventType == "view" -> MetricEvent.View(completionId, elapsed, metadata)
+            eventType == "view" -> MetricEvent.View(completionId, actualModel, elapsed, metadata)
             eventType == "tab" -> MetricEvent.Select(
                 completionId = completionId,
                 completionContent = requestBody["completion_content"] as? String ?: "",
+                actualModel = actualModel,
                 elapsed = elapsed,
                 metadata = metadata
             )
-            eventType == "anykey" -> MetricEvent.Dismiss(completionId, elapsed, metadata)
-            eventType == "esc" -> MetricEvent.Decline(completionId, elapsed, metadata)
+            eventType == "anykey" -> MetricEvent.Dismiss(completionId, actualModel, elapsed, metadata)
+            eventType == "esc" -> MetricEvent.Decline(completionId, actualModel, elapsed, metadata)
             customTool.contains("CODE_HEALTH_LOGGING") -> MetricEvent.Custom(
                 completionId = completionId,
                 customTool = customTool,
+                actualModel = actualModel,
                 elapsed = elapsed,
                 metadata = metadata
             )
-            else -> MetricEvent.CompletionRequest(completionId, elapsed, metadata) // Default
+            else -> MetricEvent.CompletionRequest(completionId, actualModel, elapsed, metadata) // Default
         }
     }
     

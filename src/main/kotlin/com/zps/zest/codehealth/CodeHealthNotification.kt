@@ -145,6 +145,7 @@ object CodeHealthNotification {
             metricsService.trackCustomEvent(
                 eventId = healthCheckId,
                 eventType = "CODE_HEALTH_LOGGING|response",
+                actualModel = "local-model-mini",
                 metadata = metadata
             )
             
@@ -186,6 +187,7 @@ object CodeHealthNotification {
             metricsService.trackCustomEvent(
                 eventId = healthCheckId,
                 eventType = "CODE_HEALTH_LOGGING|view",
+                actualModel = "local-model-mini",
                 metadata = metadata
             )
             
@@ -500,6 +502,7 @@ object CodeHealthNotification {
                 metricsService.trackCustomEvent(
                     eventId = "health_fix_${System.currentTimeMillis()}",
                     eventType = "CODE_HEALTH_LOGGING|fix",
+                    actualModel = "local-model-mini",
                     metadata = metadata
                 )
                 

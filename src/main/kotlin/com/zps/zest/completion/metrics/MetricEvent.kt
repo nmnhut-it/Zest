@@ -8,13 +8,14 @@ sealed class MetricEvent {
     abstract val elapsed: Long
     abstract val eventType: String
     abstract val metadata: Map<String, Any>
+    abstract val actualModel: String
     
     /**
      * Convert the event to an API request format
      */
     open fun toApiRequest(): Map<String, Any> {
         val baseRequest = mutableMapOf<String, Any>(
-            "model" to "local-model-mini",
+            "model" to actualModel,
             "stream" to false,
             "custom_tool" to "Zest|INLINE_COMPLETION_LOGGING|$eventType",
             "completion_id" to completionId,
@@ -45,6 +46,7 @@ sealed class MetricEvent {
      */
     data class CompletionRequest(
         override val completionId: String,
+        override val actualModel: String,
         override val elapsed: Long = 0,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -57,6 +59,7 @@ sealed class MetricEvent {
     data class CompletionResponse(
         override val completionId: String,
         val completionContent: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -68,6 +71,7 @@ sealed class MetricEvent {
      */
     data class View(
         override val completionId: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -80,6 +84,7 @@ sealed class MetricEvent {
     data class Select(
         override val completionId: String,
         val completionContent: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -91,6 +96,7 @@ sealed class MetricEvent {
      */
     data class Decline(
         override val completionId: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -102,6 +108,7 @@ sealed class MetricEvent {
      */
     data class Dismiss(
         override val completionId: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -114,6 +121,7 @@ sealed class MetricEvent {
     data class Custom(
         override val completionId: String,
         val customTool: String,
+        override val actualModel: String,
         override val elapsed: Long,
         override val metadata: Map<String, Any> = emptyMap()
     ) : MetricEvent() {
@@ -129,6 +137,7 @@ data class CompletionSession(
     val startTime: Long,
     val strategy: String,
     val fileType: String,
+    val actualModel: String,
     val contextInfo: Map<String, Any> = emptyMap(),
     var viewedAt: Long? = null,
     var completionLength: Int? = null,

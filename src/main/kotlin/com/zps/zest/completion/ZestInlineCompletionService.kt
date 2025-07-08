@@ -603,6 +603,13 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         )
                         log("Context info: $contextInfo", "Metrics", 1)
 
+                        // Determine the actual model based on strategy
+                        val actualModel = when (completionProvider.strategy) {
+                            ZestCompletionProvider.CompletionStrategy.SIMPLE -> "local-model-mini"
+                            ZestCompletionProvider.CompletionStrategy.LEAN -> "local-model-mini"
+                            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> "local-model-mini"
+                        }
+
                         // Check cache first for SIMPLE and LEAN strategies
                         if (completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.SIMPLE || completionProvider.strategy == ZestCompletionProvider.CompletionStrategy.LEAN) {
                             log("Checking cache for ${completionProvider.strategy} strategy...", "Cache")
@@ -626,6 +633,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                     completionId = cached.fullCompletion.completionId,
                                     strategy = completionProvider.strategy.name,
                                     fileType = fileType,
+                                    actualModel = actualModel,
                                     contextInfo = contextInfo + mapOf("from_cache" to true)
                                 )
 
@@ -643,6 +651,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             completionId = completionId,
                             strategy = completionProvider.strategy.name,
                             fileType = fileType,
+                            actualModel = actualModel,
                             contextInfo = contextInfo + mapOf("from_cache" to false)
                         )
 

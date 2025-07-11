@@ -504,8 +504,8 @@ class ZestCompletionProvider(private val project: Project) {
                     
                     // Log comparison for analysis
                     if (config.logPromptComparison) {
-                        val oldPrompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-                        PromptMigrationHelper.logPromptStructure("LEAN", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
+//                        val oldPrompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+//                        PromptMigrationHelper.logPromptStructure("LEAN", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
                     }
                     
                     // Track metrics
@@ -514,14 +514,15 @@ class ZestCompletionProvider(private val project: Project) {
                     Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
                 } catch (e: Exception) {
                     logger.debug("Error building structured lean prompt: ${e.message}")
-                    val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-                    Pair("", prompt)
+//                    val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+                    Pair("", "")
+
                 }
             } else {
                 logger.debug("Using legacy lean prompt builder (structured prompts disabled)")
-                val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
+//                val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
                 cachingMetrics.recordLegacyRequest()
-                Pair("", prompt)
+                Pair("", "")
             }
             
             val promptBuildTime = System.currentTimeMillis() - promptStartTime
@@ -740,6 +741,6 @@ class ZestCompletionProvider(private val project: Project) {
 
         private const val LEAN_COMPLETION_TIMEOUT_MS = 150000L  // 15 seconds for reasoning
         private const val LEAN_MAX_COMPLETION_TOKENS =
-            256  // Limited tokens for focused completions (reasoning + completion)
+            64  // Limited tokens for focused completions (reasoning + completion)
     }
 }

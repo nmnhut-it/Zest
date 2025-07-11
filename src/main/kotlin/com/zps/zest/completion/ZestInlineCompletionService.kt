@@ -1602,41 +1602,33 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     val currentOffset = editor.logicalPositionToOffset(event.newPosition)
                     val context = currentContext
 
-
-
-
-
                     if (context != null) {
                         val offsetDiff = currentOffset - context.offset
 
 
                         // More lenient dismissal logic - only dismiss if cursor moved far away
                         // or if user moved backwards (suggesting they want to edit earlier text)
-                        val shouldDismiss = when {
-                            offsetDiff < 0 -> {
-                                // User moved backwards - check if they moved far back
-                                kotlin.math.abs(offsetDiff) > 20 // Reduced from 100 to be more sensitive to backward movement
-                            }
-
-                            offsetDiff > 200 -> {
-                                // User moved too far forward
-                                true
-                            }
-
-                            offsetDiff > 0 -> {
-                                // User moved forward but within reasonable range
-                                // Check if the completion is still meaningful at this position
-                                val completion = currentCompletion
-                                if (completion != null && completion.insertText.isNotEmpty()) {
+                        val shouldDismiss = if (offsetDiff < 0) {
+                            // User moved backwards - check if they moved far back
+                            kotlin.math.abs(offsetDiff) > 5 // Reduced from 100 to be more sensitive to backward movement
+                        } else if (offsetDiff > 5) {
+                            // User moved too far forward
+                            true
+                        } else if (offsetDiff > 0) {
+                            // User moved forward but within reasonable range
+                            // Check if the completion is still meaningful at this position
+                            val completion = currentCompletion
+                            if (completion != null) {
+                                if (completion.insertText.isNotEmpty()) {
                                     // Use our helper method to check if typed text matches
                                     !isTypedTextMatchingCompletion(context, currentOffset, completion, editor)
                                 } else {
-                                    false // No completion to dismiss
+                                    true // No completion to dismiss
                                 }
+                            } else {
+                                false // No completion to dismiss
                             }
-
-                            else -> false // No movement, don't dismiss
-                        }
+                        } else false // No movement, don't dismiss
 
                         if (shouldDismiss) {
 

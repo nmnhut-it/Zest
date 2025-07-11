@@ -7,6 +7,7 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.search.GlobalSearchScope
 import com.zps.zest.ClassAnalyzer
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
+import com.zps.zest.completion.context.ZestCompleteGitContext
 
 /**
  * Builds prompts for lean completion strategy with full file context
@@ -15,28 +16,29 @@ import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 class ZestLeanPromptBuilder(private val project: Project) {
 
     companion object {
-        // Shortened system prompt with code repetition requirement
+        // Shortened system prompt with markdown formatting
         private const val LEAN_SYSTEM_PROMPT =
-            """You are an expert code completion assistant. Complete the code at <CURSOR> position.
+            """You are an expert code completion assistant. Complete the code at `<CURSOR>` position.
 
-Rules:
+## Rules:
 1. Analyze file context and patterns
-2. Complete ONLY what comes after <CURSOR>
+2. Complete ONLY what comes after `<CURSOR>`
 3. Match existing code style and indentation
 4. For multi-line completions (methods, blocks), include full logical unit
 
-Response Format:
-Line before cursor:
+## Response Format:
+
+### Line before cursor:
 ```
 [exact line with cursor]
 ```
 
-Completion:
+### Completion:
 <completion>
 [your code here]
 </completion>
 
-Note: Never include <CURSOR> tag or code before cursor in completion."""
+**Note:** Never include `<CURSOR>` tag or code before cursor in completion."""
     }
 
     /**
@@ -57,6 +59,8 @@ Note: Never include <CURSOR> tag or code before cursor in completion."""
                 "hasUsedClasses" to context.usedClasses.isNotEmpty(),
                 "hasRelatedClasses" to context.relatedClassContents.isNotEmpty(),
                 "hasSyntaxInstructions" to !context.syntaxInstructions.isNullOrBlank(),
+                "hasVcsContext" to (context.uncommittedChanges != null),
+                "modifiedFilesCount" to (context.uncommittedChanges?.allModifiedFiles?.size ?: 0),
                 "contextType" to context.contextType.name,
                 "offset" to context.cursorOffset
             )
@@ -69,6 +73,7 @@ Note: Never include <CURSOR> tag or code before cursor in completion."""
     private fun buildEnhancedUserPrompt(context: ZestLeanContextCollectorPSI.LeanContext): String {
         val contextInfo = buildContextInfo(context)
         val relatedClassesSection = buildRelatedClassesSection(context)
+        val vcsSection = buildVcsContextSection(context)
         
         // Extract the line containing the cursor for AI to repeat
         val lineWithCursor = extractLineWithCursor(context.markedContent, context.cursorOffset)
@@ -84,6 +89,11 @@ Note: Never include <CURSOR> tag or code before cursor in completion."""
             
             if (contextInfo.isNotBlank()) {
                 append(contextInfo)
+            }
+            
+            // Add VCS context before file content
+            if (vcsSection.isNotBlank()) {
+                append(vcsSection)
             }
             
             append("\nFull file with cursor position:\n")
@@ -116,6 +126,185 @@ Note: Never include <CURSOR> tag or code before cursor in completion."""
         // Fallback: return a portion around cursor if tag not found
         return "Unable to extract line with cursor"
     }
+    
+    /**
+     * Build VCS context section showing top 3 most relevant uncommitted changes
+     */
+    private fun buildVcsContextSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
+        val gitInfo = context.uncommittedChanges ?: return ""
+        
+        if (gitInfo.allModifiedFiles.isEmpty()) {
+            return ""
+        }
+        
+        val sb = StringBuilder()
+        sb.append("\nUncommitted changes in workspace (may or may not be related to current task):\n")
+        
+        // Calculate relevance scores for all modified files
+        val rankedFiles = rankFilesByRelevance(
+            currentFile = context.fileName,
+            modifiedFiles = gitInfo.allModifiedFiles,
+            actualDiffs = gitInfo.actualDiffs
+        )
+        
+        // Take top 3 most relevant files
+        val topFiles = rankedFiles.take(3)
+        
+        // Show summary of all changes
+        sb.append("Modified files (${gitInfo.allModifiedFiles.size} total, showing ${topFiles.size} most relevant by path similarity):\n")
+        topFiles.forEach { (file, score) ->
+            val status = when (file.status) {
+                "M" -> "Modified"
+                "A" -> "Added"
+                "D" -> "Deleted"
+                else -> file.status
+            }
+            sb.append("- $status: ${file.path}")
+            if (file.summary != null) {
+                sb.append(" (${file.summary})")
+            }
+            sb.append("\n")
+        }
+        
+        sb.append("\nNote: These changes provide context about ongoing work but may not directly relate to the completion needed.\n")
+        
+        // Show truncated diffs for top files
+        topFiles.forEach { (file, _) ->
+            val diff = gitInfo.actualDiffs.find { it.filePath == file.path }
+            if (diff != null && diff.diffContent.isNotBlank()) {
+                sb.append("\nFile: ${file.path}\n")
+                sb.append("```diff\n")
+                sb.append(truncateDiff(diff.diffContent, 10))
+                sb.append("\n```\n")
+            }
+        }
+        
+        return sb.toString()
+    }
+    
+    /**
+     * Rank files by relevance to current file using cosine similarity
+     */
+    private fun rankFilesByRelevance(
+        currentFile: String,
+        modifiedFiles: List<ZestCompleteGitContext.ModifiedFile>,
+        actualDiffs: List<ZestCompleteGitContext.FileDiff>
+    ): List<Pair<ZestCompleteGitContext.ModifiedFile, Double>> {
+        
+        return modifiedFiles.map { file ->
+            val relevanceScore = calculateFileRelevance(currentFile, file.path)
+            file to relevanceScore
+        }.sortedByDescending { it.second }
+    }
+    
+    /**
+     * Calculate relevance score between current file and a modified file
+     */
+    private fun calculateFileRelevance(currentFile: String, modifiedFile: String): Double {
+        // Extract file components
+        val currentParts = extractFileComponents(currentFile)
+        val modifiedParts = extractFileComponents(modifiedFile)
+        
+        var score = 0.0
+        
+        // Same directory gets high score
+        if (currentParts.directory == modifiedParts.directory) {
+            score += 0.5
+        }
+        
+        // Similar package/path structure
+        val pathSimilarity = calculatePathSimilarity(currentParts.directory, modifiedParts.directory)
+        score += pathSimilarity * 0.3
+        
+        // Similar file names (using existing string similarity)
+        val nameSimilarity = calculateStringSimilarity(currentParts.baseName, modifiedParts.baseName)
+        score += nameSimilarity * 0.2
+        
+        return score
+    }
+    
+    /**
+     * Extract file path components for comparison
+     */
+    private fun extractFileComponents(filePath: String): FileComponents {
+        val path = filePath.replace('\\', '/')
+        val lastSlash = path.lastIndexOf('/')
+        val directory = if (lastSlash > 0) path.substring(0, lastSlash) else ""
+        val fileName = if (lastSlash >= 0) path.substring(lastSlash + 1) else path
+        val lastDot = fileName.lastIndexOf('.')
+        val baseName = if (lastDot > 0) fileName.substring(0, lastDot) else fileName
+        val extension = if (lastDot > 0) fileName.substring(lastDot + 1) else ""
+        
+        return FileComponents(directory, baseName, extension)
+    }
+    
+    /**
+     * Calculate similarity between two file paths
+     */
+    private fun calculatePathSimilarity(path1: String, path2: String): Double {
+        val parts1 = path1.split('/')
+        val parts2 = path2.split('/')
+        
+        var commonParts = 0
+        val minLength = minOf(parts1.size, parts2.size)
+        
+        for (i in 0 until minLength) {
+            if (parts1[i] == parts2[i]) {
+                commonParts++
+            }
+        }
+        
+        return if (minLength > 0) commonParts.toDouble() / minLength else 0.0
+    }
+    
+    /**
+     * Truncate diff content to specified number of lines
+     */
+    private fun truncateDiff(diffContent: String, maxLines: Int): String {
+        val lines = diffContent.lines()
+        return if (lines.size <= maxLines) {
+            diffContent
+        } else {
+            lines.take(maxLines).joinToString("\n") + "\n... (diff truncated, ${lines.size - maxLines} more lines)"
+        }
+    }
+    
+    /**
+     * Calculate string similarity using n-grams (from existing code)
+     */
+    private fun calculateStringSimilarity(s1: String, s2: String): Double {
+        if (s1.isEmpty() || s2.isEmpty()) return 0.0
+        
+        val ngrams1 = extractNgrams(s1.lowercase(), 2)
+        val ngrams2 = extractNgrams(s2.lowercase(), 2)
+        
+        if (ngrams1.isEmpty() || ngrams2.isEmpty()) return 0.0
+        
+        val intersection = ngrams1.intersect(ngrams2).size
+        val union = (ngrams1 + ngrams2).distinct().size
+        
+        return if (union > 0) intersection.toDouble() / union else 0.0
+    }
+    
+    /**
+     * Extract n-grams from text
+     */
+    private fun extractNgrams(text: String, n: Int): Set<String> {
+        if (text.length < n) return setOf(text)
+        
+        return (0..text.length - n).map { i ->
+            text.substring(i, i + n)
+        }.toSet()
+    }
+    
+    /**
+     * Data class for file components
+     */
+    private data class FileComponents(
+        val directory: String,
+        val baseName: String,
+        val extension: String
+    )
 
     /**
      * Build enhanced context information including analysis results

@@ -48,7 +48,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         val calledMethods: Set<String> = emptySet(),
         val usedClasses: Set<String> = emptySet(),
         val relatedClassContents: Map<String, String> = emptyMap(),
-        val syntaxInstructions: String? = null
+        val syntaxInstructions: String? = null,
+        // VCS context for uncommitted changes
+        val uncommittedChanges: ZestCompleteGitContext.CompleteGitInfo? = null
     )
 
     enum class CursorContextType {
@@ -124,6 +126,14 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             }
         }
 
+        // Collect VCS context for uncommitted changes
+        val uncommittedChanges = try {
+            ZestCompleteGitContext(project).getAllModifiedFiles()
+        } catch (e: Exception) {
+            println("Failed to collect VCS context: ${e.message}")
+            null
+        }
+
         return LeanContext(
             fileName = fileName,
             language = language,
@@ -134,7 +144,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             contextType = contextType,
             isTruncated = isTruncated,
             preservedMethods = preservedMethods,
-            syntaxInstructions = null
+            syntaxInstructions = null,
+            uncommittedChanges = uncommittedChanges
         )
     }
 
@@ -310,7 +321,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         
         return context.copy(
             fullContent = finalContent,
-            markedContent = finalMarkedContent
+            markedContent = finalMarkedContent,
+            uncommittedChanges = context.uncommittedChanges // Preserve VCS context
         )
     }
 

@@ -18,11 +18,11 @@ class ZestLeanPromptBuilder(private val project: Project) {
     companion object {
         // Shortened system prompt with markdown formatting
         private const val LEAN_SYSTEM_PROMPT =
-            """You are an expert code completion assistant. Complete the code at `<CURSOR>` position.
+            """You are an expert code completion assistant. Complete the code at `[CURSOR]` position.
 
 ## Rules:
 1. Analyze file context and patterns
-2. Complete ONLY what comes after `<CURSOR>`
+2. Complete ONLY what comes after `[CURSOR]`
 3. Match existing code style and indentation
 4. For multi-line completions (methods, blocks), include full logical unit
 
@@ -38,7 +38,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
 [your code here]
 </completion>
 
-**Note:** Never include `<CURSOR>` tag or code before cursor in completion."""
+**Note:** Never include `[CURSOR]` tag or code before cursor in completion."""
     }
 
     /**
@@ -114,7 +114,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
             
             // Add the line with cursor for AI to repeat
             append("\n## Target Line\n")
-            append("The line containing `<CURSOR>` is:\n")
+            append("The line containing `[CURSOR]` is:\n")
             append("```\n")
             append(lineWithCursor)
             append("\n```\n")
@@ -129,7 +129,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
     private fun extractLineWithCursor(markedContent: String, cursorOffset: Int): String {
         val lines = markedContent.lines()
         for (line in lines) {
-            if (line.contains("<CURSOR>")) {
+            if (line.contains("[CURSOR]")) {
                 return line
             }
         }

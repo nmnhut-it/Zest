@@ -380,6 +380,7 @@ class ZestCocos2dxContextCollector(private val project: Project) {
                     "Use cc.Scene() instead of cc.Scene.create() - direct constructor preferred",
                     "Use cc.Menu() instead of cc.Menu.create() - direct constructor preferred",
                     "Use cc.Label() instead of cc.Label.create() - direct constructor preferred",
+                    "Use cc.log() instead of console.log()",
                     "Use .extend() pattern for class inheritance: var MyLayer = cc.Layer.extend({...})",
                     "Prefer object literal methods in extend: methodName: function() {...}",
                     "Use old version cocos2d-x-js syntax patterns",
@@ -472,8 +473,8 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         }
         
         // Keep 20 lines before and after cursor
-        val startLine = maxOf(0, cursorLineIndex - 20)
-        val endLine = minOf(lines.size, cursorLineIndex + 21) // +21 to include cursor line + 20 after
+        val startLine = maxOf(0, cursorLineIndex - 100)
+        val endLine = minOf(lines.size, cursorLineIndex + 101) // +21 to include cursor line + 20 after
         
         val truncatedMarked = buildString {
             if (startLine > 0) {

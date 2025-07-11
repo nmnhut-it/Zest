@@ -47,7 +47,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         // New fields for async analysis results
         val calledMethods: Set<String> = emptySet(),
         val usedClasses: Set<String> = emptySet(),
-        val relatedClassContents: Map<String, String> = emptyMap()
+        val relatedClassContents: Map<String, String> = emptyMap(),
+        val syntaxInstructions: String? = null
     )
 
     enum class CursorContextType {
@@ -91,20 +92,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
 
         // Check for Cocos2d-x JavaScript project
         if (language == "javascript" && isCocos2dxProject(text)) {
-            // Convert from old LeanContext to new LeanContext
-            val oldContext = ZestCocos2dxContextCollector(project).collectCocos2dxContext(editor, offset)
-            return LeanContext(
-                fileName = oldContext.fileName,
-                language = oldContext.language,
-                fullContent = oldContext.fullContent,
-                markedContent = oldContext.markedContent,
-                cursorOffset = oldContext.cursorOffset,
-                cursorLine = oldContext.cursorLine,
-                contextType = convertOldContextType(oldContext.contextType),
-                isTruncated = oldContext.isTruncated,
-                preservedMethods = oldContext.preservedMethods,
-                preservedFields = oldContext.preservedFields
-            )
+            // Use the new Cocos2d-x collector that returns the new LeanContext format
+            return ZestCocos2dxContextCollector(project).collectCocos2dxContext(editor, offset)
         }
 
         // Insert cursor marker
@@ -144,7 +133,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             cursorLine = cursorLine,
             contextType = contextType,
             isTruncated = isTruncated,
-            preservedMethods = preservedMethods
+            preservedMethods = preservedMethods,
+            syntaxInstructions = null
         )
     }
 
@@ -618,28 +608,7 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
      */
     private data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
-    /**
-     * Convert old context type to new enum
-     */
-    @Suppress("DEPRECATION")
-    private fun convertOldContextType(oldType: ZestLeanContextCollector.CursorContextType): CursorContextType {
-        return when (oldType) {
-            ZestLeanContextCollector.CursorContextType.METHOD_BODY -> CursorContextType.METHOD_BODY
-            ZestLeanContextCollector.CursorContextType.CLASS_DECLARATION -> CursorContextType.CLASS_DECLARATION
-            ZestLeanContextCollector.CursorContextType.IMPORT_SECTION -> CursorContextType.IMPORT_SECTION
-            ZestLeanContextCollector.CursorContextType.VARIABLE_ASSIGNMENT -> CursorContextType.VARIABLE_ASSIGNMENT
-            ZestLeanContextCollector.CursorContextType.AFTER_OPENING_BRACE -> CursorContextType.AFTER_OPENING_BRACE
-            ZestLeanContextCollector.CursorContextType.FIELD_DECLARATION -> CursorContextType.FIELD_DECLARATION
-            ZestLeanContextCollector.CursorContextType.ANNOTATION -> CursorContextType.ANNOTATION
-            ZestLeanContextCollector.CursorContextType.FUNCTION_BODY -> CursorContextType.FUNCTION_BODY
-            ZestLeanContextCollector.CursorContextType.FUNCTION_DECLARATION -> CursorContextType.FUNCTION_DECLARATION
-            ZestLeanContextCollector.CursorContextType.OBJECT_LITERAL -> CursorContextType.OBJECT_LITERAL
-            ZestLeanContextCollector.CursorContextType.ARROW_FUNCTION -> CursorContextType.ARROW_FUNCTION
-            ZestLeanContextCollector.CursorContextType.MODULE_IMPORT -> CursorContextType.MODULE_IMPORT
-            ZestLeanContextCollector.CursorContextType.MODULE_EXPORT -> CursorContextType.MODULE_EXPORT
-            ZestLeanContextCollector.CursorContextType.UNKNOWN -> CursorContextType.UNKNOWN
-        }
-    }
+
 
     // Keep existing utility methods from original implementation
     

@@ -30,8 +30,11 @@ Instructions:
 8. Output your completion inside <completion> tags
 
 Response Format:
-
-Intention: <30 words only> 
+Code before: 
+```
+The line before AND the current line of code to be completed
+```
+Intention: [30 words only - what should be inserted as completion at cursor position]
 
 <completion>
 [Your code completion here]
@@ -41,6 +44,7 @@ Important:
 - Complete only the current line (stop at the line break)
 - If the statement naturally continues to the next line (e.g., multi-line method), include the continuation
 - Match the indentation and style of the surrounding code
+- Follow the response format
 """
     }
 
@@ -61,6 +65,7 @@ Important:
                 "hasCalledMethods" to context.calledMethods.isNotEmpty(),
                 "hasUsedClasses" to context.usedClasses.isNotEmpty(),
                 "hasRelatedClasses" to context.relatedClassContents.isNotEmpty(),
+                "hasSyntaxInstructions" to !context.syntaxInstructions.isNullOrBlank(),
                 "contextType" to context.contextType.name,
                 "offset" to context.cursorOffset
             )
@@ -72,22 +77,30 @@ Important:
      */
     private fun buildEnhancedUserPrompt(context: ZestLeanContextCollectorPSI.LeanContext): String {
         val contextInfo = buildContextInfo(context)
-
-
         val relatedClassesSection = buildRelatedClassesSection(context)
 
-        return """File: ${context.fileName}
-Language: ${context.language}
-$contextInfo
-
-Full file with cursor position:
-```${context.language.lowercase()}
-${context.markedContent}
-```
-
-$relatedClassesSection
-
-Complete the code at the <CURSOR> position."""
+        return buildString {
+            append("File: ${context.fileName}\n")
+            append("Language: ${context.language}\n")
+            
+            // Add syntax instructions if present
+            if (!context.syntaxInstructions.isNullOrBlank()) {
+                append("\n${context.syntaxInstructions}\n")
+            }
+            
+            if (contextInfo.isNotBlank()) {
+                append(contextInfo)
+            }
+            
+            append("\nFull file with cursor position:\n")
+            append("```${context.language.lowercase()}\n")
+            append(context.markedContent)
+            append("\n```\n")
+            
+            append(relatedClassesSection)
+            
+            append("\nComplete the code at the <CURSOR> position.")
+        }
     }
 
     /**

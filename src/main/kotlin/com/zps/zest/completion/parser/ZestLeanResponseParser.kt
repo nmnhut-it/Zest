@@ -79,7 +79,7 @@ class ZestLeanResponseParser {
      */
     private fun extractCompletionTag(response: String): String {
         // Pattern to match <completion>...</completion> tags
-       val completionPattern = Regex("<completion>(.+?)</completion>", RegexOption.DOT_MATCHES_ALL)
+        val completionPattern = Regex("<completion>(.+?)</completion>", RegexOption.DOT_MATCHES_ALL)
         val match = completionPattern.find(response)
         
         return if (match != null) {

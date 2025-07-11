@@ -103,7 +103,7 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         )
     )
 
-    fun collectCocos2dxContext(editor: Editor, offset: Int): ZestLeanContextCollector.LeanContext {
+    fun collectCocos2dxContext(editor: Editor, offset: Int): ZestLeanContextCollectorPSI.LeanContext {
         val document = editor.document
         val text = document.text
         val virtualFile = FileDocumentManager.getInstance().getFile(document)
@@ -125,22 +125,24 @@ class ZestCocos2dxContextCollector(private val project: Project) {
             Triple(text, markedContent, false)
         }
 
-        // Prepend Cocos2d-x specific syntax guidance to the marked content
-        val contentWithGuidance = SYNTAX_GUIDANCE + "\n\n" + finalMarkedContent
-        val originalWithGuidance = SYNTAX_GUIDANCE + "\n\n" + finalContent
-
         // Convert to standard LeanContext format
         val standardContextType = mapCocos2dxToStandardContext(cocosContext.contextType)
 
-        return ZestLeanContextCollector.LeanContext(
+        return ZestLeanContextCollectorPSI.LeanContext(
             fileName = fileName,
             language = "cocos2d-x-js",
-            fullContent = originalWithGuidance,
-            markedContent = contentWithGuidance,
-            cursorOffset = offset + SYNTAX_GUIDANCE.length + 2, // Adjust offset for prepended content
-            cursorLine = cursorLine + SYNTAX_GUIDANCE.lines().size + 1, // Adjust line number
+            fullContent = finalContent,
+            markedContent = finalMarkedContent,
+            cursorOffset = offset,
+            cursorLine = cursorLine,
             contextType = standardContextType,
-            isTruncated = isTruncated
+            isTruncated = isTruncated,
+            preservedMethods = emptySet(),
+            preservedFields = emptySet(),
+            calledMethods = emptySet(),
+            usedClasses = emptySet(),
+            relatedClassContents = emptyMap(),
+            syntaxInstructions = SYNTAX_GUIDANCE
         )
     }
 
@@ -491,12 +493,12 @@ class ZestCocos2dxContextCollector(private val project: Project) {
         return Triple(truncatedOriginal, truncatedMarked, isTruncated)
     }
 
-    private fun mapCocos2dxToStandardContext(cocosType: Cocos2dxContextType): ZestLeanContextCollector.CursorContextType {
+    private fun mapCocos2dxToStandardContext(cocosType: Cocos2dxContextType): ZestLeanContextCollectorPSI.CursorContextType {
         return when (cocosType) {
-            Cocos2dxContextType.FUNCTION_BODY -> ZestLeanContextCollector.CursorContextType.FUNCTION_BODY
-            Cocos2dxContextType.OBJECT_LITERAL -> ZestLeanContextCollector.CursorContextType.OBJECT_LITERAL
-            Cocos2dxContextType.MODULE_EXPORT -> ZestLeanContextCollector.CursorContextType.MODULE_EXPORT
-            else -> ZestLeanContextCollector.CursorContextType.UNKNOWN
+            Cocos2dxContextType.FUNCTION_BODY -> ZestLeanContextCollectorPSI.CursorContextType.FUNCTION_BODY
+            Cocos2dxContextType.OBJECT_LITERAL -> ZestLeanContextCollectorPSI.CursorContextType.OBJECT_LITERAL
+            Cocos2dxContextType.MODULE_EXPORT -> ZestLeanContextCollectorPSI.CursorContextType.MODULE_EXPORT
+            else -> ZestLeanContextCollectorPSI.CursorContextType.UNKNOWN
         }
     }
 }

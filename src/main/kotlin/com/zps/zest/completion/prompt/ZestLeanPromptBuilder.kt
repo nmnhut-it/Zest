@@ -15,37 +15,28 @@ import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 class ZestLeanPromptBuilder(private val project: Project) {
 
     companion object {
-        // Enhanced system prompt that mentions related code
+        // Shortened system prompt with code repetition requirement
         private const val LEAN_SYSTEM_PROMPT =
-            """You are an expert code filler. You are three steps ahead of users. Your task is to write the code at the cursor position marked as <CURSOR>.
+            """You are an expert code completion assistant. Complete the code at <CURSOR> position.
 
-Instructions:
-1. Analyze the full file context and related classes to understand the code structure, patterns, and style
-2. Consider the methods being called and classes being used in the current context
-3. Complete ONLY what should come after <CURSOR> on the current line
-4. If the statement naturally continues to multiple lines (e.g., method body, block), include the full logical completion
-5. Follow existing code patterns, naming conventions, and formatting from both the current file and related classes
-6. Do NOT include any code that was already before the cursor
-7. Do NOT include the <CURSOR> tag in your output
-8. Output your completion inside <completion> tags
+Rules:
+1. Analyze file context and patterns
+2. Complete ONLY what comes after <CURSOR>
+3. Match existing code style and indentation
+4. For multi-line completions (methods, blocks), include full logical unit
 
 Response Format:
-Code before: 
+Line before cursor:
 ```
-The line before AND the current line of code to be completed
+[exact line with cursor]
 ```
-Intention: [30 words only - what should be inserted as completion at cursor position]
 
+Completion:
 <completion>
-[Your code completion here]
+[your code here]
 </completion>
 
-Important:
-- Complete only the current line (stop at the line break)
-- If the statement naturally continues to the next line (e.g., multi-line method), include the continuation
-- Match the indentation and style of the surrounding code
-- Follow the response format
-"""
+Note: Never include <CURSOR> tag or code before cursor in completion."""
     }
 
     /**
@@ -78,6 +69,9 @@ Important:
     private fun buildEnhancedUserPrompt(context: ZestLeanContextCollectorPSI.LeanContext): String {
         val contextInfo = buildContextInfo(context)
         val relatedClassesSection = buildRelatedClassesSection(context)
+        
+        // Extract the line containing the cursor for AI to repeat
+        val lineWithCursor = extractLineWithCursor(context.markedContent, context.cursorOffset)
 
         return buildString {
             append("File: ${context.fileName}\n")
@@ -99,8 +93,28 @@ Important:
             
             append(relatedClassesSection)
             
-//            append("\nComplete the code at the <CURSOR> position.")
+            // Add the line with cursor for AI to repeat
+            append("\nThe line containing <CURSOR> is:\n")
+            append("```\n")
+            append(lineWithCursor)
+            append("\n```\n")
+            
+            append("\nProvide completion following the response format.")
         }
+    }
+    
+    /**
+     * Extract the line containing the cursor from marked content
+     */
+    private fun extractLineWithCursor(markedContent: String, cursorOffset: Int): String {
+        val lines = markedContent.lines()
+        for (line in lines) {
+            if (line.contains("<CURSOR>")) {
+                return line
+            }
+        }
+        // Fallback: return a portion around cursor if tag not found
+        return "Unable to extract line with cursor"
     }
 
     /**

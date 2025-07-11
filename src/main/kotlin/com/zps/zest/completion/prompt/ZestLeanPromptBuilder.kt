@@ -99,7 +99,7 @@ Important:
             
             append(relatedClassesSection)
             
-            append("\nComplete the code at the <CURSOR> position.")
+//            append("\nComplete the code at the <CURSOR> position.")
         }
     }
 

@@ -1052,11 +1052,18 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     log("Showing remaining completion at offset $targetOffset", "Remaining")
 
                     renderer.show(
-                        editor, targetOffset, remainingCompletion, completionProvider.strategy
-                    ) { renderingContext ->
-                        log("Remaining completion displayed", "Remaining", 1)
-                        project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
-                    }
+                        editor, targetOffset, remainingCompletion, completionProvider.strategy,
+                        callback = { renderingContext ->
+                            log("Remaining completion displayed", "Remaining", 1)
+                            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+                        },
+                        errorCallback = { reason ->
+                            log("Failed to show remaining lines: $reason", "Remaining")
+                            // Clean up state
+                            currentCompletion = null
+                            currentContext = null
+                        }
+                    )
 
                     showDebugBalloon("Line Accepted", "Remaining lines ready", NotificationType.INFORMATION)
                 } catch (e: Exception) {
@@ -1355,23 +1362,48 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     try {
                         log("Calling renderer.show()...", "Renderer")
                         renderer.show(
-                            editor, context.offset, completion, completionProvider.strategy
-                        ) { renderingContext ->
-                            log("Renderer callback - completion displayed", "Renderer")
-                            log("  Rendering context: $renderingContext", "Renderer", 1)
+                            editor, context.offset, completion, completionProvider.strategy,
+                            callback = { renderingContext ->
+                                log("Renderer callback - completion displayed", "Renderer")
+                                log("  Rendering context: $renderingContext", "Renderer", 1)
 
-                            project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
+                                project.messageBus.syncPublisher(Listener.TOPIC).completionDisplayed(renderingContext)
 
-                            // Track completion viewed metric
-                            completion.completionId.let { completionId ->
-                                metricsService.trackCompletionViewed(
-                                    completionId = completionId,
-                                    completionLength = completion.insertText.length,
-                                    completionLineCount = completion.insertText.split("\n").size,
-                                    confidence = completion.confidence
-                                )
+                                // Track completion viewed metric
+                                completion.completionId.let { completionId ->
+                                    metricsService.trackCompletionViewed(
+                                        completionId = completionId,
+                                        completionLength = completion.insertText.length,
+                                        completionLineCount = completion.insertText.split("\n").size,
+                                        confidence = completion.confidence
+                                    )
+                                }
+                            },
+                            errorCallback = { reason ->
+                                log("Renderer failed with reason: $reason - cleaning up state", "Renderer")
+                                
+                                // Clear the completion since it wasn't displayed
+                                currentCompletion = null
+                                currentContext = null
+                                
+                                // Reset request state
+                                if (requestState.activeRequestId == requestId) {
+                                    requestState.activeRequestId = null
+                                    requestState.currentRequestState = CompletionRequestState.RequestState.IDLE
+                                }
+                                
+                                // Track the dismissal
+                                completion.completionId.let { completionId ->
+                                    metricsService.trackCompletionDismissed(
+                                        completionId = completionId,
+                                        reason = "renderer_cancelled_$reason"
+                                    )
+                                }
+                                
+                                // Update status
+                                updateStatusBarText("")
                             }
-                        }
+                        )
 
                         logger.debug("Displayed completion: '${completion.insertText.take(50)}'")
                         showDebugBalloon("Completion Ready", "Press Tab to accept", NotificationType.INFORMATION)

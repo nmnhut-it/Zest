@@ -72,7 +72,8 @@ class ZestInlineCompletionRenderer {
         offset: Int,
         completion: ZestInlineCompletionItem,
         strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.SIMPLE,
-        callback: (context: RenderingContext) -> Unit = {}
+        callback: (context: RenderingContext) -> Unit = {},
+        errorCallback: (reason: String) -> Unit = {}
     ) {
         val renderStartTime = System.currentTimeMillis()
         
@@ -86,15 +87,18 @@ class ZestInlineCompletionRenderer {
                 val currentCaretOffset = editor.caretModel.offset
                 if (currentCaretOffset != offset) {
                     log("Caret moved, canceling completion display")
+                    errorCallback("caret_moved")
                     return@invokeLater
                 }
             } catch (e: Exception) {
                 log("Editor disposed, canceling completion display")
+                errorCallback("editor_disposed")
                 return@invokeLater
             }
             
             if (completion.insertText.isEmpty()) {
                 log("Empty completion text, nothing to display")
+                errorCallback("empty_completion")
                 return@invokeLater
             }
             
@@ -148,6 +152,7 @@ class ZestInlineCompletionRenderer {
                     }
                 }
                 current = null
+                errorCallback("render_failed")
             }
         }
     }

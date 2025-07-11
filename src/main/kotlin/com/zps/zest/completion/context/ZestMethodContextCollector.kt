@@ -775,6 +775,11 @@ class ZestMethodContextCollector(private val project: Project) {
             }
         }
         
+        // Add strict language reminder for Cocos2d-x
+        hints.add("IMPORTANT: This is Cocos2d-x JavaScript code. Use ONLY existing Cocos2d-x API functions - do not invent or hallucinate any non-existent cocos functions")
+        hints.add("STRICT: Verify all cc.* functions exist in Cocos2d-x documentation. Common valid functions include: cc.Node(), cc.Sprite(), cc.Layer(), cc.Scene(), cc.Director, cc.MoveTo(), cc.ScaleTo(), etc.")
+        hints.add("LANGUAGE: JavaScript/Cocos2d-x - NOT TypeScript, NOT modern JS frameworks. Use only Cocos2d-x JavaScript APIs")
+        
         return hints.distinct()
     }
     

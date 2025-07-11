@@ -79,37 +79,47 @@ class ZestLeanPromptBuilder(private val project: Project) {
         val lineWithCursor = extractLineWithCursor(context.markedContent, context.cursorOffset)
 
         return buildString {
-            append("File: ${context.fileName}\n")
-            append("Language: ${context.language}\n")
+            append("## File Information\n")
+            append("- **File:** ${context.fileName}\n")
+            append("- **Language:** ${context.language}\n")
             
             // Add syntax instructions if present
             if (!context.syntaxInstructions.isNullOrBlank()) {
-                append("\n${context.syntaxInstructions}\n")
+                append("\n### Framework-Specific Instructions\n")
+                append(context.syntaxInstructions)
+                append("\n")
             }
             
             if (contextInfo.isNotBlank()) {
+                append("\n### Context Analysis\n")
                 append(contextInfo)
+                append("\n")
             }
             
             // Add VCS context before file content
             if (vcsSection.isNotBlank()) {
+                append("\n### Version Control Context\n")
                 append(vcsSection)
             }
             
-            append("\nFull file with cursor position:\n")
+            append("\n## Current File Content\n")
             append("```${context.language.lowercase()}\n")
             append(context.markedContent)
             append("\n```\n")
             
-            append(relatedClassesSection)
+            if (relatedClassesSection.isNotBlank()) {
+                append("\n## Related Classes\n")
+                append(relatedClassesSection)
+            }
             
             // Add the line with cursor for AI to repeat
-            append("\nThe line containing <CURSOR> is:\n")
+            append("\n## Target Line\n")
+            append("The line containing `<CURSOR>` is:\n")
             append("```\n")
             append(lineWithCursor)
             append("\n```\n")
             
-            append("\nProvide completion following the response format.")
+            append("\n**Task:** Provide completion following the response format.")
         }
     }
     
@@ -138,7 +148,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
         }
         
         val sb = StringBuilder()
-        sb.append("\nUncommitted changes in workspace (may or may not be related to current task):\n")
+        sb.append("**Uncommitted changes in workspace** _(may or may not be related to current task)_\n\n")
         
         // Calculate relevance scores for all modified files
         val rankedFiles = rankFilesByRelevance(
@@ -151,31 +161,36 @@ class ZestLeanPromptBuilder(private val project: Project) {
         val topFiles = rankedFiles.take(3)
         
         // Show summary of all changes
-        sb.append("Modified files (${gitInfo.allModifiedFiles.size} total, showing ${topFiles.size} most relevant by path similarity):\n")
+        sb.append("### Modified Files\n")
+        sb.append("_Showing ${topFiles.size} of ${gitInfo.allModifiedFiles.size} files (ranked by path similarity):_\n\n")
         topFiles.forEach { (file, score) ->
             val status = when (file.status) {
-                "M" -> "Modified"
-                "A" -> "Added"
-                "D" -> "Deleted"
+                "M" -> "🔄 Modified"
+                "A" -> "➕ Added"
+                "D" -> "➖ Deleted"
                 else -> file.status
             }
-            sb.append("- $status: ${file.path}")
+            sb.append("- **$status:** `${file.path}`")
             if (file.summary != null) {
-                sb.append(" (${file.summary})")
+                sb.append(" — _${file.summary}_")
             }
             sb.append("\n")
         }
         
-        sb.append("\nNote: These changes provide context about ongoing work but may not directly relate to the completion needed.\n")
+        sb.append("\n> **Note:** These changes provide context about ongoing work but may not directly relate to the completion needed.\n")
         
         // Show truncated diffs for top files
-        topFiles.forEach { (file, _) ->
-            val diff = gitInfo.actualDiffs.find { it.filePath == file.path }
-            if (diff != null && diff.diffContent.isNotBlank()) {
-                sb.append("\nFile: ${file.path}\n")
-                sb.append("```diff\n")
-                sb.append(truncateDiff(diff.diffContent, 10))
-                sb.append("\n```\n")
+        if (topFiles.any { (file, _) -> gitInfo.actualDiffs.any { it.filePath == file.path } }) {
+            sb.append("\n### Change Details\n")
+            
+            topFiles.forEach { (file, _) ->
+                val diff = gitInfo.actualDiffs.find { it.filePath == file.path }
+                if (diff != null && diff.diffContent.isNotBlank()) {
+                    sb.append("\n#### `${file.path}`\n")
+                    sb.append("```diff\n")
+                    sb.append(truncateDiff(diff.diffContent, 10))
+                    sb.append("\n```\n")
+                }
             }
         }
         
@@ -313,34 +328,30 @@ class ZestLeanPromptBuilder(private val project: Project) {
         val info = mutableListOf<String>()
 
         if (context.contextType != ZestLeanContextCollectorPSI.CursorContextType.UNKNOWN) {
-            info.add("Context type: ${context.contextType.name.lowercase().replace('_', ' ')}")
+            info.add("- **Context type:** ${context.contextType.name.lowercase().replace('_', ' ')}")
         }
 
         if (context.calledMethods.isNotEmpty()) {
-            info.add("Called methods: ${context.calledMethods.take(10).joinToString(", ")}")
+            info.add("- **Called methods:** `${context.calledMethods.take(10).joinToString("`, `")}`")
         }
 
         if (context.usedClasses.isNotEmpty()) {
-            info.add("Used classes: ${context.usedClasses.take(5).joinToString(", ")}")
+            info.add("- **Used classes:** `${context.usedClasses.take(5).joinToString("`, `")}`")
         }
 
         if (context.preservedMethods.isNotEmpty()) {
-            info.add("Related methods in file: ${context.preservedMethods.size} methods preserved")
+            info.add("- **Related methods in file:** ${context.preservedMethods.size} methods preserved")
         }
 
         if (context.preservedFields.isNotEmpty()) {
-            info.add("Related fields: ${context.preservedFields.size} fields in context")
+            info.add("- **Related fields:** ${context.preservedFields.size} fields in context")
         }
 
         if (context.isTruncated) {
-            info.add("Note: File content has been truncated to fit context window")
+            info.add("- **Note:** File content has been truncated to fit context window")
         }
 
-        return if (info.isNotEmpty()) {
-            "Additional context:\n" + info.joinToString("\n")
-        } else {
-            ""
-        }
+        return info.joinToString("\n")
     }
 
     /**
@@ -358,7 +369,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
         }
 
         val sb = StringBuilder()
-        sb.append("\nRelated classes used in the current method:\n")
+        sb.append("Classes used in the current method:\n\n")
         
         // For each used class, either use loaded content or try to load it
         val classesToShow = mutableListOf<Pair<String, String>>()
@@ -390,12 +401,12 @@ class ZestLeanPromptBuilder(private val project: Project) {
         
         println("  Including ${relevantClasses.size} relevant classes in prompt")
         
-        relevantClasses.forEach { (className, classContent) ->
+        relevantClasses.forEachIndexed { index, (className, classContent) ->
             println("  Adding class: $className (content length: ${classContent.length})")
-            sb.append("\n```java\n")
-            sb.append("// Class: $className\n")
+            sb.append("### ${index + 1}. Class: `$className`\n")
+            sb.append("```java\n")
             sb.append(classContent)
-            sb.append("\n```\n")
+            sb.append("\n```\n\n")
         }
         
         val result = sb.toString()

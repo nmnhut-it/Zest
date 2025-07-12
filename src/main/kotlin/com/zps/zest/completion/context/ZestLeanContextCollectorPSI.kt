@@ -8,8 +8,6 @@ import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.async.AsyncClassAnalyzer
 import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Lean context collector that uses PSI (Program Structure Interface) for accurate Java code analysis
@@ -128,14 +126,17 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             }
         }
 
-        // Try to get cached VCS context from background manager (non-blocking)
+        // Try to get cached VCS context from background manager (truly non-blocking)
         val uncommittedChanges = try {
             val backgroundManager = project.getService(ZestBackgroundContextManager::class.java)
-            // Use runBlocking with very short timeout to check if cached data is available
-            kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeoutOrNull(50) { // 50ms timeout
-                    backgroundManager.getCachedGitContext()
-                }
+            // Check if we already have cached data without any blocking
+            val cachedGitContext = backgroundManager.getCachedGitContextNonBlocking()
+            if (cachedGitContext != null) {
+                println("Using cached VCS context (non-blocking)")
+                cachedGitContext
+            } else {
+                println("No cached VCS context available (non-blocking)")
+                null
             }
         } catch (e: Exception) {
             println("Failed to get cached VCS context: ${e.message}")

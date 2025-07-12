@@ -17,27 +17,26 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * Service that preemptively analyzes methods when the cursor enters them
+ * Service that preemptively analyzes classes when the cursor enters them
  * to provide instant context when completion is triggered.
  */
 @Service(Service.Level.PROJECT)
 class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable {
     
-    data class MethodKey(
-        val className: String?,
-        val methodName: String,
-        val methodSignature: String
+    data class ClassKey(
+        val className: String
     )
     
     data class AnalysisCache(
-        val timestamp: Long,
-        val result: AsyncClassAnalyzer.AnalysisResult,
-        val methodKey: MethodKey
+        var timestamp: Long,
+        var result: AsyncClassAnalyzer.AnalysisResult,
+        val classKey: ClassKey,
+        val analyzedMethods: MutableSet<String> = mutableSetOf()
     )
     
     private val asyncAnalyzer = AsyncClassAnalyzer(project)
-    private val analysisCache = ConcurrentHashMap<MethodKey, AnalysisCache>()
-    private val activeAnalysis = ConcurrentHashMap<MethodKey, Boolean>()
+    private val analysisCache = ConcurrentHashMap<ClassKey, AnalysisCache>()
+    private val activeAnalysis = ConcurrentHashMap<ClassKey, Boolean>()
     
     // Cache expiry time (5 minutes)
     private val CACHE_EXPIRY_MS = TimeUnit.MINUTES.toMillis(5)
@@ -46,7 +45,7 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
     private val ANALYSIS_DELAY_MS = 300L
     
     private var lastAnalysisTime = 0L
-    private var pendingAnalysis: MethodKey? = null
+    private var pendingAnalysis: ClassKey? = null
     
     init {
         setupListeners()
@@ -96,53 +95,125 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                 if (psiFile !is PsiJavaFile) return@runReadAction
                 
                 val element = psiFile.findElementAt(offset) ?: return@runReadAction
-                val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction
-                val containingClass = method.containingClass
+                val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java) ?: return@runReadAction
+                val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
                 
-                val methodKey = MethodKey(
-                    className = containingClass?.qualifiedName,
-                    methodName = method.name,
-                    methodSignature = method.getSignature(PsiSubstitutor.EMPTY).toString()
+                val classKey = ClassKey(
+                    className = containingClass.qualifiedName ?: containingClass.name ?: "Unknown"
                 )
                 
-                // Check if already analyzed or currently analyzing
-                if (analysisCache.containsKey(methodKey) && !isCacheExpired(methodKey)) {
-                    println("PreemptiveAnalyzer: Method already analyzed: ${methodKey.methodName}")
+                // Check if class is already analyzed or currently analyzing
+                val cachedAnalysis = analysisCache[classKey]
+                if (cachedAnalysis != null && !isCacheExpired(classKey)) {
+                    // If we have a method, check if it's already been analyzed
+                    if (method != null) {
+                        val methodSignature = method.getSignature(PsiSubstitutor.EMPTY).toString()
+                        if (cachedAnalysis.analyzedMethods.contains(methodSignature)) {
+                            println("PreemptiveAnalyzer: Class ${classKey.className} and method ${method.name} already analyzed")
+                            return@runReadAction
+                        }
+                        // Add new method to analysis
+                        println("PreemptiveAnalyzer: Adding method ${method.name} to existing class analysis")
+                        analyzeAdditionalMethod(classKey, method, cachedAnalysis)
+                    } else {
+                        println("PreemptiveAnalyzer: Class ${classKey.className} already analyzed")
+                    }
                     return@runReadAction
                 }
                 
-                if (activeAnalysis.putIfAbsent(methodKey, true) != null) {
-                    println("PreemptiveAnalyzer: Already analyzing method: ${methodKey.methodName}")
+                if (activeAnalysis.putIfAbsent(classKey, true) != null) {
+                    println("PreemptiveAnalyzer: Already analyzing class: ${classKey.className}")
                     return@runReadAction
                 }
                 
-                // Start analysis
-                println("PreemptiveAnalyzer: Starting analysis for method: ${methodKey.methodName}")
+                // Start analysis for the whole class
+                println("PreemptiveAnalyzer: Starting analysis for class: ${classKey.className}")
                 lastAnalysisTime = currentTime
                 
-                asyncAnalyzer.analyzeMethodAsync(
-                    method,
-                    onProgress = { result ->
-                        // Update cache with each progress update
-                        analysisCache[methodKey] = AnalysisCache(
-                            timestamp = System.currentTimeMillis(),
-                            result = result,
-                            methodKey = methodKey
-                        )
-                        println("PreemptiveAnalyzer: Progress update for ${methodKey.methodName} - " +
-                                "${result.usedClasses.size} classes, ${result.calledMethods.size} methods")
-                    },
-                    onComplete = {
-                        activeAnalysis.remove(methodKey)
-                        println("PreemptiveAnalyzer: Completed analysis for method: ${methodKey.methodName}")
-                    }
+                // Create initial cache entry
+                val cache = AnalysisCache(
+                    timestamp = System.currentTimeMillis(),
+                    result = AsyncClassAnalyzer.AnalysisResult(),
+                    classKey = classKey
                 )
+                analysisCache[classKey] = cache
+                
+                // Analyze all methods in the class
+                val methods = containingClass.methods.toList()
+                println("PreemptiveAnalyzer: Found ${methods.size} methods in class ${classKey.className}")
+                
+                // Keep track of all results to merge
+                val allCalledMethods = mutableSetOf<String>()
+                val allUsedClasses = mutableSetOf<String>()
+                val allRelatedClassContents = mutableMapOf<String, String>()
+                
+                // Analyze each method in the class
+                methods.forEach { classMethod ->
+                    asyncAnalyzer.analyzeMethodAsync(
+                        classMethod,
+                        onProgress = { result ->
+                            // Merge results into class-level collections
+                            synchronized(cache) {
+                                allCalledMethods.addAll(result.calledMethods)
+                                allUsedClasses.addAll(result.usedClasses)
+                                allRelatedClassContents.putAll(result.relatedClassContents)
+                                cache.analyzedMethods.add(classMethod.getSignature(PsiSubstitutor.EMPTY).toString())
+                                
+                                // Update cache with merged results
+                                cache.result = AsyncClassAnalyzer.AnalysisResult(
+                                    calledMethods = allCalledMethods.toSet(),
+                                    usedClasses = allUsedClasses.toSet(),
+                                    relatedClassContents = allRelatedClassContents.toMap()
+                                )
+                                cache.timestamp = System.currentTimeMillis()
+                            }
+                            println("PreemptiveAnalyzer: Progress update for ${classKey.className}.${classMethod.name} - " +
+                                    "${result.usedClasses.size} classes, ${result.calledMethods.size} methods")
+                        },
+                        onComplete = {
+                            println("PreemptiveAnalyzer: Completed analysis for method ${classMethod.name} in class ${classKey.className}")
+                        }
+                    )
+                }
+                
+                activeAnalysis.remove(classKey)
+                println("PreemptiveAnalyzer: Completed scheduling analysis for class: ${classKey.className}")
             }
         }
     }
     
     /**
-     * Get cached analysis for the method at the given offset
+     * Analyze additional method in an already cached class
+     */
+    private fun analyzeAdditionalMethod(classKey: ClassKey, method: PsiMethod, cachedAnalysis: AnalysisCache) {
+        val methodSignature = method.getSignature(PsiSubstitutor.EMPTY).toString()
+        
+        asyncAnalyzer.analyzeMethodAsync(
+            method,
+            onProgress = { result ->
+                // Merge results into existing class-level cache
+                synchronized(cachedAnalysis) {
+                    // Create new merged result
+                    val mergedResult = AsyncClassAnalyzer.AnalysisResult(
+                        calledMethods = cachedAnalysis.result.calledMethods + result.calledMethods,
+                        usedClasses = cachedAnalysis.result.usedClasses + result.usedClasses,
+                        relatedClassContents = cachedAnalysis.result.relatedClassContents + result.relatedClassContents
+                    )
+                    
+                    cachedAnalysis.result = mergedResult
+                    cachedAnalysis.analyzedMethods.add(methodSignature)
+                    cachedAnalysis.timestamp = System.currentTimeMillis()
+                }
+                println("PreemptiveAnalyzer: Added analysis for ${method.name} to class ${classKey.className}")
+            },
+            onComplete = {
+                println("PreemptiveAnalyzer: Completed additional method analysis for ${method.name}")
+            }
+        )
+    }
+    
+    /**
+     * Get cached analysis for the class at the given offset
      */
     fun getCachedAnalysis(editor: Editor, offset: Int): AsyncClassAnalyzer.AnalysisResult? {
         return ApplicationManager.getApplication().runReadAction<AsyncClassAnalyzer.AnalysisResult?> {
@@ -150,35 +221,32 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
             if (psiFile !is PsiJavaFile) return@runReadAction null
             
             val element = psiFile.findElementAt(offset) ?: return@runReadAction null
-            val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
-            val containingClass = method.containingClass
+            val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java) ?: return@runReadAction null
             
-            val methodKey = MethodKey(
-                className = containingClass?.qualifiedName,
-                methodName = method.name,
-                methodSignature = method.getSignature(PsiSubstitutor.EMPTY).toString()
+            val classKey = ClassKey(
+                className = containingClass.qualifiedName ?: containingClass.name ?: "Unknown"
             )
             
-            val cached = analysisCache[methodKey]
-            if (cached != null && !isCacheExpired(methodKey)) {
-                println("PreemptiveAnalyzer: Found cached analysis for ${methodKey.methodName}")
+            val cached = analysisCache[classKey]
+            if (cached != null && !isCacheExpired(classKey)) {
+                println("PreemptiveAnalyzer: Found cached analysis for class ${classKey.className}")
                 cached.result
             } else {
-                println("PreemptiveAnalyzer: No cached analysis for ${methodKey.methodName}")
+                println("PreemptiveAnalyzer: No cached analysis for class ${classKey.className}")
                 null
             }
         }
     }
     
     /**
-     * Force analysis of the current method (useful for manual trigger)
+     * Force analysis of the current class (useful for manual trigger)
      */
-    fun analyzeCurrentMethod(editor: Editor, offset: Int) {
+    fun analyzeCurrentClass(editor: Editor, offset: Int) {
         scheduleAnalysis(editor, offset)
     }
     
-    private fun isCacheExpired(methodKey: MethodKey): Boolean {
-        val cached = analysisCache[methodKey] ?: return true
+    private fun isCacheExpired(classKey: ClassKey): Boolean {
+        val cached = analysisCache[classKey] ?: return true
         return System.currentTimeMillis() - cached.timestamp > CACHE_EXPIRY_MS
     }
     

@@ -262,7 +262,7 @@ public final class LLMService implements Disposable {
         
         return executeQueryAsync(apiUrl, authToken, params, enumUsage)
             .exceptionally(throwable -> {
-                LOG.warn("LLM query attempt " + attempt + " failed: " + throwable.getMessage());
+                LOG.warn("  LLM query attempt " + attempt + " failed: " + throwable.getMessage());
                 
                 if (attempt < params.getMaxRetries()) {
                     // Retry with exponential backoff
@@ -638,6 +638,7 @@ public final class LLMService implements Disposable {
                 // Send a minimal request to establish connection
                 LLMQueryParams params = new LLMQueryParams("test")
                     .withMaxTokens(1)
+                        .useLiteCodeModel()
                     .withMaxRetries(1);
                 queryWithParamsAsync(params, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
                     .orTimeout(5, TimeUnit.SECONDS)

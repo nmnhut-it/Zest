@@ -34,6 +34,7 @@ import com.zps.zest.events.ZestDocumentListener
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.apache.http.client.utils.DateUtils
 import java.util.*
 
 /**
@@ -610,7 +611,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         val officeStart = java.time.LocalTime.of(8, 30)
                         val officeEnd = java.time.LocalTime.of(17, 30)
                         val actualModel = if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
-                            "local-model-mini"
+                            "local-model"
                         } else {
                             "local-model-mini"
                         }

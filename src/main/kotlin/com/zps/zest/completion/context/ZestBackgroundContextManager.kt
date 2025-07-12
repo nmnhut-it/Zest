@@ -74,6 +74,20 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
     }
     
     /**
+     * Get cached git context without any blocking - returns immediately
+     * Returns null if no cached data is available
+     */
+    fun getCachedGitContextNonBlocking(): ZestCompleteGitContext.CompleteGitInfo? {
+        val cached = cachedGitContext
+        return if (cached != null && !cached.isExpired()) {
+            System.out.println("Returning cached git context (non-blocking)")
+            cached.data
+        } else {
+            null
+        }
+    }
+    
+    /**
      * Get cached git context or collect if expired/missing
      */
     suspend fun getCachedGitContext(): ZestCompleteGitContext.CompleteGitInfo? {

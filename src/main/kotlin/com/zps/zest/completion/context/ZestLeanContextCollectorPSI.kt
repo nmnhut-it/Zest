@@ -8,6 +8,8 @@ import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.async.AsyncClassAnalyzer
 import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Lean context collector that uses PSI (Program Structure Interface) for accurate Java code analysis
@@ -126,11 +128,17 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             }
         }
 
-        // Collect VCS context for uncommitted changes
+        // Try to get cached VCS context from background manager (non-blocking)
         val uncommittedChanges = try {
-            ZestCompleteGitContext(project).getAllModifiedFiles()
+            val backgroundManager = project.getService(ZestBackgroundContextManager::class.java)
+            // Use runBlocking with very short timeout to check if cached data is available
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(50) { // 50ms timeout
+                    backgroundManager.getCachedGitContext()
+                }
+            }
         } catch (e: Exception) {
-            println("Failed to collect VCS context: ${e.message}")
+            println("Failed to get cached VCS context: ${e.message}")
             null
         }
 
@@ -222,7 +230,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                             // Update context with dependency info
                             latestContext = latestContext.copy(
                                 preservedMethods = methodsToPreserve.plus(containingMethod.name),
-                                preservedFields = fieldsToPreserve
+                                preservedFields = fieldsToPreserve,
+                                uncommittedChanges = latestContext.uncommittedChanges // Preserve VCS context
                             )
                         }
                         
@@ -235,7 +244,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                                     calledMethods = analysisResult.calledMethods,
                                     usedClasses = analysisResult.usedClasses,
                                     relatedClassContents = analysisResult.relatedClassContents,
-                                    preservedMethods = latestContext.preservedMethods.plus(analysisResult.calledMethods)
+                                    preservedMethods = latestContext.preservedMethods.plus(analysisResult.calledMethods),
+                                    uncommittedChanges = latestContext.uncommittedChanges // Preserve VCS context
                                 )
                                 
                                 // Send progressive updates

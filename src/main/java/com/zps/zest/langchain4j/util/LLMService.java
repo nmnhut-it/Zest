@@ -764,17 +764,23 @@ public final class LLMService implements Disposable {
         boolean isLiteModel = false;
 
         public LLMQueryParams useLiteCodeModel() {
-            // Get current time in local timezone
-            java.time.LocalTime currentTime = java.time.LocalTime.now();
+            // Get current time and day in local timezone
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            java.time.DayOfWeek dayOfWeek = now.getDayOfWeek();
+            java.time.LocalTime currentTime = now.toLocalTime();
             java.time.LocalTime officeStart = java.time.LocalTime.of(8, 30); // 8:30 AM
             java.time.LocalTime officeEnd = java.time.LocalTime.of(17, 30); // 5:30 PM
 
-            // During office hours (8:30 AM - 5:30 PM), use local-model if available
-            if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
+            // Check if it's weekend first
+            if (dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+                this.model = "local-model-mini";
+                LOG.info("Weekend detected (" + dayOfWeek + "), using local-model-mini to save retries");
+            } else if (currentTime.isAfter(officeStart) && currentTime.isBefore(officeEnd)) {
+                // During office hours (8:30 AM - 5:30 PM) on weekdays, use local-model
                 this.model = "local-model";
                 LOG.info("Within office hours (" + currentTime + "), using local-model for lite mode");
             } else {
-                // Outside office hours, use mini model
+                // Outside office hours on weekdays, use mini model
                 this.model = "local-model-mini";
                 LOG.info("Outside office hours (" + currentTime + "), using local-model-mini for lite mode");
             }

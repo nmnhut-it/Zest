@@ -457,50 +457,42 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun buildDetectionPrompt(fqn: String, context: String, callers: List<String>, callerSnippets: List<CallerSnippet>): String {
         return """
-            Analyze this Java method for potential issues. Be concise but thorough.
+            Analyze this method and identify up to 3 potential issues, then rank them by criticality.
             
-            Java Method: $fqn
-            Modified: ${if (callers.size > 5) "Many times" else "Recently"}
-            Callers: ${callers.size} methods
+            Method: $fqn
             
-            Java Code:
             ```java
             $context
             ```
             
-            ${if (callerSnippets.isNotEmpty()) """
-            Usage Examples:
-            ${callerSnippets.take(3).joinToString("\n") { snippet ->
-                "- ${snippet.callerFqn}: ${snippet.context}"
-            }}
-            """ else ""}
+            Think carefully about:
+            - What could actually break or cause bugs?
+            - What security vulnerabilities exist?
+            - What could leak resources or memory?
+            - What performance problems are severe?
             
-            Find issues in these categories:
-            - Null safety risks
-            - Resource leaks
-            - Performance problems
-            - Error handling gaps
-            - Security vulnerabilities
-            - Code quality issues
-            
-            Return ONLY valid JSON:
+            Return ONLY valid JSON with issues ordered by criticality (most critical first):
             {
-                "summary": "1-line method assessment",
+                "summary": "1-line assessment",
                 "healthScore": 85,
                 "issues": [
                     {
-                        "category": "Category Name",
-                        "severity": 3,
-                        "title": "Brief issue title",
+                        "category": "Category",
+                        "severity": 4,
+                        "title": "Short title",
                         "description": "What's wrong",
-                        "impact": "What could happen",
+                        "impact": "Real consequences",
                         "suggestedFix": "How to fix",
-                        "confidence": 0.9
+                        "confidence": 0.9,
+                        "priority": 1
                     }
                 ]
             }
             
-            Be realistic. Focus on actual problems, not style preferences.
+            Find up to 3 issues but ORDER them by real-world impact.
+            First issue should be the MOST CRITICAL one.
+            Ignore: naming, formatting, minor optimizations, style preferences.
+            Only report issues with severity 3+ that could cause real problems.
         """.trimIndent()
     }
 
@@ -530,12 +522,14 @@ class CodeHealthAnalyzer(private val project: Project) {
             val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
             val healthScore = jsonObject.get("healthScore")?.asInt ?: 85
             
-            // Parse issues
+            // Parse issues - AI returns up to 3 ordered by criticality, but we only show the first (most critical) one
             val issues = mutableListOf<HealthIssue>()
             val issuesArray = jsonObject.getAsJsonArray("issues")
             
-            issuesArray?.forEach { element ->
-                val issueObject = element.asJsonObject
+            if (issuesArray != null && issuesArray.size() > 0) {
+                // Only process the first issue (most critical) as per product requirements
+                // The AI has already prioritized them, so the first one is the most important
+                val issueObject = issuesArray.get(0).asJsonObject
                 
                 val category = issueObject.get("category")?.asString ?: "Unknown"
                 val severity = issueObject.get("severity")?.asInt ?: 1
@@ -544,32 +538,23 @@ class CodeHealthAnalyzer(private val project: Project) {
                 val impact = issueObject.get("impact")?.asString ?: ""
                 val suggestedFix = issueObject.get("suggestedFix")?.asString ?: ""
                 val confidence = issueObject.get("confidence")?.asDouble ?: 0.8
-                val callerEvidence = issueObject.get("callerEvidence")?.asString
                 val codeSnippet = issueObject.get("codeSnippet")?.asString
                 
-                // If caller evidence is mentioned, try to match it with actual caller snippets
-                val relevantCallerSnippets = if (callerEvidence != null) {
-                    callerSnippets.filter { snippet ->
-                        callerEvidence.contains(snippet.callerFqn.substringAfterLast('.')) ||
-                        snippet.context.contains("loop") && callerEvidence.contains("loop") ||
-                        snippet.context.contains("conditional") && callerEvidence.contains("condition")
-                    }
-                } else {
-                    emptyList()
+                // Only add if it's a significant issue (severity >= 3)
+                if (severity >= 3) {
+                    issues.add(HealthIssue(
+                        issueCategory = category,
+                        severity = severity,
+                        title = title,
+                        description = description,
+                        impact = impact,
+                        suggestedFix = suggestedFix,
+                        confidence = confidence,
+                        verified = false,  // Will be verified in second pass
+                        codeSnippet = codeSnippet,
+                        callerSnippets = callerSnippets
+                    ))
                 }
-                
-                issues.add(HealthIssue(
-                    issueCategory = category,
-                    severity = severity,
-                    title = title,
-                    description = description,
-                    impact = impact,
-                    suggestedFix = suggestedFix,
-                    confidence = confidence,
-                    verified = false,  // Will be verified in second pass
-                    codeSnippet = codeSnippet,
-                    callerSnippets = relevantCallerSnippets
-                ))
             }
             
             MethodHealthResult(
@@ -1059,23 +1044,25 @@ class CodeHealthAnalyzer(private val project: Project) {
         println("[CodeHealthAnalyzer] Analyzing whole file: ${unit.className}")
         
         val prompt = """
-            Analyze this entire Java file for code health issues.
+            Analyze this Java file and find up to 3 issues per method, ordered by criticality.
             
             File: ${unit.className}
-            Size: ${unit.lineCount} lines
             Modified methods: ${unit.methods.joinToString(", ")}
             
             ${context.toPromptContext()}
             
-            Analyze ALL methods in the file, but pay special attention to the modified ones.
-            Look for:
-            - Issues in the modified methods
-            - Problems in how other methods interact with modified methods
-            - Class-level design issues
-            - Resource management problems
-            - Thread safety concerns
+            For each method:
+            1. Find up to 3 potential issues
+            2. Order them by real-world impact (most critical first)
+            3. Include only issues that could cause actual problems
             
-            Return ONLY valid JSON with results for EACH method:
+            Focus on issues that could:
+            - Cause crashes or data loss
+            - Create security vulnerabilities
+            - Leak resources or memory
+            - Severely impact performance
+            
+            Return ONLY valid JSON (put most critical issue first for each method):
             {
                 "methods": [
                     {
@@ -1085,17 +1072,22 @@ class CodeHealthAnalyzer(private val project: Project) {
                         "issues": [
                             {
                                 "category": "Category",
-                                "severity": 3,
+                                "severity": 4,
                                 "title": "Issue title",
                                 "description": "What's wrong",
-                                "impact": "Consequences",
+                                "impact": "Real consequences",
                                 "suggestedFix": "How to fix",
-                                "confidence": 0.9
+                                "confidence": 0.9,
+                                "priority": 1
                             }
                         ]
                     }
                 ]
             }
+            
+            Skip methods with no critical issues.
+            Ignore style, naming, minor optimizations.
+            Order issues by criticality within each method.
         """.trimIndent()
         
         return callLLMForFileAnalysis(unit, context, prompt)
@@ -1111,21 +1103,24 @@ class CodeHealthAnalyzer(private val project: Project) {
         println("[CodeHealthAnalyzer] Analyzing method group: ${unit.className} - ${unit.methods.size} methods")
         
         val prompt = """
-            Analyze this group of related Java methods for code health issues.
+            Analyze these Java methods and find up to 3 issues per method, ordered by criticality.
             
             Class: ${unit.className}
             Methods: ${unit.methods.joinToString(", ")}
             
             ${context.toPromptContext()}
             
-            Focus on:
-            - Issues within each method
-            - Problems in how these methods interact
-            - Shared resources or state problems
-            - Pattern violations across methods
-            - Cumulative performance impacts
+            For each method:
+            1. Identify up to 3 critical issues
+            2. Order them by real-world impact (most critical first)
+            3. The first issue should be the MOST URGENT to fix
             
-            Return ONLY valid JSON with results for EACH method:
+            Issues must be things that could:
+            - Cause crashes, data corruption, or security breaches
+            - Leak resources or create memory problems
+            - Severely impact performance or stability
+            
+            Return ONLY valid JSON (most critical issue first per method):
             {
                 "methods": [
                     {
@@ -1135,17 +1130,21 @@ class CodeHealthAnalyzer(private val project: Project) {
                         "issues": [
                             {
                                 "category": "Category",
-                                "severity": 3,
+                                "severity": 4,
                                 "title": "Issue title",
                                 "description": "What's wrong",
-                                "impact": "Consequences",
+                                "impact": "Real consequences",
                                 "suggestedFix": "How to fix",
-                                "confidence": 0.9
+                                "confidence": 0.9,
+                                "priority": 1
                             }
                         ]
                     }
                 ]
             }
+            
+            Skip trivial issues. Only report severity 3+ issues.
+            Put the MOST CRITICAL issue first in the array.
         """.trimIndent()
         
         return callLLMForFileAnalysis(unit, context, prompt)
@@ -1215,38 +1214,48 @@ class CodeHealthAnalyzer(private val project: Project) {
                 val summary = methodObject.get("summary")?.asString ?: "Analysis completed"
                 val healthScore = methodObject.get("healthScore")?.asInt ?: 85
                 
-                // Parse issues for this method
+                // Parse issues for this method - AI returns up to 3, we take only the first (most critical)
                 val issues = mutableListOf<HealthIssue>()
                 val issuesArray = methodObject.getAsJsonArray("issues")
                 
-                issuesArray?.forEach { issueElement ->
-                    val issueObject = issueElement.asJsonObject
+                if (issuesArray != null && issuesArray.size() > 0) {
+                    // Only process the first issue (most critical) as per product requirements
+                    // The AI has already prioritized them, so the first one is the most important
+                    val issueObject = issuesArray.get(0).asJsonObject
                     
-                    issues.add(HealthIssue(
-                        issueCategory = issueObject.get("category")?.asString ?: "Unknown",
-                        severity = issueObject.get("severity")?.asInt ?: 3,
-                        title = issueObject.get("title")?.asString ?: "Unknown Issue",
-                        description = issueObject.get("description")?.asString ?: "",
-                        impact = issueObject.get("impact")?.asString ?: "",
-                        suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
-                        confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
-                        verified = true, // Pre-verified for file/group analysis
-                        verificationReason = "Verified through ${unit.type} analysis",
-                        codeSnippet = issueObject.get("codeSnippet")?.asString,
-                        callerSnippets = emptyList()
-                    ))
+                    val severity = issueObject.get("severity")?.asInt ?: 3
+                    
+                    // Only add if it's a significant issue (severity >= 3)
+                    if (severity >= 3) {
+                        issues.add(HealthIssue(
+                            issueCategory = issueObject.get("category")?.asString ?: "Unknown",
+                            severity = severity,
+                            title = issueObject.get("title")?.asString ?: "Unknown Issue",
+                            description = issueObject.get("description")?.asString ?: "",
+                            impact = issueObject.get("impact")?.asString ?: "",
+                            suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
+                            confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
+                            verified = true, // Pre-verified for file/group analysis
+                            verificationReason = "Verified through ${unit.type} analysis",
+                            codeSnippet = issueObject.get("codeSnippet")?.asString,
+                            callerSnippets = emptyList()
+                        ))
+                    }
                 }
                 
-                results.add(MethodHealthResult(
-                    fqn = fqn,
-                    issues = issues,
-                    impactedCallers = emptyList(), // Could be filled later if needed
-                    healthScore = healthScore,
-                    modificationCount = 1, // Default
-                    codeContext = "", // Already in context
-                    summary = summary,
-                    actualModel = actualModel
-                ))
+                // Only add result if there are critical issues or it's a healthy method
+                if (issues.isNotEmpty() || healthScore >= 80) {
+                    results.add(MethodHealthResult(
+                        fqn = fqn,
+                        issues = issues,
+                        impactedCallers = emptyList(), // Could be filled later if needed
+                        healthScore = healthScore,
+                        modificationCount = 1, // Default
+                        codeContext = "", // Already in context
+                        summary = summary,
+                        actualModel = actualModel
+                    ))
+                }
             }
             
             return results

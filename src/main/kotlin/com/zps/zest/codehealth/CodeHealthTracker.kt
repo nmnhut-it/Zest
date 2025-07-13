@@ -45,6 +45,10 @@ class CodeHealthTracker(private val project: Project) :
         
         fun getInstance(project: Project): CodeHealthTracker =
             project.getService(CodeHealthTracker::class.java)
+            
+        // Track tip display frequency
+        private var tipShowCounter = 0
+        private const val TIP_SHOW_FREQUENCY = 3 // Show tip every 3rd time
     }
 
     private var state = State()
@@ -359,6 +363,15 @@ class CodeHealthTracker(private val project: Project) :
      */
     fun getLastResults(): List<CodeHealthAnalyzer.MethodHealthResult>? = lastAnalysisResults
 
+    /**
+     * Determine if we should show the tip about viewing reports
+     */
+    private fun shouldShowTip(): Boolean {
+        tipShowCounter++
+        // Show tip first 3 times, then every 3rd time
+        return tipShowCounter <= 3 || tipShowCounter % TIP_SHOW_FREQUENCY == 0
+    }
+    
     fun checkAndNotify() {
         if (!state.enabled) return
         
@@ -513,6 +526,18 @@ class CodeHealthTracker(private val project: Project) :
                     ApplicationManager.getApplication().invokeLater {
                         if (!project.isDisposed) {
                             CodeHealthNotification.showHealthReport(project, allResults)
+                            
+                            // Add tip notification (show occasionally)
+                            if (shouldShowTip()) {
+                                NotificationGroupManager.getInstance()
+                                    .getNotificationGroup("Zest Code Guardian")
+                                    .createNotification(
+                                        "💡 Tip: View Report Anytime",
+                                        "Left-click the Guardian widget in the status bar to view this report again today!",
+                                        NotificationType.INFORMATION
+                                    )
+                                    .notify(project)
+                            }
                         }
                     }
                 } else {

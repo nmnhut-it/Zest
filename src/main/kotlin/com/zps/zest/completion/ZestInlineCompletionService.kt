@@ -122,7 +122,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val completionProvider = ZestCompletionProvider(project)
-    private val renderer = ZestInlineCompletionRenderer()
+    public val renderer = ZestInlineCompletionRenderer()
     private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
 
     // Method rewrite service integration
@@ -760,6 +760,31 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                                 log("Non-cacheable completion or empty result", "Cache")
                                 // Non-cacheable strategy or empty completion
                                 handleCompletionResponse(editor, context, completionsWithId, requestId)
+                                
+                                // If we got null/empty completions and auto-trigger is enabled,
+                                // schedule a retry after a delay
+                                if ((completions == null || completions.isEmpty()) && autoTriggerEnabled && !manually) {
+                                    log("Got empty/null completion, scheduling retry in 2 seconds", "Retry")
+                                    scope.launch {
+                                        delay(2000) // Wait 2 seconds before retry
+                                        
+                                        // Check if still no completion and editor is still active
+                                        if (currentCompletion == null && 
+                                            requestState.currentRequestState == CompletionRequestState.RequestState.IDLE &&
+                                            !editor.isDisposed) {
+                                            
+                                            ApplicationManager.getApplication().invokeLater {
+                                                try {
+                                                    val currentOffset = editor.caretModel.offset
+                                                    log("Retrying completion after null result at offset $currentOffset", "Retry")
+                                                    provideInlineCompletion(editor, currentOffset, manually = false)
+                                                } catch (e: Exception) {
+                                                    log("ERROR in retry: ${e.message}", "Retry")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             log("Context changed during request!", "Context")
@@ -1137,7 +1162,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      */
     fun isInlineCompletionVisibleAt(editor: Editor, offset: Int): Boolean {
         val result =
-            renderer.current?.editor == editor && renderer.current?.offset == offset && currentCompletion != null
+            renderer.current?.editor == editor && renderer.current?.offset  == offset  && currentCompletion != null
 
         return result
     }
@@ -1643,8 +1668,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                         // or if user moved backwards (suggesting they want to edit earlier text)
                         val shouldDismiss = if (offsetDiff < 0) {
                             // User moved backwards - check if they moved far back
-                            kotlin.math.abs(offsetDiff) > 5 // Reduced from 100 to be more sensitive to backward movement
-                        } else if (offsetDiff > 5) {
+                            kotlin.math.abs(offsetDiff) > 3 // Reduced from 100 to be more sensitive to backward movement
+                        } else if (offsetDiff > 3) {
                             // User moved too far forward
                             true
                         } else if (offsetDiff > 0) {
@@ -1843,6 +1868,15 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                             log("Scheduling new completion after typing", "Document", 1)
                             scheduleNewCompletion(editor)
                         }
+                    } else {
+                        // Log why we're not scheduling
+                        if (!autoTriggerEnabled) {
+                            log("Not scheduling: auto-trigger disabled", "Document", 1)
+                        } else if (acceptanceState.isAcceptingCompletion) {
+                            log("Not scheduling: currently accepting", "Document", 1)
+                        } else if (currentCompletion != null) {
+                            log("Not scheduling: completion already active", "Document", 1)
+                        }
                     }
                 }
             }
@@ -1867,7 +1901,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
         // Don't schedule if already waiting or requesting
         if (requestState.currentRequestState == CompletionRequestState.RequestState.WAITING || requestState.currentRequestState == CompletionRequestState.RequestState.REQUESTING) {
-            log("Already waiting/requesting, not scheduling", "Schedule", 1)
+            log("Already waiting/requesting (state: ${requestState.currentRequestState}), not scheduling", "Schedule", 1)
             return
         }
 
@@ -1879,15 +1913,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
 
         // Don't schedule during cooldown period
         if (acceptanceState.isInCooldown()) {
-            log("In cooldown period, not scheduling", "Schedule", 1)
+            log("In cooldown period (${acceptanceState.getTimeSinceLastAcceptance()}ms since accept), not scheduling", "Schedule", 1)
             return
         }
 
         // Don't schedule if a request is already active
         if (requestState.activeRequestId != null) {
-            log("Active request exists, not scheduling", "Schedule", 1)
-            requestState.currentRequestState =
-                CompletionRequestState.RequestState.IDLE // Reset state since we're not scheduling
+            log("Active request exists (ID: ${requestState.activeRequestId}), not scheduling", "Schedule", 1)
+            // Don't reset state here - let the active request complete
             return
         }
 
@@ -1915,8 +1948,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                 return@launch
             }
 
-            // Check again if no completion is active
-            if (currentCompletion == null && requestState.currentRequestState != CompletionRequestState.RequestState.REQUESTING) {
+            // Check state before triggering
+            log("Timer check: currentCompletion=${currentCompletion != null}, requestState=${requestState.currentRequestState}", "Timer", 1)
+
+            // Trigger if no completion is active and not already requesting
+            if (currentCompletion == null && requestState.currentRequestState == CompletionRequestState.RequestState.WAITING) {
                 ApplicationManager.getApplication().invokeLater {
                     try {
                         val currentOffset = editor.caretModel.offset
@@ -1929,7 +1965,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
                     }
                 }
             } else {
-                log("Completion active or already requesting, cancelling timer", "Timer", 1)
+                log("Not triggering: completion active=${currentCompletion != null}, state=${requestState.currentRequestState}", "Timer", 1)
                 requestState.currentRequestState = CompletionRequestState.RequestState.IDLE
             }
         }

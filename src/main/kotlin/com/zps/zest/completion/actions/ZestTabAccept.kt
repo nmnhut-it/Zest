@@ -1,10 +1,13 @@
 package com.zps.zest.completion.actions
 
+import ai.grazie.text.TextRange
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.components.serviceOrNull
+import com.intellij.util.text.TextRangeUtil
 import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestMethodRewriteService
+import kotlin.math.abs
 
 /**
  * TAB action for full completion acceptance.
@@ -35,8 +38,12 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
         
         // Check if completion is visible
         if (!service.isInlineCompletionVisibleAt(editor, caret.offset)) {
-            return false
+            val current = service.renderer.current
+            if (  abs((if (current != null) current.offset else Integer.MAX_VALUE) - caret.offset) >= 10 ) {
+                return false
+            }
         }
+
         
         // Simple check: accept if completion contains meaningful content
         val currentCompletion = service.getCurrentCompletion() ?: return false

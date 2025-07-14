@@ -290,8 +290,10 @@ public final class LLMService implements Disposable {
             String authToken, 
             LLMQueryParams params, 
             ChatboxUtilities.EnumUsage enumUsage) {
-        apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-        authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+        if (apiUrl.contains("chat.zingplay")) {
+            apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+            authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+        }
         long startTime = System.currentTimeMillis();
         connectionStats.incrementRequests();
 
@@ -353,9 +355,11 @@ public final class LLMService implements Disposable {
      * Executes the actual HTTP request to the LLM API (original implementation).
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
-        apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+        if (apiUrl.contains("chat.zingplay")) {
+            apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+            authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+        }
         URL url = new URL(apiUrl);
-        authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
 
         long elapsed = System.currentTimeMillis();
 

@@ -52,6 +52,14 @@
                     factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
                     icon="com.zps.zest.ZestIcons.ZPS_CHAT"
                     canCloseContents="false"/>
+                    
+        <toolWindow id="Code Guardian"
+                    anchor="right"
+                    factoryClass="com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory"
+                    icon="com.zps.zest.ZestIcons.SHIELD"
+                    canCloseContents="false"
+                    doNotActivateOnStart="true"
+                    secondary="true"/>
 
         <toolWindow id="Test Writing Assistant"
                     anchor="bottom"

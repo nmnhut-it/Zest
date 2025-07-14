@@ -210,10 +210,19 @@ object CodeHealthNotification {
         // Store the results first
         CodeHealthReportStorage.getInstance(project).storeReport(results)
         
-        // Show the new Swing dialog
+        // Show the tool window
         ApplicationManager.getApplication().invokeLater {
-            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
-            dialog.show()
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Code Guardian")
+            if (toolWindow != null) {
+                toolWindow.show()
+                
+                // Update with the new results
+                com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results)
+            } else {
+                // Fallback to dialog if tool window not available
+                val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
+                dialog.show()
+            }
         }
     }
 

@@ -3,6 +3,7 @@ package com.zps.zest.codehealth.ui
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.impl.status.EditorBasedWidget
 import com.intellij.util.Consumer
 import com.intellij.openapi.actionSystem.AnAction
@@ -472,7 +473,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
         val lastResults = tracker.getLastResults()
 
         if (lastResults != null && lastResults.isNotEmpty()) {
-            com.zps.zest.codehealth.CodeHealthNotification.showHealthReport(project, lastResults)
+            showToolWindow(lastResults)
         } else {
             showStoredReports()
         }
@@ -480,7 +481,22 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
     
     private fun showStoredReports() {
         ApplicationManager.getApplication().invokeLater {
-            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project)
+            showToolWindow(null)
+        }
+    }
+    
+    private fun showToolWindow(results: List<CodeHealthAnalyzer.MethodHealthResult>?) {
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Code Guardian")
+        if (toolWindow != null) {
+            toolWindow.show()
+            
+            // Update with latest data if provided
+            if (results != null) {
+                CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results)
+            }
+        } else {
+            // Fallback to dialog if tool window not available
+            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
             dialog.show()
         }
     }

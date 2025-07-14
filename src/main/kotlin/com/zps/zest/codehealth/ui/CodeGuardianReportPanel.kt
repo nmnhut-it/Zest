@@ -1,7 +1,6 @@
 package com.zps.zest.codehealth.ui
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -24,51 +23,126 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.actionSystem.impl.ActionButton
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 
 /**
- * Pure Swing implementation of the health report dialog with 3-day history
+ * Panel for Code Guardian tool window with full and condensed modes
  */
-class SwingHealthReportDialog(
-    private val project: Project,
-    private val todayResults: List<CodeHealthAnalyzer.MethodHealthResult>? = null
-) : DialogWrapper(project) {
+class CodeGuardianReportPanel(
+    private val project: Project
+) : JPanel(BorderLayout()) {
 
     private val storage = CodeHealthReportStorage.getInstance(project)
     private val dateFormatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+    private val shortDateFormatter = DateTimeFormatter.ofPattern("MMM dd")
+    
+    private var isCondensedMode = false
+    private var mainContent: JComponent? = null
+    private var todayResults: List<CodeHealthAnalyzer.MethodHealthResult>? = null
+    
+    // Width threshold for auto-switching to condensed mode
+    private val CONDENSED_MODE_THRESHOLD = 400
     
     init {
-        title = "🛡️ Code Guardian Health Report"
-        setOKButtonText("Close")
-        isModal = false  // Make it non-modal
-        init()
+        setupUI()
+        setupAutoResizeListener()
     }
     
-    override fun show() {
-        super.show()
-        // Make the window stay on top (optional)
-        window?.isAlwaysOnTop = true
+    fun updateResults(results: List<CodeHealthAnalyzer.MethodHealthResult>) {
+        todayResults = results
+        refreshContent()
     }
     
-    override fun doCancelAction() {
-        // Ask before closing if always on top
-        if (window?.isAlwaysOnTop == true) {
-            val result = Messages.showYesNoDialog(
-                project,
-                "Close Code Guardian Report?",
-                "Confirm Close",
-                Messages.getQuestionIcon()
-            )
-            if (result == Messages.YES) {
-                super.doCancelAction()
-            }
-        } else {
-            super.doCancelAction()
-        }
-    }
-
-    override fun createCenterPanel(): JComponent {
-        val mainPanel = JPanel(BorderLayout())
+    private fun setupUI() {
+        background = UIUtil.getPanelBackground()
         
+        // Add toolbar at top
+        add(createToolbar(), BorderLayout.NORTH)
+        
+        // Add main content
+        refreshContent()
+    }
+    
+    private fun setupAutoResizeListener() {
+        addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) {
+                val shouldBeCondensed = width < CONDENSED_MODE_THRESHOLD && width > 0
+                if (shouldBeCondensed != isCondensedMode) {
+                    isCondensedMode = shouldBeCondensed
+                    refreshContent()
+                }
+            }
+        })
+    }
+    
+    private fun createToolbar(): JComponent {
+        val toolbar = JPanel(BorderLayout())
+        toolbar.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, UIUtil.getBoundsColor()),
+            EmptyBorder(5, 5, 5, 5)
+        )
+        
+        // Title on the left
+        val titleLabel = JBLabel("🛡️ Code Guardian")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
+        toolbar.add(titleLabel, BorderLayout.WEST)
+        
+        // Actions on the right
+        val actionGroup = DefaultActionGroup()
+        
+        // Refresh action
+        actionGroup.add(object : AnAction("Refresh", "Refresh health report", null) {
+            override fun actionPerformed(e: AnActionEvent) {
+                Messages.showInfoMessage(project, "Refreshing analysis...", "Code Guardian")
+                // TODO: Trigger actual refresh
+            }
+        })
+        
+        // View mode toggle
+        actionGroup.add(object : ToggleAction(
+            if (isCondensedMode) "Expand View" else "Compact View",
+            "Toggle between full and condensed view",
+            null
+        ) {
+            override fun isSelected(e: AnActionEvent): Boolean = !isCondensedMode
+            
+            override fun setSelected(e: AnActionEvent, state: Boolean) {
+                isCondensedMode = !state
+                refreshContent()
+            }
+        })
+        
+        val actionToolbar = ActionManager.getInstance().createActionToolbar(
+            "CodeGuardianToolbar",
+            actionGroup,
+            true
+        )
+        actionToolbar.targetComponent = this
+        toolbar.add(actionToolbar.component, BorderLayout.EAST)
+        
+        return toolbar
+    }
+    
+    private fun refreshContent() {
+        // Remove old content
+        mainContent?.let { remove(it) }
+        
+        // Create new content based on mode
+        mainContent = if (isCondensedMode) {
+            createCondensedContent()
+        } else {
+            createFullContent()
+        }
+        
+        add(mainContent!!, BorderLayout.CENTER)
+        revalidate()
+        repaint()
+    }
+    
+    private fun createFullContent(): JComponent {
         // Create tabbed pane for different days
         val tabbedPane = JBTabbedPane()
         
@@ -76,52 +150,79 @@ class SwingHealthReportDialog(
         val today = LocalDate.now()
         val todayData = todayResults ?: storage.getReportForDate(today)
         if (todayData != null) {
-            tabbedPane.addTab("Today", createDayPanel(today, todayData))
+            tabbedPane.addTab("Today", createDayPanel(today, todayData, false))
         }
         
         // Yesterday's tab
         val yesterday = today.minusDays(1)
         val yesterdayData = storage.getReportForDate(yesterday)
         if (yesterdayData != null) {
-            tabbedPane.addTab("Yesterday", createDayPanel(yesterday, yesterdayData))
+            tabbedPane.addTab("Yesterday", createDayPanel(yesterday, yesterdayData, false))
         }
         
         // 2 days ago tab
         val twoDaysAgo = today.minusDays(2)
         val twoDaysAgoData = storage.getReportForDate(twoDaysAgo)
         if (twoDaysAgoData != null) {
-            tabbedPane.addTab("2 days ago", createDayPanel(twoDaysAgo, twoDaysAgoData))
+            tabbedPane.addTab("2 days ago", createDayPanel(twoDaysAgo, twoDaysAgoData, false))
         }
         
         // If no data available
         if (tabbedPane.tabCount == 0) {
-            val emptyPanel = JPanel(BorderLayout())
-            val emptyLabel = JBLabel("No health reports available. Run Code Guardian to generate a report.")
-            emptyLabel.horizontalAlignment = SwingConstants.CENTER
-            emptyPanel.add(emptyLabel, BorderLayout.CENTER)
-            mainPanel.add(emptyPanel, BorderLayout.CENTER)
-        } else {
-            mainPanel.add(tabbedPane, BorderLayout.CENTER)
+            return createEmptyPanel()
         }
         
-        // Add bottom toolbar
-        val toolbar = createToolbar()
-        mainPanel.add(toolbar, BorderLayout.SOUTH)
-        
-        mainPanel.preferredSize = Dimension(900, 700)
-        return mainPanel
+        return tabbedPane
     }
     
-    private fun createDayPanel(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+    private fun createCondensedContent(): JComponent {
+        val condensedPanel = JPanel(BorderLayout())
+        
+        // Show only today's data in condensed mode
+        val today = LocalDate.now()
+        val todayData = todayResults ?: storage.getReportForDate(today)
+        
+        if (todayData == null) {
+            return createEmptyPanel()
+        }
+        
+        return createDayPanel(today, todayData, true)
+    }
+    
+    private fun createEmptyPanel(): JComponent {
+        val emptyPanel = JPanel(GridBagLayout())
+        emptyPanel.background = UIUtil.getPanelBackground()
+        
+        val label = JBLabel("No health reports available")
+        label.foreground = UIUtil.getInactiveTextColor()
+        
+        val gbc = GridBagConstraints()
+        gbc.gridx = 0
+        gbc.gridy = 0
+        emptyPanel.add(label, gbc)
+        
+        gbc.gridy = 1
+        gbc.insets = JBUI.insets(10, 0, 0, 0)
+        val runButton = JButton("Run Analysis")
+        runButton.addActionListener {
+            // TODO: Trigger analysis
+            Messages.showInfoMessage(project, "Starting analysis...", "Code Guardian")
+        }
+        emptyPanel.add(runButton, gbc)
+        
+        return emptyPanel
+    }
+    
+    private fun createDayPanel(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>, condensed: Boolean): JComponent {
         val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
         
         // Header with summary
-        val headerPanel = createHeaderPanel(date, results)
+        val headerPanel = if (condensed) createCondensedHeader(date, results) else createFullHeader(date, results)
         panel.add(headerPanel, BorderLayout.NORTH)
         
         // Issues list
-        val issuesPanel = createIssuesPanel(results)
+        val issuesPanel = if (condensed) createCondensedIssuesPanel(results) else createFullIssuesPanel(results)
         val scrollPane = JBScrollPane(issuesPanel)
         scrollPane.border = JBUI.Borders.empty()
         panel.add(scrollPane, BorderLayout.CENTER)
@@ -129,7 +230,7 @@ class SwingHealthReportDialog(
         return panel
     }
     
-    private fun createHeaderPanel(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+    private fun createFullHeader(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = EmptyBorder(20, 20, 20, 20)
@@ -147,70 +248,152 @@ class SwingHealthReportDialog(
         val criticalCount = realIssues.count { it.severity >= 4 }
         val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
         
-        val summaryPanel = JPanel(GridBagLayout())
-        summaryPanel.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
-        summaryPanel.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1),
-            EmptyBorder(15, 15, 15, 15)
-        )
+        val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, false)
         summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
-        
-        val gbc = GridBagConstraints()
-        gbc.fill = GridBagConstraints.HORIZONTAL
-        gbc.weightx = 1.0
-        gbc.insets = JBUI.insets(5)
-        
-        // Health score
-        gbc.gridx = 0
-        gbc.gridy = 0
-        summaryPanel.add(JBLabel("🏆 Overall Health Score:"), gbc)
-        
-        gbc.gridx = 1
-        val scoreLabel = JBLabel("$averageScore/100")
-        scoreLabel.font = scoreLabel.font.deriveFont(Font.BOLD, 24f)
-        scoreLabel.foreground = getScoreColor(averageScore)
-        summaryPanel.add(scoreLabel, gbc)
-        
-        // Methods scanned
-        gbc.gridx = 0
-        gbc.gridy = 1
-        summaryPanel.add(JBLabel("🔍 Methods Scanned:"), gbc)
-        
-        gbc.gridx = 1
-        summaryPanel.add(JBLabel(results.size.toString()), gbc)
-        
-        // Issues found
-        gbc.gridx = 0
-        gbc.gridy = 2
-        summaryPanel.add(JBLabel("🎯 Issues Found:"), gbc)
-        
-        gbc.gridx = 1
-        summaryPanel.add(JBLabel(realIssues.size.toString()), gbc)
-        
-        // Critical issues
-        if (criticalCount > 0) {
-            gbc.gridx = 0
-            gbc.gridy = 3
-            summaryPanel.add(JBLabel("🚨 Critical Issues:"), gbc)
-            
-            gbc.gridx = 1
-            val criticalLabel = JBLabel(criticalCount.toString())
-            criticalLabel.foreground = Color(244, 67, 54)
-            summaryPanel.add(criticalLabel, gbc)
-        }
-        
         panel.add(summaryPanel)
         
         return panel
     }
     
-    private fun createIssuesPanel(results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+    private fun createCondensedHeader(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.border = EmptyBorder(10, 10, 10, 10)
+        panel.background = UIUtil.getPanelBackground()
+        
+        // Compact date
+        val dateLabel = JBLabel(date.format(shortDateFormatter))
+        dateLabel.font = dateLabel.font.deriveFont(Font.BOLD, 14f)
+        dateLabel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(dateLabel)
+        panel.add(Box.createVerticalStrut(5))
+        
+        // Compact summary
+        val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        val criticalCount = realIssues.count { it.severity >= 4 }
+        val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
+        
+        val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, true)
+        summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(summaryPanel)
+        
+        return panel
+    }
+    
+    private fun createSummaryPanel(score: Int, methodCount: Int, issueCount: Int, criticalCount: Int, condensed: Boolean): JComponent {
+        val panel = JPanel(GridBagLayout())
+        panel.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
+        panel.border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1),
+            EmptyBorder(if (condensed) 10 else 15, if (condensed) 10 else 15, if (condensed) 10 else 15, if (condensed) 10 else 15)
+        )
+        
+        val gbc = GridBagConstraints()
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        gbc.insets = JBUI.insets(if (condensed) 2 else 5)
+        
+        if (condensed) {
+            // Condensed layout - single row
+            gbc.gridy = 0
+            
+            // Score
+            gbc.gridx = 0
+            val scoreLabel = JBLabel("$score/100")
+            scoreLabel.font = scoreLabel.font.deriveFont(Font.BOLD, 16f)
+            scoreLabel.foreground = getScoreColor(score)
+            panel.add(scoreLabel, gbc)
+            
+            // Separator
+            gbc.gridx = 1
+            gbc.insets = JBUI.insets(0, 10)
+            panel.add(JBLabel("|"), gbc)
+            
+            // Issues
+            gbc.gridx = 2
+            gbc.insets = JBUI.insets(if (condensed) 2 else 5)
+            val issuesLabel = JBLabel("🎯 $issueCount")
+            if (criticalCount > 0) {
+                issuesLabel.text = "🎯 $issueCount (🚨 $criticalCount)"
+                issuesLabel.foreground = Color(244, 67, 54)
+            }
+            panel.add(issuesLabel, gbc)
+            
+            // Methods
+            gbc.gridx = 3
+            gbc.weightx = 1.0
+            val methodsLabel = JBLabel("| 🔍 $methodCount")
+            methodsLabel.foreground = UIUtil.getInactiveTextColor()
+            panel.add(methodsLabel, gbc)
+            
+        } else {
+            // Full layout - as before
+            gbc.weightx = 1.0
+            
+            // Health score
+            gbc.gridx = 0
+            gbc.gridy = 0
+            gbc.weightx = 0.0
+            gbc.anchor = GridBagConstraints.WEST
+            panel.add(JBLabel("🏆 Overall Health Score:"), gbc)
+            
+            gbc.gridx = 1
+            gbc.weightx = 1.0
+            gbc.anchor = GridBagConstraints.EAST
+            val scoreLabel = JBLabel("$score/100")
+            scoreLabel.font = scoreLabel.font.deriveFont(Font.BOLD, 24f)
+            scoreLabel.foreground = getScoreColor(score)
+            panel.add(scoreLabel, gbc)
+            
+            // Methods scanned
+            gbc.gridx = 0
+            gbc.gridy = 1
+            gbc.weightx = 0.0
+            gbc.anchor = GridBagConstraints.WEST
+            panel.add(JBLabel("🔍 Methods Scanned:"), gbc)
+            
+            gbc.gridx = 1
+            gbc.weightx = 1.0
+            gbc.anchor = GridBagConstraints.EAST
+            panel.add(JBLabel(methodCount.toString()), gbc)
+            
+            // Issues found
+            gbc.gridx = 0
+            gbc.gridy = 2
+            gbc.weightx = 0.0
+            gbc.anchor = GridBagConstraints.WEST
+            panel.add(JBLabel("🎯 Issues Found:"), gbc)
+            
+            gbc.gridx = 1
+            gbc.weightx = 1.0
+            gbc.anchor = GridBagConstraints.EAST
+            panel.add(JBLabel(issueCount.toString()), gbc)
+            
+            // Critical issues
+            if (criticalCount > 0) {
+                gbc.gridx = 0
+                gbc.gridy = 3
+                gbc.weightx = 0.0
+                gbc.anchor = GridBagConstraints.WEST
+                panel.add(JBLabel("🚨 Critical Issues:"), gbc)
+                
+                gbc.gridx = 1
+                gbc.weightx = 1.0
+                gbc.anchor = GridBagConstraints.EAST
+                val criticalLabel = JBLabel(criticalCount.toString())
+                criticalLabel.foreground = Color(244, 67, 54)
+                panel.add(criticalLabel, gbc)
+            }
+        }
+        
+        return panel
+    }
+    
+    private fun createFullIssuesPanel(results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.background = UIUtil.getPanelBackground()
         panel.border = EmptyBorder(0, 20, 20, 20)
         
-        // Filter to only show methods with issues
         val methodsWithIssues = results.filter { 
             it.issues.any { issue -> issue.verified && !issue.falsePositive }
         }.sortedBy { it.healthScore }
@@ -222,20 +405,47 @@ class SwingHealthReportDialog(
             panel.add(noIssuesLabel)
         } else {
             methodsWithIssues.forEach { result ->
-                val methodPanel = createMethodPanel(result)
+                val methodPanel = createFullMethodPanel(result)
                 methodPanel.alignmentX = Component.LEFT_ALIGNMENT
                 panel.add(methodPanel)
                 panel.add(Box.createVerticalStrut(20))
             }
         }
         
-        // Add spacer at bottom
         panel.add(Box.createVerticalGlue())
-        
         return panel
     }
     
-    private fun createMethodPanel(result: CodeHealthAnalyzer.MethodHealthResult): JComponent {
+    private fun createCondensedIssuesPanel(results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.background = UIUtil.getPanelBackground()
+        panel.border = EmptyBorder(0, 10, 10, 10)
+        
+        val methodsWithIssues = results.filter { 
+            it.issues.any { issue -> issue.verified && !issue.falsePositive }
+        }.sortedBy { it.healthScore }
+        
+        if (methodsWithIssues.isEmpty()) {
+            val noIssuesLabel = JBLabel("✨ Clean!")
+            noIssuesLabel.font = noIssuesLabel.font.deriveFont(14f)
+            noIssuesLabel.alignmentX = Component.LEFT_ALIGNMENT
+            panel.add(noIssuesLabel)
+        } else {
+            methodsWithIssues.forEach { result ->
+                val methodPanel = createCondensedMethodPanel(result)
+                methodPanel.alignmentX = Component.LEFT_ALIGNMENT
+                panel.add(methodPanel)
+                panel.add(Box.createVerticalStrut(10))
+            }
+        }
+        
+        panel.add(Box.createVerticalGlue())
+        return panel
+    }
+    
+    private fun createFullMethodPanel(result: CodeHealthAnalyzer.MethodHealthResult): JComponent {
+        // Use the existing implementation from SwingHealthReportDialog
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = BorderFactory.createCompoundBorder(
@@ -244,7 +454,7 @@ class SwingHealthReportDialog(
         )
         panel.background = UIUtil.getPanelBackground()
         
-        // Method header with navigation - using GridBagLayout for better control
+        // Method header with navigation
         val headerPanel = JPanel(GridBagLayout())
         headerPanel.background = UIUtil.getPanelBackground()
         headerPanel.alignmentX = Component.LEFT_ALIGNMENT
@@ -253,7 +463,7 @@ class SwingHealthReportDialog(
         gbc.gridy = 0
         gbc.fill = GridBagConstraints.HORIZONTAL
         
-        // Method label - takes up available space
+        // Method label
         gbc.gridx = 0
         gbc.weightx = 1.0
         gbc.anchor = GridBagConstraints.WEST
@@ -261,7 +471,7 @@ class SwingHealthReportDialog(
         methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 14)
         headerPanel.add(methodLabel, gbc)
         
-        // Button - fixed size
+        // Button
         gbc.gridx = 1
         gbc.weightx = 0.0
         gbc.anchor = GridBagConstraints.EAST
@@ -279,7 +489,7 @@ class SwingHealthReportDialog(
         panel.add(headerPanel)
         panel.add(Box.createVerticalStrut(5))
         
-        // Method stats
+        // Stats
         val statsLabel = JBLabel("Health: ${result.healthScore}/100 | Edits: ${result.modificationCount}x | Impact: ${result.impactedCallers.size} callers")
         statsLabel.font = statsLabel.font.deriveFont(12f)
         statsLabel.foreground = UIUtil.getInactiveTextColor()
@@ -291,21 +501,89 @@ class SwingHealthReportDialog(
         val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
             .sortedByDescending { it.severity }
         
-        // Only show the first (most critical) issue
         if (verifiedIssues.isNotEmpty()) {
             val issue = verifiedIssues.first()
-            val issuePanel = createIssuePanel(issue, result.fqn)
+            val issuePanel = createFullIssuePanel(issue, result.fqn)
             issuePanel.alignmentX = Component.LEFT_ALIGNMENT
             panel.add(issuePanel)
         }
         
-        // Set maximum size AFTER all components are added
         panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
+        return panel
+    }
+    
+    private fun createCondensedMethodPanel(result: CodeHealthAnalyzer.MethodHealthResult): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 3, 0, 0, getHealthColor(result.healthScore)),
+            EmptyBorder(10, 10, 10, 10)
+        )
+        panel.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, 80)
+        
+        // Left side - method info
+        val leftPanel = JPanel()
+        leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
+        leftPanel.background = panel.background
+        
+        // Method name (truncated if needed)
+        val methodName = if (result.fqn.length > 30) {
+            "..." + result.fqn.substring(result.fqn.length - 27)
+        } else {
+            result.fqn
+        }
+        val methodLabel = JBLabel(methodName)
+        methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 12)
+        methodLabel.alignmentX = Component.LEFT_ALIGNMENT
+        leftPanel.add(methodLabel)
+        
+        // Compact issue info
+        val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+        if (verifiedIssues.isNotEmpty()) {
+            val issue = verifiedIssues.first()
+            val issueLabel = JBLabel("[${issue.severity}/5] ${issue.title}")
+            issueLabel.font = issueLabel.font.deriveFont(11f)
+            issueLabel.foreground = getSeverityColor(issue.severity)
+            issueLabel.alignmentX = Component.LEFT_ALIGNMENT
+            leftPanel.add(issueLabel)
+        }
+        
+        panel.add(leftPanel, BorderLayout.CENTER)
+        
+        // Right side - action buttons
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
+        rightPanel.background = panel.background
+        
+        val goButton = createSmallButton("📍", "Go to method") {
+            navigateToMethod(result.fqn)
+        }
+        rightPanel.add(goButton)
+        
+        if (verifiedIssues.isNotEmpty()) {
+            val fixButton = createSmallButton("🔧", "Fix with AI") {
+                handleFixNowClick(result.fqn, verifiedIssues.first())
+            }
+            rightPanel.add(fixButton)
+        }
+        
+        panel.add(rightPanel, BorderLayout.EAST)
         
         return panel
     }
     
-    private fun createIssuePanel(issue: CodeHealthAnalyzer.HealthIssue, methodFqn: String): JComponent {
+    private fun createSmallButton(text: String, tooltip: String, action: () -> Unit): JButton {
+        val button = JButton(text)
+        button.toolTipText = tooltip
+        button.preferredSize = Dimension(30, 25)
+        button.isContentAreaFilled = false
+        button.isBorderPainted = true
+        button.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        button.addActionListener { action() }
+        return button
+    }
+    
+    private fun createFullIssuePanel(issue: CodeHealthAnalyzer.HealthIssue, methodFqn: String): JComponent {
+        // Similar to SwingHealthReportDialog implementation
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = JBUI.Borders.compound(
@@ -315,7 +593,7 @@ class SwingHealthReportDialog(
         panel.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
         panel.alignmentX = Component.LEFT_ALIGNMENT
         
-        // Issue title with severity
+        // Title with severity
         val titlePanel = JPanel(BorderLayout())
         titlePanel.background = panel.background
         titlePanel.alignmentX = Component.LEFT_ALIGNMENT
@@ -332,32 +610,32 @@ class SwingHealthReportDialog(
         panel.add(titlePanel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Issue type
+        // Type
         val typeLabel = JBLabel("Type: ${issue.issueCategory}")
         typeLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(typeLabel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Description - with width constraint
+        // Description
         val descLabel = JBLabel("<html><body style='width: 550px'>${issue.description}</body></html>")
         descLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(descLabel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Impact section
+        // Impact
         val impactPanel = createSectionPanel("What happens if unfixed:", issue.impact)
         impactPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(impactPanel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Fix section
+        // Fix
         val fixPanel = createSectionPanel("How to fix:", issue.suggestedFix, 
             if (UIUtil.isUnderDarcula()) Color(45, 74, 43) else Color(232, 245, 233))
         fixPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(fixPanel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Fix now button
+        // Button
         val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         buttonPanel.background = panel.background
         buttonPanel.alignmentX = Component.LEFT_ALIGNMENT
@@ -372,8 +650,6 @@ class SwingHealthReportDialog(
         buttonPanel.add(fixButton)
         
         panel.add(buttonPanel)
-        
-        // Set maximum size after all components are added
         panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
         return panel
@@ -395,58 +671,17 @@ class SwingHealthReportDialog(
         panel.add(labelComponent)
         panel.add(Box.createVerticalStrut(5))
         
-        // Use HTML with width constraint for proper wrapping
-        val contentLabel = JBLabel("<html><body style='width: 520px'>${content}</body></html>")
+        val maxWidth = if (isCondensedMode) 280 else 520
+        val contentLabel = JBLabel("<html><body style='width: ${maxWidth}px'>${content}</body></html>")
         contentLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(contentLabel)
         
-        // Constrain panel width after adding components
         panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
         return panel
     }
     
-    private fun createToolbar(): JComponent {
-        val toolbar = JPanel(FlowLayout(FlowLayout.CENTER))
-        toolbar.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, UIUtil.getBoundsColor()),
-            EmptyBorder(10, 10, 10, 10)
-        )
-        
-        // Pin button
-        val pinButton = JToggleButton("📌 Pin")
-        pinButton.addActionListener {
-            window?.isAlwaysOnTop = pinButton.isSelected
-            pinButton.text = if (pinButton.isSelected) "📌 Unpin" else "📌 Pin"
-        }
-        toolbar.add(pinButton)
-        
-        toolbar.add(Box.createHorizontalStrut(20))
-        
-        val refreshButton = JButton("🔄 Refresh")
-        refreshButton.addActionListener {
-            // TODO: Trigger new analysis
-            Messages.showInfoMessage(project, "Refreshing analysis...", "Code Guardian")
-        }
-        toolbar.add(refreshButton)
-        
-        val exportButton = JButton("📤 Export")
-        exportButton.addActionListener {
-            // TODO: Export functionality
-            Messages.showInfoMessage(project, "Export feature coming soon!", "Code Guardian")
-        }
-        toolbar.add(exportButton)
-        
-        val settingsButton = JButton("⚙️ Settings")
-        settingsButton.addActionListener {
-            // TODO: Open settings
-            Messages.showInfoMessage(project, "Settings coming soon!", "Code Guardian")
-        }
-        toolbar.add(settingsButton)
-        
-        return toolbar
-    }
-    
+    // Helper methods (same as in SwingHealthReportDialog)
     private fun getScoreColor(score: Int): Color {
         return when {
             score >= 80 -> Color(76, 175, 80)
@@ -471,17 +706,15 @@ class SwingHealthReportDialog(
         }
     }
     
+    // Navigation and fix methods (same as SwingHealthReportDialog)
     private fun navigateToMethod(fqn: String) {
         try {
-            // Check if it's a JS/TS file (format: filename.js:lineNumber)
             if (fqn.contains(".js:") || fqn.contains(".ts:") || 
                 fqn.contains(".jsx:") || fqn.contains(".tsx:")) {
                 navigateToJsTsLocation(fqn)
             } else {
-                // Java method navigation
                 navigateToJavaMethod(fqn)
             }
-            close(OK_EXIT_CODE)
         } catch (e: Exception) {
             Messages.showMessageDialog(project, "Unable to navigate to: $fqn", "Navigation Error", Messages.getWarningIcon())
         }
@@ -494,7 +727,6 @@ class SwingHealthReportDialog(
         val className = parts.dropLast(1).joinToString(".")
         val methodName = parts.last()
         
-        // Find the class
         val psiClass = JavaPsiFacade.getInstance(project)
             .findClass(className, GlobalSearchScope.projectScope(project))
         
@@ -503,38 +735,29 @@ class SwingHealthReportDialog(
             return
         }
         
-        // Find the method
         val psiMethod = psiClass.methods.find { it.name == methodName }
         
         if (psiMethod == null) {
-            // Navigate to class if method not found
             navigateToElement(psiClass.containingFile.virtualFile, psiClass.textOffset)
             return
         }
         
-        // Navigate to the method
         navigateToElement(psiMethod.containingFile.virtualFile, psiMethod.textOffset)
     }
     
     private fun navigateToJsTsLocation(fqn: String) {
-        // Format can be: 
-        // - filename.js:lineNumber (single line)
-        // - filename.js:startLine-endLine (range)
         val colonIndex = fqn.lastIndexOf(':')
         if (colonIndex == -1) return
         
         val filePath = fqn.substring(0, colonIndex)
         val lineInfo = fqn.substring(colonIndex + 1)
         
-        // Parse line number(s)
         val lineNumber = if (lineInfo.contains('-')) {
-            // For ranges, navigate to the start line
             lineInfo.substringBefore('-').toIntOrNull() ?: return
         } else {
             lineInfo.toIntOrNull() ?: return
         }
         
-        // Find the file
         val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
             .findFileByPath(filePath)
         
@@ -543,22 +766,19 @@ class SwingHealthReportDialog(
             return
         }
         
-        // Navigate to the specific line
         ApplicationManager.getApplication().invokeLater {
             val descriptor = OpenFileDescriptor(
                 project,
                 virtualFile,
-                lineNumber - 1, // Convert to 0-based
+                lineNumber - 1,
                 0
             )
             
             val editor = FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
             
-            // If it's a range, optionally highlight the full range
             if (lineInfo.contains('-') && editor != null) {
                 val endLine = lineInfo.substringAfter('-').toIntOrNull()
                 if (endLine != null && endLine > lineNumber) {
-                    // Scroll to make the line visible in the center
                     val lineStartOffset = editor.document.getLineStartOffset(lineNumber - 1)
                     editor.caretModel.moveToOffset(lineStartOffset)
                     editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
@@ -580,18 +800,11 @@ class SwingHealthReportDialog(
     }
     
     private fun handleFixNowClick(methodFqn: String, issue: CodeHealthAnalyzer.HealthIssue) {
-        // Generate fix prompt
         val fixPrompt = generateFixPrompt(methodFqn, issue)
-        
-        // Send to chat box
         sendPromptToChatBox(fixPrompt, methodFqn, issue)
-        
-        // Close the dialog
-        close(OK_EXIT_CODE)
     }
     
     private fun generateFixPrompt(methodFqn: String, issue: CodeHealthAnalyzer.HealthIssue): String {
-        // Determine file type from FQN
         val isJsTsFile = methodFqn.contains(".js:") || methodFqn.contains(".ts:") || 
                        methodFqn.contains(".jsx:") || methodFqn.contains(".tsx:")
         
@@ -643,10 +856,7 @@ class SwingHealthReportDialog(
         if (toolWindow != null) {
             ApplicationManager.getApplication().invokeLater {
                 toolWindow.activate {
-                    // Click new chat button first
                     ChatboxUtilities.clickNewChatButton(project)
-                    
-                    // Send the prompt and submit
                     ChatboxUtilities.sendTextAndSubmit(
                         project, 
                         prompt, 
@@ -667,9 +877,5 @@ class SwingHealthReportDialog(
                 )
                 .notify(project)
         }
-    }
-    
-    override fun createActions(): Array<Action> {
-        return arrayOf(okAction)
     }
 }

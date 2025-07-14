@@ -361,56 +361,7 @@ public final class LLMService implements Disposable {
             authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
         }
 
-        URL url = new URL(apiUrl);
-/**
- * const http = require("https");
- *
- * const options = {
- *   "method": "POST",
- *   "hostname": "litellm.zingplay.com",
- *   "port": null,
- *   "path": "/v1/chat/completions",
- *   "headers": {
- *     "Content-Type": "application/json",
- *     "User-Agent": "insomnia/11.2.0",
- *     "Content-Length": "515",
- *     "Authorization": "Bearer sk-j-JsySJQ4GffoiHlQCqF_w"
- *   }
- * };
- *
- * const req = http.request(options, function (res) {
- *   const chunks = [];
- *
- *   res.on("data", function (chunk) {
- *     chunks.push(chunk);
- *   });
- *
- *   res.on("end", function () {
- *     const body = Buffer.concat(chunks);
- *     console.log(body.toString());
- *   });
- * });
- *
- * req.write(JSON.stringify({
- *   model: 'local-model-mini',
- *   stream: false,
- *   custom_tool: 'Zest|INLINE_COMPLETION',
- *   completion_id: 'a4f3a581-22e6-48fc-ad88-633520684a18',
- *   messages: [{role: 'user', content: 'Why is the sky blue?/no_think'}],
- *   elapsed: 0,
- *   max_completion_tokens: 32,
- *   metadata: {
- *     strategy: 'LEAN',
- *     file_type: 'JAVA',
- *     manually_triggered: false,
- *     offset: 2378,
- *     file_name: 'Leaderboard.java',
- *     prefix_length: 2000,
- *     suffix_length: 500
- *   }
- * }));
- * req.end();
- */
+        URL url = new URL(apiUrl); 
         long elapsed = System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();

@@ -11,14 +11,14 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
 /**
- * Service that reviews methods in the background after they haven't been modified for 10 minutes.
- * Results are cached for the final 13h report.
+ * Service that reviews methods in the background after they haven't been modified for 1 hour.
+ * Results are cached for the final daily report.
  */
 @Service(Service.Level.PROJECT)
 class BackgroundHealthReviewer(private val project: Project) {
     
     companion object {
-        private const val INACTIVITY_THRESHOLD_MS = 10 * 60 * 1000L // 10 minutes
+        private const val INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000L // 60 minutes (1 hour)
         private const val CHECK_INTERVAL_MS = 30 * 1000L // Check every 30 seconds
         
         fun getInstance(project: Project): BackgroundHealthReviewer =
@@ -68,7 +68,7 @@ class BackgroundHealthReviewer(private val project: Project) {
     }
     
     /**
-     * Check for methods that haven't been modified for 10 minutes and review them
+     * Check for methods that haven't been modified for 1 hour and review them
      */
     private fun checkAndReviewInactiveMethods() {
         if (project.isDisposed) return
@@ -146,7 +146,7 @@ class BackgroundHealthReviewer(private val project: Project) {
                     // Fallback to individual method review
                     val method = CodeHealthTracker.ModifiedMethod(
                         fqn = fqn,
-                        modificationCount = 1,
+                        modificationCount = 1, 
                         lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
                     )
                     

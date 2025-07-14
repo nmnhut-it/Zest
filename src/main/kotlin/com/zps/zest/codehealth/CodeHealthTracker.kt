@@ -523,6 +523,9 @@ class CodeHealthTracker(private val project: Project) :
                     }
 //                    println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
                     
+                    // Store the report for future viewing
+                    CodeHealthReportStorage.getInstance(project).storeReport(allResults)
+                    
                     ApplicationManager.getApplication().invokeLater {
                         if (!project.isDisposed) {
                             CodeHealthNotification.showHealthReport(project, allResults)

@@ -22,6 +22,12 @@ import java.awt.datatransfer.StringSelection
 import javax.swing.*
 import javax.swing.event.HyperlinkEvent
 import javax.swing.event.HyperlinkListener
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiFile
 
 /**
  * Code Health notification system with HTML/CSS-based UI
@@ -201,11 +207,18 @@ object CodeHealthNotification {
     }
 
     private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        // Create and show dialog on EDT
-        val dialog = HealthReportDialog(project, results)
-        dialog.show()
+        // Store the results first
+        CodeHealthReportStorage.getInstance(project).storeReport(results)
+        
+        // Show the new Swing dialog
+        ApplicationManager.getApplication().invokeLater {
+            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
+            dialog.show()
+        }
     }
 
+    // Old HTML-based dialog - kept for reference, replaced by SwingHealthReportDialog
+    /*
     /**
      * Dialog showing detailed health report with HTML/CSS formatting
      */
@@ -247,8 +260,9 @@ object CodeHealthNotification {
                             val url = e.description ?: e.url?.toString() ?: return
                             println("[CodeHealthNotification] Hyperlink activated: $url")
                             
-                            if (url.startsWith("fix://")) {
-                                handleFixNowClick(url)
+                            when {
+                                url.startsWith("fix://") -> handleFixNowClick(url)
+                                url.startsWith("goto://") -> handleGoToClick(url)
                             }
                         }
                     }
@@ -281,6 +295,119 @@ object CodeHealthNotification {
             panel.add(buttonPanel, BorderLayout.SOUTH)
             
             return panel
+        }
+        
+        /**
+         * Handle "Go to" button clicks
+         */
+        private fun handleGoToClick(url: String) {
+            println("[CodeHealthNotification] handleGoToClick called with URL: $url")
+            
+            try {
+                // Extract FQN from URL (format: goto://fqn)
+                val fqn = url.removePrefix("goto://")
+                println("[CodeHealthNotification] Navigating to: $fqn")
+                
+                // Check if it's a JS/TS file (format: filename.js:lineNumber)
+                if (fqn.contains(".js:") || fqn.contains(".ts:") || 
+                    fqn.contains(".jsx:") || fqn.contains(".tsx:")) {
+                    navigateToJsTsLocation(fqn)
+                } else {
+                    // Java method navigation
+                    navigateToJavaMethod(fqn)
+                }
+                
+                // Close the dialog after navigation
+                close(OK_EXIT_CODE)
+                
+            } catch (e: Exception) {
+                println("[CodeHealthNotification] Error navigating: ${e.message}")
+                e.printStackTrace()
+                
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                    .createNotification("Unable to navigate to method", NotificationType.WARNING)
+                    .notify(project)
+            }
+        }
+        
+        /**
+         * Navigate to a Java method
+         */
+        private fun navigateToJavaMethod(fqn: String) {
+            val parts = fqn.split(".")
+            if (parts.size < 2) return
+            
+            val className = parts.dropLast(1).joinToString(".")
+            val methodName = parts.last()
+            
+            // Find the class
+            val psiClass = JavaPsiFacade.getInstance(project)
+                .findClass(className, GlobalSearchScope.projectScope(project))
+            
+            if (psiClass == null) {
+                println("[CodeHealthNotification] Class not found: $className")
+                return
+            }
+            
+            // Find the method
+            val psiMethod = psiClass.methods.find { it.name == methodName }
+            
+            if (psiMethod == null) {
+                println("[CodeHealthNotification] Method not found: $methodName in $className")
+                // Navigate to class if method not found
+                navigateToElement(psiClass.containingFile.virtualFile, psiClass.textOffset)
+                return
+            }
+            
+            // Navigate to the method
+            navigateToElement(psiMethod.containingFile.virtualFile, psiMethod.textOffset)
+        }
+        
+        /**
+         * Navigate to a JS/TS location
+         */
+        private fun navigateToJsTsLocation(fqn: String) {
+            // Format: filename.js:lineNumber
+            val parts = fqn.split(":")
+            if (parts.size != 2) return
+            
+            val filePath = parts[0]
+            val lineNumber = parts[1].toIntOrNull() ?: return
+            
+            // Find the file
+            val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                .findFileByPath(filePath)
+            
+            if (virtualFile == null) {
+                println("[CodeHealthNotification] File not found: $filePath")
+                return
+            }
+            
+            // Navigate to the line
+            val descriptor = OpenFileDescriptor(
+                project,
+                virtualFile,
+                lineNumber - 1, // Convert to 0-based
+                0
+            )
+            
+            FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
+        }
+        
+        /**
+         * Navigate to a specific element
+         */
+        private fun navigateToElement(virtualFile: VirtualFile?, offset: Int) {
+            if (virtualFile == null) return
+            
+            val descriptor = OpenFileDescriptor(
+                project,
+                virtualFile,
+                offset
+            )
+            
+            FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
         }
         
         /**
@@ -719,7 +846,10 @@ object CodeHealthNotification {
                                 
                                 """
                                 <div class="method">
-                                    <div class="method-header">${escapeHtml(result.fqn)}</div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div class="method-header">${escapeHtml(result.fqn)}</div>
+                                        <a href="goto://${result.fqn}" style="color: $linkColor; font-size: 14px;">📍 Go to method</a>
+                                    </div>
                                     <div class="method-stats">
                                         Health: ${result.healthScore}/100 | 
                                         Edits: ${result.modificationCount}x | 
@@ -932,4 +1062,5 @@ object CodeHealthNotification {
             )
         }
     }
+    */
 }

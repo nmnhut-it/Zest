@@ -21,6 +21,7 @@ import com.intellij.openapi.util.Disposer
 import com.zps.zest.codehealth.CodeHealthTracker
 import com.zps.zest.codehealth.CodeHealthAnalyzer
 import com.zps.zest.codehealth.BackgroundHealthReviewer
+import com.zps.zest.codehealth.CodeHealthReportStorage
 import kotlinx.coroutines.*
 import java.awt.Component
 import java.awt.Point
@@ -95,6 +96,14 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
             val statusStr = if (detailedStatus.isNotEmpty()) {
                 "\n$detailedStatus"
             } else ""
+            
+            // Check if reports are available
+            val storage = CodeHealthReportStorage.getInstance(project)
+            val reportHint = if (storage.hasTodayReport() || storage.getMostRecentReportDate() != null) {
+                "\n\n📊 Click to view health reports"
+            } else {
+                "\n\nClick for options"
+            }
 
             return """
                 Code Guardian Status
@@ -102,8 +111,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
                 $lastCheckStr
                 $issuesStr
                 $healthStr$statusStr
-                
-                Click for details
+                $reportHint
             """.trimIndent()
         }
 
@@ -154,7 +162,13 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
     private fun handleLeftClick(mouseEvent: MouseEvent) {
         when (currentState) {
             GuardianState.IDLE -> {
-                showQuickMenu(mouseEvent)
+                // Check if we have stored reports
+                val storage = CodeHealthReportStorage.getInstance(project)
+                if (storage.hasTodayReport() || storage.getMostRecentReportDate() != null) {
+                    showStoredReports()
+                } else {
+                    showQuickMenu(mouseEvent)
+                }
             }
 
             GuardianState.ANALYZING -> {
@@ -163,7 +177,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
 
             GuardianState.ISSUES_FOUND, GuardianState.WARNING -> {
                 // Show detailed report
-                showDetailedReport()
+                showStoredReports()
             }
 
             GuardianState.ERROR -> {
@@ -171,7 +185,8 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
             }
 
             GuardianState.SUCCESS -> {
-                showBalloon("All methods are healthy!", MessageType.INFO, mouseEvent)
+                // Show report even for success
+                showStoredReports()
             }
         }
     }
@@ -185,11 +200,12 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
             AllIcons.Actions.Preview
         ) {
             override fun actionPerformed(e: AnActionEvent) {
-                showDetailedReport()
+                showStoredReports()
             }
 
             override fun update(e: AnActionEvent) {
-                e.presentation.isEnabled = lastCheckTime != null
+                val storage = CodeHealthReportStorage.getInstance(project)
+                e.presentation.isEnabled = storage.hasTodayReport() || storage.getMostRecentReportDate() != null
             }
         })
 
@@ -458,7 +474,14 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
         if (lastResults != null && lastResults.isNotEmpty()) {
             com.zps.zest.codehealth.CodeHealthNotification.showHealthReport(project, lastResults)
         } else {
-            showBalloon("No report available. Run a check first.", MessageType.INFO)
+            showStoredReports()
+        }
+    }
+    
+    private fun showStoredReports() {
+        ApplicationManager.getApplication().invokeLater {
+            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project)
+            dialog.show()
         }
     }
 

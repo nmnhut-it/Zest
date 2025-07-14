@@ -110,6 +110,7 @@
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthVerificationAgent"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthReportStorage"/>
         
         <!-- Code Guardian Notification Group -->
         <notificationGroup id="Zest Code Guardian" displayType="BALLOON" isLogByDefault="false"/>

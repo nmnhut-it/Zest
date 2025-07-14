@@ -219,16 +219,29 @@ class SwingHealthReportDialog(
             EmptyBorder(15, 15, 15, 15)
         )
         panel.background = UIUtil.getPanelBackground()
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
-        // Method header with navigation
-        val headerPanel = JPanel(BorderLayout())
+        // Method header with navigation - using GridBagLayout for better control
+        val headerPanel = JPanel(GridBagLayout())
         headerPanel.background = UIUtil.getPanelBackground()
+        headerPanel.alignmentX = Component.LEFT_ALIGNMENT
         
+        val gbc = GridBagConstraints()
+        gbc.gridy = 0
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        
+        // Method label - takes up available space
+        gbc.gridx = 0
+        gbc.weightx = 1.0
+        gbc.anchor = GridBagConstraints.WEST
         val methodLabel = JBLabel(result.fqn)
         methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 14)
-        headerPanel.add(methodLabel, BorderLayout.WEST)
+        headerPanel.add(methodLabel, gbc)
         
+        // Button - fixed size
+        gbc.gridx = 1
+        gbc.weightx = 0.0
+        gbc.anchor = GridBagConstraints.EAST
+        gbc.insets = JBUI.insets(0, 10, 0, 0)
         val goToButton = JButton("📍 Go to method")
         goToButton.isContentAreaFilled = false
         goToButton.isBorderPainted = false
@@ -237,7 +250,7 @@ class SwingHealthReportDialog(
         goToButton.addActionListener {
             navigateToMethod(result.fqn)
         }
-        headerPanel.add(goToButton, BorderLayout.EAST)
+        headerPanel.add(goToButton, gbc)
         
         panel.add(headerPanel)
         panel.add(Box.createVerticalStrut(5))
@@ -246,6 +259,7 @@ class SwingHealthReportDialog(
         val statsLabel = JBLabel("Health: ${result.healthScore}/100 | Edits: ${result.modificationCount}x | Impact: ${result.impactedCallers.size} callers")
         statsLabel.font = statsLabel.font.deriveFont(12f)
         statsLabel.foreground = UIUtil.getInactiveTextColor()
+        statsLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(statsLabel)
         panel.add(Box.createVerticalStrut(15))
         
@@ -261,6 +275,9 @@ class SwingHealthReportDialog(
             panel.add(issuePanel)
         }
         
+        // Set maximum size AFTER all components are added
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
+        
         return panel
     }
     
@@ -272,10 +289,12 @@ class SwingHealthReportDialog(
             EmptyBorder(15, 15, 15, 15)
         )
         panel.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
+        panel.alignmentX = Component.LEFT_ALIGNMENT
         
         // Issue title with severity
         val titlePanel = JPanel(BorderLayout())
         titlePanel.background = panel.background
+        titlePanel.alignmentX = Component.LEFT_ALIGNMENT
         
         val titleLabel = JBLabel(issue.title)
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
@@ -291,28 +310,34 @@ class SwingHealthReportDialog(
         
         // Issue type
         val typeLabel = JBLabel("Type: ${issue.issueCategory}")
+        typeLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(typeLabel)
         panel.add(Box.createVerticalStrut(10))
         
-        // Description
-        val descLabel = JBLabel("<html>${issue.description}</html>")
+        // Description - with width constraint
+        val descLabel = JBLabel("<html><body style='width: 550px'>${issue.description}</body></html>")
+        descLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(descLabel)
         panel.add(Box.createVerticalStrut(10))
         
         // Impact section
         val impactPanel = createSectionPanel("What happens if unfixed:", issue.impact)
+        impactPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(impactPanel)
         panel.add(Box.createVerticalStrut(10))
         
         // Fix section
         val fixPanel = createSectionPanel("How to fix:", issue.suggestedFix, 
             if (UIUtil.isUnderDarcula()) Color(45, 74, 43) else Color(232, 245, 233))
+        fixPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(fixPanel)
         panel.add(Box.createVerticalStrut(10))
         
         // Fix now button
         val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         buttonPanel.background = panel.background
+        buttonPanel.alignmentX = Component.LEFT_ALIGNMENT
+        buttonPanel.maximumSize = Dimension(Integer.MAX_VALUE, buttonPanel.preferredSize.height)
         
         val fixButton = JButton("🔧 Fix now with AI")
         fixButton.foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
@@ -323,6 +348,9 @@ class SwingHealthReportDialog(
         buttonPanel.add(fixButton)
         
         panel.add(buttonPanel)
+        
+        // Set maximum size after all components are added
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
         return panel
     }
@@ -335,14 +363,21 @@ class SwingHealthReportDialog(
             EmptyBorder(10, 10, 10, 10)
         )
         panel.background = bgColor ?: if (UIUtil.isUnderDarcula()) Color(30, 30, 30) else Color(248, 248, 248)
+        panel.alignmentX = Component.LEFT_ALIGNMENT
         
         val labelComponent = JBLabel(label)
         labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
+        labelComponent.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(labelComponent)
         panel.add(Box.createVerticalStrut(5))
         
-        val contentLabel = JBLabel("<html>${content}</html>")
+        // Use HTML with width constraint for proper wrapping
+        val contentLabel = JBLabel("<html><body style='width: 520px'>${content}</body></html>")
+        contentLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(contentLabel)
+        
+        // Constrain panel width after adding components
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
         return panel
     }
@@ -448,12 +483,22 @@ class SwingHealthReportDialog(
     }
     
     private fun navigateToJsTsLocation(fqn: String) {
-        // Format: filename.js:lineNumber
-        val parts = fqn.split(":")
-        if (parts.size != 2) return
+        // Format can be: 
+        // - filename.js:lineNumber (single line)
+        // - filename.js:startLine-endLine (range)
+        val colonIndex = fqn.lastIndexOf(':')
+        if (colonIndex == -1) return
         
-        val filePath = parts[0]
-        val lineNumber = parts[1].toIntOrNull() ?: return
+        val filePath = fqn.substring(0, colonIndex)
+        val lineInfo = fqn.substring(colonIndex + 1)
+        
+        // Parse line number(s)
+        val lineNumber = if (lineInfo.contains('-')) {
+            // For ranges, navigate to the start line
+            lineInfo.substringBefore('-').toIntOrNull() ?: return
+        } else {
+            lineInfo.toIntOrNull() ?: return
+        }
         
         // Find the file
         val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
@@ -464,15 +509,28 @@ class SwingHealthReportDialog(
             return
         }
         
-        // Navigate to the line
-        val descriptor = OpenFileDescriptor(
-            project,
-            virtualFile,
-            lineNumber - 1, // Convert to 0-based
-            0
-        )
-        
-        FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
+        // Navigate to the specific line
+        ApplicationManager.getApplication().invokeLater {
+            val descriptor = OpenFileDescriptor(
+                project,
+                virtualFile,
+                lineNumber - 1, // Convert to 0-based
+                0
+            )
+            
+            val editor = FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
+            
+            // If it's a range, optionally highlight the full range
+            if (lineInfo.contains('-') && editor != null) {
+                val endLine = lineInfo.substringAfter('-').toIntOrNull()
+                if (endLine != null && endLine > lineNumber) {
+                    // Scroll to make the line visible in the center
+                    val lineStartOffset = editor.document.getLineStartOffset(lineNumber - 1)
+                    editor.caretModel.moveToOffset(lineStartOffset)
+                    editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
+                }
+            }
+        }
     }
     
     private fun navigateToElement(virtualFile: com.intellij.openapi.vfs.VirtualFile?, offset: Int) {

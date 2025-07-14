@@ -92,7 +92,6 @@ public class ZestSettingsConfigurable implements Configurable {
     
     private JPanel createGeneralPanel() {
         FormBuilder builder = FormBuilder.createFormBuilder();
-        
         // API Configuration
         builder.addComponent(new TitledSeparator("API Configuration"));
         

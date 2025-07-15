@@ -457,6 +457,7 @@ public final class LLMService implements Disposable {
         JsonObject paramsObj = new JsonObject();
         paramsObj.addProperty("max_tokens", params.getMaxTokens());
         paramsObj.addProperty("max_completion_tokens", params.getMaxTokens());
+        root.addProperty("max_completion_tokens", params.getMaxTokens());
 //        paramsObj.addProperty("num_predict", params.getMaxTokens());
         paramsObj.addProperty("temperature", params.getTemperature());
 
@@ -611,6 +612,7 @@ public final class LLMService implements Disposable {
         return apiUrl.contains("openwebui") ||
                 apiUrl.contains("chat.zingplay") ||
                 apiUrl.contains("litellm.zingplay") ||
+                apiUrl.contains("litellm-internal.zingplay") ||
                 apiUrl.contains("talk.zingplay");
     }
 

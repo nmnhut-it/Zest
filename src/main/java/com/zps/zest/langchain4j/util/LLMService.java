@@ -292,7 +292,11 @@ public final class LLMService implements Disposable {
             ChatboxUtilities.EnumUsage enumUsage) {
         if (apiUrl.contains("chat.zingplay")) {
             apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-            authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+        }
+        if (apiUrl.contains("talk.zingplay")) {
+            apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
         }
         long startTime = System.currentTimeMillis();
         connectionStats.incrementRequests();
@@ -358,10 +362,14 @@ public final class LLMService implements Disposable {
 
         if (apiUrl.contains("chat.zingplay")) {
             apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-            authToken = "sk-j-JsySJQ4GffoiHlQCqF_w";
+            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+        }
+        if (apiUrl.contains("talk.zingplay")) {
+            apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
         }
 
-        URL url = new URL(apiUrl); 
+        URL url = new URL(apiUrl);
         long elapsed = System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();

@@ -27,13 +27,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
 4. For multi-line completions (methods, blocks), include full logical unit
 
 ## Response Format:
-
-### Line before cursor:
-```
-[exact line with cursor]
-```
-
-### Completion:
+ 
 <completion>
 [your code here]
 </completion>

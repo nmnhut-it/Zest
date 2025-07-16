@@ -1480,6 +1480,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         log("  textToInsert: '${textToInsert.take(50)}...' (${textToInsert.length} chars)", "AcceptText")
         log("  acceptType: $acceptType", "AcceptText")
 
+
         // Set all protection flags
         acceptanceState.startAcceptance(textToInsert)
         log("Started acceptance state", "AcceptText", 1)
@@ -1563,7 +1564,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         } finally {
             // Cancel timeout guard since acceptance is completing
             cancelAcceptanceTimeoutGuard()
-
+            acceptanceState.isAcceptingCompletion = false
             // Reset flags after a delay to ensure all document change events are processed
             scope.launch {
                 // Keep isProgrammaticEdit true for longer

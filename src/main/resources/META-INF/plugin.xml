@@ -7,13 +7,10 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.877</version>
+    <version>1.9.879</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
-
-
-    
     <!-- Plugin description -->
     <description><![CDATA[
    <h2>Zest: Smarter Java Development with AI</h2>

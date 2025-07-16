@@ -292,7 +292,7 @@ public final class LLMService implements Disposable {
             String authToken, 
             LLMQueryParams params, 
             ChatboxUtilities.EnumUsage enumUsage) {
-        if (apiUrl.contains("chat.zingplay")) {
+        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
             apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
             authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
         }
@@ -362,7 +362,7 @@ public final class LLMService implements Disposable {
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
 
-        if (apiUrl.contains("chat.zingplay")) {
+        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
             apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
             authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
         }

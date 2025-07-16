@@ -34,7 +34,6 @@ import com.zps.zest.events.ZestDocumentListener
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.apache.http.client.utils.DateUtils
 import java.util.*
 
 /**
@@ -463,36 +462,6 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             if (requestState.currentRequestState == CompletionRequestState.RequestState.WAITING) {
                 requestState.currentRequestState = CompletionRequestState.RequestState.IDLE
             }
-        }
-    }
-
-    /**
-     * Get the current editor and document text on EDT
-     * @return Pair of editor and document text, or null editor if not available
-     */
-    private suspend fun getEditorAndDocumentText(): Pair<Editor?, String> {
-        val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
-
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                if (ed != null) {
-                    val text = ed.document.text
-                    editorFuture.complete(Pair(ed, text))
-                } else {
-                    editorFuture.complete(Pair(null, ""))
-                }
-            } catch (e: Exception) {
-                log("ERROR getting editor: ${e.message}", "Editor")
-                editorFuture.complete(Pair(null, ""))
-            }
-        }
-
-        return try {
-            editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            log("ERROR waiting for editor: ${e.message}", "Editor")
-            Pair(null, "")
         }
     }
 

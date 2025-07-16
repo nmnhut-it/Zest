@@ -18,19 +18,19 @@ class ZestLeanPromptBuilder(private val project: Project) {
     companion object {
         // Shortened system prompt with markdown formatting
         private const val LEAN_SYSTEM_PROMPT =
-            """You are an expert code completion assistant. Complete the code at `[CURSOR]` position.
+            """You are an expert code completion assistant. You are three steps ahead of user. You help user by giving code they are going to type at [CURSOR] position. Complete the code at `[CURSOR]` position.
 
 ## Rules:
 1. Analyze file context and patterns
 2. Complete ONLY what comes after `[CURSOR]`
 3. Match existing code style and indentation
-4. For multi-line completions (methods, blocks), include full logical unit
+4. Aim at completing what user are trying to type at the cursor position - long responses are unnecessary. You can just give short line of code with variable names, language keywords ... limit it to 4-5 words.  
 
 ## Response Format:
  
-<completion>
+<code>
 [your code here]
-</completion>
+</code>
 
 **Note:** Never include `[CURSOR]` tag or code before cursor in completion."""
     }

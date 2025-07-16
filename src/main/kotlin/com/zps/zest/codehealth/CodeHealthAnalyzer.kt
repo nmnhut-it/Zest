@@ -59,6 +59,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     
     // JS/TS analyzer
     private val jsTsAnalyzer = JsTsHealthAnalyzer(project)
+    private val analyzedJsTsFiles = ConcurrentHashMap.newKeySet<String>() // Track analyzed JS/TS files
 
     /**
      * Health issue data class - completely flexible, LLM decides everything
@@ -120,6 +121,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         println("[CodeHealthAnalyzer] Starting analysis of ${methodsToAnalyze.size} methods")
         results.clear()
+        analyzedJsTsFiles.clear() // Clear the JS/TS file tracking
         val totalMethods = methodsToAnalyze.size
         val completed = AtomicInteger(0)
         val latch = CountDownLatch(totalMethods)
@@ -349,6 +351,16 @@ class CodeHealthAnalyzer(private val project: Project) {
         val filePath = parts[0]
         val centerLine = parts[1].toIntOrNull() ?: 0
         val language = if (filePath.endsWith(".ts")) "ts" else "js"
+        
+        // Check if file already analyzed
+        if (analyzedJsTsFiles.contains(filePath)) {
+            println("[CodeHealthAnalyzer] File $filePath already analyzed, skipping")
+            onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount, "local-model-mini"))
+            return
+        }
+        
+        // Mark file as analyzed
+        analyzedJsTsFiles.add(filePath)
         
         val region = ModifiedRegion(
             filePath = filePath,
@@ -935,6 +947,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): List<MethodHealthResult> {
         println("[CodeHealthAnalyzer] Starting analysis of ${reviewUnits.size} review units")
         results.clear()
+        analyzedJsTsFiles.clear() // Clear the JS/TS file tracking
         val totalUnits = reviewUnits.size
         val completed = AtomicInteger(0)
         val latch = CountDownLatch(totalUnits)

@@ -33,10 +33,14 @@ class JsTsHealthTracker(private val project: Project) {
     fun handleJsTsDocument(document: Document, editor: Editor, fileName: String) {
         if (project.isDisposed) return
         
+        // Get the full file path from the document
+        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+        val fullPath = psiFile?.virtualFile?.path ?: fileName
+        
         val offset = editor.caretModel.offset
         val lineNumber = document.getLineNumber(offset)
         
-//        println("[JsTsHealthTracker] Document changed in $fileName at line ${lineNumber + 1}")
+//        println("[JsTsHealthTracker] Document changed in $fullPath at line ${lineNumber + 1}")
         
         // Extract region context
         val regionContext = contextHelper.extractRegionContext(document, lineNumber, CONTEXT_LINES)
@@ -44,7 +48,7 @@ class JsTsHealthTracker(private val project: Project) {
         
         // Find existing region within 20 lines to avoid creating too many regions
         val existingNearby = regionModifications.values
-            .filter { it.filePath == fileName }
+            .filter { it.filePath == fullPath }
             .find { region ->
                 kotlin.math.abs(region.centerLine - lineNumber) <= 20
             }
@@ -54,7 +58,7 @@ class JsTsHealthTracker(private val project: Project) {
         } else {
             // Create region ID based on 20-line chunks to group nearby edits
             val chunkStart = (lineNumber / 20) * 20
-            "$fileName:$chunkStart"
+            "$fullPath:$chunkStart"
         }
         
         val now = System.currentTimeMillis()
@@ -72,11 +76,11 @@ class JsTsHealthTracker(private val project: Project) {
             } else {
                 // Create new region
                 ModifiedRegion(
-                    filePath = fileName,
+                    filePath = fullPath,
                     centerLine = lineNumber,
                     startLine = regionContext.startLine,
                     endLine = regionContext.endLine,
-                    language = if (fileName.endsWith(".ts")) "ts" else "js",
+                    language = if (fullPath.endsWith(".ts")) "ts" else "js",
                     framework = framework
                 )
             }

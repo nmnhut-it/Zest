@@ -343,16 +343,16 @@ class CodeHealthAnalyzer(private val project: Project) {
             return
         }
         
-        // Convert to ModifiedRegion
-        val parts = method.fqn.split(":")
-        if (parts.size != 2) {
+        // Convert to ModifiedRegion - handle file paths with colons correctly
+        val lastColonIndex = method.fqn.lastIndexOf(":")
+        if (lastColonIndex <= 0) {
             println("[CodeHealthAnalyzer] Invalid JS/TS region format: ${method.fqn}")
             onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount, "local-model-mini"))
             return
         }
         
-        val filePath = parts[0]
-        val centerLine = parts[1].toIntOrNull() ?: 0
+        val filePath = method.fqn.substring(0, lastColonIndex)
+        val centerLine = method.fqn.substring(lastColonIndex + 1).toIntOrNull() ?: 0
         val language = if (filePath.endsWith(".ts")) "ts" else "js"
         
         // Check if file already analyzed
@@ -1264,6 +1264,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         context: ReviewOptimizer.ReviewContext
     ): List<MethodHealthResult> {
         println("[CodeHealthAnalyzer] Analyzing JS/TS regions: ${unit.className}")
+        println("[CodeHealthAnalyzer] Context has ${context.regionContexts.size} regions")
+        
+        // Validate that we have regions to analyze
+        if (context.regionContexts.isEmpty()) {
+            println("[CodeHealthAnalyzer] WARNING: No region contexts found for ${unit.className}")
+            return emptyList()
+        }
         
         val prompt = """
             Analyze these JavaScript/TypeScript code regions for potential issues.

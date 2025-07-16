@@ -141,18 +141,31 @@ class ReviewOptimizer(private val project: Project) {
      * Optimize JS/TS regions into review units
      */
     private fun optimizeJsTsReviewUnits(regionIdentifiers: List<String>): List<ReviewUnit> {
-        // Group regions by file
+        // Group regions by file - need to handle file paths with colons correctly
         val regionsByFile = regionIdentifiers.groupBy { identifier ->
-            identifier.substringBefore(":")
+            // Find the last colon which separates file path from line number
+            val lastColonIndex = identifier.lastIndexOf(":")
+            if (lastColonIndex > 0) {
+                identifier.substring(0, lastColonIndex)
+            } else {
+                identifier
+            }
         }
         
         val reviewUnits = mutableListOf<ReviewUnit>()
         
         regionsByFile.forEach { (filePath, regions) ->
+            println("[ReviewOptimizer] Processing file: $filePath with ${regions.size} regions")
+            
             // Deduplicate nearby regions
             val lineNumbers = regions.mapNotNull { region ->
-                region.substringAfter(":").toIntOrNull()?.let { line ->
-                    line to region
+                val lastColonIndex = region.lastIndexOf(":")
+                if (lastColonIndex > 0) {
+                    region.substring(lastColonIndex + 1).toIntOrNull()?.let { line ->
+                        line to region
+                    }
+                } else {
+                    null
                 }
             }.sortedBy { it.first }
             
@@ -270,27 +283,41 @@ class ReviewOptimizer(private val project: Project) {
      */
     private fun prepareJsTsRegionContext(unit: ReviewUnit): ReviewContext {
         return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
-            val filePath = unit.filePath ?: return@compute ReviewContext.empty(unit.className)
+            val filePath = unit.filePath ?: unit.className // Use className as fallback since it contains the file path
+            
+            println("[ReviewOptimizer] Preparing JS/TS context for file: $filePath")
+            println("[ReviewOptimizer] Regions to process: ${unit.methods}")
             
             val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
                 .findFileByPath(filePath)
-                ?: return@compute ReviewContext.empty(unit.className)
+            
+            if (virtualFile == null) {
+                println("[ReviewOptimizer] Virtual file not found for path: $filePath")
+                return@compute ReviewContext.empty(unit.className)
+            }
                 
             val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
-                ?: return@compute ReviewContext.empty(unit.className)
+            if (psiFile == null) {
+                println("[ReviewOptimizer] PSI file not found for virtual file: ${virtualFile.path}")
+                return@compute ReviewContext.empty(unit.className)
+            }
                 
             val document = com.intellij.psi.PsiDocumentManager.getInstance(project)
                 .getDocument(psiFile)
-                ?: return@compute ReviewContext.empty(unit.className)
+            if (document == null) {
+                println("[ReviewOptimizer] Document not found for PSI file")
+                return@compute ReviewContext.empty(unit.className)
+            }
                 
             val contextHelper = JsTsContextHelper(project)
             val regionContexts = mutableListOf<JsTsRegionContext>()
             
             // Process each region identifier
             unit.methods.forEach { regionId ->
-                val parts = regionId.split(":")
-                if (parts.size == 2) {
-                    val lineNumber = parts[1].toIntOrNull()
+                println("[ReviewOptimizer] Processing region: $regionId")
+                val lastColonIndex = regionId.lastIndexOf(":")
+                if (lastColonIndex > 0) {
+                    val lineNumber = regionId.substring(lastColonIndex + 1).toIntOrNull()
                     if (lineNumber != null && lineNumber >= 0) {
                         // Line numbers in the region ID are 0-based
                         if (lineNumber < document.lineCount) {
@@ -307,10 +334,19 @@ class ReviewOptimizer(private val project: Project) {
                                 content = regionContext.markedText,
                                 framework = regionContext.framework.name
                             ))
+                            println("[ReviewOptimizer] Added region context for line $lineNumber")
+                        } else {
+                            println("[ReviewOptimizer] Line number $lineNumber out of bounds (document has ${document.lineCount} lines)")
                         }
+                    } else {
+                        println("[ReviewOptimizer] Invalid line number in region ID: $regionId")
                     }
+                } else {
+                    println("[ReviewOptimizer] Invalid region ID format: $regionId")
                 }
             }
+            
+            println("[ReviewOptimizer] Total region contexts created: ${regionContexts.size}")
             
             // Fix the language detection based on file extension
             val language = when {
@@ -322,9 +358,9 @@ class ReviewOptimizer(private val project: Project) {
             ReviewContext(
                 className = unit.className,
                 reviewType = "js_ts_region",
-                language = unit.language,
+                language = language, // Use the dynamically detected language, not unit.language
                 regionContexts = regionContexts,
-                lineCount = document.lineCount
+                lineCount = if (regionContexts.isNotEmpty()) document.lineCount else 0
             )
         }
     }

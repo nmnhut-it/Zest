@@ -146,28 +146,28 @@ class CodeGuardianReportPanel(
         // Create tabbed pane for different days
         val tabbedPane = JBTabbedPane()
         
-        // Today's tab
+        // Check up to 3 days (today, yesterday, 2 days ago)
         val today = LocalDate.now()
-        val todayData = todayResults ?: storage.getReportForDate(today)
-        if (todayData != null) {
-            tabbedPane.addTab("Today", createDayPanel(today, todayData, false))
+        val dates = listOf(
+            today to "Today",
+            today.minusDays(1) to "Yesterday", 
+            today.minusDays(2) to "2 days ago"
+        )
+        
+        // Add tabs for each day that has data
+        dates.forEach { (date, label) ->
+            val data = if (date == today && todayResults != null) {
+                todayResults
+            } else {
+                storage.getReportForDate(date)
+            }
+            
+            if (data != null) {
+                tabbedPane.addTab(label, createDayPanel(date, data, false))
+            }
         }
         
-        // Yesterday's tab
-        val yesterday = today.minusDays(1)
-        val yesterdayData = storage.getReportForDate(yesterday)
-        if (yesterdayData != null) {
-            tabbedPane.addTab("Yesterday", createDayPanel(yesterday, yesterdayData, false))
-        }
-        
-        // 2 days ago tab
-        val twoDaysAgo = today.minusDays(2)
-        val twoDaysAgoData = storage.getReportForDate(twoDaysAgo)
-        if (twoDaysAgoData != null) {
-            tabbedPane.addTab("2 days ago", createDayPanel(twoDaysAgo, twoDaysAgoData, false))
-        }
-        
-        // If no data available
+        // If no data available at all
         if (tabbedPane.tabCount == 0) {
             return createEmptyPanel()
         }
@@ -178,15 +178,25 @@ class CodeGuardianReportPanel(
     private fun createCondensedContent(): JComponent {
         val condensedPanel = JPanel(BorderLayout())
         
-        // Show only today's data in condensed mode
+        // Try to get today's data first
         val today = LocalDate.now()
-        val todayData = todayResults ?: storage.getReportForDate(today)
+        var reportDate = today
+        var reportData = todayResults ?: storage.getReportForDate(today)
         
-        if (todayData == null) {
+        // If no today's data, get the most recent report
+        if (reportData == null) {
+            val mostRecentDate = storage.getMostRecentReportDate()
+            if (mostRecentDate != null) {
+                reportDate = mostRecentDate
+                reportData = storage.getReportForDate(mostRecentDate)
+            }
+        }
+        
+        if (reportData == null) {
             return createEmptyPanel()
         }
         
-        return createDayPanel(today, todayData, true)
+        return createDayPanel(reportDate, reportData, true)
     }
     
     private fun createEmptyPanel(): JComponent {
@@ -269,8 +279,16 @@ class CodeGuardianReportPanel(
         panel.border = EmptyBorder(10, 10, 10, 10)
         panel.background = UIUtil.getPanelBackground()
         
-        // Compact date
-        val dateLabel = JBLabel(date.format(shortDateFormatter))
+        // Compact date with relative indicator
+        val today = LocalDate.now()
+        val dateText = when {
+            date == today -> "Today"
+            date == today.minusDays(1) -> "Yesterday"
+            date == today.minusDays(2) -> "2 days ago"
+            else -> date.format(shortDateFormatter)
+        }
+        
+        val dateLabel = JBLabel(dateText)
         dateLabel.font = dateLabel.font.deriveFont(Font.BOLD, 14f)
         dateLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(dateLabel)

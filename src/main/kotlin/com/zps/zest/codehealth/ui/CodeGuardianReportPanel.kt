@@ -221,10 +221,18 @@ class CodeGuardianReportPanel(
         val headerPanel = if (condensed) createCondensedHeader(date, results) else createFullHeader(date, results)
         panel.add(headerPanel, BorderLayout.NORTH)
         
-        // Issues list
+        // Issues list with proper scrolling
         val issuesPanel = if (condensed) createCondensedIssuesPanel(results) else createFullIssuesPanel(results)
+        
+        // Create scroll pane with vertical scrolling only
         val scrollPane = JBScrollPane(issuesPanel)
         scrollPane.border = JBUI.Borders.empty()
+        scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        scrollPane.verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+        
+        // Ensure the scroll pane resizes properly
+        scrollPane.preferredSize = null // Let it calculate based on parent
+        
         panel.add(scrollPane, BorderLayout.CENTER)
         
         return panel
@@ -389,6 +397,9 @@ class CodeGuardianReportPanel(
     }
     
     private fun createFullIssuesPanel(results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val wrapper = JPanel(BorderLayout())
+        wrapper.background = UIUtil.getPanelBackground()
+        
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.background = UIUtil.getPanelBackground()
@@ -401,22 +412,23 @@ class CodeGuardianReportPanel(
         if (methodsWithIssues.isEmpty()) {
             val noIssuesLabel = JBLabel("✨ No issues found - your code is clean!")
             noIssuesLabel.font = noIssuesLabel.font.deriveFont(16f)
-            noIssuesLabel.alignmentX = Component.LEFT_ALIGNMENT
             panel.add(noIssuesLabel)
         } else {
             methodsWithIssues.forEach { result ->
                 val methodPanel = createFullMethodPanel(result)
-                methodPanel.alignmentX = Component.LEFT_ALIGNMENT
                 panel.add(methodPanel)
                 panel.add(Box.createVerticalStrut(20))
             }
         }
         
-        panel.add(Box.createVerticalGlue())
-        return panel
+        wrapper.add(panel, BorderLayout.NORTH)
+        return wrapper
     }
     
     private fun createCondensedIssuesPanel(results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val wrapper = JPanel(BorderLayout())
+        wrapper.background = UIUtil.getPanelBackground()
+        
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.background = UIUtil.getPanelBackground()
@@ -429,23 +441,23 @@ class CodeGuardianReportPanel(
         if (methodsWithIssues.isEmpty()) {
             val noIssuesLabel = JBLabel("✨ Clean!")
             noIssuesLabel.font = noIssuesLabel.font.deriveFont(14f)
-            noIssuesLabel.alignmentX = Component.LEFT_ALIGNMENT
             panel.add(noIssuesLabel)
         } else {
             methodsWithIssues.forEach { result ->
                 val methodPanel = createCondensedMethodPanel(result)
-                methodPanel.alignmentX = Component.LEFT_ALIGNMENT
                 panel.add(methodPanel)
                 panel.add(Box.createVerticalStrut(10))
             }
         }
         
-        panel.add(Box.createVerticalGlue())
-        return panel
+        wrapper.add(panel, BorderLayout.NORTH)
+        return wrapper
     }
     
     private fun createFullMethodPanel(result: CodeHealthAnalyzer.MethodHealthResult): JComponent {
-        // Use the existing implementation from SwingHealthReportDialog
+        val wrapper = JPanel(BorderLayout())
+        wrapper.background = UIUtil.getPanelBackground()
+        
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = BorderFactory.createCompoundBorder(
@@ -457,25 +469,30 @@ class CodeGuardianReportPanel(
         // Method header with navigation
         val headerPanel = JPanel(GridBagLayout())
         headerPanel.background = UIUtil.getPanelBackground()
-        headerPanel.alignmentX = Component.LEFT_ALIGNMENT
         
         val gbc = GridBagConstraints()
         gbc.gridy = 0
         gbc.fill = GridBagConstraints.HORIZONTAL
         
-        // Method label
+        // Method label with text wrapping
         gbc.gridx = 0
         gbc.weightx = 1.0
         gbc.anchor = GridBagConstraints.WEST
-        val methodLabel = JBLabel(result.fqn)
-        methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 14)
-        headerPanel.add(methodLabel, gbc)
+        gbc.insets = JBUI.insets(0, 0, 0, 10)
+        val methodText = JTextArea(result.fqn)
+        methodText.isEditable = false
+        methodText.isOpaque = false
+        methodText.background = UIUtil.getPanelBackground()
+        methodText.font = Font(Font.MONOSPACED, Font.BOLD, 14)
+        methodText.lineWrap = true
+        methodText.wrapStyleWord = false // Don't break in middle of method names
+        headerPanel.add(methodText, gbc)
         
         // Button
         gbc.gridx = 1
         gbc.weightx = 0.0
         gbc.anchor = GridBagConstraints.EAST
-        gbc.insets = JBUI.insets(0, 10, 0, 0)
+        gbc.insets = JBUI.insets(0)
         val goToButton = JButton("📍 Go to method")
         goToButton.isContentAreaFilled = false
         goToButton.isBorderPainted = false
@@ -490,11 +507,18 @@ class CodeGuardianReportPanel(
         panel.add(Box.createVerticalStrut(5))
         
         // Stats
-        val statsLabel = JBLabel("Health: ${result.healthScore}/100 | Edits: ${result.modificationCount}x | Impact: ${result.impactedCallers.size} callers")
-        statsLabel.font = statsLabel.font.deriveFont(12f)
-        statsLabel.foreground = UIUtil.getInactiveTextColor()
-        statsLabel.alignmentX = Component.LEFT_ALIGNMENT
-        panel.add(statsLabel)
+        val statsWrapper = JPanel(BorderLayout())
+        statsWrapper.background = UIUtil.getPanelBackground()
+        val statsArea = JTextArea("Health: ${result.healthScore}/100 | Edits: ${result.modificationCount}x | Impact: ${result.impactedCallers.size} callers")
+        statsArea.isEditable = false
+        statsArea.isOpaque = false
+        statsArea.background = UIUtil.getPanelBackground()
+        statsArea.font = statsArea.font.deriveFont(12f)
+        statsArea.foreground = UIUtil.getInactiveTextColor()
+        statsArea.lineWrap = true
+        statsArea.wrapStyleWord = true
+        statsWrapper.add(statsArea, BorderLayout.CENTER)
+        panel.add(statsWrapper)
         panel.add(Box.createVerticalStrut(15))
         
         // Issues
@@ -504,38 +528,44 @@ class CodeGuardianReportPanel(
         if (verifiedIssues.isNotEmpty()) {
             val issue = verifiedIssues.first()
             val issuePanel = createFullIssuePanel(issue, result.fqn)
-            issuePanel.alignmentX = Component.LEFT_ALIGNMENT
             panel.add(issuePanel)
         }
         
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
-        return panel
+        wrapper.add(panel, BorderLayout.NORTH)
+        return wrapper
     }
     
     private fun createCondensedMethodPanel(result: CodeHealthAnalyzer.MethodHealthResult): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(GridBagLayout())
         panel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 3, 0, 0, getHealthColor(result.healthScore)),
             EmptyBorder(10, 10, 10, 10)
         )
         panel.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, 80)
         
-        // Left side - method info
+        val gbc = GridBagConstraints()
+        gbc.gridy = 0
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        
+        // Method info - takes remaining space
+        gbc.gridx = 0
+        gbc.weightx = 1.0
+        gbc.anchor = GridBagConstraints.WEST
+        
         val leftPanel = JPanel()
         leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
         leftPanel.background = panel.background
         
-        // Method name (truncated if needed)
-        val methodName = if (result.fqn.length > 30) {
-            "..." + result.fqn.substring(result.fqn.length - 27)
-        } else {
-            result.fqn
-        }
-        val methodLabel = JBLabel(methodName)
-        methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 12)
-        methodLabel.alignmentX = Component.LEFT_ALIGNMENT
-        leftPanel.add(methodLabel)
+        // Method name with wrapping
+        val methodArea = JTextArea(result.fqn)
+        methodArea.isEditable = false
+        methodArea.isOpaque = false
+        methodArea.background = panel.background
+        methodArea.font = Font(Font.MONOSPACED, Font.BOLD, 12)
+        methodArea.lineWrap = true
+        methodArea.wrapStyleWord = false // Don't break method names
+        methodArea.rows = 1 // Try to keep it single line if possible
+        leftPanel.add(methodArea)
         
         // Compact issue info
         val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
@@ -544,13 +574,17 @@ class CodeGuardianReportPanel(
             val issueLabel = JBLabel("[${issue.severity}/5] ${issue.title}")
             issueLabel.font = issueLabel.font.deriveFont(11f)
             issueLabel.foreground = getSeverityColor(issue.severity)
-            issueLabel.alignmentX = Component.LEFT_ALIGNMENT
             leftPanel.add(issueLabel)
         }
         
-        panel.add(leftPanel, BorderLayout.CENTER)
+        panel.add(leftPanel, gbc)
         
-        // Right side - action buttons
+        // Right side - action buttons (fixed width)
+        gbc.gridx = 1
+        gbc.weightx = 0.0
+        gbc.anchor = GridBagConstraints.EAST
+        gbc.insets = JBUI.insets(0, 5, 0, 0)
+        
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
         rightPanel.background = panel.background
         
@@ -566,7 +600,7 @@ class CodeGuardianReportPanel(
             rightPanel.add(fixButton)
         }
         
-        panel.add(rightPanel, BorderLayout.EAST)
+        panel.add(rightPanel, gbc)
         
         return panel
     }
@@ -583,7 +617,9 @@ class CodeGuardianReportPanel(
     }
     
     private fun createFullIssuePanel(issue: CodeHealthAnalyzer.HealthIssue, methodFqn: String): JComponent {
-        // Similar to SwingHealthReportDialog implementation
+        val wrapper = JPanel(BorderLayout())
+        wrapper.background = UIUtil.getPanelBackground()
+        
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
         panel.border = JBUI.Borders.compound(
@@ -591,55 +627,76 @@ class CodeGuardianReportPanel(
             EmptyBorder(15, 15, 15, 15)
         )
         panel.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
-        panel.alignmentX = Component.LEFT_ALIGNMENT
         
-        // Title with severity
-        val titlePanel = JPanel(BorderLayout())
+        // Title with severity - use GridBagLayout for better responsive behavior
+        val titlePanel = JPanel(GridBagLayout())
         titlePanel.background = panel.background
-        titlePanel.alignmentX = Component.LEFT_ALIGNMENT
         
-        val titleLabel = JBLabel(issue.title)
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
-        titlePanel.add(titleLabel, BorderLayout.WEST)
+        val gbc = GridBagConstraints()
+        gbc.gridy = 0
+        gbc.fill = GridBagConstraints.HORIZONTAL
         
+        // Title takes remaining space
+        gbc.gridx = 0
+        gbc.weightx = 1.0
+        gbc.anchor = GridBagConstraints.WEST
+        gbc.insets = JBUI.insets(0, 0, 0, 10)
+        
+        val titleArea = JTextArea(issue.title)
+        titleArea.isEditable = false
+        titleArea.isOpaque = false
+        titleArea.background = panel.background
+        titleArea.font = UIUtil.getLabelFont().deriveFont(Font.BOLD)
+        titleArea.lineWrap = true
+        titleArea.wrapStyleWord = true
+        titlePanel.add(titleArea, gbc)
+        
+        // Severity label - fixed width
+        gbc.gridx = 1
+        gbc.weightx = 0.0
+        gbc.anchor = GridBagConstraints.EAST
+        gbc.insets = JBUI.insets(0)
         val severityLabel = JBLabel("[Risk Level: ${issue.severity}/5]")
         severityLabel.foreground = getSeverityColor(issue.severity)
         severityLabel.font = severityLabel.font.deriveFont(Font.BOLD)
-        titlePanel.add(severityLabel, BorderLayout.EAST)
+        titlePanel.add(severityLabel, gbc)
         
         panel.add(titlePanel)
         panel.add(Box.createVerticalStrut(10))
         
         // Type
         val typeLabel = JBLabel("Type: ${issue.issueCategory}")
-        typeLabel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(typeLabel)
         panel.add(Box.createVerticalStrut(10))
         
         // Description
-        val descLabel = JBLabel("<html><body style='width: 550px'>${issue.description}</body></html>")
-        descLabel.alignmentX = Component.LEFT_ALIGNMENT
-        panel.add(descLabel)
+        val descWrapper = JPanel(BorderLayout())
+        descWrapper.background = panel.background
+        val descArea = JTextArea(issue.description)
+        descArea.isEditable = false
+        descArea.isOpaque = false
+        descArea.background = panel.background
+        descArea.font = UIUtil.getLabelFont()
+        descArea.lineWrap = true
+        descArea.wrapStyleWord = true
+        descWrapper.add(descArea, BorderLayout.CENTER)
+        panel.add(descWrapper)
         panel.add(Box.createVerticalStrut(10))
         
         // Impact
         val impactPanel = createSectionPanel("What happens if unfixed:", issue.impact)
-        impactPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(impactPanel)
         panel.add(Box.createVerticalStrut(10))
         
         // Fix
         val fixPanel = createSectionPanel("How to fix:", issue.suggestedFix, 
             if (UIUtil.isUnderDarcula()) Color(45, 74, 43) else Color(232, 245, 233))
-        fixPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(fixPanel)
         panel.add(Box.createVerticalStrut(10))
         
         // Button
         val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         buttonPanel.background = panel.background
-        buttonPanel.alignmentX = Component.LEFT_ALIGNMENT
-        buttonPanel.maximumSize = Dimension(Integer.MAX_VALUE, buttonPanel.preferredSize.height)
         
         val fixButton = JButton("🔧 Fix now with AI")
         fixButton.foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
@@ -650,35 +707,41 @@ class CodeGuardianReportPanel(
         buttonPanel.add(fixButton)
         
         panel.add(buttonPanel)
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
         
-        return panel
+        wrapper.add(panel, BorderLayout.NORTH)
+        return wrapper
     }
     
     private fun createSectionPanel(label: String, content: String, bgColor: Color? = null): JComponent {
-        val panel = JPanel()
-        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
-        panel.border = BorderFactory.createCompoundBorder(
+        val wrapper = JPanel(BorderLayout())
+        wrapper.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 3, 0, 0, UIUtil.getBoundsColor()),
             EmptyBorder(10, 10, 10, 10)
         )
-        panel.background = bgColor ?: if (UIUtil.isUnderDarcula()) Color(30, 30, 30) else Color(248, 248, 248)
-        panel.alignmentX = Component.LEFT_ALIGNMENT
+        wrapper.background = bgColor ?: if (UIUtil.isUnderDarcula()) Color(30, 30, 30) else Color(248, 248, 248)
+        
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.background = wrapper.background
         
         val labelComponent = JBLabel(label)
         labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
-        labelComponent.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(labelComponent)
         panel.add(Box.createVerticalStrut(5))
         
-        val maxWidth = if (isCondensedMode) 280 else 520
-        val contentLabel = JBLabel("<html><body style='width: ${maxWidth}px'>${content}</body></html>")
-        contentLabel.alignmentX = Component.LEFT_ALIGNMENT
-        panel.add(contentLabel)
+        // Use JTextArea for better text wrapping
+        val contentArea = JTextArea(content)
+        contentArea.isEditable = false
+        contentArea.isOpaque = false
+        contentArea.background = panel.background
+        contentArea.font = UIUtil.getLabelFont()
+        contentArea.lineWrap = true
+        contentArea.wrapStyleWord = true
         
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, panel.preferredSize.height)
+        panel.add(contentArea)
         
-        return panel
+        wrapper.add(panel, BorderLayout.NORTH)
+        return wrapper
     }
     
     // Helper methods (same as in SwingHealthReportDialog)

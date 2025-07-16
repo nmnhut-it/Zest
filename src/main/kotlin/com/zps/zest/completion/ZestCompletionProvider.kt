@@ -725,8 +725,7 @@ class ZestCompletionProvider(private val project: Project) {
             ZestInlineCompletionList.EMPTY
 
         } catch (e: kotlinx.coroutines.CancellationException) {
-            metricsService.trackCompletionCancelled(completionId)
-            logger.debug("Method rewrite request was cancelled")
+
             throw e
         } catch (e: Exception) {
             e.printStackTrace()
@@ -741,6 +740,6 @@ class ZestCompletionProvider(private val project: Project) {
 
         private const val LEAN_COMPLETION_TIMEOUT_MS = 150000L  // 15 seconds for reasoning
         private const val LEAN_MAX_COMPLETION_TOKENS =
-            16  // Limited tokens for focused completions (reasoning + completion)
+            32  // Limited tokens for focused completions (reasoning + completion)
     }
 }

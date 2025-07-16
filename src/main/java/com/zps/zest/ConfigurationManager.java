@@ -431,6 +431,8 @@ public class ConfigurationManager {
      */
     private void checkAndUpdateDefaultApiUrl() {
         // Only update if using the old default URL
+        if (globalSettings == null)
+            return;
         if (DEFAULT_API_URL.equals(globalSettings.apiUrl)) {
             String bestUrl = determineDefaultApiUrl();
             if (!bestUrl.equals(globalSettings.apiUrl)) {

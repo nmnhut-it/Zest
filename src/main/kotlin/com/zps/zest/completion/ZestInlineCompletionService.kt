@@ -1183,6 +1183,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         if (wasStuck) {
             log("WARNING: Force reset stuck acceptance state", "StuckState")
             logger.warn("Force reset stuck acceptance state after ${acceptanceState.getTimeSinceLastAcceptance()}ms")
+
             showDebugBalloon("State Reset", "Fixed stuck acceptance state", NotificationType.WARNING)
         }
 

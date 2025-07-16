@@ -31,6 +31,9 @@ public class ZestProjectSettings implements PersistentStateComponent<ZestProject
     public String mcpServerUri = "http://localhost:8080/mcp";
     public int maxIterations = 3;
     
+    // Migration tracking
+    public int promptVersion = 0;
+    
     public static ZestProjectSettings getInstance(Project project) {
         return project.getService(ZestProjectSettings.class);
     }

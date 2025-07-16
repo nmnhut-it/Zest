@@ -37,10 +37,12 @@
         
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
+        <projectService serviceImplementation="com.zps.zest.settings.PromptMigrationService"/>
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.completion.debug.EnableVerboseLoggingStartup"/>
         <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
+        <postStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 

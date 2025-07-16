@@ -350,6 +350,11 @@ public class ZestSettingsConfigurable implements Configurable {
         });
         buttonPanel.add(resetBtn);
         
+        JButton migrateBtn = new JButton("Update All Prompts");
+        migrateBtn.setToolTipText("Update all prompts to latest concise versions");
+        migrateBtn.addActionListener(e -> migrateAllPrompts());
+        buttonPanel.add(migrateBtn);
+        
         JButton previewBtn = new JButton("Preview");
         previewBtn.addActionListener(e -> previewCommitTemplate());
         buttonPanel.add(previewBtn);
@@ -589,5 +594,30 @@ public class ZestSettingsConfigurable implements Configurable {
             "• Use conventional commit format for consistency";
         
         Messages.showInfoMessage(project, helpText, "Commit Template Help");
+    }
+    
+    private void migrateAllPrompts() {
+        int result = Messages.showYesNoDialog(
+            project,
+            "This will update all prompts to the latest concise versions.\n" +
+            "Your current prompts will be replaced.\n\n" +
+            "Do you want to continue?",
+            "Update Prompts",
+            Messages.getQuestionIcon()
+        );
+        
+        if (result == Messages.YES) {
+            // Update all prompts to latest defaults
+            systemPromptArea.setText(ConfigurationManager.DEFAULT_SYSTEM_PROMPT);
+            codeSystemPromptArea.setText(ConfigurationManager.DEFAULT_CODE_SYSTEM_PROMPT);
+            commitPromptTemplateArea.setText(ConfigurationManager.DEFAULT_COMMIT_PROMPT_TEMPLATE);
+            
+            Messages.showInfoMessage(
+                project,
+                "All prompts have been updated to the latest concise versions.\n" +
+                "Click Apply to save the changes.",
+                "Prompts Updated"
+            );
+        }
     }
 }

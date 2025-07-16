@@ -11,24 +11,16 @@ class ZestSimplePromptBuilder {
     
     companion object {
         // System prompt for FIM completion - cacheable
-        private const val FIM_SYSTEM_PROMPT = """You are a code completion assistant. Complete code at the cursor position following these rules:
-- Only output the code that should be inserted at the cursor
-- Follow the existing code style and patterns
-- Do not include explanations or markdown
-- Stop at natural completion points (end of line, closing brackets, etc.)"""
+        private const val FIM_SYSTEM_PROMPT = """Complete code at cursor. Output only the insertion. Follow existing style."""
 
         // System prompt for instruction-based completion - cacheable  
-        private const val INSTRUCTION_SYSTEM_PROMPT = """You are an expert code completion AI. Your task is to complete code at the cursor position marked as <CURSOR>.
-
-Rules:
-1. Output ONLY the code to insert at the cursor position
-2. Do not repeat any code that appears before or after the cursor
-3. Follow the existing code style, indentation, and naming conventions
-4. Complete based on context and common patterns
-5. No explanations, comments, or markdown - just code"""
+        private const val INSTRUCTION_SYSTEM_PROMPT = """Complete code at <CURSOR>. Rules:
+- Output ONLY code to insert
+- Match existing style
+- No explanations"""
         
         // System prompt for text completion - cacheable
-        private const val TEXT_SYSTEM_PROMPT = """You are a text completion assistant. Complete the text at the marked position naturally and coherently."""
+        private const val TEXT_SYSTEM_PROMPT = """Complete text naturally at marked position."""
     }
     
     /**

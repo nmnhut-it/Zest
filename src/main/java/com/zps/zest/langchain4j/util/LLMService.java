@@ -263,7 +263,7 @@ public final class LLMService implements Disposable {
         return executeQueryAsync(apiUrl, authToken, params, enumUsage)
             .exceptionally(throwable -> {
                 LOG.warn("  LLM query attempt " + attempt + " failed: " + throwable.getMessage());
-                
+
                 if (attempt < params.getMaxRetries()) {
                     // Retry with exponential backoff
                     try {
@@ -272,8 +272,10 @@ public final class LLMService implements Disposable {
                         Thread.currentThread().interrupt();
                         throw new CompletionException(e);
                     }
-                    if (params.isLiteModel)
+
+                    if (params.isLiteModel) {
                         params.withModel("local-model-mini");
+                    }
                     
                     return executeQueryWithRetryAsync(apiUrl, authToken, params, enumUsage, attempt + 1).join();
                 } else {

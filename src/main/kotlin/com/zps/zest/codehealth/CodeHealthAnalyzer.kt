@@ -35,11 +35,9 @@ import java.util.concurrent.atomic.AtomicLong
 class CodeHealthAnalyzer(private val project: Project) {
 
     companion object {
-        private const val MAX_CONCURRENT_ANALYSES = 2
-        private const val LLM_DELAY_MS = 2000L // Increased delay between LLM calls
-        private const val CHUNK_SIZE = 5 // Process methods in chunks
+        private const val LLM_DELAY_MS = 2000L // Delay between LLM calls
         const val MAX_METHODS_PER_ANALYSIS = 20 // Hard limit to prevent excessive LLM calls
-        private const val MAX_LLM_RETRIES = 2 // Limit retries per method
+        private const val MAX_LLM_RETRIES = 3 // Allow 3 attempts total for actual retries
         private const val LLM_TIMEOUT_MS = 30000L // 30 second timeout per LLM call
         
         // Feature flags
@@ -53,6 +51,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     private val llmService: LLMService = project.service()
     private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
     private val results = ConcurrentHashMap<String, MethodHealthResult>()
+    private val gson = Gson()
     
     // Rate limiter for LLM calls
     private val llmRateLimiter = RateLimiter(LLM_DELAY_MS)
@@ -319,6 +318,10 @@ class CodeHealthAnalyzer(private val project: Project) {
                 onComplete(finalResult)
                 
             } catch (e: Exception) {
+                // Rethrow ProcessCanceledException
+                if (e is com.intellij.openapi.progress.ProcessCanceledException) {
+                    throw e
+                }
                 println("[CodeHealthAnalyzer] ERROR analyzing ${method.fqn}: ${e.message}")
                 e.printStackTrace()
                 onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount, "local-model-mini"))
@@ -381,41 +384,27 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     /**
-     * First pass: LLM detects all potential issues
+     * Unified LLM call with retry logic
      */
-    private fun detectIssuesWithLLM(
-        method: CodeHealthTracker.ModifiedMethod,
-        context: String,
-        callers: List<String>,
-        callerSnippets: List<CallerSnippet>
-    ): MethodHealthResult {
-        val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
-        
+    private fun callLLMWithRetry(
+        params: LLMService.LLMQueryParams,
+        usage: com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage,
+        description: String
+    ): String? {
         var lastException: Exception? = null
         
-        // Retry logic with exponential backoff
         for (attempt in 1..MAX_LLM_RETRIES) {
             try {
-                println("[CodeHealthAnalyzer] LLM detection attempt $attempt for ${method.fqn}")
+                println("[CodeHealthAnalyzer] LLM attempt $attempt for $description")
                 
                 // Rate limit LLM calls
                 llmRateLimiter.acquire()
                 
                 val startTime = System.currentTimeMillis()
                 
-                // Use lite code model for better performance with timeout
-                val params = LLMService.LLMQueryParams(detectionPrompt)
-                    .useLiteCodeModel()
-                    .withMaxTokens(4096)
-                    .withTemperature(0.3)
-                
-                // Track the actual model being used
-                val actualModel = params.getModel()
-                println("[CodeHealthAnalyzer] Using model: $actualModel for ${method.fqn}")
-                
                 // Create a future with timeout
                 val future = CompletableFuture.supplyAsync({
-                    llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+                    llmService.queryWithParams(params, usage)
                 })
                 
                 val response = try {
@@ -428,17 +417,17 @@ class CodeHealthAnalyzer(private val project: Project) {
                 val elapsed = System.currentTimeMillis() - startTime
                 
                 if (response != null) {
-                    println("[CodeHealthAnalyzer] LLM succeeded on attempt $attempt in ${elapsed}ms for ${method.fqn}")
+                    println("[CodeHealthAnalyzer] LLM succeeded on attempt $attempt in ${elapsed}ms for $description")
                     llmRateLimiter.recordSuccess()
-                    return parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response, actualModel)
+                    return response
                 } else {
-                    println("[CodeHealthAnalyzer] LLM returned null on attempt $attempt for ${method.fqn}")
+                    println("[CodeHealthAnalyzer] LLM returned null on attempt $attempt for $description")
                     lastException = Exception("LLM returned null response")
                     llmRateLimiter.recordError()
                 }
                 
             } catch (e: Exception) {
-                println("[CodeHealthAnalyzer] LLM attempt $attempt failed for ${method.fqn}: ${e.message}")
+                println("[CodeHealthAnalyzer] LLM attempt $attempt failed for $description: ${e.message}")
                 lastException = e
                 llmRateLimiter.recordError()
                 
@@ -451,19 +440,43 @@ class CodeHealthAnalyzer(private val project: Project) {
             }
         }
         
-        // All retries failed
-        println("[CodeHealthAnalyzer] All LLM attempts failed for ${method.fqn}: ${lastException?.message}")
+        println("[CodeHealthAnalyzer] All LLM attempts failed for $description: ${lastException?.message}")
+        return null
+    }
+
+    /**
+     * First pass: LLM detects all potential issues
+     */
+    private fun detectIssuesWithLLM(
+        method: CodeHealthTracker.ModifiedMethod,
+        context: String,
+        callers: List<String>,
+        callerSnippets: List<CallerSnippet>
+    ): MethodHealthResult {
+        val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
-        // Return a result indicating analysis failure
-        return MethodHealthResult(
+        val params = LLMService.LLMQueryParams(detectionPrompt)
+            .useLiteCodeModel()
+            .withMaxTokens(4096)
+            .withTemperature(0.3)
+        
+        val actualModel = params.getModel()
+        
+        return callLLMWithRetry(
+            params = params,
+            usage = com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH,
+            description = "detection for ${method.fqn}"
+        )?.let { response ->
+            parseDetectionResponse(method.fqn, context, callers, callerSnippets, method.modificationCount, response, actualModel)
+        } ?: MethodHealthResult(
             fqn = method.fqn,
             issues = emptyList(),
             impactedCallers = callers,
-            healthScore = 85, // Conservative score when analysis fails
+            healthScore = 85,
             modificationCount = method.modificationCount,
             codeContext = context,
-            summary = "Analysis failed: ${lastException?.message ?: "Unknown error"}",
-            actualModel = "local-model-mini" // Default model when analysis fails
+            summary = "Analysis failed",
+            actualModel = actualModel
         )
     }
 
@@ -508,6 +521,49 @@ class CodeHealthAnalyzer(private val project: Project) {
         """.trimIndent()
     }
 
+    /**
+     * Parse a single issue from JSON object
+     */
+    private fun parseIssue(issueObject: JsonObject, verified: Boolean = false): HealthIssue? {
+        val severity = issueObject.get("severity")?.asInt ?: 3
+        
+        // Only process significant issues (severity >= 3)
+        if (severity < 3) return null
+        
+        return HealthIssue(
+            issueCategory = issueObject.get("category")?.asString ?: "Unknown",
+            severity = severity,
+            title = issueObject.get("title")?.asString ?: "Unknown Issue",
+            description = issueObject.get("description")?.asString ?: "",
+            impact = issueObject.get("impact")?.asString ?: "",
+            suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
+            confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
+            verified = verified,
+            verificationReason = if (verified) "Pre-verified" else null,
+            codeSnippet = issueObject.get("codeSnippet")?.asString,
+            callerSnippets = emptyList()
+        )
+    }
+    
+    /**
+     * Extract JSON object from LLM response
+     */
+    private fun extractJsonFromResponse(response: String): JsonObject? {
+        val jsonStart = response.indexOf("{")
+        val jsonEnd = response.lastIndexOf("}")
+        if (jsonStart == -1 || jsonEnd == -1) {
+            return null
+        }
+        
+        return try {
+            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
+            gson.fromJson(jsonContent, JsonObject::class.java)
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error parsing JSON: ${e.message}")
+            null
+        }
+    }
+    
     private fun parseDetectionResponse(
         fqn: String,
         context: String,
@@ -518,17 +574,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         actualModel: String
     ): MethodHealthResult {
         return try {
-            val gson = Gson()
-            
-            // Extract JSON content
-            val jsonStart = llmResponse.indexOf("{")
-            val jsonEnd = llmResponse.lastIndexOf("}")
-            if (jsonStart == -1 || jsonEnd == -1) {
-                return createFallbackResult(fqn, context, callers, modificationCount, actualModel)
-            }
-            
-            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
-            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            val jsonObject = extractJsonFromResponse(llmResponse)
+                ?: return createFallbackResult(fqn, context, callers, modificationCount, actualModel)
             
             // Parse summary and health score
             val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
@@ -540,32 +587,9 @@ class CodeHealthAnalyzer(private val project: Project) {
             
             if (issuesArray != null && issuesArray.size() > 0) {
                 // Only process the first issue (most critical) as per product requirements
-                // The AI has already prioritized them, so the first one is the most important
                 val issueObject = issuesArray.get(0).asJsonObject
-                
-                val category = issueObject.get("category")?.asString ?: "Unknown"
-                val severity = issueObject.get("severity")?.asInt ?: 1
-                val title = issueObject.get("title")?.asString ?: "Unknown Issue"
-                val description = issueObject.get("description")?.asString ?: ""
-                val impact = issueObject.get("impact")?.asString ?: ""
-                val suggestedFix = issueObject.get("suggestedFix")?.asString ?: ""
-                val confidence = issueObject.get("confidence")?.asDouble ?: 0.8
-                val codeSnippet = issueObject.get("codeSnippet")?.asString
-                
-                // Only add if it's a significant issue (severity >= 3)
-                if (severity >= 3) {
-                    issues.add(HealthIssue(
-                        issueCategory = category,
-                        severity = severity,
-                        title = title,
-                        description = description,
-                        impact = impact,
-                        suggestedFix = suggestedFix,
-                        confidence = confidence,
-                        verified = false,  // Will be verified in second pass
-                        codeSnippet = codeSnippet,
-                        callerSnippets = callerSnippets
-                    ))
+                parseIssue(issueObject)?.let { issue ->
+                    issues.add(issue.copy(callerSnippets = callerSnippets))
                 }
             }
             
@@ -592,40 +616,26 @@ class CodeHealthAnalyzer(private val project: Project) {
     private fun verifyIssuesWithAgent(result: MethodHealthResult): MethodHealthResult {
         println("[CodeHealthAnalyzer] Verifying ${result.issues.size} issues for ${result.fqn}")
         
-        // Rate limit verification calls
-        llmRateLimiter.acquire()
-        
-        // For now, use simple verification. Can be upgraded to use CodeHealthVerificationAgent later
         val verificationPrompt = buildVerificationPrompt(result)
         
-        return try {
-            val startTime = System.currentTimeMillis()
-            
-            // Use lite code model for verification too
-            val params = LLMService.LLMQueryParams(verificationPrompt)
-                .useLiteCodeModel()
-                .withMaxTokens(2048)
-                .withTemperature(0.1) // Lower temperature for more consistent verification
-            
-            // Track the actual model
-            val actualModel = params.getModel()
-            println("[CodeHealthAnalyzer] Using model for verification: $actualModel")
-            
-            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-            val elapsed = System.currentTimeMillis() - startTime
-            
-            if (response != null) {
-                println("[CodeHealthAnalyzer] Verification completed in ${elapsed}ms for ${result.fqn}")
-                val verifiedResult = parseVerificationResponse(result, response)
-                val verifiedCount = verifiedResult.issues.count { it.verified && !it.falsePositive }
-                println("[CodeHealthAnalyzer] Verified $verifiedCount/${verifiedResult.issues.size} issues as real for ${result.fqn}")
-                verifiedResult
-            } else {
-                println("[CodeHealthAnalyzer] Verification failed for ${result.fqn} after ${elapsed}ms")
-                result
-            }
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] ERROR during verification for ${result.fqn}: ${e.message}")
+        val params = LLMService.LLMQueryParams(verificationPrompt)
+            .useLiteCodeModel()
+            .withMaxTokens(2048)
+            .withTemperature(0.1)
+        
+        val response = callLLMWithRetry(
+            params = params,
+            usage = com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH,
+            description = "verification for ${result.fqn}"
+        )
+        
+        return if (response != null) {
+            val verifiedResult = parseVerificationResponse(result, response)
+            val verifiedCount = verifiedResult.issues.count { it.verified && !it.falsePositive }
+            println("[CodeHealthAnalyzer] Verified $verifiedCount/${verifiedResult.issues.size} issues as real for ${result.fqn}")
+            verifiedResult
+        } else {
+            println("[CodeHealthAnalyzer] Verification failed for ${result.fqn}")
             result
         }
     }
@@ -661,16 +671,8 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun parseVerificationResponse(result: MethodHealthResult, llmResponse: String): MethodHealthResult {
         try {
-            val gson = Gson()
-            
-            val jsonStart = llmResponse.indexOf("{")
-            val jsonEnd = llmResponse.lastIndexOf("}")
-            if (jsonStart == -1 || jsonEnd == -1) {
-                return result
-            }
-            
-            val jsonContent = llmResponse.substring(jsonStart, jsonEnd + 1)
-            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            val jsonObject = extractJsonFromResponse(llmResponse)
+                ?: return result
             
             // Parse verifications
             val verificationsArray = jsonObject.getAsJsonArray("verifications")
@@ -1171,28 +1173,23 @@ class CodeHealthAnalyzer(private val project: Project) {
         context: ReviewOptimizer.ReviewContext,
         prompt: String
     ): List<MethodHealthResult> {
-        try {
-            // Rate limit LLM calls
-            llmRateLimiter.acquire()
-            
-            val params = LLMService.LLMQueryParams(prompt)
-                .useLiteCodeModel()
-                .withMaxTokens(4096)
-            
-            // Track the actual model
-            val actualModel = params.getModel()
-            println("[CodeHealthAnalyzer] Using model for file analysis: $actualModel")
-            
-            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-            
-            return if (response != null) {
-                parseFileAnalysisResponse(unit, context, response, actualModel)
-            } else {
-                emptyList()
-            }
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] ERROR calling LLM for ${unit.getDescription()}: ${e.message}")
-            return emptyList()
+        val params = LLMService.LLMQueryParams(prompt)
+            .useLiteCodeModel()
+            .withMaxTokens(4096)
+        
+        val actualModel = params.getModel()
+        println("[CodeHealthAnalyzer] Using model for file analysis: $actualModel")
+        
+        val response = callLLMWithRetry(
+            params = params,
+            usage = com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH,
+            description = "file analysis for ${unit.getDescription()}"
+        )
+        
+        return if (response != null) {
+            parseFileAnalysisResponse(unit, context, response, actualModel)
+        } else {
+            emptyList()
         }
     }
     
@@ -1207,17 +1204,10 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): List<MethodHealthResult> {
         try {
             val results = mutableListOf<MethodHealthResult>()
-            val gson = Gson()
             
-            // Extract JSON content
-            val jsonStart = response.indexOf("{")
-            val jsonEnd = response.lastIndexOf("}")
-            if (jsonStart == -1 || jsonEnd == -1) return emptyList()
+            val jsonObject = extractJsonFromResponse(response)
+                ?: return emptyList()
             
-            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
-            
-            // Parse using Gson
-            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
             val methodsArray = jsonObject.getAsJsonArray("methods")
             
             methodsArray?.forEach { element ->
@@ -1233,25 +1223,10 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 if (issuesArray != null && issuesArray.size() > 0) {
                     // Only process the first issue (most critical) as per product requirements
-                    // The AI has already prioritized them, so the first one is the most important
                     val issueObject = issuesArray.get(0).asJsonObject
-                    
-                    val severity = issueObject.get("severity")?.asInt ?: 3
-                    
-                    // Only add if it's a significant issue (severity >= 3)
-                    if (severity >= 3) {
-                        issues.add(HealthIssue(
-                            issueCategory = issueObject.get("category")?.asString ?: "Unknown",
-                            severity = severity,
-                            title = issueObject.get("title")?.asString ?: "Unknown Issue",
-                            description = issueObject.get("description")?.asString ?: "",
-                            impact = issueObject.get("impact")?.asString ?: "",
-                            suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
-                            confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
-                            verified = true, // Pre-verified for file/group analysis
-                            verificationReason = "Verified through ${unit.type} analysis",
-                            codeSnippet = issueObject.get("codeSnippet")?.asString,
-                            callerSnippets = emptyList()
+                    parseIssue(issueObject, verified = true)?.let { issue ->
+                        issues.add(issue.copy(
+                            verificationReason = "Verified through ${unit.type} analysis"
                         ))
                     }
                 }
@@ -1280,58 +1255,6 @@ class CodeHealthAnalyzer(private val project: Project) {
         }
     }
     
-    /**
-     * Parse issues for a specific method from JSON response
-     */
-    private fun parseIssuesForMethod(fqn: String, jsonContent: String): List<HealthIssue> {
-        val issues = mutableListOf<HealthIssue>()
-        
-        try {
-            // Parse the JSON response using Gson
-            val gson = Gson()
-            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
-            
-            // Get the methods array
-            val methodsArray = jsonObject.getAsJsonArray("methods")
-            
-            // Find the method with matching FQN
-            methodsArray?.forEach { element ->
-                val methodObject = element.asJsonObject
-                val methodFqn = methodObject.get("fqn")?.asString
-                
-                if (methodFqn == fqn) {
-                    // Found the method, parse its issues
-                    val issuesArray = methodObject.getAsJsonArray("issues")
-                    
-                    issuesArray?.forEach { issueElement ->
-                        val issueObject = issueElement.asJsonObject
-                        
-                        val issue = HealthIssue(
-                            issueCategory = issueObject.get("category")?.asString ?: "Unknown",
-                            severity = issueObject.get("severity")?.asInt ?: 3,
-                            title = issueObject.get("title")?.asString ?: "Unknown Issue",
-                            description = issueObject.get("description")?.asString ?: "",
-                            impact = issueObject.get("impact")?.asString ?: "",
-                            suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
-                            confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
-                            verified = false, // Will be marked as verified later
-                            codeSnippet = issueObject.get("codeSnippet")?.asString,
-                            callerSnippets = emptyList()
-                        )
-                        
-                        issues.add(issue)
-                    }
-                    
-                    return@forEach // Found the method, stop searching
-                }
-            }
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] Error parsing issues for method $fqn: ${e.message}")
-            e.printStackTrace()
-        }
-        
-        return issues
-    }
     
     /**
      * Analyze JS/TS regions
@@ -1398,28 +1321,23 @@ class CodeHealthAnalyzer(private val project: Project) {
         context: ReviewOptimizer.ReviewContext,
         prompt: String
     ): List<MethodHealthResult> {
-        try {
-            // Rate limit LLM calls
-            llmRateLimiter.acquire()
-            
-            val params = LLMService.LLMQueryParams(prompt)
-                .useLiteCodeModel()
-                .withMaxTokens(4096)
-            
-            // Track the actual model
-            val actualModel = params.getModel()
-            println("[CodeHealthAnalyzer] Using model for JS/TS analysis: $actualModel")
-            
-            val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
-            
-            return if (response != null) {
-                parseJsTsAnalysisResponse(unit, context, response, actualModel)
-            } else {
-                emptyList()
-            }
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] ERROR calling LLM for JS/TS ${unit.getDescription()}: ${e.message}")
-            return emptyList()
+        val params = LLMService.LLMQueryParams(prompt)
+            .useLiteCodeModel()
+            .withMaxTokens(4096)
+        
+        val actualModel = params.getModel()
+        println("[CodeHealthAnalyzer] Using model for JS/TS analysis: $actualModel")
+        
+        val response = callLLMWithRetry(
+            params = params,
+            usage = com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH,
+            description = "JS/TS analysis for ${unit.getDescription()}"
+        )
+        
+        return if (response != null) {
+            parseJsTsAnalysisResponse(unit, context, response, actualModel)
+        } else {
+            emptyList()
         }
     }
     
@@ -1434,15 +1352,10 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): List<MethodHealthResult> {
         try {
             val results = mutableListOf<MethodHealthResult>()
-            val gson = Gson()
             
-            // Extract JSON content
-            val jsonStart = response.indexOf("{")
-            val jsonEnd = response.lastIndexOf("}")
-            if (jsonStart == -1 || jsonEnd == -1) return emptyList()
-            
-            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
-            val jsonObject = gson.fromJson(jsonContent, JsonObject::class.java)
+            val jsonObject = extractJsonFromResponse(response)
+                ?: return emptyList()
+                
             val regionsArray = jsonObject.getAsJsonArray("regions")
             
             regionsArray?.forEach { element ->
@@ -1458,20 +1371,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 issuesArray?.forEach { issueElement ->
                     val issueObject = issueElement.asJsonObject
-                    
-                    issues.add(HealthIssue(
-                        issueCategory = issueObject.get("category")?.asString ?: "Unknown",
-                        severity = issueObject.get("severity")?.asInt ?: 3,
-                        title = issueObject.get("title")?.asString ?: "Unknown Issue",
-                        description = issueObject.get("description")?.asString ?: "",
-                        impact = issueObject.get("impact")?.asString ?: "",
-                        suggestedFix = issueObject.get("suggestedFix")?.asString ?: "",
-                        confidence = issueObject.get("confidence")?.asDouble ?: 0.8,
-                        verified = true, // Pre-verified for JS/TS
-                        verificationReason = "Verified through region analysis",
-                        codeSnippet = issueObject.get("codeSnippet")?.asString,
-                        callerSnippets = emptyList()
-                    ))
+                    parseIssue(issueObject, verified = true)?.let { issue ->
+                        issues.add(issue.copy(
+                            verificationReason = "Verified through region analysis"
+                        ))
+                    }
                 }
                 
                 // Find the region context
@@ -1511,7 +1415,6 @@ class CodeHealthAnalyzer(private val project: Project) {
 class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private val taskCount = AtomicInteger(0)
-    private val isProcessing = AtomicBoolean(false)
     
     fun submit(task: () -> Unit) {
         val taskId = taskCount.incrementAndGet()

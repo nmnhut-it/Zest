@@ -75,7 +75,7 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 onComplete(result)
             } else {
                 println("[JsTsHealthAnalyzer] LLM returned null for region: ${region.getIdentifier()}")
-                onComplete(createEmptyResult(region))
+                onComplete(createEmptyResult(region, actualModel))
             }
             
         } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {

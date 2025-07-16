@@ -42,29 +42,33 @@ class JsTsHealthTracker(private val project: Project) {
         val regionContext = contextHelper.extractRegionContext(document, lineNumber, CONTEXT_LINES)
         val framework = regionContext.framework.name.lowercase().replace("_", "")
         
-        // Create or update region
-        val regionId = "$fileName:$lineNumber"
+        // Find existing region within 20 lines to avoid creating too many regions
+        val existingNearby = regionModifications.values
+            .filter { it.filePath == fileName }
+            .find { region ->
+                kotlin.math.abs(region.centerLine - lineNumber) <= 20
+            }
+        
+        val regionId = if (existingNearby != null) {
+            existingNearby.getIdentifier()
+        } else {
+            // Create region ID based on 20-line chunks to group nearby edits
+            val chunkStart = (lineNumber / 20) * 20
+            "$fileName:$chunkStart"
+        }
+        
         val now = System.currentTimeMillis()
         
         regionModifications.compute(regionId) { _, existing ->
             if (existing != null) {
-                // Check if we should merge with nearby regions
-                val nearbyRegion = findNearbyRegion(fileName, lineNumber, existing)
-                if (nearbyRegion != null) {
-                    // Merge regions
-                    regionModifications.remove(nearbyRegion.getIdentifier())
-                    nearbyRegion.mergeWith(existing).copy(
-                        centerLine = lineNumber,
-                        lastModified = now
-                    )
-                } else {
-                    // Update existing region
-                    existing.copy(
-                        centerLine = lineNumber,
-                        modificationCount = existing.modificationCount + 1,
-                        lastModified = now
-                    )
-                }
+                // Update existing region
+                existing.copy(
+                    centerLine = lineNumber,
+                    modificationCount = existing.modificationCount + 1,
+                    lastModified = now,
+                    startLine = minOf(existing.startLine, regionContext.startLine),
+                    endLine = maxOf(existing.endLine, regionContext.endLine)
+                )
             } else {
                 // Create new region
                 ModifiedRegion(
@@ -90,25 +94,6 @@ class JsTsHealthTracker(private val project: Project) {
 //        println("[JsTsHealthTracker] Total tracked regions: ${regionModifications.size}")
     }
     
-    /**
-     * Find nearby region that might overlap with current changes
-     */
-    private fun findNearbyRegion(
-        fileName: String, 
-        lineNumber: Int, 
-        currentRegion: ModifiedRegion
-    ): ModifiedRegion? {
-        return regionModifications.values
-            .filter { it.filePath == fileName && it != currentRegion }
-            .find { region ->
-                // Check if regions overlap or are very close (within 5 lines)
-                val distance = minOf(
-                    kotlin.math.abs(region.startLine - currentRegion.endLine),
-                    kotlin.math.abs(region.endLine - currentRegion.startLine)
-                )
-                distance <= 5
-            }
-    }
     
     /**
      * Remove the oldest region to maintain size limit

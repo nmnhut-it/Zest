@@ -19,7 +19,7 @@ class BackgroundHealthReviewer(private val project: Project) {
     
     companion object {
         private const val INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000L // 60 minutes (1 hour)
-        private const val CHECK_INTERVAL_MS = 30 * 1000L // Check every 30 seconds
+        private const val CHECK_INTERVAL_MS = 5 * 60 * 1000L // Check every 5 minutes instead of 30 seconds
         
         fun getInstance(project: Project): BackgroundHealthReviewer =
             project.getService(BackgroundHealthReviewer::class.java)
@@ -28,6 +28,10 @@ class BackgroundHealthReviewer(private val project: Project) {
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private val reviewExecutor = Executors.newCachedThreadPool()
     private val isReviewing = AtomicBoolean(false)
+    
+    // Add debouncing for method updates
+    private val updateDebouncer = ConcurrentHashMap<String, ScheduledFuture<*>>()
+    private val DEBOUNCE_DELAY_MS = 5000L // 5 second debounce
     
     // Cache for reviewed methods and units
     private val reviewedMethods = ConcurrentHashMap<String, MethodHealthResult>()
@@ -39,8 +43,8 @@ class BackgroundHealthReviewer(private val project: Project) {
         // Schedule periodic check for methods ready to review
         scheduler.scheduleWithFixedDelay(
             ::checkAndReviewInactiveMethods,
-            1, // Initial delay
-            CHECK_INTERVAL_MS / 1000, // Convert to seconds
+            CHECK_INTERVAL_MS / 1000, // Initial delay in seconds
+            CHECK_INTERVAL_MS / 1000, // Period in seconds
             TimeUnit.SECONDS
         )
         
@@ -61,10 +65,19 @@ class BackgroundHealthReviewer(private val project: Project) {
      * Update the last modified time for a method (called when method is edited)
      */
     fun updateMethodModificationTime(fqn: String, time: Long) {
-        pendingReviews[fqn] = time
-        // Remove from reviewed cache since it's been modified again
-        reviewedMethods.remove(fqn)
-        println("[BackgroundHealthReviewer] Updated modification time for $fqn, removed from cache")
+        // Cancel any pending update for this method
+        updateDebouncer[fqn]?.cancel(false)
+        
+        // Schedule the update after debounce delay
+        val future = scheduler.schedule({
+            pendingReviews[fqn] = time
+            // Remove from reviewed cache since it's been modified again
+            reviewedMethods.remove(fqn)
+            updateDebouncer.remove(fqn)
+            println("[BackgroundHealthReviewer] Updated modification time for $fqn after debounce")
+        }, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS)
+        
+        updateDebouncer[fqn] = future
     }
     
     /**
@@ -321,6 +334,10 @@ class BackgroundHealthReviewer(private val project: Project) {
     )
     
     fun dispose() {
+        // Cancel all pending debounced updates
+        updateDebouncer.values.forEach { it.cancel(false) }
+        updateDebouncer.clear()
+        
         scheduler.shutdown()
         reviewExecutor.shutdown()
         try {

@@ -705,7 +705,7 @@ class CodeGuardianReportPanel(
         val impactPanel = createSectionPanel("What happens if unfixed:", issue.impact)
         panel.add(impactPanel)
         panel.add(Box.createVerticalStrut(10))
-        
+
         // Fix
         val fixPanel = createSectionPanel("How to fix:", issue.suggestedFix, 
             if (UIUtil.isUnderDarcula()) Color(45, 74, 43) else Color(232, 245, 233))

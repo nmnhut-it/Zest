@@ -149,8 +149,27 @@ class ReviewOptimizer(private val project: Project) {
         val reviewUnits = mutableListOf<ReviewUnit>()
         
         regionsByFile.forEach { (filePath, regions) ->
-            // For JS/TS, we'll create one review unit per file
-            // containing all the regions in that file
+            // Deduplicate nearby regions
+            val lineNumbers = regions.mapNotNull { region ->
+                region.substringAfter(":").toIntOrNull()?.let { line ->
+                    line to region
+                }
+            }.sortedBy { it.first }
+            
+            val deduplicatedRegions = mutableListOf<String>()
+            var lastLine = -100
+            
+            lineNumbers.forEach { (line, region) ->
+                // Keep regions that are more than 40 lines apart
+                if (line - lastLine > 40) {
+                    deduplicatedRegions.add(region)
+                    lastLine = line
+                }
+            }
+            
+            // If no regions after deduplication, use the original list
+            val finalRegions = if (deduplicatedRegions.isEmpty()) regions else deduplicatedRegions
+            
             val language = when {
                 filePath.endsWith(".ts") -> "typescript"
                 filePath.endsWith(".js") -> "javascript"
@@ -160,7 +179,7 @@ class ReviewOptimizer(private val project: Project) {
             reviewUnits.add(ReviewUnit(
                 type = ReviewUnit.ReviewType.JS_TS_REGION,
                 className = filePath, // Use file path as identifier
-                methods = regions, // Store region identifiers
+                methods = finalRegions, // Store deduplicated region identifiers
                 filePath = filePath,
                 lineCount = 0, // Will be determined when reading file
                 language = language
@@ -271,22 +290,33 @@ class ReviewOptimizer(private val project: Project) {
             unit.methods.forEach { regionId ->
                 val parts = regionId.split(":")
                 if (parts.size == 2) {
-                    val lineNumber = parts[1].toIntOrNull() ?: return@forEach
+                    val lineNumber = parts[1].toIntOrNull()
+                    if (lineNumber != null && lineNumber >= 0) {
+                        // Line numbers in the region ID are 0-based
+                        if (lineNumber < document.lineCount) {
+                            val regionContext = contextHelper.extractRegionContext(
+                                document,
+                                lineNumber,
+                                20 // Context lines
+                            )
                     
-                    val regionContext = contextHelper.extractRegionContext(
-                        document,
-                        lineNumber,
-                        20 // Context lines
-                    )
-                    
-                    regionContexts.add(JsTsRegionContext(
-                        regionId = regionId,
-                        startLine = regionContext.startLine,
-                        endLine = regionContext.endLine,
-                        content = regionContext.markedText,
-                        framework = regionContext.framework.name
-                    ))
+                            regionContexts.add(JsTsRegionContext(
+                                regionId = regionId,
+                                startLine = regionContext.startLine,
+                                endLine = regionContext.endLine,
+                                content = regionContext.markedText,
+                                framework = regionContext.framework.name
+                            ))
+                        }
+                    }
                 }
+            }
+            
+            // Fix the language detection based on file extension
+            val language = when {
+                filePath.endsWith(".ts") -> "typescript"
+                filePath.endsWith(".js") -> "javascript"  
+                else -> "javascript"
             }
             
             ReviewContext(

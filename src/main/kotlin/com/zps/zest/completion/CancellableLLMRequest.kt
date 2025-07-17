@@ -32,6 +32,7 @@ class CancellableLLMRequest(private val project: Project) {
         val queryJob = async {
             try {
                 // Check cancellation before starting
+
                 if (cancellationToken()) {
                     logger.debug("LLM request cancelled before starting")
                     return@async null

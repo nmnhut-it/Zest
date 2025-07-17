@@ -292,13 +292,25 @@ public final class LLMService implements Disposable {
             String authToken, 
             LLMQueryParams params, 
             ChatboxUtilities.EnumUsage enumUsage) {
-        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-            apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+        if (enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION) {
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
         }
-        if (apiUrl.contains("talk.zingplay")) {
-            apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+        if (enumUsage == ChatboxUtilities.EnumUsage.CODE_HEALTH) {
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
+            }
         }
         long startTime = System.currentTimeMillis();
         connectionStats.incrementRequests();
@@ -361,14 +373,29 @@ public final class LLMService implements Disposable {
      * Executes the actual HTTP request to the LLM API (original implementation).
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
+        if (enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION) {
 
-        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-            apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+            String neuAuth = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                authToken = neuAuth;
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                authToken = neuAuth;
+            }
         }
-        if (apiUrl.contains("talk.zingplay")) {
-            apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-            authToken = "sk-Y01qug0TKoXfodPn1ExLbw";
+
+        if (enumUsage == ChatboxUtilities.EnumUsage.CODE_HEALTH) {
+            String neuAuth = "sk-CtVX7wBXLs9ddhqlScUwSA";
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                authToken = neuAuth;
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                authToken = neuAuth;
+            }
         }
 
         URL url = new URL(apiUrl);

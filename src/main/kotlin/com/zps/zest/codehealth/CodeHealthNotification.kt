@@ -5,6 +5,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.service
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
@@ -53,69 +54,268 @@ object CodeHealthNotification {
 
         println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
 
-        // Show notification based on issue severity
-        when {
-            criticalIssues > 0 -> {
-                val title = "🚨 Zest Guardian Alert: Critical Risk Detected"
-                val content = "🔥 $criticalIssues Critical Risks - Fix Now to Prevent Crashes"
-                
-                val notification = NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification(title, content, NotificationType.ERROR)
-                    .addAction(object : AnAction("🚀 Fix Now") {
-                        override fun actionPerformed(e: AnActionEvent) {
-                            println("[CodeHealthNotification] User clicked View Details")
-                            
-                            // Track user viewing details
-                            sendHealthCheckViewMetrics(project, results, criticalIssues)
-                            
-                            showDetailedReport(project, results)
-                        }
-                    })
-                
-                notification.notify(project)
+        // Generate catchy notification using LLM
+        val llmService = project.service<com.zps.zest.langchain4j.util.LLMService>()
+        
+        try {
+            // Generate notification content based on severity
+            val (title, content) = when {
+                criticalIssues > 0 -> generateCriticalNotification(llmService, criticalIssues, totalIssues)
+                totalIssues > 0 -> generateWarningNotification(llmService, totalIssues, averageScore)
+                else -> generateSuccessNotification(llmService, results.size, averageScore)
             }
-            totalIssues > 0 -> {
-                // For non-critical issues, show notification with view details option
-                println("[CodeHealthNotification] Non-critical issues found")
-                
-                val title = "⚡ Zest Code Guardian"
-                val content = "💡 $totalIssues ${if (totalIssues == 1) "Issue" else "Issues"} Found - Quick Wins Available"
-                
-                val notification = NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification(title, content, NotificationType.WARNING)
-                    .addAction(object : AnAction("👀 View Details") {
-                        override fun actionPerformed(e: AnActionEvent) {
-                            println("[CodeHealthNotification] User clicked View Details for warnings")
-                            
-                            // Track user viewing details
-                            sendHealthCheckViewMetrics(project, results, 0)
-                            
-                            showDetailedReport(project, results)
-                        }
-                    })
-                
-                notification.notify(project)
+            
+            // Show the notification
+            val notificationType = when {
+                criticalIssues > 0 -> NotificationType.ERROR
+                totalIssues > 0 -> NotificationType.WARNING
+                else -> NotificationType.INFORMATION
             }
-            else -> {
-                // No issues found
-                println("[CodeHealthNotification] No issues found")
-                
-                val notification = NotificationGroupManager.getInstance()
-                    .getNotificationGroup(NOTIFICATION_GROUP_ID)
-                    .createNotification(
-                        "✨ Zest Code Guardian",
-                        "🏆 Your code is clean - no issues detected!",
-                        NotificationType.INFORMATION
-                    )
-                
-                notification.notify(project)
+            
+            val notification = NotificationGroupManager.getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                .createNotification(title, content, notificationType)
+            
+            // Add action button only if there are issues
+            if (totalIssues > 0) {
+                val actionText = if (criticalIssues > 0) "🚀 Fix Now" else "👀 View Details"
+                notification.addAction(object : AnAction(actionText) {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        println("[CodeHealthNotification] User clicked $actionText")
+                        
+                        // Track user viewing details
+                        sendHealthCheckViewMetrics(project, results, criticalIssues)
+                        
+                        showDetailedReport(project, results)
+                    }
+                })
             }
+            
+            notification.notify(project)
+            
+        } catch (e: Exception) {
+            // Fallback to hardcoded messages if LLM fails
+            println("[CodeHealthNotification] LLM generation failed, using fallback: ${e.message}")
+            showFallbackNotification(project, results, totalIssues, criticalIssues)
         }
         
         // Send metrics for the health check
         sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore, actualModel)
+    }
+    
+    /**
+     * Generate catchy notification for critical issues
+     */
+    private fun generateCriticalNotification(
+        llmService: com.zps.zest.langchain4j.util.LLMService,
+        criticalCount: Int,
+        totalCount: Int
+    ): Pair<String, String> {
+        val prompt = """
+            Generate a catchy, urgent notification for a code health check that found critical issues.
+            
+            Context:
+            - Found $criticalCount critical issues (severity 4-5)
+            - Total $totalCount issues found
+            - These could cause crashes, data loss, or security breaches
+            
+            Requirements:
+            - Title: 15-30 chars, start with an emoji (🚨, 🔥, ⚡, 💣, 🆘)
+            - Content: 30-50 chars, urgent but not scary, mention the critical count
+            - Be creative, vary the messages
+            - Make developers want to click "Fix Now"
+            
+            Return ONLY valid JSON:
+            {
+                "title": "emoji Title here",
+                "content": "Short urgent message mentioning $criticalCount critical risks"
+            }
+        """.trimIndent()
+        
+        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+            .useLiteCodeModel()
+            .withMaxTokens(200)
+            .withTemperature(0.8) // More creativity
+        
+        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        
+        return if (response != null) {
+            parseLLMNotification(response) ?: Pair(
+                "🚨 Critical Risk Alert",
+                "🔥 $criticalCount Critical Risks - Fix Now to Prevent Crashes"
+            )
+        } else {
+            Pair(
+                "🚨 Critical Risk Alert", 
+                "🔥 $criticalCount Critical Risks - Fix Now to Prevent Crashes"
+            )
+        }
+    }
+    
+    /**
+     * Generate catchy notification for non-critical issues
+     */
+    private fun generateWarningNotification(
+        llmService: com.zps.zest.langchain4j.util.LLMService,
+        totalCount: Int,
+        averageScore: Int
+    ): Pair<String, String> {
+        val prompt = """
+            Generate a catchy, encouraging notification for a code health check that found some issues.
+            
+            Context:
+            - Found $totalCount non-critical issues
+            - Average health score: $averageScore/100
+            - These are opportunities for improvement
+            
+            Requirements:
+            - Title: 15-25 chars, start with an emoji (⚡, 💡, 🎯, 🔧, 🛠️)
+            - Content: 30-50 chars, positive tone, mention quick wins
+            - Be creative and motivating
+            - Make it sound like an opportunity, not a problem
+            
+            Return ONLY valid JSON:
+            {
+                "title": "emoji Title here",
+                "content": "Encouraging message about $totalCount improvements"
+            }
+        """.trimIndent()
+        
+        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+            .useLiteCodeModel()
+            .withMaxTokens(200)
+            .withTemperature(0.8)
+        
+        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        
+        return if (response != null) {
+            parseLLMNotification(response) ?: Pair(
+                "⚡ Code Guardian Alert",
+                "💡 $totalCount Quick Wins Available - Level Up Your Code!"
+            )
+        } else {
+            Pair(
+                "⚡ Code Guardian Alert",
+                "💡 $totalCount Quick Wins Available - Level Up Your Code!"
+            )
+        }
+    }
+    
+    /**
+     * Generate catchy notification for perfect score
+     */
+    private fun generateSuccessNotification(
+        llmService: com.zps.zest.langchain4j.util.LLMService,
+        methodCount: Int,
+        averageScore: Int
+    ): Pair<String, String> {
+        val prompt = """
+            Generate a celebratory notification for perfect code health.
+            
+            Context:
+            - Analyzed $methodCount methods
+            - Average score: $averageScore/100
+            - No issues found - code is clean!
+            
+            Requirements:
+            - Title: 15-25 chars, start with celebration emoji (✨, 🎉, 🏆, 💎, 🌟)
+            - Content: 30-50 chars, very positive, celebrate the achievement
+            - Be creative and fun
+            - Make the developer feel proud
+            
+            Return ONLY valid JSON:
+            {
+                "title": "emoji Title here",
+                "content": "Celebratory message about clean code"
+            }
+        """.trimIndent()
+        
+        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+            .useLiteCodeModel()
+            .withMaxTokens(200)
+            .withTemperature(0.8)
+        
+        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        
+        return if (response != null) {
+            parseLLMNotification(response) ?: Pair(
+                "✨ Code Guardian Victory",
+                "🏆 Your code is pristine - Zero issues found!"
+            )
+        } else {
+            Pair(
+                "✨ Code Guardian Victory",
+                "🏆 Your code is pristine - Zero issues found!"
+            )
+        }
+    }
+    
+    /**
+     * Parse LLM response for notification content
+     */
+    private fun parseLLMNotification(response: String): Pair<String, String>? {
+        return try {
+            val gson = com.google.gson.Gson()
+            val jsonStart = response.indexOf("{")
+            val jsonEnd = response.lastIndexOf("}")
+            
+            if (jsonStart == -1 || jsonEnd == -1) return null
+            
+            val jsonContent = response.substring(jsonStart, jsonEnd + 1)
+            val jsonObject = gson.fromJson(jsonContent, com.google.gson.JsonObject::class.java)
+            
+            val title = jsonObject.get("title")?.asString ?: return null
+            val content = jsonObject.get("content")?.asString ?: return null
+            
+            Pair(title, content)
+        } catch (e: Exception) {
+            println("[CodeHealthNotification] Error parsing LLM response: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Fallback notification when LLM fails
+     */
+    private fun showFallbackNotification(
+        project: Project,
+        results: List<CodeHealthAnalyzer.MethodHealthResult>,
+        totalIssues: Int,
+        criticalIssues: Int
+    ) {
+        val title = when {
+            criticalIssues > 0 -> "🚨 Zest Guardian Alert: Critical Risk Detected"
+            totalIssues > 0 -> "⚡ Zest Code Guardian"
+            else -> "✨ Zest Code Guardian"
+        }
+        
+        val content = when {
+            criticalIssues > 0 -> "🔥 $criticalIssues Critical Risks - Fix Now to Prevent Crashes"
+            totalIssues > 0 -> "💡 $totalIssues ${if (totalIssues == 1) "Issue" else "Issues"} Found - Quick Wins Available"
+            else -> "🏆 Your code is clean - no issues detected!"
+        }
+        
+        val notificationType = when {
+            criticalIssues > 0 -> NotificationType.ERROR
+            totalIssues > 0 -> NotificationType.WARNING
+            else -> NotificationType.INFORMATION
+        }
+        
+        val notification = NotificationGroupManager.getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP_ID)
+            .createNotification(title, content, notificationType)
+        
+        if (totalIssues > 0) {
+            val actionText = if (criticalIssues > 0) "🚀 Fix Now" else "👀 View Details"
+            notification.addAction(object : AnAction(actionText) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    sendHealthCheckViewMetrics(project, results, criticalIssues)
+                    showDetailedReport(project, results)
+                }
+            })
+        }
+        
+        notification.notify(project)
     }
 
     /**

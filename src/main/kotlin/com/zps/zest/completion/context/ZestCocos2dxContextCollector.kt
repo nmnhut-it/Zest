@@ -397,6 +397,7 @@ class ZestCocos2dxContextCollector(private val project: Project) {
                     "Use cc.Layer() instead of cc.Layer.create() - direct constructor preferred", 
                     "Use cc.Scene() instead of cc.Scene.create() - direct constructor preferred",
                     "Use cc.Class for class definitions when available",
+                    "Use cc.log() instead of console.log()",
                     "Prefer direct constructor calls over .create() methods",
                     "Use old version cocos2d-x-js syntax patterns",
                     "Modern event system with cc.EventListener",
@@ -410,57 +411,11 @@ class ZestCocos2dxContextCollector(private val project: Project) {
                     "Default: Use cc.Node() instead of cc.Node.create()",
                     "Prefer direct constructor calls over .create() methods",
                     "Use old version cocos2d-x-js syntax patterns",
+                    "Use cc.log() instead of console.log()",
                     "Follow cocos2d-x-js conventions"
                 )
             )
         }
-    }
-
-    /**
-     * Extracts syntax guidance and completion hints based on Cocos2d-x context and preferences.
-     * This information can be used by the completion system to suggest appropriate patterns.
-     */
-    fun getCompletionHints(context: Cocos2dxContext): List<String> {
-        val hints = mutableListOf<String>()
-        
-        // Add general syntax preferences
-        hints.addAll(context.syntaxPreferences.preferredPatterns)
-        
-        // Add context-specific hints
-        when (context.contextType) {
-            Cocos2dxContextType.NODE_CREATION -> {
-                hints.add("SYNTAX: Use cc.Sprite() instead of cc.Sprite.create()")  
-                hints.add("SYNTAX: Use cc.Node() instead of cc.Node.create()")
-                hints.add("SYNTAX: Direct constructor calls are preferred over .create() methods")
-            }
-            Cocos2dxContextType.SCENE_DEFINITION -> {
-                hints.add("SYNTAX: Use var MyScene = cc.Scene.extend({...}) pattern")
-                hints.add("SYNTAX: Include ctor, onEnter, onExit lifecycle methods")
-            }
-            Cocos2dxContextType.SCENE_LIFECYCLE_METHOD -> {
-                hints.add("SYNTAX: Use old cocos2d-x-js lifecycle method patterns")
-                hints.add("SYNTAX: Call this._super() in lifecycle methods when appropriate")
-            }
-            Cocos2dxContextType.ACTION_CREATION -> {
-                hints.add("SYNTAX: Use cc.MoveTo() instead of cc.MoveTo.create()")
-                hints.add("SYNTAX: Use cc.ScaleTo() instead of cc.ScaleTo.create()")
-            }
-            else -> {
-                hints.add("SYNTAX: Follow cocos2d-x-js old version patterns")
-                hints.add("SYNTAX: Prefer direct constructors over .create() methods")
-            }
-        }
-        
-        // Add framework version specific hints
-        if (context.cocosFrameworkVersion == "2.x") {
-            hints.add("FRAMEWORK: Using Cocos2d-x JS v2.x patterns")
-            hints.add("FRAMEWORK: Use .extend() for inheritance")
-        } else if (context.cocosFrameworkVersion == "3.x") {
-            hints.add("FRAMEWORK: Using Cocos2d-x JS v3.x patterns") 
-            hints.add("FRAMEWORK: cc.Class available for class definitions")
-        }
-        
-        return hints.distinct()
     }
 
     private fun truncateCocos2dxContent(originalContent: String, markedContent: String): Triple<String, String, Boolean> {

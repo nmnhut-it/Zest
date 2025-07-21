@@ -124,7 +124,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 // Find the method containing the cursor with async analysis
                 var enhancedMethodContext: ZestMethodContextCollector.MethodContext? = null
                 val contextReady = CompletableDeferred<Boolean>()
-                
+
                 ApplicationManager.getApplication().invokeLater {
                     methodContextCollector.findMethodWithAsyncAnalysis(editor, offset) { context ->
                         enhancedMethodContext = context
@@ -133,12 +133,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                         }
                     }
                 }
-                
+
                 // Wait for initial context (immediate) or timeout
                 withTimeoutOrNull(100) {
                     contextReady.await()
                 }
-                
+
                 val methodContext = enhancedMethodContext
                 if (methodContext == null) {
                     withContext(Dispatchers.Main) {
@@ -171,7 +171,13 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
 
                 // Start method rewrite process
                 currentRewriteJob = scope.launch(Dispatchers.IO) {
-                    performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, null) { status ->
+                    performMethodRewriteWithCallback(
+                        editor,
+                        methodContext,
+                        customInstruction,
+                        requestId,
+                        null
+                    ) { status ->
                         // Convert status updates to log messages for legacy compatibility
                         System.out.println("[ZestMethodRewrite] Status: $status")
                     }
@@ -180,7 +186,11 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             } catch (e: Exception) {
                 logger.error("Failed to trigger method rewrite", e)
                 ApplicationManager.getApplication().invokeLater {
-                    ZestNotifications.showError(project, "Method Rewrite Error", "Failed to start method rewrite: ${e.message}")
+                    ZestNotifications.showError(
+                        project,
+                        "Method Rewrite Error",
+                        "Failed to start method rewrite: ${e.message}"
+                    )
                 }
                 if (activeRewriteId == requestId) {
                     activeRewriteId = null
@@ -533,7 +543,10 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         }
     }
 
-    private fun buildCocos2dxAwareDiffSummary(baseSummary: String, methodContext: ZestMethodContextCollector.MethodContext): String {
+    private fun buildCocos2dxAwareDiffSummary(
+        baseSummary: String,
+        methodContext: ZestMethodContextCollector.MethodContext
+    ): String {
         if (!methodContext.isCocos2dx) return baseSummary
 
         return buildString {
@@ -568,23 +581,54 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             WriteCommandAction.runWriteCommandAction(project) {
                 val document = editor.document
 
-                document.replaceString(
-                    methodContext.methodStartOffset,
-                    methodContext.methodEndOffset,
-                    rewrittenMethod
-                )
+                // Check if we have proper body boundaries
+                if (methodContext.hasMethodBody && methodContext.methodBodyStartOffset != methodContext.methodStartOffset) {
+                    // We have body boundaries - preserve the method declaration
+                    val originalDeclaration = document.text.substring(
+                        methodContext.methodStartOffset,
+                        methodContext.methodBodyStartOffset
+                    )
+                    val originalClosing = document.text.substring(
+                        methodContext.methodBodyEndOffset,
+                        methodContext.methodEndOffset
+                    )
 
-                val newEndOffset = methodContext.methodStartOffset + rewrittenMethod.length
+                    // Extract just the body from the rewritten method
+                    val rewrittenBody = extractMethodBody(rewrittenMethod, methodContext.language)
 
-                // Reformat the code
-                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
-                if (psiFile != null) {
-                    PsiDocumentManager.getInstance(project).commitDocument(document)
-                    try {
-                        CodeStyleManager.getInstance(project).reformatRange(psiFile, methodContext.methodStartOffset, newEndOffset)
-                    } catch (e: Exception) {
-                        logger.warn("Failed to reformat: ${e.message}")
+                    if (rewrittenBody != null) {
+                        // Replace just the body
+                        document.replaceString(
+                            methodContext.methodBodyStartOffset,
+                            methodContext.methodBodyEndOffset,
+                            rewrittenBody
+                        )
+
+                        val newEndOffset = methodContext.methodBodyStartOffset + rewrittenBody.length
+
+                        // Reformat the code
+                        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+                        if (psiFile != null) {
+                            PsiDocumentManager.getInstance(project).commitDocument(document)
+                            try {
+                                // Reformat the entire method
+                                CodeStyleManager.getInstance(project).reformatRange(
+                                    psiFile,
+                                    methodContext.methodStartOffset,
+                                    methodContext.methodBodyStartOffset + rewrittenBody.length + originalClosing.length
+                                )
+                            } catch (e: Exception) {
+                                logger.warn("Failed to reformat: ${e.message}")
+                            }
+                        }
+                    } else {
+                        // Couldn't extract body, fall back to full replacement
+                        logger.warn("Could not extract method body from rewritten method, using full replacement")
+                        replaceFullMethod(document, methodContext, rewrittenMethod)
                     }
+                } else {
+                    // No body boundaries or selected text - replace the whole thing
+                    replaceFullMethod(document, methodContext, rewrittenMethod)
                 }
             }
 
@@ -603,6 +647,153 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         } finally {
             cleanup()
         }
+    }
+
+    /**
+     * Replace the full method (fallback when we can't preserve declaration)
+     */
+    private fun replaceFullMethod(
+        document: com.intellij.openapi.editor.Document,
+        methodContext: ZestMethodContextCollector.MethodContext,
+        rewrittenMethod: String
+    ) {
+        document.replaceString(
+            methodContext.methodStartOffset,
+            methodContext.methodEndOffset,
+            rewrittenMethod
+        )
+
+        val newEndOffset = methodContext.methodStartOffset + rewrittenMethod.length
+
+        // Reformat the code
+        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+        if (psiFile != null) {
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+            try {
+                CodeStyleManager.getInstance(project)
+                    .reformatRange(psiFile, methodContext.methodStartOffset, newEndOffset)
+            } catch (e: Exception) {
+                logger.warn("Failed to reformat: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Extract just the method body from a complete method
+     */
+    private fun extractMethodBody(fullMethod: String, language: String): String? {
+        // For brace-based languages
+        if (language.lowercase() in listOf(
+                "java",
+                "javascript",
+                "typescript",
+                "kotlin",
+                "scala",
+                "c",
+                "cpp",
+                "csharp",
+                "go",
+                "rust"
+            )
+        ) {
+            var openBracePos = -1
+            var inString = false
+            var stringChar: Char? = null
+            var escaped = false
+
+            // Find first opening brace
+            for (i in fullMethod.indices) {
+                val char = fullMethod[i]
+
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+
+                if (char == '\\') {
+                    escaped = true
+                    continue
+                }
+
+                if (!inString && (char == '"' || char == '\'' || char == '`')) {
+                    inString = true
+                    stringChar = char
+                } else if (inString && char == stringChar) {
+                    inString = false
+                    stringChar = null
+                }
+
+                if (!inString && char == '{') {
+                    openBracePos = i
+                    break
+                }
+            }
+
+            if (openBracePos == -1) return null
+
+            // Find matching closing brace
+            var closeBracePos = -1
+            var braceCount = 1
+            inString = false
+            escaped = false
+
+            for (i in (openBracePos + 1) until fullMethod.length) {
+                val char = fullMethod[i]
+
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+
+                if (char == '\\') {
+                    escaped = true
+                    continue
+                }
+
+                if (!inString && (char == '"' || char == '\'' || char == '`')) {
+                    inString = true
+                    stringChar = char
+                } else if (inString && char == stringChar) {
+                    inString = false
+                    stringChar = null
+                }
+
+                if (!inString) {
+                    when (char) {
+                        '{' -> braceCount++
+                        '}' -> {
+                            braceCount--
+                            if (braceCount == 0) {
+                                closeBracePos = i
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (closeBracePos == -1) return null
+
+            // Extract content between braces
+            return fullMethod.substring(openBracePos + 1, closeBracePos)
+        }
+
+        // For Python, extract content after the first colon
+        if (language.lowercase() == "python") {
+            val colonPos = fullMethod.indexOf(':')
+            if (colonPos == -1) return null
+
+            // Skip whitespace after colon
+            var bodyStart = colonPos + 1
+            while (bodyStart < fullMethod.length && fullMethod[bodyStart] in listOf('\n', '\r', ' ', '\t')) {
+                bodyStart++
+            }
+
+            return fullMethod.substring(bodyStart)
+        }
+
+        // For other languages, we can't reliably extract the body
+        return null
     }
 
     /**

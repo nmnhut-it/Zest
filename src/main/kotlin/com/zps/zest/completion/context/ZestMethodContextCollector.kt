@@ -43,7 +43,12 @@ class ZestMethodContextCollector(private val project: Project) {
         val cocosCompletionHints: List<String> = emptyList(),
         val cocosFrameworkVersion: String? = null,
         // Related classes from async analysis
-        val relatedClasses: Map<String, String> = emptyMap()
+        val relatedClasses: Map<String, String> = emptyMap(),
+        // Method body offsets (excludes declaration/signature)
+        val methodBodyStartOffset: Int = methodStartOffset,
+        val methodBodyEndOffset: Int = methodEndOffset,
+        // Flag to indicate if we found proper body boundaries
+        val hasMethodBody: Boolean = true
     )
 
     data class SurroundingMethod(
@@ -191,7 +196,11 @@ class ZestMethodContextCollector(private val project: Project) {
             cocosContextType = cocosContextType,
             cocosSyntaxPreferences = cocosSyntaxPreferences,
             cocosCompletionHints = cocosCompletionHints,
-            cocosFrameworkVersion = cocosFrameworkVersion
+            cocosFrameworkVersion = cocosFrameworkVersion,
+            // For selected text, the entire selection is the "body"
+            methodBodyStartOffset = startOffset,
+            methodBodyEndOffset = endOffset,
+            hasMethodBody = true
         )
     }
 
@@ -358,6 +367,22 @@ class ZestMethodContextCollector(private val project: Project) {
         // Get method signature
         val methodSignature = extractMethodSignature(methodContent)
 
+        // Find method body offsets
+        val bodyOffsets = findMethodBodyOffsets(
+            fullFileContent,
+            methodStartOffset,
+            methodEndOffset,
+            methodContent,
+            language
+        )
+
+        val (methodBodyStartOffset, methodBodyEndOffset, hasMethodBody) = if (bodyOffsets != null) {
+            Triple(bodyOffsets.first, bodyOffsets.second, true)
+        } else {
+            // Fallback to full method if we can't find body boundaries
+            Triple(methodStartOffset, methodEndOffset, false)
+        }
+
         // Get containing class
         val containingClass = PsiTreeUtil.getParentOfType(psiMethod, PsiClass::class.java)
         val className = containingClass?.name
@@ -393,7 +418,10 @@ class ZestMethodContextCollector(private val project: Project) {
             cocosContextType = cocosContextType,
             cocosSyntaxPreferences = cocosSyntaxPreferences,
             cocosCompletionHints = cocosCompletionHints,
-            cocosFrameworkVersion = cocosFrameworkVersion
+            cocosFrameworkVersion = cocosFrameworkVersion,
+            methodBodyStartOffset = methodBodyStartOffset,
+            methodBodyEndOffset = methodBodyEndOffset,
+            hasMethodBody = hasMethodBody
         )
     }
 
@@ -507,6 +535,22 @@ class ZestMethodContextCollector(private val project: Project) {
         val methodSignature = extractMethodSignature(methodContent)
         val methodName = extractMethodName(methodSignature, language)
 
+        // Find method body offsets
+        val bodyOffsets = findMethodBodyOffsets(
+            text,
+            methodStartOffset,
+            methodEndOffset,
+            methodContent,
+            language
+        )
+
+        val (methodBodyStartOffset, methodBodyEndOffset, hasMethodBody) = if (bodyOffsets != null) {
+            Triple(bodyOffsets.first, bodyOffsets.second, true)
+        } else {
+            // Fallback to full method if we can't find body boundaries
+            Triple(methodStartOffset, methodEndOffset, false)
+        }
+
         // Get surrounding context
         val surroundingMethods = findSurroundingMethodsTextually(lines, startLine, endLine, language)
 
@@ -535,7 +579,10 @@ class ZestMethodContextCollector(private val project: Project) {
             cocosContextType = cocosContextType,
             cocosSyntaxPreferences = cocosSyntaxPreferences,
             cocosCompletionHints = cocosCompletionHints,
-            cocosFrameworkVersion = cocosFrameworkVersion
+            cocosFrameworkVersion = cocosFrameworkVersion,
+            methodBodyStartOffset = methodBodyStartOffset,
+            methodBodyEndOffset = methodBodyEndOffset,
+            hasMethodBody = hasMethodBody
         )
     }
 
@@ -1041,6 +1088,150 @@ class ZestMethodContextCollector(private val project: Project) {
         val contextStart = maxOf(0, methodStart - 10)
         val contextEnd = minOf(lines.size - 1, methodEnd + 10)
         return lines.subList(contextStart, contextEnd + 1).joinToString("\n")
+    }
+
+    /**
+     * Find the start and end offsets of the method body (excluding declaration)
+     * Returns pair of (bodyStartOffset, bodyEndOffset) or null if not found
+     */
+    private fun findMethodBodyOffsets(
+        fullContent: String,
+        methodStartOffset: Int,
+        methodEndOffset: Int,
+        methodContent: String,
+        language: String
+    ): Pair<Int, Int>? {
+        // For languages that use braces
+        if (language.lowercase() in listOf(
+                "java",
+                "javascript",
+                "typescript",
+                "kotlin",
+                "scala",
+                "c",
+                "cpp",
+                "csharp",
+                "go",
+                "rust"
+            )
+        ) {
+            // Find the first opening brace after the method declaration
+            var openBracePos = -1
+            var inString = false
+            var stringChar: Char? = null
+            var escaped = false
+
+            // Start searching from method start offset
+            for (i in methodStartOffset until minOf(methodEndOffset, fullContent.length)) {
+                val char = fullContent[i]
+
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+
+                if (char == '\\') {
+                    escaped = true
+                    continue
+                }
+
+                // Handle strings
+                if (!inString && (char == '"' || char == '\'' || char == '`')) {
+                    inString = true
+                    stringChar = char
+                } else if (inString && char == stringChar) {
+                    inString = false
+                    stringChar = null
+                }
+
+                // Found opening brace outside of string
+                if (!inString && char == '{') {
+                    openBracePos = i
+                    break
+                }
+            }
+
+            if (openBracePos == -1) {
+                return null
+            }
+
+            // Find the corresponding closing brace
+            var braceCount = 1
+            var closeBracePos = -1
+            inString = false
+            escaped = false
+
+            for (i in (openBracePos + 1) until minOf(methodEndOffset, fullContent.length)) {
+                val char = fullContent[i]
+
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+
+                if (char == '\\') {
+                    escaped = true
+                    continue
+                }
+
+                // Handle strings
+                if (!inString && (char == '"' || char == '\'' || char == '`')) {
+                    inString = true
+                    stringChar = char
+                } else if (inString && char == stringChar) {
+                    inString = false
+                    stringChar = null
+                }
+
+                if (!inString) {
+                    when (char) {
+                        '{' -> braceCount++
+                        '}' -> {
+                            braceCount--
+                            if (braceCount == 0) {
+                                closeBracePos = i
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (closeBracePos == -1) {
+                // Couldn't find matching closing brace, use method end
+                closeBracePos = methodEndOffset - 1
+            }
+
+            // Body starts after the opening brace and ends before the closing brace
+            return Pair(openBracePos + 1, closeBracePos)
+        }
+
+        // For Python, body starts after the colon
+        if (language.lowercase() == "python") {
+            // Find the colon
+            var colonPos = -1
+            for (i in methodStartOffset until minOf(methodEndOffset, fullContent.length)) {
+                if (fullContent[i] == ':') {
+                    colonPos = i
+                    break
+                }
+            }
+
+            if (colonPos == -1) {
+                return null
+            }
+
+            // Skip to next line after colon
+            var bodyStart = colonPos + 1
+            while (bodyStart < methodEndOffset && fullContent[bodyStart] in listOf('\n', '\r', ' ', '\t')) {
+                bodyStart++
+            }
+
+            return Pair(bodyStart, methodEndOffset)
+        }
+
+        // For other languages, we can't reliably determine body boundaries
+        return null
     }
 
     /**

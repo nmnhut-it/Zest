@@ -107,6 +107,19 @@ class ZestMethodContextCollector(private val project: Project) {
         val language = detectLanguage(virtualFile)
         val fullFileContent = document.text
 
+        // Check if there's a selection first
+        val selectionModel = editor.selectionModel
+        if (selectionModel.hasSelection()) {
+            // User has selected text - use that as the method content
+            return createMethodContextFromSelection(
+                editor = editor,
+                fileName = fileName,
+                language = language,
+                fullFileContent = fullFileContent
+            )
+        }
+
+        // No selection - detect method at cursor
         // Detect if this is a Cocos2d-x project
         val isCocos2dx = detectCocos2dxProject(fullFileContent, fileName, language)
 
@@ -121,6 +134,65 @@ class ZestMethodContextCollector(private val project: Project) {
 
         // Fallback to textual method detection
         return findMethodTextually(fullFileContent, offset, fileName, language, isCocos2dx)
+    }
+
+    /**
+     * Create method context from selected text
+     */
+    private fun createMethodContextFromSelection(
+        editor: Editor,
+        fileName: String,
+        language: String,
+        fullFileContent: String
+    ): MethodContext {
+        val selectionModel = editor.selectionModel
+        val selectedText = selectionModel.selectedText ?: ""
+        val startOffset = selectionModel.selectionStart
+        val endOffset = selectionModel.selectionEnd
+
+        // Detect if this is Cocos2d-x content
+        val isCocos2dx = detectCocos2dxProject(fullFileContent, fileName, language)
+
+        // Extract method signature from selected text
+        val methodSignature = extractMethodSignature(selectedText)
+        val methodName = if (methodSignature.isNotBlank()) {
+            extractMethodName(methodSignature, language)
+        } else {
+            "selectedMethod"
+        }
+
+        // Collect Cocos2d-x specific context if applicable
+        val (cocosContextType, cocosSyntaxPreferences, cocosCompletionHints, cocosFrameworkVersion) =
+            if (isCocos2dx) {
+                collectCocos2dxContext(fullFileContent, startOffset, selectedText)
+            } else {
+                CocosContextResult(null, null, emptyList(), null)
+            }
+
+        // Find surrounding context
+        val lines = fullFileContent.lines()
+        val startLine = fullFileContent.substring(0, startOffset).count { it == '\n' }
+        val endLine = fullFileContent.substring(0, endOffset).count { it == '\n' }
+
+        return MethodContext(
+            fileName = fileName,
+            language = language,
+            methodName = methodName,
+            methodContent = selectedText,
+            methodStartOffset = startOffset,
+            methodEndOffset = endOffset,
+            methodSignature = methodSignature,
+            containingClass = findContainingClass(lines, startLine),
+            surroundingMethods = emptyList(), // No surrounding methods for selection
+            classContext = extractClassContext(lines, startLine, endLine),
+            fullFileContent = fullFileContent,
+            cursorOffset = startOffset,
+            isCocos2dx = isCocos2dx,
+            cocosContextType = cocosContextType,
+            cocosSyntaxPreferences = cocosSyntaxPreferences,
+            cocosCompletionHints = cocosCompletionHints,
+            cocosFrameworkVersion = cocosFrameworkVersion
+        )
     }
 
     /**
@@ -638,6 +710,14 @@ class ZestMethodContextCollector(private val project: Project) {
                         line.matches(Regex("""^\s*(const|let|var)\s+\w+\s*=\s*function\s*\(.*\).*\{?\s*$""")) ||
                         // Variable function assignments with async
                         line.matches(Regex("""^\s*(const|let|var)\s+\w+\s*=\s*(async\s+)?function\s*\(.*\).*\{?\s*$""")) ||
+                        // Object property assignments: x.y = function or x.y.z = function
+                        line.matches(Regex("""^\s*[\w\.]+\.\w+\s*=\s*function\s*\(.*\).*\{?\s*$""")) ||
+                        // Object property assignments with async: x.y = async function
+                        line.matches(Regex("""^\s*[\w\.]+\.\w+\s*=\s*(async\s+)?function\s*\(.*\).*\{?\s*$""")) ||
+                        // Object property arrow functions: x.y = () =>
+                        line.matches(Regex("""^\s*[\w\.]+\.\w+\s*=\s*\(.*\)\s*=>\s*\{?\s*$""")) ||
+                        // Object property arrow functions with async: x.y = async () =>
+                        line.matches(Regex("""^\s*[\w\.]+\.\w+\s*=\s*async\s*\(.*\)\s*=>\s*\{?\s*$""")) ||
                         // Object literal methods (common in Cocos2d-x)
                         line.matches(Regex("""^\s*\w+\s*:\s*function\s*\(.*\).*\{?\s*$""")) ||
                         // Arrow functions: const/let/var name = () =>
@@ -659,7 +739,11 @@ class ZestMethodContextCollector(private val project: Project) {
                         // Generator functions
                         line.matches(Regex("""^\s*function\s*\*\s*\w+\s*\(.*\).*\{?\s*$""")) ||
                         // Variable generator functions
-                        line.matches(Regex("""^\s*(const|let|var)\s+\w+\s*=\s*function\s*\*\s*\(.*\).*\{?\s*$"""))
+                        line.matches(Regex("""^\s*(const|let|var)\s+\w+\s*=\s*function\s*\*\s*\(.*\).*\{?\s*$""")) ||
+                        // TypeScript method with return type: methodName(): ReturnType
+                        (language == "typescript" && line.matches(Regex("""^\s*\w+\s*\(.*\)\s*:\s*\w+.*\{?\s*$"""))) ||
+                        // TypeScript property method with return type: methodName: (params): ReturnType =>
+                        (language == "typescript" && line.matches(Regex("""^\s*\w+\s*:\s*\(.*\)\s*:\s*\w+\s*=>\s*\{?\s*$""")))
             }
 
             "python" -> {
@@ -708,6 +792,23 @@ class ZestMethodContextCollector(private val project: Project) {
                 return trimmed.substringBefore("{").substringBefore("=>").trim() + " =>"
             }
 
+            // Object property assignment: x.y = function or x.y.z = function
+            if (trimmed.matches(Regex("""^[\w\.]+\.\w+\s*=\s*(?:async\s+)?function.*"""))) {
+                // Check if parameters are on the next line
+                if (!trimmed.contains("(") && index < lines.size - 1) {
+                    val nextLine = lines[index + 1].trim()
+                    if (nextLine.startsWith("(")) {
+                        return "$trimmed $nextLine".substringBefore("{").trim()
+                    }
+                }
+                return trimmed.substringBefore("{").trim()
+            }
+
+            // Object property arrow function: x.y = () =>
+            if (trimmed.matches(Regex("""^[\w\.]+\.\w+\s*=\s*(?:async\s*)?\(.*\)\s*=>.*"""))) {
+                return trimmed.substringBefore("{").trim()
+            }
+
             // Variable function: const/let/var name = function
             if (trimmed.matches(Regex("""^(const|let|var)\s+\w+\s*=\s*(?:async\s+)?function.*"""))) {
                 // Check if parameters are on the next line
@@ -725,6 +826,11 @@ class ZestMethodContextCollector(private val project: Project) {
                 return trimmed.substringBefore("{").trim()
             }
 
+            // TypeScript method with return type: methodName(): ReturnType
+            if (trimmed.matches(Regex("""^\w+\s*\(.*\)\s*:\s*[\w\[\]<>]+.*"""))) {
+                return trimmed.substringBefore("{").trim()
+            }
+
             // Regular function or other patterns with parentheses
             if (trimmed.contains("(") && trimmed.contains(")")) {
                 // Extract just the signature part, not the body
@@ -737,7 +843,7 @@ class ZestMethodContextCollector(private val project: Project) {
             }
 
             // Multi-line signatures: check if this line starts a function but params are on next lines
-            if (trimmed.matches(Regex("""^(function|async\s+function|const|let|var|static|async).*""")) && !trimmed.contains(
+            if (trimmed.matches(Regex("""^(function|async\s+function|const|let|var|static|async|[\w\.]+\.\w+\s*=).*""")) && !trimmed.contains(
                     "("
                 )
             ) {
@@ -780,6 +886,15 @@ class ZestMethodContextCollector(private val project: Project) {
                 // Arrow function without parens: methodName: arg =>
                 val arrowMethodNoParensMatch = Regex("""^\s*(\w+)\s*:\s*\w+\s*=>""").find(signature)
                 if (arrowMethodNoParensMatch != null) return arrowMethodNoParensMatch.groupValues[1]
+
+                // Object property method: x.y = function or x.y.z = function
+                val objectPropertyMatch = Regex("""^\s*[\w\.]+\.(\w+)\s*=\s*(?:async\s+)?function""").find(signature)
+                if (objectPropertyMatch != null) return objectPropertyMatch.groupValues[1]
+
+                // Object property arrow: x.y = () =>
+                val objectPropertyArrowMatch =
+                    Regex("""^\s*[\w\.]+\.(\w+)\s*=\s*(?:async\s*)?\(.*\)\s*=>""").find(signature)
+                if (objectPropertyArrowMatch != null) return objectPropertyArrowMatch.groupValues[1]
 
                 // Regular function: function methodName(
                 val functionMatch = Regex("""function\s+(\w+)\s*\(""").find(signature)

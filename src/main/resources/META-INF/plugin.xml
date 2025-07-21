@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.881</version>
+    <version>1.9.882</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -296,6 +296,15 @@
                 text="Toggle Completion Debug Logging"
                 description="Enable/disable verbose debug logging for completion">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Zest Rules Management Action -->
+        <action id="Zest.CreateRulesFile"
+                class="com.zps.zest.actions.CreateZestRulesAction"
+                text="Create/Open Zest Rules File"
+                description="Create or open zest_rules.md to define custom LLM rules">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
+            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ToggleCompletionDebug"/>
         </action>
     </actions>
 </idea-plugin>

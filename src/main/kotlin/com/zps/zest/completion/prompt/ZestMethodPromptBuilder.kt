@@ -1,12 +1,32 @@
 package com.zps.zest.completion.prompt
 
+import com.intellij.openapi.project.Project
 import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.rules.ZestRulesLoader
 
 /**
  * Enhanced prompt builder for method-level code rewrites with better class context
  */
-class ZestMethodPromptBuilder {
+class ZestMethodPromptBuilder(private val project: Project? = null) {
+    
+    private val rulesLoader: ZestRulesLoader? = project?.let { ZestRulesLoader(it) }
+    
+    /**
+     * Load custom rules and prepend them to the prompt if available
+     */
+    private fun prependCustomRules(basePrompt: String): String {
+        val customRules = rulesLoader?.loadCustomRules() ?: return basePrompt
+        
+        return """
+**CUSTOM PROJECT RULES:**
+${customRules}
+
+---
+
+${basePrompt}
+        """.trimIndent()
+    }
     
     /**
      * Build an enhanced prompt for rewriting a specific method with full class context
@@ -15,7 +35,7 @@ class ZestMethodPromptBuilder {
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
         
-        return """
+        val basePrompt = """
 You are an expert ${context.language} developer. Improve this method while maintaining its core functionality and class design principles.
 
 ${cocosGuidance}
@@ -76,6 +96,8 @@ Provide ONLY the improved method code without any explanations, markdown formatt
 
 **Improved Method:**
         """.trimIndent()
+        
+        return prependCustomRules(basePrompt)
     }
     
     /**
@@ -310,7 +332,7 @@ ${classInfo.classSignature}
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
         
-        return """
+        val basePrompt = """
 You are an expert ${context.language} developer. Rewrite this method according to the specific instructions while maintaining class design principles.
 
 ${cocosGuidance}
@@ -347,6 +369,8 @@ Provide ONLY the rewritten method code without any explanations or markdown form
 
 **Rewritten Method:**
         """.trimIndent()
+        
+        return prependCustomRules(basePrompt)
     }
     
     /**
@@ -486,7 +510,7 @@ Focus on making the method more testable:
 - Separate concerns while maintaining class cohesion"""
         }
         
-        return """
+        val basePrompt = """
 You are an expert ${context.language} developer. ${improvementType.description}
 
 ${cocosGuidance}
@@ -512,6 +536,8 @@ ${buildCocos2dxSpecificGuidelines(context)}
 
 **Improved Method:**
         """.trimIndent()
+        
+        return prependCustomRules(basePrompt)
     }
     
     /**

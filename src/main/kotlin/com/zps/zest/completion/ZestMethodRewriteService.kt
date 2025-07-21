@@ -49,7 +49,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     }
 
     private val methodContextCollector = ZestMethodContextCollector(project)
-    private val promptBuilder = ZestMethodPromptBuilder()
+    private val promptBuilder = ZestMethodPromptBuilder(project)
     private val responseParser = ZestMethodResponseParser()
     private val gdiff = GDiff()
     private val enhancedGDiff = EnhancedGDiff()

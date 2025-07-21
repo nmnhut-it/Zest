@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.rules.ZestRulesLoader;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,10 +65,17 @@ public final class LLMService implements Disposable {
     
     // Flag to use optimized HTTP client (new)
     private boolean useOptimizedClient = true;
+    
+    // Custom rules loader
+    private ZestRulesLoader rulesLoader;
+    private boolean applyCustomRulesToAllPrompts = false;
 
     public LLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
+        
+        // Initialize rules loader
+        this.rulesLoader = new ZestRulesLoader(project);
         
         // Create executor service for HTTP client (new)
         this.executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE, r -> {
@@ -111,6 +119,37 @@ public final class LLMService implements Disposable {
     public void setUseOptimizedClient(boolean useOptimizedClient) {
         this.useOptimizedClient = useOptimizedClient;
         LOG.info("Optimized client set to: " + useOptimizedClient);
+    }
+    
+    /**
+     * Enable or disable automatic application of custom rules to all prompts
+     */
+    public void setApplyCustomRulesToAllPrompts(boolean apply) {
+        this.applyCustomRulesToAllPrompts = apply;
+        LOG.info("Apply custom rules to all prompts: " + apply);
+    }
+    
+    /**
+     * Check if custom rules are being applied to all prompts
+     */
+    public boolean isApplyingCustomRulesToAllPrompts() {
+        return applyCustomRulesToAllPrompts;
+    }
+    
+    /**
+     * Apply custom rules to a prompt if enabled
+     */
+    private String applyCustomRulesIfEnabled(String prompt) {
+        if (!applyCustomRulesToAllPrompts) {
+            return prompt;
+        }
+        
+        String customRules = rulesLoader.loadCustomRules();
+        if (customRules == null || customRules.trim().isEmpty()) {
+            return prompt;
+        }
+        
+        return "**CUSTOM PROJECT RULES:**\n" + customRules + "\n\n---\n\n" + prompt;
     }
 
     /**
@@ -287,6 +326,7 @@ public final class LLMService implements Disposable {
     /**
      * Executes the actual HTTP request asynchronously using HttpClient (new)
      */
+
     private CompletableFuture<String> executeQueryAsync(
             String apiUrl, 
             String authToken, 
@@ -512,10 +552,11 @@ public final class LLMService implements Disposable {
             messages.add(systemMessage);
         }
 
-        // Add user message
+        // Add user message with custom rules applied if enabled
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");
-        message.addProperty("content", params.getPrompt());
+        String promptContent = applyCustomRulesIfEnabled(params.getPrompt());
+        message.addProperty("content", promptContent);
         messages.add(message);
         
         root.add("messages", messages);
@@ -539,7 +580,8 @@ public final class LLMService implements Disposable {
     private String createOllamaRequestBody(LLMQueryParams params) {
         JsonObject root = new JsonObject();
         root.addProperty("model", params.getModel());
-        root.addProperty("prompt", params.getPrompt());
+        String promptContent = applyCustomRulesIfEnabled(params.getPrompt());
+        root.addProperty("prompt", promptContent);
         root.addProperty("stream", false);
 
         JsonObject options = new JsonObject();
@@ -774,7 +816,9 @@ public final class LLMService implements Disposable {
 
         // Getters
         public String getPrompt() {
-            return prompt + (isLiteModel ? "\n/no_think" : "");
+            String basePrompt = prompt + (isLiteModel ? "\n/no_think" : "");
+            // Note: Custom rules are applied at the service level, not here
+            return basePrompt;
         }
 
         public String getSystemPrompt() {

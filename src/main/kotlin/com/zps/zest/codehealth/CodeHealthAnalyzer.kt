@@ -61,6 +61,125 @@ class CodeHealthAnalyzer(private val project: Project) {
     private val analyzedJsTsFiles = ConcurrentHashMap.newKeySet<String>() // Track analyzed JS/TS files
 
     /**
+     * Analyze specific files for code health issues
+     */
+    fun analyzeFiles(filePaths: List<String>): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Analyzing ${filePaths.size} files directly")
+        val allResults = mutableListOf<MethodHealthResult>()
+        
+        // Define supported code file extensions
+        val codeExtensions = setOf(
+            "java", "kt", "js", "ts", "jsx", "tsx", "py", "cpp", "c", "h", 
+            "cs", "go", "rb", "php", "swift", "rs", "scala"
+        )
+        
+        ReadAction.run<RuntimeException> {
+            for (filePath in filePaths) {
+                // Skip non-code files
+                val extension = filePath.substringAfterLast('.').toLowerCase()
+                if (!codeExtensions.contains(extension)) {
+                    println("[CodeHealthAnalyzer] Skipping non-code file: $filePath")
+                    continue
+                }
+                
+                val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                    .findFileByPath(filePath)
+                val psiFile = virtualFile?.let { 
+                    com.intellij.psi.PsiManager.getInstance(project).findFile(it)
+                }
+                if (psiFile == null) {
+                    println("[CodeHealthAnalyzer] File not found: $filePath")
+                    continue
+                }
+                
+                // For Java files, analyze all methods
+                if (filePath.endsWith(".java")) {
+                    val methods = PsiTreeUtil.findChildrenOfType(psiFile, PsiMethod::class.java)
+                    println("[CodeHealthAnalyzer] Found ${methods.size} methods in $filePath")
+                    
+                    for (method in methods) {
+                        val fqn = method.containingClass?.qualifiedName + "." + method.name
+                        val mockMethod = CodeHealthTracker.ModifiedMethod(
+                            fqn = fqn,
+                            modificationCount = 1,
+                            lastModified = System.currentTimeMillis()
+                        )
+                        
+                        // Analyze synchronously for immediate feedback
+                        val result = analyzeMethodSync(mockMethod)
+                        if (result.issues.isNotEmpty()) {
+                            allResults.add(result)
+                        }
+                    }
+                } 
+                // For JS/TS files, analyze as regions
+                else if (filePath.endsWith(".js") || filePath.endsWith(".ts") || 
+                         filePath.endsWith(".jsx") || filePath.endsWith(".tsx")) {
+                    val regionFqn = "$filePath:1"
+                    val mockMethod = CodeHealthTracker.ModifiedMethod(
+                        fqn = regionFqn,
+                        modificationCount = 1,
+                        lastModified = System.currentTimeMillis()
+                    )
+                    
+                    val result = analyzeJsTsRegionSync(mockMethod)
+                    if (result.issues.isNotEmpty()) {
+                        allResults.add(result)
+                    }
+                }
+            }
+        }
+        
+        return allResults
+    }
+    
+    /**
+     * Synchronous method analysis for immediate feedback
+     */
+    private fun analyzeMethodSync(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
+        return try {
+            val future = CompletableFuture<MethodHealthResult>()
+            analyzeMethodAsync(method) { result ->
+                future.complete(result)
+            }
+            future.get(LLM_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error analyzing method ${method.fqn}: ${e.message}")
+            MethodHealthResult(
+                fqn = method.fqn,
+                issues = emptyList(),
+                impactedCallers = emptyList(),
+                healthScore = 100,
+                modificationCount = method.modificationCount,
+                summary = "Error analyzing method: ${e.message}"
+            )
+        }
+    }
+    
+    /**
+     * Synchronous JS/TS region analysis
+     */
+    private fun analyzeJsTsRegionSync(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
+        return try {
+            val future = CompletableFuture<MethodHealthResult>()
+            analyzeJsTsRegionAsync(method) { result ->
+                future.complete(result)
+            }
+            future.get(LLM_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error analyzing JS/TS region ${method.fqn}: ${e.message}")
+            MethodHealthResult(
+                fqn = method.fqn,
+                issues = emptyList(),
+                impactedCallers = emptyList(),
+                healthScore = 100,
+                modificationCount = method.modificationCount,
+                summary = "Error analyzing region: ${e.message}"
+            )
+        }
+    }
+
+    /**
      * Health issue data class - completely flexible, LLM decides everything
      */
     data class HealthIssue(

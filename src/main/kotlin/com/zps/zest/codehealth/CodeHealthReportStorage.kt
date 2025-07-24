@@ -30,7 +30,8 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
      * Persistent state
      */
     data class State(
-        var reports: MutableMap<String, SerializableHealthReport> = mutableMapOf()
+        var reports: MutableMap<String, SerializableHealthReport> = mutableMapOf(),
+        var gitTriggeredReport: SerializableHealthReport? = null
     )
     
     /**
@@ -115,6 +116,43 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
     }
     
     /**
+     * Store a Git-triggered health report
+     */
+    fun storeGitTriggeredReport(results: List<CodeHealthAnalyzer.MethodHealthResult>) {
+        val now = LocalDate.now().format(DATE_FORMATTER) + " " + 
+                  java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+        
+        val serializableReport = SerializableHealthReport(
+            date = now,
+            results = results.map { result ->
+                SerializableMethodResult(
+                    fqn = result.fqn,
+                    healthScore = result.healthScore,
+                    modificationCount = result.modificationCount,
+                    summary = result.summary,
+                    issues = result.issues.map { issue ->
+                        SerializableHealthIssue(
+                            issueCategory = issue.issueCategory,
+                            severity = issue.severity,
+                            title = issue.title,
+                            description = issue.description,
+                            impact = issue.impact,
+                            suggestedFix = issue.suggestedFix,
+                            confidence = issue.confidence,
+                            verified = issue.verified,
+                            falsePositive = issue.falsePositive,
+                            verificationReason = issue.verificationReason
+                        )
+                    }.toMutableList(),
+                    impactedCallers = result.impactedCallers.toMutableList()
+                )
+            }.toMutableList()
+        )
+        
+        state.gitTriggeredReport = serializableReport
+    }
+    
+    /**
      * Get report for a specific date
      */
     fun getReportForDate(date: LocalDate): List<CodeHealthAnalyzer.MethodHealthResult>? {
@@ -169,6 +207,46 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
                 }
             }
             .maxOrNull()
+    }
+    
+    /**
+     * Get Git-triggered report
+     */
+    fun getGitTriggeredReport(): List<CodeHealthAnalyzer.MethodHealthResult>? {
+        val report = state.gitTriggeredReport ?: return null
+        
+        return report.results.map { result ->
+            CodeHealthAnalyzer.MethodHealthResult(
+                fqn = result.fqn,
+                healthScore = result.healthScore,
+                modificationCount = result.modificationCount,
+                summary = result.summary,
+                issues = result.issues.map { issue ->
+                    CodeHealthAnalyzer.HealthIssue(
+                        issueCategory = issue.issueCategory,
+                        severity = issue.severity,
+                        title = issue.title,
+                        description = issue.description,
+                        impact = issue.impact,
+                        suggestedFix = issue.suggestedFix,
+                        confidence = issue.confidence,
+                        verified = issue.verified,
+                        falsePositive = issue.falsePositive,
+                        verificationReason = issue.verificationReason
+                    )
+                },
+                impactedCallers = result.impactedCallers,
+                codeContext = "", // Not stored for space reasons
+                actualModel = "local-model-mini" // Default
+            )
+        }
+    }
+    
+    /**
+     * Get Git-triggered report date
+     */
+    fun getGitTriggeredReportDate(): String? {
+        return state.gitTriggeredReport?.date
     }
     
     /**

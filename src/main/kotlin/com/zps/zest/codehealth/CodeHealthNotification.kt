@@ -37,7 +37,7 @@ object CodeHealthNotification {
 
     private const val NOTIFICATION_GROUP_ID = "Zest Code Guardian"
 
-    fun showHealthReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
+    fun showHealthReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>, isGitTriggered: Boolean = false) {
         if (results.isEmpty()) {
             println("[CodeHealthNotification] No results to show")
             return
@@ -60,9 +60,9 @@ object CodeHealthNotification {
         try {
             // Generate notification content based on severity
             val (title, content) = when {
-                criticalIssues > 0 -> generateCriticalNotification(llmService, criticalIssues, totalIssues)
-                totalIssues > 0 -> generateWarningNotification(llmService, totalIssues, averageScore)
-                else -> generateSuccessNotification(llmService, results.size, averageScore)
+                criticalIssues > 0 -> generateCriticalNotification(llmService, criticalIssues, totalIssues, isGitTriggered)
+                totalIssues > 0 -> generateWarningNotification(llmService, totalIssues, averageScore, isGitTriggered)
+                else -> generateSuccessNotification(llmService, results.size, averageScore, isGitTriggered)
             }
             
             // Show the notification
@@ -86,7 +86,7 @@ object CodeHealthNotification {
                         // Track user viewing details
                         sendHealthCheckViewMetrics(project, results, criticalIssues)
                         
-                        showDetailedReport(project, results)
+                        showDetailedReport(project, results, isGitTriggered)
                     }
                 })
             }
@@ -96,7 +96,7 @@ object CodeHealthNotification {
         } catch (e: Exception) {
             // Fallback to hardcoded messages if LLM fails
             println("[CodeHealthNotification] LLM generation failed, using fallback: ${e.message}")
-            showFallbackNotification(project, results, totalIssues, criticalIssues)
+            showFallbackNotification(project, results, totalIssues, criticalIssues, isGitTriggered)
         }
         
         // Send metrics for the health check
@@ -109,19 +109,23 @@ object CodeHealthNotification {
     private fun generateCriticalNotification(
         llmService: com.zps.zest.langchain4j.util.LLMService,
         criticalCount: Int,
-        totalCount: Int
+        totalCount: Int,
+        isGitTriggered: Boolean = false
     ): Pair<String, String> {
+        val context = if (isGitTriggered) "from your latest git commit" else "in your code"
         val prompt = """
             Generate a catchy, urgent notification for a code health check that found critical issues.
             
             Context:
             - Found $criticalCount critical issues (severity 4-5)
             - Total $totalCount issues found
+            - These were found $context
             - These could cause crashes, data loss, or security breaches
             
             Requirements:
             - Title: 15-30 chars, start with an emoji (🚨, 🔥, ⚡, 💣, 🆘)
             - Content: 30-50 chars, urgent but not scary, mention the critical count
+            - If git-triggered, mention "in latest commit" or similar
             - Be creative, vary the messages
             - Make developers want to click "Fix Now"
             
@@ -158,19 +162,23 @@ object CodeHealthNotification {
     private fun generateWarningNotification(
         llmService: com.zps.zest.langchain4j.util.LLMService,
         totalCount: Int,
-        averageScore: Int
+        averageScore: Int,
+        isGitTriggered: Boolean = false
     ): Pair<String, String> {
+        val context = if (isGitTriggered) "from your latest git commit" else "in your code"
         val prompt = """
             Generate a catchy, encouraging notification for a code health check that found some issues.
             
             Context:
             - Found $totalCount non-critical issues
             - Average health score: $averageScore/100
+            - These were found $context
             - These are opportunities for improvement
             
             Requirements:
             - Title: 15-25 chars, start with an emoji (⚡, 💡, 🎯, 🔧, 🛠️)
             - Content: 30-50 chars, positive tone, mention quick wins
+            - If git-triggered, mention "commit" or similar
             - Be creative and motivating
             - Make it sound like an opportunity, not a problem
             
@@ -207,19 +215,22 @@ object CodeHealthNotification {
     private fun generateSuccessNotification(
         llmService: com.zps.zest.langchain4j.util.LLMService,
         methodCount: Int,
-        averageScore: Int
+        averageScore: Int,
+        isGitTriggered: Boolean = false
     ): Pair<String, String> {
+        val context = if (isGitTriggered) "in your latest commit" else "in your code"
         val prompt = """
             Generate a celebratory notification for perfect code health.
             
             Context:
             - Analyzed $methodCount methods
             - Average score: $averageScore/100
-            - No issues found - code is clean!
+            - No issues found $context - code is clean!
             
             Requirements:
             - Title: 15-25 chars, start with celebration emoji (✨, 🎉, 🏆, 💎, 🌟)
             - Content: 30-50 chars, very positive, celebrate the achievement
+            - If git-triggered, mention "commit" somewhere
             - Be creative and fun
             - Make the developer feel proud
             
@@ -281,18 +292,21 @@ object CodeHealthNotification {
         project: Project,
         results: List<CodeHealthAnalyzer.MethodHealthResult>,
         totalIssues: Int,
-        criticalIssues: Int
+        criticalIssues: Int,
+        isGitTriggered: Boolean = false
     ) {
+        val gitPrefix = if (isGitTriggered) "Git Commit: " else ""
         val title = when {
-            criticalIssues > 0 -> "🚨 Zest Guardian Alert: Critical Risk Detected"
-            totalIssues > 0 -> "⚡ Zest Code Guardian"
-            else -> "✨ Zest Code Guardian"
+            criticalIssues > 0 -> "🚨 ${gitPrefix}Critical Risk Detected"
+            totalIssues > 0 -> "⚡ ${gitPrefix}Code Guardian"
+            else -> "✨ ${gitPrefix}Code Guardian"
         }
         
+        val context = if (isGitTriggered) " in commit" else ""
         val content = when {
-            criticalIssues > 0 -> "🔥 $criticalIssues Critical Risks - Fix Now to Prevent Crashes"
-            totalIssues > 0 -> "💡 $totalIssues ${if (totalIssues == 1) "Issue" else "Issues"} Found - Quick Wins Available"
-            else -> "🏆 Your code is clean - no issues detected!"
+            criticalIssues > 0 -> "🔥 $criticalIssues Critical Risks$context - Fix Now!"
+            totalIssues > 0 -> "💡 $totalIssues ${if (totalIssues == 1) "Issue" else "Issues"} Found$context"
+            else -> "🏆 Your commit is clean - no issues detected!"
         }
         
         val notificationType = when {
@@ -310,7 +324,7 @@ object CodeHealthNotification {
             notification.addAction(object : AnAction(actionText) {
                 override fun actionPerformed(e: AnActionEvent) {
                     sendHealthCheckViewMetrics(project, results, criticalIssues)
-                    showDetailedReport(project, results)
+                    showDetailedReport(project, results, isGitTriggered)
                 }
             })
         }
@@ -406,9 +420,13 @@ object CodeHealthNotification {
         }
     }
 
-    private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        // Store the results first
-        CodeHealthReportStorage.getInstance(project).storeReport(results)
+    private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>, isGitTriggered: Boolean = false) {
+        // Store the results based on type
+        if (isGitTriggered) {
+            CodeHealthReportStorage.getInstance(project).storeGitTriggeredReport(results)
+        } else {
+            CodeHealthReportStorage.getInstance(project).storeReport(results)
+        }
         
         // Show the tool window
         ApplicationManager.getApplication().invokeLater {
@@ -417,7 +435,7 @@ object CodeHealthNotification {
                 toolWindow.show()
                 
                 // Update with the new results
-                com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results)
+                com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results, isGitTriggered)
             } else {
                 // Fallback to dialog if tool window not available
                 val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)

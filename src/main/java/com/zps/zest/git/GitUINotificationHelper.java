@@ -3,6 +3,8 @@ package com.zps.zest.git;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.notification.NotificationGroupManager;
+import com.intellij.notification.NotificationType;
 import com.zps.zest.browser.WebBrowserService;
 
 /**
@@ -95,5 +97,17 @@ public class GitUINotificationHelper {
      */
     public static void closeGitModal(Project project) {
         notifyUI(project, "if (window.GitModal && window.GitModal.hideModal) { window.GitModal.hideModal(); }");
+    }
+    
+    /**
+     * Shows a notification balloon with the specified title, content, and type.
+     */
+    public static void showNotification(Project project, String title, String content, NotificationType type) {
+        ApplicationManager.getApplication().invokeLater(() -> {
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("Zest Code Guardian")
+                .createNotification(title, content, type)
+                .notify(project);
+        });
     }
 }

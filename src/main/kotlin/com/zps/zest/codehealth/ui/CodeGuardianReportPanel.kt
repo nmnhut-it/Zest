@@ -51,8 +51,13 @@ class CodeGuardianReportPanel(
         setupAutoResizeListener()
     }
     
-    fun updateResults(results: List<CodeHealthAnalyzer.MethodHealthResult>) {
-        todayResults = results
+    fun updateResults(results: List<CodeHealthAnalyzer.MethodHealthResult>, isGitTriggered: Boolean = false) {
+        if (isGitTriggered) {
+            // Store as Git-triggered report
+            storage.storeGitTriggeredReport(results)
+        } else {
+            todayResults = results
+        }
         refreshContent()
     }
     
@@ -145,6 +150,13 @@ class CodeGuardianReportPanel(
     private fun createFullContent(): JComponent {
         // Create tabbed pane for different days
         val tabbedPane = JBTabbedPane()
+        
+        // First, check for Git-triggered report
+        val gitTriggeredData = storage.getGitTriggeredReport()
+        if (gitTriggeredData != null) {
+            val gitDate = storage.getGitTriggeredReportDate() ?: "Latest"
+            tabbedPane.addTab("🚀 Latest Git Commit", createGitCommitPanel(gitDate, gitTriggeredData))
+        }
         
         // Check up to 3 days (today, yesterday, 2 days ago)
         val today = LocalDate.now()
@@ -248,6 +260,31 @@ class CodeGuardianReportPanel(
         return panel
     }
     
+    private fun createGitCommitPanel(dateString: String, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.background = UIUtil.getPanelBackground()
+        
+        // Header with summary
+        val headerPanel = createGitCommitHeader(dateString, results)
+        panel.add(headerPanel, BorderLayout.NORTH)
+        
+        // Issues list with proper scrolling
+        val issuesPanel = createFullIssuesPanel(results)
+        
+        // Create scroll pane with vertical scrolling only
+        val scrollPane = JBScrollPane(issuesPanel)
+        scrollPane.border = JBUI.Borders.empty()
+        scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        scrollPane.verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+        
+        // Ensure the scroll pane resizes properly
+        scrollPane.preferredSize = null // Let it calculate based on parent
+        
+        panel.add(scrollPane, BorderLayout.CENTER)
+        
+        return panel
+    }
+    
     private fun createFullHeader(date: LocalDate, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
@@ -300,6 +337,44 @@ class CodeGuardianReportPanel(
         val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
         
         val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, true)
+        summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(summaryPanel)
+        
+        return panel
+    }
+    
+    private fun createGitCommitHeader(dateString: String, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.border = EmptyBorder(20, 20, 20, 20)
+        panel.background = UIUtil.getPanelBackground()
+        
+        // Title with icon
+        val titlePanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+        titlePanel.background = UIUtil.getPanelBackground()
+        
+        val titleLabel = JBLabel("🚀 Latest Git Commit Review")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 18f)
+        titlePanel.add(titleLabel)
+        
+        titlePanel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(titlePanel)
+        panel.add(Box.createVerticalStrut(5))
+        
+        // Date/time
+        val dateLabel = JBLabel("Reviewed at: $dateString")
+        dateLabel.font = dateLabel.font.deriveFont(12f)
+        dateLabel.foreground = UIUtil.getInactiveTextColor()
+        dateLabel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(dateLabel)
+        panel.add(Box.createVerticalStrut(10))
+        
+        // Summary stats
+        val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        val criticalCount = realIssues.count { it.severity >= 4 }
+        val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
+        
+        val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, false)
         summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(summaryPanel)
         

@@ -9,8 +9,10 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
+import com.intellij.notification.NotificationType;
 import com.zps.zest.GitCommitMessageGeneratorAction;
 import com.zps.zest.browser.utils.GitCommandExecutor;
+import com.zps.zest.codehealth.CodeHealthAnalyzer;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Files;
@@ -801,10 +803,17 @@ public String handleGitPush() {
     public String triggerCodeGuardianAnalysis(JsonObject data) {
         try {
             JsonArray filesArray = data.getAsJsonArray("files");
+            boolean isImmediate = data.has("immediate") && data.get("immediate").getAsBoolean();
 
-            LOG.info("Triggering Code Guardian analysis for " + filesArray.size() + " files");
+            LOG.info("Triggering Code Health Review for " + filesArray.size() + " files" + 
+                     (isImmediate ? " (immediate review)" : " (post-commit review)"));
 
-            // Get the Code Health Tracker
+            // For immediate review, use a dedicated reviewer
+            if (isImmediate) {
+                return triggerImmediateCodeReview(filesArray);
+            }
+
+            // Otherwise, use the regular tracking mechanism
             var tracker = com.zps.zest.codehealth.CodeHealthTracker.Companion.getInstance(project);
 
             // Create modified method entries for the files
@@ -844,13 +853,82 @@ public String handleGitPush() {
             });
 
             return GitResponseBuilder.successResponse(
-                "Code Guardian analysis started for " + filesArray.size() + " files"
+                "Code Health Review started for " + filesArray.size() + " files from latest git commit"
             );
 
         } catch (Exception e) {
             LOG.error("Error triggering Code Guardian analysis", e);
             return GitResponseBuilder.errorResponse("Error: " + e.getMessage());
         }
+    }
+    
+    /**
+     * Triggers immediate code review for specific files without affecting the regular tracking.
+     */
+    private String triggerImmediateCodeReview(JsonArray filesArray) {
+        LOG.info("Starting immediate code review for " + filesArray.size() + " files");
+        
+        // Run the review in background
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                // Show starting notification
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    GitUINotificationHelper.showNotification(
+                        project,
+                        "🔍 Code Health Review Started",
+                        "Analyzing " + filesArray.size() + " selected file(s)...",
+                        NotificationType.INFORMATION
+                    );
+                });
+                
+                // Create a dedicated analyzer for these specific files
+                List<String> filePaths = new ArrayList<>();
+                String projectPath = project.getBasePath();
+                for (JsonElement fileElement : filesArray) {
+                    JsonObject fileObj = fileElement.getAsJsonObject();
+                    String relativePath = fileObj.get("path").getAsString();
+                    // Convert to absolute path
+                    String absolutePath = Paths.get(projectPath, relativePath).toString();
+                    filePaths.add(absolutePath);
+                }
+                
+                // Perform the analysis
+                var analyzer = CodeHealthAnalyzer.Companion.getInstance(project);
+                var results = analyzer.analyzeFiles(filePaths);
+                
+                // Show results notification using the rich Code Guardian notification
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    if (results.isEmpty()) {
+                        // Simple notification for no issues
+                        GitUINotificationHelper.showNotification(
+                            project,
+                            "✅ Code Health Review Complete",
+                            "Great job! No issues found in the latest git commit files.",
+                            NotificationType.INFORMATION
+                        );
+                    } else {
+                        // Use the rich CodeHealthNotification for showing results
+                        // Pass true for isGitTriggered since this is from Git UI
+                        com.zps.zest.codehealth.CodeHealthNotification.INSTANCE.showHealthReport(project, results, true);
+                    }
+                });
+                
+            } catch (Exception e) {
+                LOG.error("Error during immediate code review", e);
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    GitUINotificationHelper.showNotification(
+                        project,
+                        "❌ Code Health Review Failed",
+                        "Error: " + e.getMessage(),
+                        NotificationType.ERROR
+                    );
+                });
+            }
+        });
+        
+        return GitResponseBuilder.successResponse(
+            "Code Health Review started for " + filesArray.size() + " files"
+        );
     }
 
     /**

@@ -360,8 +360,8 @@
                 <button class="btn btn-secondary" onclick="GitUI.refreshFiles()">
                     <span>🔄</span> Refresh
                 </button>
-                <button class="btn btn-primary" onclick="GitUI.showQuickCommit()">
-                    <span>⚡</span> Quick Commit
+                <button class="btn btn-primary" onclick="GitUI.reviewSelected()" id="review-btn" disabled>
+                    <span>🔍</span> Code Health Review
                 </button>
             </div>
         </div>
@@ -704,6 +704,7 @@
                 document.getElementById('generate-btn').disabled = !hasSelection;
                 document.getElementById('commit-btn').disabled = !hasSelection;
                 document.getElementById('push-btn').disabled = !hasSelection;
+                document.getElementById('review-btn').disabled = !hasSelection;
             },
             
             getSelectedFiles: function() {
@@ -841,17 +842,24 @@
                             this.showMessage(shouldPush ? 'Committed and pushed successfully!' : 'Committed successfully!', 'success');
                             document.getElementById('commit-message').value = '';
                             
-                            // Trigger Code Guardian analysis on committed files if 5 or fewer
-                            if (selectedFiles.length <= 5) {
-                                console.log('Triggering Code Guardian analysis for', selectedFiles.length, 'committed files');
+                            // Filter for code files only
+                            const codeFiles = selectedFiles.filter(file => {
+                                const ext = file.path.toLowerCase().split('.').pop();
+                                const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
+                                return codeExtensions.includes(ext);
+                            });
+                            
+                            // Trigger Code Health Review on committed code files if 5 or fewer
+                            if (codeFiles.length > 0 && codeFiles.length <= 5) {
+                                console.log('Triggering Code Health Review for', codeFiles.length, 'code files');
                                 window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
-                                    files: selectedFiles
+                                    files: codeFiles
                                 }).then(reviewResponse => {
                                     if (reviewResponse && reviewResponse.success) {
-                                        this.showMessage('Code Guardian analysis started', 'info');
+                                        this.showMessage('Code Health Review started', 'info');
                                     }
                                 }).catch(err => {
-                                    console.warn('Failed to trigger Code Guardian:', err);
+                                    console.warn('Failed to trigger Code Health Review:', err);
                                 });
                             }
                             
@@ -882,9 +890,44 @@
             },
             
             
-            showQuickCommit: function() {
-                if (window.QuickCommitPipeline) {
-                    window.QuickCommitPipeline.execute();
+            reviewSelected: function() {
+                const selectedFiles = this.getSelectedFiles();
+                if (selectedFiles.length === 0) {
+                    this.showMessage('Please select files to review', 'error');
+                    return;
+                }
+                
+                // Filter for code files only
+                const codeFiles = selectedFiles.filter(file => {
+                    const ext = file.path.toLowerCase().split('.').pop();
+                    const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
+                    return codeExtensions.includes(ext);
+                });
+                
+                if (codeFiles.length === 0) {
+                    this.showMessage('No code files selected for review', 'error');
+                    return;
+                }
+                
+                this.showMessage('Starting Code Health Review for ' + codeFiles.length + ' code file(s)...', 'info');
+                document.getElementById('review-btn').disabled = true;
+                
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
+                        files: codeFiles,
+                        immediate: true  // Flag to indicate immediate review request
+                    }).then(response => {
+                        if (response && response.success) {
+                            this.showMessage('Code Health Review started for ' + codeFiles.length + ' file(s)', 'success');
+                        } else {
+                            this.showMessage('Failed to start review: ' + (response.error || 'Unknown error'), 'error');
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                    }).finally(() => {
+                        document.getElementById('review-btn').disabled = false;
+                        this.updateSelection();
+                    });
                 }
             },
             
@@ -921,14 +964,6 @@
         };
         }
         
-        
-        // Quick Commit Pipeline
-        window.QuickCommitPipeline = {
-            execute: async function() {
-                console.log('Quick Commit is not yet implemented in standalone Git UI');
-                GitUI.showMessage('Quick Commit coming soon!', 'info');
-            }
-        };
         
         // Wait for intellijBridge to be available before initializing
         function initializeGitUI() {

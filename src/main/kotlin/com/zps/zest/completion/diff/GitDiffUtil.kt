@@ -39,29 +39,8 @@ object GitDiffUtil {
                     ""
                 }
                 
-                // Use GitService to get the file diff
-                val gitService = GitService(project)
-                val diffRequest = JsonObject().apply {
-                    addProperty("filePath", filePath)
-                    addProperty("status", fileStatus)
-                }
-                
-                val diffResponse = gitService.getFileDiff(diffRequest)
-                val gitDiff = try {
-                    val gson = com.google.gson.Gson()
-                    val response = gson.fromJson(diffResponse, JsonObject::class.java)
-                    if (response.get("success").asBoolean) {
-                        response.get("diff").asString
-                    } else {
-                        ""
-                    }
-                } catch (e: Exception) {
-                    logger.warn("Failed to parse git diff response", e)
-                    ""
-                }
-                
-                // Parse the git diff to extract original content
-                val originalContent = extractOriginalContentFromDiff(gitDiff, fileStatus, currentContent)
+                // Get the original content from git HEAD directly
+                val originalContent = getOriginalContentFromGit(project, filePath, fileStatus)
                 
                 val (leftContent, rightContent, title) = when {
                     fileStatus.contains("deleted", ignoreCase = true) || fileStatus == "D" -> {
@@ -94,55 +73,49 @@ object GitDiffUtil {
     }
     
     /**
-     * Extracts the original content from a git diff
+     * Gets the original content from git HEAD for the file
      */
-    private fun extractOriginalContentFromDiff(gitDiff: String, fileStatus: String, currentContent: String): String {
-        if (gitDiff.isEmpty()) return ""
-        
+    private fun getOriginalContentFromGit(project: Project, filePath: String, fileStatus: String): String {
         return when (fileStatus) {
             "A" -> "" // Added files have no original content
-            "D" -> {
-                // For deleted files, extract content from diff lines starting with '-'
-                val lines = gitDiff.lines()
-                val contentLines = mutableListOf<String>()
-                var inContent = false
-                
-                for (line in lines) {
-                    if (line.startsWith("@@")) {
-                        inContent = true
-                        continue
-                    }
-                    if (inContent && line.startsWith("-") && !line.startsWith("---")) {
-                        contentLines.add(line.substring(1)) // Remove the '-' prefix
-                    }
-                }
-                contentLines.joinToString("\n")
-            }
             else -> {
-                // For modified files, try to extract original content or fall back to current
-                val lines = gitDiff.lines()
-                val originalLines = mutableListOf<String>()
-                var inContent = false
-                
-                for (line in lines) {
-                    if (line.startsWith("@@")) {
-                        inContent = true
-                        continue
+                // For modified and deleted files, get the full original content from git HEAD
+                try {
+                    val gitService = GitService(project)
+                    val projectPath = project.basePath ?: return ""
+                    
+                    // Use the same git command execution that GitService uses
+                    val processBuilder = ProcessBuilder()
+                    val command = "git show HEAD:\"$filePath\""
+                    
+                    if (System.getProperty("os.name").lowercase().contains("windows")) {
+                        processBuilder.command("cmd.exe", "/c", command)
+                    } else {
+                        processBuilder.command("bash", "-c", command)
                     }
-                    if (inContent) {
-                        when {
-                            line.startsWith(" ") -> originalLines.add(line.substring(1)) // Unchanged line
-                            line.startsWith("-") && !line.startsWith("---") -> originalLines.add(line.substring(1)) // Removed line
-                            // Skip added lines (start with '+')
+                    
+                    processBuilder.directory(java.io.File(projectPath))
+                    val process = processBuilder.start()
+                    
+                    // Read the output
+                    val output = StringBuilder()
+                    java.io.BufferedReader(java.io.InputStreamReader(process.inputStream)).use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            output.append(line).append("\n")
                         }
                     }
-                }
-                
-                if (originalLines.isNotEmpty()) {
-                    originalLines.joinToString("\n")
-                } else {
-                    // Fallback: if we can't parse the diff, show current content as both sides
-                    currentContent
+                    
+                    val exitCode = process.waitFor()
+                    if (exitCode == 0) {
+                        output.toString().removeSuffix("\n") // Remove trailing newline
+                    } else {
+                        logger.warn("Failed to get original content for $filePath from git HEAD")
+                        ""
+                    }
+                } catch (e: Exception) {
+                    logger.warn("Error getting original content from git HEAD for $filePath", e)
+                    ""
                 }
             }
         }

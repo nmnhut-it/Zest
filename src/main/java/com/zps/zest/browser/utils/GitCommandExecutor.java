@@ -84,4 +84,33 @@ public class GitCommandExecutor {
             throw new Exception("Git command execution failed: " + e.getMessage(), e);
         }
     }
+    
+    /**
+     * Properly escapes a file path for use in git commands.
+     * Handles paths with spaces and special characters.
+     * 
+     * @param filePath The file path to escape
+     * @return The properly escaped file path for use in shell commands
+     */
+    public static String escapeFilePath(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return filePath;
+        }
+        
+        // For Windows and Unix shells, we need to handle spaces and special characters
+        // Use single quotes on Unix and escape quotes on Windows
+        if (System.getProperty("os.name").toLowerCase().startsWith("windows")) {
+            // On Windows, double quotes work better, but we need to escape any existing quotes
+            return "\"" + filePath.replace("\"", "\\\"") + "\"";
+        } else {
+            // On Unix systems, single quotes work better for paths with spaces
+            // but we need to handle single quotes in the path
+            if (filePath.contains("'")) {
+                // If path contains single quotes, use double quotes and escape any double quotes
+                return "\"" + filePath.replace("\"", "\\\"") + "\"";
+            } else {
+                return "'" + filePath + "'";
+            }
+        }
+    }
 }

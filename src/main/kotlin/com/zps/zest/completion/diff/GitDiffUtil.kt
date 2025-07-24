@@ -86,7 +86,7 @@ object GitDiffUtil {
                     
                     // Use the same git command execution that GitService uses
                     val processBuilder = ProcessBuilder()
-                    val command = "git show HEAD:\"$filePath\""
+                    val command = "git show HEAD:" + com.zps.zest.browser.utils.GitCommandExecutor.escapeFilePath(filePath)
                     
                     if (System.getProperty("os.name").lowercase().contains("windows")) {
                         processBuilder.command("cmd.exe", "/c", command)

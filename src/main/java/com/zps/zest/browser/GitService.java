@@ -1299,6 +1299,126 @@ public String handleGitPush() {
     }
     
     /**
+     * Gets the content of a file for code review purposes.
+     */
+    public String getFileContent(JsonObject data) {
+        JsonObject response = new JsonObject();
+        
+        try {
+            String filePath = data.get("filePath").getAsString();
+            String projectPath = project.getBasePath();
+            
+            if (projectPath == null) {
+                response.addProperty("success", false);
+                response.addProperty("error", "Project path not found");
+                return gson.toJson(response);
+            }
+            
+            Path fullPath = Paths.get(projectPath, filePath);
+            
+            if (Files.exists(fullPath)) {
+                String content = Files.readString(fullPath);
+                response.addProperty("success", true);
+                response.addProperty("content", content);
+                response.addProperty("path", filePath);
+            } else {
+                response.addProperty("success", false);
+                response.addProperty("error", "File not found: " + filePath);
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error getting file content", e);
+            response.addProperty("success", false);
+            response.addProperty("error", "Error reading file: " + e.getMessage());
+        }
+        
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Sends a code review prompt to the chat.
+     */
+    public String sendToChatForReview(JsonObject data) {
+        JsonObject response = new JsonObject();
+        
+        try {
+            String prompt = data.get("prompt").getAsString();
+            JsonArray filesArray = data.getAsJsonArray("files");
+            
+            LOG.info("Sending code review to chat for " + filesArray.size() + " files");
+            
+            // Send to chat using ChatboxUtilities
+            boolean success = com.zps.zest.browser.utils.ChatboxUtilities.sendTextAndSubmit(
+                project, 
+                prompt, 
+                false, // copyFirstResult
+                null,  // systemPrompt
+                false, // useNativeFunctionCalling
+                com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW
+            );
+            
+            response.addProperty("success", success);
+            if (success) {
+                response.addProperty("message", "Code review request sent to chat");
+            } else {
+                response.addProperty("error", "Failed to send code review to chat");
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error sending code review to chat", e);
+            response.addProperty("success", false);
+            response.addProperty("error", "Error: " + e.getMessage());
+        }
+        
+        return gson.toJson(response);
+    }
+    
+    /**
+     * Triggers the Git Commit action in the IDE.
+     */
+    public String triggerGitCommitAction() {
+        JsonObject response = new JsonObject();
+        
+        try {
+            // Use ApplicationManager to run the action in the EDT
+            ApplicationManager.getApplication().invokeLater(() -> {
+                try {
+                    // Get the Git Commit action
+                    ActionManager am = ActionManager.getInstance();
+                    AnAction gitAction = am.getAction("Zest.GitCommitMessageGeneratorAction");
+                    
+                    if (gitAction != null) {
+                        // Create an action event with the project context
+                        com.intellij.openapi.actionSystem.DataContext dataContext = 
+                            DataManager.getInstance().getDataContext();
+                        AnActionEvent event = AnActionEvent.createFromDataContext(
+                            ActionPlaces.UNKNOWN, null, dataContext
+                        );
+                        
+                        // Perform the action
+                        gitAction.actionPerformed(event);
+                        LOG.info("Git Commit action triggered successfully");
+                    } else {
+                        LOG.error("Git Commit action not found");
+                    }
+                } catch (Exception e) {
+                    LOG.error("Error triggering Git Commit action", e);
+                }
+            });
+            
+            response.addProperty("success", true);
+            response.addProperty("message", "Git Commit dialog triggered");
+            
+        } catch (Exception e) {
+            LOG.error("Error triggering Git Commit action", e);
+            response.addProperty("success", false);
+            response.addProperty("error", "Error: " + e.getMessage());
+        }
+        
+        return gson.toJson(response);
+    }
+    
+    /**
      * Disposes of any resources and clears active contexts.
      */
     public void dispose() {

@@ -194,17 +194,11 @@ public class WebBrowserPanel implements Disposable {
 
         buttonPanel.add(modeButton);
 
-        // Add Quick Commit button
-//        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
-//        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
-//        quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
-//        buttonPanel.add(quickCommitBtn);
-        
-        // Add Full Git Commit button
-        JButton fullCommitBtn = new JButton("📝 Git Commit");
-        fullCommitBtn.setToolTipText("Full Git Commit with File Selection");
-        fullCommitBtn.addActionListener(e -> triggerFullGitCommit());
-        buttonPanel.add(fullCommitBtn);
+        // Add Git UI button
+        JButton gitUIBtn = new JButton("🌿 Git UI");
+        gitUIBtn.setToolTipText("Open Git UI in Browser");
+        gitUIBtn.addActionListener(e -> openGitUI());
+        buttonPanel.add(gitUIBtn);
 
         // URL field - hidden but still functional
         JBTextField urlField = new JBTextField();
@@ -234,18 +228,37 @@ public class WebBrowserPanel implements Disposable {
     }
     
     /**
-     * Triggers the full git commit flow with file selection
+     * Opens the Git UI in the browser
      */
-    private void triggerFullGitCommit() {
-        // Call the existing git commit action for full flow
-        ActionManager am = ActionManager.getInstance();
-        AnAction gitAction = am.getAction("Zest.GitCommitMessageGeneratorAction");
-        if (gitAction != null) {
-            DataContext dataContext = DataManager.getInstance().getDataContext(mainPanel);
-            AnActionEvent event = AnActionEvent.createFromDataContext(
-                ActionPlaces.UNKNOWN, null, dataContext
-            );
-            gitAction.actionPerformed(event);
+    private void openGitUI() {
+        try {
+            // Load the Git UI HTML content and convert to data URL to avoid jar:file:// restrictions
+            java.io.InputStream is = getClass().getResourceAsStream("/html/git-ui.html");
+            if (is != null) {
+                String htmlContent = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Encode the HTML content as a data URL
+                String dataUrl = "data:text/html;charset=UTF-8;base64," + 
+                    java.util.Base64.getEncoder().encodeToString(htmlContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                
+                browserManager.loadURL(dataUrl);
+                LOG.info("Loading Git UI from data URL");
+            } else {
+                LOG.error("Git UI HTML resource not found");
+                // Fallback: Load directly from file if in development
+                java.io.File htmlFile = new java.io.File(project.getBasePath(), "src/main/resources/html/git-ui.html");
+                if (htmlFile.exists()) {
+                    String htmlContent = java.nio.file.Files.readString(htmlFile.toPath());
+                    String dataUrl = "data:text/html;charset=UTF-8;base64," + 
+                        java.util.Base64.getEncoder().encodeToString(htmlContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    browserManager.loadURL(dataUrl);
+                    LOG.info("Loading Git UI from file as data URL");
+                } else {
+                    LOG.error("Git UI HTML file not found at: " + htmlFile.getAbsolutePath());
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Error loading Git UI", e);
         }
     }
     /**

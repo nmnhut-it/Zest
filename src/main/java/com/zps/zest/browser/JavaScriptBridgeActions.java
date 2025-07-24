@@ -227,6 +227,15 @@ public class JavaScriptBridgeActions {
 
                 case "getGitStatus":
                     return gitService.getGitStatus();
+                    
+                case "getFileContent":
+                    return gitService.getFileContent(data);
+                    
+                case "sendToChatForReview":
+                    return gitService.sendToChatForReview(data);
+                    
+                case "triggerGitCommitAction":
+                    return gitService.triggerGitCommitAction();
 
                 // Content update handling (marks page as loaded)
                 case "contentUpdated":

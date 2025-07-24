@@ -20,7 +20,9 @@ import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.gdiff.GDiff
 import com.zps.zest.gdiff.EnhancedGDiff
+import com.zps.zest.completion.metrics.ZestBlockRewriteMetricsService
 import kotlinx.coroutines.*
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -34,6 +36,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Dependencies
+    private val metricsService by lazy { ZestBlockRewriteMetricsService.getInstance(project) }
     private val llmService by lazy {
         try {
             System.out.println("[ZestMethodRewrite] Initializing LLMService...")
@@ -65,6 +68,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private var currentRewrittenMethod: String? = null
     private var currentDiffResult: GDiff.DiffResult? = null
     private var currentEnhancedDiffResult: EnhancedGDiff.EnhancedDiffResult? = null
+    private var currentRewriteId: String? = null
 
     /**
      * Trigger method rewrite with pre-found method context and status callback for background processing
@@ -93,6 +97,25 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
 
         // Store context immediately
         currentMethodContext = methodContext
+        
+        // Generate unique rewrite ID for tracking
+        val rewriteId = "rewrite_${UUID.randomUUID()}"
+        currentRewriteId = rewriteId
+
+        // Track rewrite request
+        metricsService.trackRewriteRequested(
+            rewriteId = rewriteId,
+            methodName = methodContext.methodName,
+            language = methodContext.language,
+            fileType = methodContext.fileType,
+            actualModel = "local-model-mini", // Will be updated when we get actual model
+            customInstruction = customInstruction,
+            contextInfo = mapOf(
+                "is_cocos2dx" to methodContext.isCocos2dx,
+                "has_related_classes" to methodContext.relatedClasses.isNotEmpty(),
+                "method_length" to methodContext.methodContent.length
+            )
+        )
 
         // Update status and start LLM call immediately
         val methodInfo = if (methodContext.isCocos2dx) {
@@ -105,7 +128,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         // Start method rewrite process immediately in background
         System.out.println("[ZestMethodRewrite] Starting background performMethodRewrite job...")
         currentRewriteJob = scope.launch(Dispatchers.IO) {
-            performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, null, statusCallback)
+            performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, rewriteId, statusCallback)
         }
     }
 
@@ -170,13 +193,30 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 }
 
                 // Start method rewrite process
+                val rewriteId = "rewrite_${UUID.randomUUID()}"
+                currentRewriteId = rewriteId
+                
+                // Track rewrite request
+                metricsService.trackRewriteRequested(
+                    rewriteId = rewriteId,
+                    methodName = methodContext.methodName,
+                    language = methodContext.language,
+                    fileType = methodContext.fileType,
+                    actualModel = "local-model-mini",
+                    customInstruction = customInstruction,
+                    contextInfo = mapOf(
+                        "is_cocos2dx" to methodContext.isCocos2dx,
+                        "method_length" to methodContext.methodContent.length
+                    )
+                )
+                
                 currentRewriteJob = scope.launch(Dispatchers.IO) {
                     performMethodRewriteWithCallback(
                         editor,
                         methodContext,
                         customInstruction,
                         requestId,
-                        null
+                        rewriteId
                     ) { status ->
                         // Convert status updates to log messages for legacy compatibility
                         System.out.println("[ZestMethodRewrite] Status: $status")
@@ -208,7 +248,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         methodContext: ZestMethodContextCollector.MethodContext,
         customInstruction: String?,
         requestId: Int,
-        dialog: Any? = null,  // Ignored
+        rewriteId: String?,  // Unique ID for metrics tracking
         statusCallback: ((String) -> Unit)?
     ) {
         System.out.println("[ZestMethodRewrite] performMethodRewriteWithCallback started for request $requestId")
@@ -228,6 +268,23 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 promptBuilder.buildMethodRewritePrompt(methodContext)
             }
 
+            // Track rewrite request
+            val actualModel = llmService.getConfigStatus().model ?: "local-model-mini"
+            rewriteId?.let {
+                metricsService.trackRewriteRequested(
+                    rewriteId = it,
+                    methodName = methodContext.methodName,
+                    language = methodContext.language,
+                    fileType = methodContext.fileType,
+                    actualModel = actualModel,
+                    contextInfo = mapOf(
+                        "has_custom_instruction" to (customInstruction != null),
+                        "is_cocos2dx" to methodContext.isCocos2dx,
+                        "related_classes_count" to methodContext.relatedClasses.size
+                    )
+                )
+            }
+            
             // Call LLM service immediately
             System.out.println("[ZestMethodRewrite] Calling LLM service...")
             statusCallback?.invoke("🤖 Querying AI model...")
@@ -241,7 +298,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     .withTemperature(0.3)
                     .withStopSequences(getMethodRewriteStopSequences())
 
-                llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+                llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.BLOCK_REWRITE_LOGGING)
             }
 
             val responseTime = System.currentTimeMillis() - startTime
@@ -249,10 +306,23 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             if (response == null) {
                 System.out.println("[ZestMethodRewrite] LLM request timed out")
                 statusCallback?.invoke("⏰ Request timed out - please try again")
+                rewriteId?.let {
+                    metricsService.trackRewriteCancelled(it, "timeout")
+                }
                 throw Exception("LLM request timed out after ${METHOD_REWRITE_TIMEOUT_MS}ms")
             }
 
             System.out.println("[ZestMethodRewrite] LLM response received in ${responseTime}ms")
+            
+            // Track response received
+            rewriteId?.let {
+                metricsService.trackRewriteResponse(
+                    rewriteId = it,
+                    responseTime = responseTime,
+                    rewrittenContent = response,
+                    success = true
+                )
+            }
 
             // Check if request is still active
             if (activeRewriteId != requestId) {
@@ -272,6 +342,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
 
             if (!parseResult.isValid) {
                 statusCallback?.invoke("❌ Generated code is invalid: ${parseResult.issues.firstOrNull()}")
+                rewriteId?.let {
+                    metricsService.trackRewriteCancelled(it, "invalid_response")
+                }
                 throw Exception("Generated method is invalid: ${parseResult.issues.joinToString(", ")}")
             }
 
@@ -298,6 +371,16 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 return
             }
 
+            // Track rewrite viewed
+            rewriteId?.let {
+                val diffStats = diffResult.getStatistics()
+                metricsService.trackRewriteViewed(
+                    rewriteId = it,
+                    diffChanges = diffStats.totalChanges,
+                    confidence = parseResult.confidence
+                )
+            }
+            
             // Show diff - this will update status bar to "Review Ready"
             statusCallback?.invoke("✅ Rewrite complete! Review changes and press TAB to accept, ESC to reject")
 
@@ -308,7 +391,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     enhancedDiffResult = enhancedDiffResult,
                     legacyDiffResult = diffResult,
                     rewrittenMethod = parseResult.rewrittenMethod,
-                    parseResult = parseResult
+                    parseResult = parseResult,
+                    rewriteId = rewriteId
                 )
             }
 
@@ -318,6 +402,9 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         } catch (e: CancellationException) {
             System.out.println("[ZestMethodRewrite] Method rewrite was cancelled")
             statusCallback?.invoke("❌ Rewrite cancelled")
+            rewriteId?.let {
+                metricsService.trackRewriteCancelled(it, "user_cancelled")
+            }
             throw e
         } catch (e: Exception) {
             System.out.println("[ZestMethodRewrite] Method rewrite failed: ${e.message}")
@@ -325,6 +412,10 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             logger.error("Method rewrite failed", e)
 
             statusCallback?.invoke("❌ Rewrite failed: ${e.message}")
+            
+            rewriteId?.let {
+                metricsService.trackRewriteCancelled(it, "error: ${e.message}")
+            }
 
             ApplicationManager.getApplication().invokeLater {
                 methodDiffRenderer.hide()
@@ -406,7 +497,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         enhancedDiffResult: EnhancedGDiff.EnhancedDiffResult,
         legacyDiffResult: GDiff.DiffResult,
         rewrittenMethod: String,
-        parseResult: ZestMethodResponseParser.MethodRewriteResult
+        parseResult: ZestMethodResponseParser.MethodRewriteResult,
+        rewriteId: String? = null
     ) {
         ApplicationManager.getApplication().assertIsDispatchThread()
 
@@ -414,8 +506,8 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         methodDiffRenderer.startMethodRewrite(
             editor = editor,
             methodContext = methodContext,
-            onAccept = { acceptMethodRewriteInternal(editor) },
-            onReject = { cancelCurrentRewrite() }
+            onAccept = { acceptMethodRewriteInternal(editor, rewriteId) },
+            onReject = { cancelCurrentRewrite(rewriteId) }
         )
 
         // Show processing state briefly, then show diff
@@ -562,7 +654,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     /**
      * Accept the method rewrite
      */
-    private fun acceptMethodRewriteInternal(editor: Editor) {
+    private fun acceptMethodRewriteInternal(editor: Editor, rewriteId: String? = null) {
         ApplicationManager.getApplication().assertIsDispatchThread()
 
         val methodContext = currentMethodContext ?: return
@@ -632,6 +724,15 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                 }
             }
 
+            // Track acceptance
+            rewriteId?.let {
+                metricsService.trackRewriteAccepted(
+                    rewriteId = it,
+                    acceptedContent = rewrittenMethod,
+                    userAction = "tab"
+                )
+            }
+            
             // Notify completion
             statusBarWidget?.updateMethodRewriteState(
                 ZestCompletionStatusBarWidget.MethodRewriteState.COMPLETED,
@@ -812,7 +913,12 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     /**
      * Cancel the current method rewrite operation
      */
-    fun cancelCurrentRewrite() {
+    fun cancelCurrentRewrite(rewriteId: String? = null) {
+        // Track rejection if rewrite ID is provided
+        val idToTrack = rewriteId ?: currentRewriteId
+        idToTrack?.let {
+            metricsService.trackRewriteRejected(it, "esc_pressed")
+        }
         currentRewriteJob?.cancel()
         ApplicationManager.getApplication().invokeLater {
             methodDiffRenderer.hide()
@@ -824,6 +930,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         currentRewrittenMethod = null
         currentDiffResult = null
         currentEnhancedDiffResult = null
+        currentRewriteId = null
     }
 
     /**
@@ -838,7 +945,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
      */
     fun acceptMethodRewrite(editor: Editor) {
         ApplicationManager.getApplication().invokeLater {
-            acceptMethodRewriteInternal(editor)
+            acceptMethodRewriteInternal(editor, currentRewriteId)
         }
     }
 
@@ -862,6 +969,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
         currentRewrittenMethod = null
         currentDiffResult = null
         currentEnhancedDiffResult = null
+        currentRewriteId = null
     }
 
     override fun dispose() {

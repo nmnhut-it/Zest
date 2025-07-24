@@ -34,34 +34,87 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             return@withContext false
         }
         
-        val apiUrl = configStatus.apiUrl ?: return@withContext false
-        val authToken = ConfigurationManager.getInstance(project).authToken
-        val dummyMsg = JsonParser.parseString(
-            """
-                [
-        {
-          "role": "user",
-          "content": "dummy"
+        // Determine the log name based on enumUsage
+        val logName = when (enumUsage) {
+            "INLINE_COMPLETION_LOGGING" -> "autocomplete"
+            "CODE_HEALTH_LOGGING" -> "code_health"
+            "BLOCK_REWRITE_LOGGING" -> "block_rewrite"
+            else -> null // Use legacy endpoint
         }
-      ]
-            """.trimIndent()
-        )
-
-        // Build minimal request body
-        val requestBody = JsonObject().apply {
-            addProperty("model", actualModel)
-            addProperty("stream", false)
-            addProperty("custom_tool", "Zest|$enumUsage|$eventType")
-            addProperty("completion_id", completionId)
-            add("messages", dummyMsg)
-            addProperty("elapsed", elapsed)
+        
+        // Build URL based on log name
+        val apiUrl = if (logName != null) {
+            // Check if the original URL is internal (contains talk.zingplay)
+            val originalUrl = configStatus.apiUrl ?: ""
+            val isInternal = originalUrl.contains("talk.zingplay")
             
-            // Add optional fields
-                completionContent?.let { addProperty("completion_content", it) }
-            
-            // Add metadata as nested object if present
-            metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
-                add("metadata", Gson().toJsonTree(meta))
+            val baseUrl = if (isInternal) {
+                "https://zest-internal.zingplay.com"
+            } else {
+                "https://zest.zingplay.com"
+            }
+            "$baseUrl/$logName/$eventType"
+        } else {
+            // Use existing LiteLLM endpoint for other usage types
+            configStatus.apiUrl ?: return@withContext false
+        }
+        
+        val authToken = ConfigurationManager.getInstance(project).authToken
+        
+        // Build request body based on log type
+        val requestBody = when (logName) {
+            "autocomplete", "block_rewrite" -> {
+                // New format for autocomplete and block_rewrite endpoints
+                JsonObject().apply {
+                    addProperty("event_type", eventType)
+                    addProperty("completion_id", completionId)
+                    addProperty("timestamp", System.currentTimeMillis())
+                    addProperty("elapsed_ms", elapsed)
+                    completionContent?.let { addProperty("completion_text", it) }
+                    
+                    // Add metadata as nested object
+                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
+                        add("metadata", Gson().toJsonTree(meta))
+                    }
+                }
+            }
+            "code_health" -> {
+                // New format for code_health endpoint
+                JsonObject().apply {
+                    addProperty("event_type", eventType)
+                    addProperty("timestamp", System.currentTimeMillis())
+                    
+                    // Add analysis data from metadata
+                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
+                        add("analysis_data", Gson().toJsonTree(meta))
+                    }
+                }
+            }
+            else -> {
+                // Legacy format for LiteLLM
+                val dummyMsg = JsonParser.parseString(
+                    """
+                        [
+                {
+                  "role": "user",
+                  "content": "dummy"
+                }
+              ]
+                    """.trimIndent()
+                )
+                
+                JsonObject().apply {
+                    addProperty("model", actualModel)
+                    addProperty("stream", false)
+                    addProperty("custom_tool", "Zest|$enumUsage|$eventType")
+                    addProperty("completion_id", completionId)
+                    add("messages", dummyMsg)
+                    addProperty("elapsed", elapsed)
+                    completionContent?.let { addProperty("completion_content", it) }
+                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
+                        add("metadata", Gson().toJsonTree(meta))
+                    }
+                }
             }
         }
         
@@ -79,7 +132,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             append(gson.toJson(requestBody).replace("'", "\\'"))
             append("'")
         }
-//        println("[ZestMetrics] Sending metric request with enumUsage: $enumUsage")
+//        println("[ZestMetrics] Sending metric request to: $apiUrl")
 //        println(curlCommand)
 //        println()
         

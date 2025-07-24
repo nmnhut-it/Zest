@@ -107,7 +107,8 @@ public class ChatboxUtilities {
 
         // Implementation actions
         IMPLEMENT_TODOS,              // Implement Your TODOs
-        INLINE_COMPLETION,              // Inline completion
+        INLINE_COMPLETION,            // Inline completion
+        INLINE_COMPLETION_LOGGING,    // Inline completion metrics logging
 
         // Chat-based actions
         CHAT_CODE_REVIEW,             // Chat: Review This Class
@@ -118,7 +119,10 @@ public class ChatboxUtilities {
 
         // Code Health
         CODE_HEALTH,                  // Code Health Analysis
-        CODE_HEALTH_LOGGING,                  // Code Health Analysis logging 
+        CODE_HEALTH_LOGGING,          // Code Health Analysis logging 
+        
+        // Block Rewrite
+        BLOCK_REWRITE_LOGGING,        // Block Rewrite Metrics Logging
 
         EXPLORE_TOOL, // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools

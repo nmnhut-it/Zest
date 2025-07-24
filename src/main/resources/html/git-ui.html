@@ -755,6 +755,12 @@
                 // Add streaming visual effect
                 messageTextarea.classList.add('streaming');
                 
+                // Helper function to clean markdown code blocks
+                const cleanMarkdownCodeBlocks = (text) => {
+                    // Remove code block markers (```language or just ```)
+                    return text.replace(/^```[\w]*\n?/gm, '').replace(/\n?```$/gm, '');
+                };
+                
                 const pollForChunks = () => {
                     if (window.intellijBridge && window.intellijBridge.callIDE) {
                         window.intellijBridge.callIDE('streamCommitMessage', {
@@ -762,8 +768,9 @@
                         }).then(response => {
                             if (response && response.success) {
                                 if (response.done) {
-                                    // Streaming complete
-                                    messageTextarea.value = response.fullMessage || streamingText;
+                                    // Streaming complete - clean the final message
+                                    const finalMessage = response.fullMessage || streamingText;
+                                    messageTextarea.value = cleanMarkdownCodeBlocks(finalMessage);
                                     messageTextarea.classList.remove('streaming');
                                     this.showMessage('Commit message generated successfully!', 'success');
                                     document.getElementById('generate-btn').disabled = false;
@@ -771,6 +778,7 @@
                                     // Append chunk if available
                                     if (response.chunk) {
                                         streamingText += response.chunk;
+                                        // Show raw text while streaming, clean at the end
                                         messageTextarea.value = streamingText;
                                         // Auto-resize textarea
                                         messageTextarea.style.height = 'auto';

@@ -114,7 +114,16 @@ public class GitService {
                                     hasChanges = true;
                                 }
                             } catch (Exception e) {
-                                LOG.warn("Error staging file " + cleanPath + ": " + e.getMessage());
+                                String errorMessage = e.getMessage();
+                                LOG.warn("Error staging file " + cleanPath + ": " + errorMessage);
+                                
+                                // Check if it's an ignored file error
+                                if (errorMessage != null && errorMessage.contains("ignored by one of your .gitignore files")) {
+                                    LOG.info("File is ignored by .gitignore: " + cleanPath);
+                                    // Skip this file - it shouldn't be committed
+                                    continue;
+                                }
+                                
                                 // Try alternative approach for deleted files that are giving trouble
                                 if ("D".equals(file.getStatus())) {
                                     LOG.info("Trying alternative approach for deleted file: " + cleanPath);

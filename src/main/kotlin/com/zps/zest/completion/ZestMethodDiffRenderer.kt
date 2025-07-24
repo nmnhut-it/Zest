@@ -13,7 +13,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
-import com.zps.zest.completion.diff.SimpleDiffTabV2
+import com.zps.zest.completion.diff.MethodRewriteDiffDialog
 import com.zps.zest.gdiff.GDiff
 import java.awt.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -387,9 +387,12 @@ class ZestMethodDiffRenderer {
         val fileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance()
             .getFileTypeByExtension(context.methodContext.language)
         
-        // Show diff in a new tab with Accept/Reject buttons
-        SimpleDiffTabV2.showDiff(
+        // Show diff in a dialog with prominent Accept/Reject buttons
+        MethodRewriteDiffDialog.show(
             project = context.editor.project ?: return,
+            editor = context.editor,
+            methodStartOffset = context.methodContext.methodStartOffset,
+            methodEndOffset = context.methodContext.methodEndOffset,
             originalContent = originalText,
             modifiedContent = rewrittenMethod,
             fileType = fileType,

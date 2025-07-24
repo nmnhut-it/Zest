@@ -14,6 +14,7 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.diff.MethodRewriteDiffDialog
+import com.zps.zest.completion.diff.MethodRewriteDiffDialogV2
 import com.zps.zest.gdiff.GDiff
 import java.awt.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -384,11 +385,36 @@ class ZestMethodDiffRenderer {
         context.statusInlay = null
         
         // Get file type for syntax highlighting
-        val fileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance()
-            .getFileTypeByExtension(context.methodContext.language)
+        // First try to get from the editor's virtual file
+        val virtualFile = context.editor.virtualFile
+        val fileType = if (virtualFile != null) {
+            virtualFile.fileType
+        } else {
+            // Fallback: try to determine from language name or extension
+            val extension = when (context.methodContext.language.lowercase()) {
+                "java" -> "java"
+                "kotlin" -> "kt"
+                "javascript", "js" -> "js"
+                "typescript", "ts" -> "ts"
+                "python" -> "py"
+                "go" -> "go"
+                "rust" -> "rs"
+                "cpp", "c++" -> "cpp"
+                "c" -> "c"
+                "csharp", "c#" -> "cs"
+                "ruby" -> "rb"
+                "php" -> "php"
+                "swift" -> "swift"
+                "objectivec", "objc" -> "m"
+                else -> context.methodContext.language
+            }
+            com.intellij.openapi.fileTypes.FileTypeManager.getInstance()
+                .getFileTypeByExtension(extension)
+        }
         
         // Show diff in a dialog with prominent Accept/Reject buttons
-        MethodRewriteDiffDialog.show(
+        // Use V2 for better syntax highlighting with LightVirtualFile
+        MethodRewriteDiffDialogV2.show(
             project = context.editor.project ?: return,
             editor = context.editor,
             methodStartOffset = context.methodContext.methodStartOffset,

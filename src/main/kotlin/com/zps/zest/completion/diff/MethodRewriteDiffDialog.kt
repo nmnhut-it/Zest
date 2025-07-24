@@ -4,6 +4,8 @@ import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.diff.contents.DocumentContent
+import com.zps.zest.completion.util.IndentationNormalizer
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -11,6 +13,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileTypes.FileType
+import com.intellij.openapi.fileTypes.FileTypeManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
@@ -82,13 +86,26 @@ class MethodRewriteDiffDialog(
     override fun createCenterPanel(): JComponent {
         val panel = JBPanel<JBPanel<*>>(BorderLayout())
         
-        // Get extended content with context
-        val (extendedOriginal, extendedModified) = getContentWithContext()
+        // Normalize indentation before creating diff
+        val (normalizedOriginal, normalizedModified) = IndentationNormalizer.normalizeForDiff(
+            originalContent,
+            modifiedContent
+        )
         
-        // Create diff contents
+        // Get extended content with context
+        val (extendedOriginal, extendedModified) = getContentWithContext(normalizedOriginal, normalizedModified)
+        
+        // Debug log to check file type
+        logger.info("Creating diff with file type: ${fileType.name} (${fileType.defaultExtension})")
+        
+        // Create diff contents with proper file type for syntax highlighting
         val diffContentFactory = DiffContentFactory.getInstance()
-        val leftContent = diffContentFactory.create(extendedOriginal)
-        val rightContent = diffContentFactory.create(extendedModified)
+        val leftContent = diffContentFactory.create(project, extendedOriginal, fileType) as DocumentContent
+        val rightContent = diffContentFactory.create(project, extendedModified, fileType) as DocumentContent
+        
+        // Set highlighters for syntax coloring
+        leftContent.putUserData(com.intellij.diff.util.DiffUserDataKeys.FORCE_READ_ONLY, true)
+        rightContent.putUserData(com.intellij.diff.util.DiffUserDataKeys.FORCE_READ_ONLY, true)
         
         // Create diff request
         val diffRequest = SimpleDiffRequest(
@@ -174,7 +191,7 @@ class MethodRewriteDiffDialog(
         return panel
     }
     
-    private fun getContentWithContext(): Pair<String, String> {
+    private fun getContentWithContext(normalizedOriginal: String = originalContent, normalizedModified: String = modifiedContent): Pair<String, String> {
         val document = editor.document
         val fullText = document.text
         
@@ -199,7 +216,7 @@ class MethodRewriteDiffDialog(
                 appendLine()
             }
             append(beforeContext)
-            append(originalContent)
+            append(normalizedOriginal)
             append(afterContext)
             if (contextEndLine < document.lineCount - 1) {
                 appendLine()
@@ -213,7 +230,7 @@ class MethodRewriteDiffDialog(
                 appendLine()
             }
             append(beforeContext)
-            append(modifiedContent)
+            append(normalizedModified)
             append(afterContext)
             if (contextEndLine < document.lineCount - 1) {
                 appendLine()

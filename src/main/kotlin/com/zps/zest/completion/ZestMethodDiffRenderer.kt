@@ -1,5 +1,6 @@
 package com.zps.zest.completion
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
@@ -12,10 +13,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
-import com.zps.zest.completion.diff.DiffRenderingConfig
-import com.zps.zest.completion.diff.SideBySideMethodDiffRenderer
-import com.zps.zest.completion.diff.WholeMethodDiffRenderer
-import com.zps.zest.completion.diff.WordDiffUtil
+import com.zps.zest.completion.diff.SimpleDiffTabV2
 import com.zps.zest.gdiff.GDiff
 import java.awt.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -68,8 +66,8 @@ class ZestMethodDiffRenderer {
         var diffInlay: Inlay<*>? = null,
         val acceptCallback: () -> Unit,
         val rejectCallback: () -> Unit
-    ) {
-        fun dispose() {
+    ) : Disposable {
+        override fun dispose() {
             // Remove selection highlight
             selectionHighlighter?.let { highlighter ->
                 try {
@@ -189,8 +187,8 @@ class ZestMethodDiffRenderer {
                 // Update status
                 showStatusIndicator(context, "📝 Review changes (Tab to accept, Esc to reject)")
                 
-                // Show the diff in place of collapsed method
-                showInPlaceDiff(context, diffResult, rewrittenMethod)
+                // Use new inline diff panel with buttons
+                showInlineDiffPanel(context, rewrittenMethod)
                 
             } catch (e: Exception) {
                 logger.error("Failed to show diff", e)
@@ -371,15 +369,13 @@ class ZestMethodDiffRenderer {
         debugLog("Status indicator shown: $message")
     }
     
-    private fun showInPlaceDiff(
+    private fun showInlineDiffPanel(
         context: RenderingContext,
-        diffResult: GDiff.DiffResult,
         rewrittenMethod: String
     ) {
-        val config = DiffRenderingConfig.getInstance()
         val originalText = context.methodContext.methodContent
         
-        // Remove the status indicator to make room for diff
+        // Remove status inlay as diff will be shown in a tab
         context.statusInlay?.let { inlay ->
             if (inlay.isValid) {
                 Disposer.dispose(inlay)
@@ -387,61 +383,36 @@ class ZestMethodDiffRenderer {
         }
         context.statusInlay = null
         
-        // Perform line-level diff
-        val lineDiff = WordDiffUtil.diffLines(
-            originalText,
-            rewrittenMethod,
-            config.getDiffAlgorithm(),
-            context.methodContext.language
+        // Get file type for syntax highlighting
+        val fileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance()
+            .getFileTypeByExtension(context.methodContext.language)
+        
+        // Show diff in a new tab with Accept/Reject buttons
+        SimpleDiffTabV2.showDiff(
+            project = context.editor.project ?: return,
+            originalContent = originalText,
+            modifiedContent = rewrittenMethod,
+            fileType = fileType,
+            methodName = context.methodContext.methodName,
+            onAccept = {
+                acceptChanges()
+            },
+            onReject = {
+                rejectChanges()
+            }
         )
         
-        // Prepare lines for rendering
-        val originalLines = originalText.lines().toMutableList()
-        val modifiedLines = rewrittenMethod.lines().toMutableList()
-        
-        // Handle trailing newlines
-        if (originalText.endsWith("\n") && (originalLines.isEmpty() || originalLines.last().isNotEmpty())) {
-            originalLines.add("")
+        // Remove the hide highlighter to show the original method again
+        context.hideHighlighter?.let { highlighter ->
+            try {
+                context.editor.markupModel.removeHighlighter(highlighter)
+            } catch (e: Exception) {
+                // Already removed
+            }
         }
-        if (rewrittenMethod.endsWith("\n") && (modifiedLines.isEmpty() || modifiedLines.last().isNotEmpty())) {
-            modifiedLines.add("")
-        }
+        context.hideHighlighter = null
         
-        // Create diff renderer
-        val diffRenderer = if (config.useSideBySideView()) {
-            SideBySideMethodDiffRenderer(
-                originalLines,
-                modifiedLines,
-                lineDiff,
-                context.editor.colorsScheme,
-                context.methodContext.language
-            )
-        } else {
-            WholeMethodDiffRenderer(
-                originalLines,
-                modifiedLines,
-                lineDiff,
-                context.editor.colorsScheme,
-                context.methodContext.language
-            )
-        }
-        
-        // Show diff prominently in place of the hidden method
-        // This becomes the main visible content that user focuses on
-        val insertOffset = context.methodContext.methodStartOffset
-        val inlay = context.editor.inlayModel.addBlockElement(
-            insertOffset,
-            true,
-            false, // showAbove = false to show inline/below
-            100, // HIGH priority to be prominently displayed
-            diffRenderer
-        )
-        
-        context.diffInlay = inlay
-        debugLog("Diff displayed prominently in place as main content")
-        
-        // Add a small status hint below the diff
-        showStatusIndicator(context, "📝 Review changes (Tab to accept, Esc to reject)")
+        debugLog("Diff shown in new tab with Accept/Reject buttons")
     }
     
     private fun createStatusRenderer(message: String, scheme: EditorColorsScheme): EditorCustomElementRenderer {

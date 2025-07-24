@@ -25,7 +25,7 @@ class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_
             ZestNotifications.showInfo(
                 project,
                 "Rules File Exists",
-                "The zest_rules.md file already exists. Opening it for editing."
+                "The rules file exists. Opening it for editing.\nNote: Rules are now stored in .zest/rules.md"
             )
         } else {
             // Create new file
@@ -33,7 +33,7 @@ class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_
                 ZestNotifications.showInfo(
                     project,
                     "Rules File Created",
-                    "Created zest_rules.md in your project root. Add your custom LLM rules to this file."
+                    "Created rules file in .zest/rules.md. Add your custom LLM rules to this file."
                 )
                 // Open the newly created file
                 openRulesFile(project)

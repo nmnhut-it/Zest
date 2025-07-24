@@ -21,6 +21,7 @@ import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.gdiff.GDiff
 import com.zps.zest.gdiff.EnhancedGDiff
 import com.zps.zest.completion.metrics.ZestBlockRewriteMetricsService
+import com.zps.zest.completion.experience.ZestExperienceTracker
 import kotlinx.coroutines.*
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -57,6 +58,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     private val gdiff = GDiff()
     private val enhancedGDiff = EnhancedGDiff()
     private val methodDiffRenderer = ZestMethodDiffRenderer()
+    private val experienceTracker by lazy { ZestExperienceTracker.getInstance(project) }
 
     // Request tracking to prevent multiple concurrent rewrites
     private val rewriteRequestId = AtomicInteger(0)
@@ -107,7 +109,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             rewriteId = rewriteId,
             methodName = methodContext.methodName,
             language = methodContext.language,
-            fileType = methodContext.fileType,
+            fileType = getFileType(methodContext.fileName),
             actualModel = "local-model-mini", // Will be updated when we get actual model
             customInstruction = customInstruction,
             contextInfo = mapOf(
@@ -201,7 +203,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     rewriteId = rewriteId,
                     methodName = methodContext.methodName,
                     language = methodContext.language,
-                    fileType = methodContext.fileType,
+                    fileType = getFileType(methodContext.fileName),
                     actualModel = "local-model-mini",
                     customInstruction = customInstruction,
                     contextInfo = mapOf(
@@ -275,7 +277,7 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     rewriteId = it,
                     methodName = methodContext.methodName,
                     language = methodContext.language,
-                    fileType = methodContext.fileType,
+                    fileType = getFileType(methodContext.fileName),
                     actualModel = actualModel,
                     contextInfo = mapOf(
                         "has_custom_instruction" to (customInstruction != null),
@@ -731,6 +733,15 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
                     acceptedContent = rewrittenMethod,
                     userAction = "tab"
                 )
+                
+                // Track for experience learning
+                experienceTracker.trackRewriteAcceptance(
+                    sessionId = it,
+                    methodName = methodContext.methodName,
+                    originalCode = methodContext.methodContent,
+                    aiSuggestion = rewrittenMethod,
+                    editor = editor
+                )
             }
             
             // Notify completion
@@ -913,7 +924,14 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
     /**
      * Cancel the current method rewrite operation
      */
-    fun cancelCurrentRewrite(rewriteId: String? = null) {
+    fun cancelCurrentRewrite() {
+        cancelCurrentRewrite(null)
+    }
+    
+    /**
+     * Cancel the current method rewrite operation with specific rewrite ID
+     */
+    fun cancelCurrentRewrite(rewriteId: String?) {
         // Track rejection if rewrite ID is provided
         val idToTrack = rewriteId ?: currentRewriteId
         idToTrack?.let {
@@ -981,6 +999,20 @@ class ZestMethodRewriteService(private val project: Project) : Disposable {
             getStatusBarWidget()?.clearMethodRewriteState()
         }
         cleanup()
+    }
+
+    private fun getFileType(fileName: String): String {
+        return when (fileName.substringAfterLast('.', "")) {
+            "kt" -> "kotlin"
+            "java" -> "java"
+            "js" -> "javascript"
+            "ts" -> "typescript"
+            "cpp", "cc", "cxx" -> "cpp"
+            "c" -> "c"
+            "h", "hpp" -> "header"
+            "py" -> "python"
+            else -> "unknown"
+        }
     }
 
     companion object {

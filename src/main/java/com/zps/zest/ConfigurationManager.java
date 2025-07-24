@@ -8,10 +8,15 @@ import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.browser.WebBrowserService;
+import com.zps.zest.langchain4j.index.GitIgnoreManager;
 import com.zps.zest.settings.ZestGlobalSettings;
 import com.zps.zest.settings.ZestProjectSettings;
 
+
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
@@ -28,6 +33,11 @@ public class ConfigurationManager {
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
+    
+    // .zest folder constants
+    private static final String ZEST_FOLDER = ".zest";
+    private static final String RULES_FILE = "rules.md";
+    private static final String LEGACY_RULES_FILE = "zest_rules.md";
 
     // Default system prompts - reference from ZestGlobalSettings to avoid duplication
     public static final String DEFAULT_SYSTEM_PROMPT = ZestGlobalSettings.DEFAULT_SYSTEM_PROMPT;
@@ -510,5 +520,115 @@ public class ConfigurationManager {
             // Failed to complete the check in time
             return false;
         }
+    }
+    
+    // .zest folder management methods
+    
+    /**
+     * Ensure .zest folder exists and is properly configured
+     */
+    public boolean ensureZestFolderExists() {
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) return false;
+            
+            Path zestPath = Paths.get(projectPath, ZEST_FOLDER);
+            
+            // Create directory if it doesn't exist
+            if (!Files.exists(zestPath)) {
+                Files.createDirectories(zestPath);
+                LOG.info("Created .zest directory at: " + zestPath);
+            }
+            
+            // Ensure it's in .gitignore
+            GitIgnoreManager.ensureGitIgnore(
+                Paths.get(projectPath),
+                "# Zest configuration folder",
+                "/" + ZEST_FOLDER + "/"
+            );
+            
+            // Migrate legacy rules if they exist
+            migrateLegacyRules();
+            
+            return true;
+        } catch (Exception e) {
+            LOG.error("Failed to ensure .zest folder exists", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Migrate legacy zest_rules.md to .zest/rules.md
+     */
+    private void migrateLegacyRules() {
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) return;
+            
+            Path legacyPath = Paths.get(projectPath, LEGACY_RULES_FILE);
+            Path newPath = Paths.get(projectPath, ZEST_FOLDER, RULES_FILE);
+            
+            if (Files.exists(legacyPath) && !Files.exists(newPath)) {
+                // Read legacy content
+                String content = new String(Files.readAllBytes(legacyPath));
+                
+                // Write to new location
+                Files.createDirectories(newPath.getParent());
+                Files.write(newPath, content.getBytes());
+                
+                // Add deprecation notice to legacy file
+                String deprecationNotice = "# DEPRECATED - This file has been moved!\n\n" +
+                    "Your rules have been migrated to: .zest/rules.md\n\n" +
+                    "This file is no longer used and can be safely deleted.\n" +
+                    "The new location allows better organization of Zest configuration.\n\n" +
+                    "---\n\n" + content;
+                Files.write(legacyPath, deprecationNotice.getBytes());
+                
+                LOG.info("Migrated rules from " + LEGACY_RULES_FILE + " to " + ZEST_FOLDER + "/" + RULES_FILE);
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to migrate legacy rules", e);
+        }
+    }
+    
+    /**
+     * Get path to a .zest configuration file
+     */
+    public Path getZestConfigFilePath(String filename) {
+        String projectPath = project.getBasePath();
+        if (projectPath == null) return null;
+        return Paths.get(projectPath, ZEST_FOLDER, filename);
+    }
+    
+    /**
+     * Read content from a .zest configuration file
+     */
+    public String readZestConfigFile(String filename) {
+        try {
+            Path path = getZestConfigFilePath(filename);
+            if (path != null && Files.exists(path)) {
+                return new String(Files.readAllBytes(path));
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to read " + filename, e);
+        }
+        return null;
+    }
+    
+    /**
+     * Write content to a .zest configuration file
+     */
+    public boolean writeZestConfigFile(String filename, String content) {
+        try {
+            Path path = getZestConfigFilePath(filename);
+            if (path != null) {
+                Files.createDirectories(path.getParent());
+                Files.write(path, content.getBytes());
+                return true;
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to write " + filename, e);
+        }
+        return false;
     }
 }

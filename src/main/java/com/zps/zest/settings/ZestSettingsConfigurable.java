@@ -61,6 +61,10 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBTextArea codeSystemPromptArea;
     private JBTextArea commitPromptTemplateArea;
     
+    // Project Configuration
+    private JBTextArea projectRulesArea;
+    private JBTextArea customPromptsArea;
+    
     public ZestSettingsConfigurable(Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
@@ -83,6 +87,7 @@ public class ZestSettingsConfigurable implements Configurable {
         tabbedPane.addTab("Models", createModelsPanel());
         tabbedPane.addTab("Features", createFeaturesPanel());
         tabbedPane.addTab("Prompts", createPromptsPanel());
+        tabbedPane.addTab("Project", createProjectPanel());
         
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
         mainPanel.setPreferredSize(new Dimension(800, 600));
@@ -414,7 +419,8 @@ public class ZestSettingsConfigurable implements Configurable {
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
                !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate()) ||
                !docsPathField.getText().equals(config.getDocsPath()) ||
-               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled();
+               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled() ||
+               isProjectConfigurationModified();
     }
     
     @Override
@@ -465,6 +471,9 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setDocsPath(docsPathField.getText().trim());
         config.setDocsSearchEnabled(docsSearchEnabledCheckbox.isSelected());
         
+        // Save project configuration
+        saveProjectConfiguration();
+        
         Messages.showInfoMessage(project, 
             "Settings saved successfully", 
             "Settings Saved");
@@ -503,6 +512,27 @@ public class ZestSettingsConfigurable implements Configurable {
         docsPathField.setText(config.getDocsPath());
         docsSearchEnabledCheckbox.setSelected(config.isDocsSearchEnabled());
         docsPathField.setEnabled(config.isDocsSearchEnabled());
+        
+        // Reset project configuration
+        resetProjectConfiguration();
+    }
+    
+    private void resetProjectConfiguration() {
+        // Reset project rules
+        String rulesContent = config.readZestConfigFile("rules.md");
+        if (rulesContent != null) {
+            projectRulesArea.setText(rulesContent);
+        } else {
+            projectRulesArea.setText(getDefaultRulesContent());
+        }
+        
+        // Reset custom prompts
+        String promptsContent = config.readZestConfigFile("custom_prompts.md");
+        if (promptsContent != null) {
+            customPromptsArea.setText(promptsContent);
+        } else {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        }
     }
     
     private void validateCommitTemplate() {
@@ -619,5 +649,235 @@ public class ZestSettingsConfigurable implements Configurable {
                 "Prompts Updated"
             );
         }
+    }
+    
+    private JPanel createProjectPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        
+        // Create tabbed pane for project configuration
+        JBTabbedPane projectTabs = new JBTabbedPane(JTabbedPane.TOP);
+        
+        // Project Rules Tab
+        projectRulesArea = createPromptTextArea();
+        String rulesContent = config.readZestConfigFile("rules.md");
+        if (rulesContent != null) {
+            projectRulesArea.setText(rulesContent);
+        } else {
+            projectRulesArea.setText(getDefaultRulesContent());
+        }
+        projectTabs.addTab("Rules", createProjectRulesPanel());
+        
+        // Custom Prompts Tab
+        customPromptsArea = createPromptTextArea();
+        String promptsContent = config.readZestConfigFile("custom_prompts.md");
+        if (promptsContent != null) {
+            customPromptsArea.setText(promptsContent);
+        } else {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        }
+        projectTabs.addTab("Custom Prompts", createCustomPromptsPanel());
+        
+        panel.add(projectTabs, BorderLayout.CENTER);
+        return panel;
+    }
+    
+    private JPanel createProjectRulesPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(JBUI.Borders.empty(10));
+        
+        // Header
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        JLabel headerLabel = new JLabel("Project-specific rules for AI assistance");
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(headerLabel, BorderLayout.NORTH);
+        
+        JLabel descLabel = new JLabel("<html>Define coding standards, domain knowledge, and project-specific requirements.<br>" +
+            "These rules will be included in all AI prompts for this project.</html>");
+        descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        descLabel.setForeground(UIUtil.getContextHelpForeground());
+        descLabel.setBorder(JBUI.Borders.emptyTop(5));
+        headerPanel.add(descLabel, BorderLayout.CENTER);
+        
+        panel.add(headerPanel, BorderLayout.NORTH);
+        
+        // Text area with scroll
+        JBScrollPane scrollPane = new JBScrollPane(projectRulesArea);
+        scrollPane.setPreferredSize(new Dimension(700, 400));
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Buttons panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        JButton resetBtn = new JButton("Reset to Default");
+        resetBtn.addActionListener(e -> {
+            projectRulesArea.setText(getDefaultRulesContent());
+        });
+        buttonPanel.add(resetBtn);
+        
+        JButton saveBtn = new JButton("Save Rules");
+        saveBtn.addActionListener(e -> {
+            saveProjectRules();
+        });
+        buttonPanel.add(saveBtn);
+        
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private JPanel createCustomPromptsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(JBUI.Borders.empty(10));
+        
+        // Header
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        JLabel headerLabel = new JLabel("Custom prompts for block rewrite");
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(headerLabel, BorderLayout.NORTH);
+        
+        JLabel descLabel = new JLabel("<html>Define custom prompts accessible via Shift+1-9 in block rewrite dialog.<br>" +
+            "Format: ## Shift+1: Title followed by the prompt description.</html>");
+        descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        descLabel.setForeground(UIUtil.getContextHelpForeground());
+        descLabel.setBorder(JBUI.Borders.emptyTop(5));
+        headerPanel.add(descLabel, BorderLayout.CENTER);
+        
+        panel.add(headerPanel, BorderLayout.NORTH);
+        
+        // Text area with scroll
+        JBScrollPane scrollPane = new JBScrollPane(customPromptsArea);
+        scrollPane.setPreferredSize(new Dimension(700, 400));
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Buttons panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        JButton resetBtn = new JButton("Reset to Default");
+        resetBtn.addActionListener(e -> {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        });
+        buttonPanel.add(resetBtn);
+        
+        JButton saveBtn = new JButton("Save Prompts");
+        saveBtn.addActionListener(e -> {
+            saveCustomPrompts();
+        });
+        buttonPanel.add(saveBtn);
+        
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private boolean isProjectConfigurationModified() {
+        // Check if project rules are modified
+        String currentRules = config.readZestConfigFile("rules.md");
+        if (currentRules == null) currentRules = getDefaultRulesContent();
+        boolean rulesModified = !projectRulesArea.getText().equals(currentRules);
+        
+        // Check if custom prompts are modified
+        String currentPrompts = config.readZestConfigFile("custom_prompts.md");
+        if (currentPrompts == null) currentPrompts = getDefaultCustomPromptsContent();
+        boolean promptsModified = !customPromptsArea.getText().equals(currentPrompts);
+        
+        return rulesModified || promptsModified;
+    }
+    
+    private void saveProjectConfiguration() {
+        try {
+            config.ensureZestFolderExists();
+            
+            // Save project rules
+            config.writeZestConfigFile("rules.md", projectRulesArea.getText());
+            
+            // Save custom prompts
+            config.writeZestConfigFile("custom_prompts.md", customPromptsArea.getText());
+            
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving project configuration: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private void saveProjectRules() {
+        try {
+            config.ensureZestFolderExists();
+            boolean success = config.writeZestConfigFile("rules.md", projectRulesArea.getText());
+            if (success) {
+                Messages.showInfoMessage(project, 
+                    "Project rules saved successfully to .zest/rules.md", 
+                    "Rules Saved");
+            } else {
+                Messages.showErrorDialog(project, 
+                    "Failed to save project rules", 
+                    "Save Error");
+            }
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving project rules: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private void saveCustomPrompts() {
+        try {
+            config.ensureZestFolderExists();
+            boolean success = config.writeZestConfigFile("custom_prompts.md", customPromptsArea.getText());
+            if (success) {
+                Messages.showInfoMessage(project, 
+                    "Custom prompts saved successfully to .zest/custom_prompts.md", 
+                    "Prompts Saved");
+            } else {
+                Messages.showErrorDialog(project, 
+                    "Failed to save custom prompts", 
+                    "Save Error");
+            }
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving custom prompts: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private String getDefaultRulesContent() {
+        return "# Zest Custom Rules\n\n" +
+            "Define your custom LLM rules below. These rules will be included at the top of all prompts sent to the LLM.\n" +
+            "You can use this to:\n" +
+            "- Define coding standards specific to your project\n" +
+            "- Add domain-specific knowledge\n" +
+            "- Set preferred coding patterns\n" +
+            "- Include project-specific requirements\n\n" +
+            "## Example Rules:\n\n" +
+            "<!-- \n" +
+            "- Always use camelCase for variable names\n" +
+            "- Prefer const over let for immutable values\n" +
+            "- Include JSDoc comments for all public methods\n" +
+            "- Follow the project's error handling patterns\n" +
+            "-->\n\n" +
+            "## Your Rules:\n\n";
+    }
+    
+    private String getDefaultCustomPromptsContent() {
+        return "# Custom Prompts for Zest\n\n" +
+            "Define your own prompts for quick access using Shift+1 through Shift+9.\n\n" +
+            "## Shift+1: Add Comments\n" +
+            "Add detailed comments explaining the logic\n\n" +
+            "## Shift+2: Optimize Performance\n" +
+            "Optimize this code for better performance\n\n" +
+            "## Shift+3: Add Error Handling\n" +
+            "Add comprehensive error handling\n\n" +
+            "## Shift+4: Add Unit Tests\n" +
+            "Generate unit tests for this method\n\n" +
+            "## Shift+5: Make Thread Safe\n" +
+            "Make this code thread-safe\n\n" +
+            "## Shift+6: Follow Best Practices\n" +
+            "Refactor to follow coding best practices\n\n" +
+            "## Shift+7: Add Documentation\n" +
+            "Add comprehensive documentation\n\n" +
+            "## Shift+8: Simplify Logic\n" +
+            "Simplify and make more readable\n\n" +
+            "## Shift+9: Add Logging\n" +
+            "Add appropriate logging statements\n";
     }
 }

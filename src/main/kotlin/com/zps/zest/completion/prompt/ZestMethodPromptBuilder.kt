@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.rules.ZestRulesLoader
+import com.zps.zest.completion.experience.ZestExperienceTracker
 
 /**
  * Enhanced prompt builder for method-level code rewrites with better class context
@@ -11,21 +12,37 @@ import com.zps.zest.rules.ZestRulesLoader
 class ZestMethodPromptBuilder(private val project: Project? = null) {
     
     private val rulesLoader: ZestRulesLoader? = project?.let { ZestRulesLoader(it) }
+    private val experienceTracker: ZestExperienceTracker? = project?.let { ZestExperienceTracker.getInstance(it) }
     
     /**
      * Load custom rules and prepend them to the prompt if available
      */
     private fun prependCustomRules(basePrompt: String): String {
-        val customRules = rulesLoader?.loadCustomRules() ?: return basePrompt
+        val sections = mutableListOf<String>()
         
-        return """
+        // Add custom rules if available
+        val customRules = rulesLoader?.loadCustomRules()
+        if (customRules != null) {
+            sections.add("""
 **CUSTOM PROJECT RULES:**
 ${customRules}
-
----
-
-${basePrompt}
-        """.trimIndent()
+            """.trimIndent())
+        }
+        
+        // Add experience patterns if available
+        val patterns = experienceTracker?.getRecentPatterns() ?: emptyList()
+        if (patterns.isNotEmpty()) {
+            sections.add("""
+**LEARNED PREFERENCES FROM THIS PROJECT:**
+${patterns.joinToString("\n") { "- $it" }}
+            """.trimIndent())
+        }
+        
+        return if (sections.isNotEmpty()) {
+            sections.joinToString("\n\n") + "\n\n---\n\n" + basePrompt
+        } else {
+            basePrompt
+        }
     }
     
     /**

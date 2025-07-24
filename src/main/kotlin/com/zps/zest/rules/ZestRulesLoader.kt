@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.zps.zest.ConfigurationManager
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,7 +17,8 @@ class ZestRulesLoader(private val project: Project) {
     private val logger = Logger.getInstance(ZestRulesLoader::class.java)
     
     companion object {
-        const val RULES_FILE_NAME = "zest_rules.md"
+        const val RULES_FILE_NAME = "zest_rules.md" // Legacy name
+        const val NEW_RULES_FILE_NAME = "rules.md"
         const val DEFAULT_RULES_HEADER = """
 # Zest Custom Rules
 
@@ -47,11 +49,25 @@ You can use this to:
      */
     fun loadCustomRules(): String? {
         try {
-            // First, try to find the rules file in the project
+            // Ensure .zest folder exists
+            val configManager = ConfigurationManager.getInstance(project)
+            configManager.ensureZestFolderExists()
+            
+            // Try to load from new location first
+            val newContent = configManager.readZestConfigFile(NEW_RULES_FILE_NAME)
+            if (newContent != null) {
+                val rulesContent = extractRulesContent(newContent)
+                if (rulesContent.isNotBlank()) {
+                    logger.info("Successfully loaded custom rules from .zest/$NEW_RULES_FILE_NAME")
+                    return rulesContent.trim()
+                }
+            }
+            
+            // Fall back to legacy location
             val rulesFile = findRulesFile()
             
             if (rulesFile == null) {
-                logger.info("No $RULES_FILE_NAME found in project")
+                logger.info("No rules file found in project")
                 return null
             }
             
@@ -85,22 +101,19 @@ You can use this to:
      */
     fun createDefaultRulesFile(): Boolean {
         try {
-            val projectBasePath = project.basePath ?: return false
-            val rulesPath = Paths.get(projectBasePath, RULES_FILE_NAME)
+            // Use configuration manager to create in .zest folder
+            val configManager = ConfigurationManager.getInstance(project)
+            configManager.ensureZestFolderExists()
             
-            if (Files.exists(rulesPath)) {
-                logger.info("$RULES_FILE_NAME already exists")
+            // Check if already exists in new location
+            val existingContent = configManager.readZestConfigFile(NEW_RULES_FILE_NAME)
+            if (existingContent != null) {
+                logger.info("Rules file already exists in .zest folder")
                 return false
             }
             
-            // Create the file with default content
-            Files.write(rulesPath, DEFAULT_RULES_HEADER.toByteArray())
-            
-            // Refresh the VFS to make the file visible in the IDE
-            VirtualFileManager.getInstance().refreshAndFindFileByNioPath(rulesPath)
-            
-            logger.info("Created default $RULES_FILE_NAME at: $rulesPath")
-            return true
+            // Create with default content
+            return configManager.writeZestConfigFile(NEW_RULES_FILE_NAME, getDefaultRulesContent())
             
         } catch (e: Exception) {
             logger.error("Failed to create default $RULES_FILE_NAME", e)
@@ -183,13 +196,27 @@ You can use this to:
      * Check if rules file exists
      */
     fun rulesFileExists(): Boolean {
-        return findRulesFile() != null
+        // Check new location first
+        val configManager = ConfigurationManager.getInstance(project)
+        val newLocationExists = configManager.readZestConfigFile(NEW_RULES_FILE_NAME) != null
+        
+        // Also check legacy location
+        val legacyExists = findRulesFile() != null
+        
+        return newLocationExists || legacyExists
+    }
+    
+    private fun getDefaultRulesContent(): String {
+        return DEFAULT_RULES_HEADER
     }
     
     /**
      * Get the path to the rules file
      */
     fun getRulesFilePath(): String {
-        return Paths.get(project.basePath ?: "", RULES_FILE_NAME).toString()
+        // Return new location path
+        val configManager = ConfigurationManager.getInstance(project)
+        return configManager.getZestConfigFilePath(NEW_RULES_FILE_NAME)?.toString()
+            ?: Paths.get(project.basePath ?: "", RULES_FILE_NAME).toString()
     }
 }

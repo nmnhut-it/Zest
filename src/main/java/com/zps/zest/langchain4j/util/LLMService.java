@@ -68,7 +68,7 @@ public final class LLMService implements Disposable {
     
     // Custom rules loader
     private ZestRulesLoader rulesLoader;
-    private boolean applyCustomRulesToAllPrompts = false;
+    private boolean applyCustomRulesToAllPrompts = true;
 
     public LLMService(@NotNull Project project) {
         this.project = project;

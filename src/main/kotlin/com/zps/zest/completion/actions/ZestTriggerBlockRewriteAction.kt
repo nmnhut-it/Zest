@@ -4,17 +4,20 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.components.JBTextArea
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.zps.zest.completion.ZestMethodRewriteService
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
+import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
 import java.awt.*
 import java.awt.event.KeyEvent
 import java.awt.event.KeyListener
@@ -25,11 +28,13 @@ import javax.swing.*
  * Hybrid approach: Dialog for user choice, status bar for progress updates
  */
 class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPriority {
-    private val logger = Logger.getInstance(ZestTriggerBlockRewriteAction::class.java)
+    companion object {
+        private val logger = Logger.getInstance(ZestTriggerBlockRewriteAction::class.java)
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
-        val project = e.getRequiredData(CommonDataKeys.PROJECT)
-        val editor = e.getRequiredData(CommonDataKeys.EDITOR)
+        val project = e.project ?: return
+        val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val methodRewriteService = project.serviceOrNull<ZestMethodRewriteService>()
 
         if (methodRewriteService == null) {
@@ -127,12 +132,16 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
     ) : DialogWrapper(project) {
 
         private val inputField = JBTextField()
+        private val customTextArea = JBTextArea()
         private var isCustomMode = false
         private var currentSelection = 0
+        private var isShiftPressed = false
 
         // Context-aware options
-        private val options = generateContextOptions()
-        private val optionLabels = mutableListOf<JLabel>()
+        private val builtInOptions = generateContextOptions()
+        private val customPrompts = ZestCustomPromptsLoader.getInstance(project).loadCustomPrompts()
+        private val builtInLabels = mutableListOf<JLabel>()
+        private val customLabels = mutableListOf<JLabel>()
 
         init {
             title = "Block Rewrite - Choose Instruction"
@@ -140,11 +149,49 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
             init()
 
             setupKeyListener()
+            setupCustomTextArea()
 
             // Focus the input field
             SwingUtilities.invokeLater {
                 inputField.requestFocusInWindow()
             }
+        }
+        
+        private fun setupCustomTextArea() {
+            customTextArea.lineWrap = true
+            customTextArea.wrapStyleWord = true
+            customTextArea.rows = 3
+            customTextArea.columns = 50
+            customTextArea.border = JBUI.Borders.empty(5)
+            
+            // Add key listener for custom text area
+            customTextArea.addKeyListener(object : KeyListener {
+                override fun keyTyped(e: KeyEvent) {}
+                
+                override fun keyPressed(e: KeyEvent) {
+                    when (e.keyCode) {
+                        KeyEvent.VK_ENTER -> {
+                            if (e.isControlDown) {
+                                // Ctrl+Enter to submit
+                                val customInstruction = customTextArea.text.trim()
+                                if (customInstruction.isNotEmpty()) {
+                                    saveAsCustomPrompt(customInstruction)
+                                    executeSelectionAndClose(customInstruction)
+                                }
+                                e.consume()
+                            }
+                            // Regular Enter adds new line (default behavior)
+                        }
+                        
+                        KeyEvent.VK_ESCAPE -> {
+                            close(CANCEL_EXIT_CODE)
+                            e.consume()
+                        }
+                    }
+                }
+                
+                override fun keyReleased(e: KeyEvent) {}
+            })
         }
 
         private fun setupKeyListener() {
@@ -152,10 +199,20 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                 override fun keyTyped(e: KeyEvent) {
                     val char = e.keyChar
                     when {
-                        char.isDigit() && char in '1'..'3' && !isCustomMode -> {
-                            // Quick selection - execute and close dialog immediately
+                        char.isDigit() && char in '1'..'3' && !isCustomMode && !isShiftPressed -> {
+                            // Quick selection for built-in prompts
                             val optionIndex = char.toString().toInt() - 1
-                            executeSelectionAndClose(options[optionIndex].instruction)
+                            if (optionIndex < builtInOptions.size) {
+                                executeSelectionAndClose(builtInOptions[optionIndex].instruction)
+                            }
+                        }
+                        
+                        char.isDigit() && char in '1'..'9' && !isCustomMode && isShiftPressed -> {
+                            // Quick selection for custom prompts
+                            val customPrompt = customPrompts.find { it.shortcut == char.toString().toInt() }
+                            if (customPrompt != null) {
+                                executeSelectionAndClose(customPrompt.prompt)
+                            }
                         }
 
                         char.code == 27 -> {
@@ -165,44 +222,46 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
 
                         !char.isDigit() && char.code >= 32 && char != '\n' && char != '\r' && !isCustomMode -> {
                             // Switch to custom mode
-                            switchToCustomMode()
-                            inputField.text = char.toString()
+                            switchToCustomMode(char.toString())
                         }
                     }
                 }
 
                 override fun keyPressed(e: KeyEvent) {
+                    // Track shift key state
+                    if (e.keyCode == KeyEvent.VK_SHIFT) {
+                        isShiftPressed = true
+                        updateHighlighting()
+                    }
+                    
                     if (!isCustomMode) {
                         when (e.keyCode) {
                             KeyEvent.VK_UP -> {
-                                currentSelection = (currentSelection - 1 + options.size) % options.size
+                                currentSelection = if (!isShiftPressed) {
+                                    (currentSelection - 1 + builtInOptions.size) % builtInOptions.size
+                                } else {
+                                    // Navigate custom prompts
+                                    (currentSelection - 1 + customPrompts.size) % customPrompts.size
+                                }
                                 updateHighlighting()
                                 e.consume()
                             }
 
                             KeyEvent.VK_DOWN -> {
-                                currentSelection = (currentSelection + 1) % options.size
+                                currentSelection = if (!isShiftPressed) {
+                                    (currentSelection + 1) % builtInOptions.size
+                                } else {
+                                    (currentSelection + 1) % customPrompts.size
+                                }
                                 updateHighlighting()
                                 e.consume()
                             }
 
                             KeyEvent.VK_ENTER -> {
-                                executeSelectionAndClose(options[currentSelection].instruction)
-                                e.consume()
-                            }
-
-                            KeyEvent.VK_ESCAPE -> {
-                                close(CANCEL_EXIT_CODE)
-                                e.consume()
-                            }
-                        }
-                    } else {
-                        // In custom mode
-                        when (e.keyCode) {
-                            KeyEvent.VK_ENTER -> {
-                                val customInstruction = inputField.text.trim()
-                                if (customInstruction.isNotEmpty()) {
-                                    executeSelectionAndClose(customInstruction)
+                                if (!isShiftPressed && currentSelection < builtInOptions.size) {
+                                    executeSelectionAndClose(builtInOptions[currentSelection].instruction)
+                                } else if (isShiftPressed && currentSelection < customPrompts.size) {
+                                    executeSelectionAndClose(customPrompts[currentSelection].prompt)
                                 }
                                 e.consume()
                             }
@@ -212,10 +271,23 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                                 e.consume()
                             }
                         }
+                    } else {
+                        // In custom mode - only handle escape, text area has its own handler
+                        when (e.keyCode) {
+                            KeyEvent.VK_ESCAPE -> {
+                                close(CANCEL_EXIT_CODE)
+                                e.consume()
+                            }
+                        }
                     }
                 }
 
-                override fun keyReleased(e: KeyEvent) {}
+                override fun keyReleased(e: KeyEvent) {
+                    if (e.keyCode == KeyEvent.VK_SHIFT) {
+                        isShiftPressed = false
+                        updateHighlighting()
+                    }
+                }
             })
         }
 
@@ -235,41 +307,94 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
 
             return when {
                 isEmptyOrMinimalMethod(methodContent) -> listOf(
-                    RewriteOption("🚀", "Implement method (recommended)", "Implement this ${methodContext.methodName} method with proper functionality"),
-                    RewriteOption("📝", "Add logging & monitoring", "Add logging and debug statements to track execution"),
-                    RewriteOption("🛡️", "Add error handling & validation", "Add input validation and error handling")
+                    RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
+                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
+                    RewriteOption("", "Add error handling", "Add input validation and error handling")
                 )
 
                 hasTodoComment(methodContent) -> {
                     val todoText = extractTodoText(methodContent)
                     val todoInstruction = if (todoText.isNotEmpty()) "Implement the TODO: $todoText" else "Implement the TODO functionality"
                     listOf(
-                        RewriteOption("✅", "Implement TODO (recommended)", todoInstruction),
-                        RewriteOption("📝", "Add logging & monitoring", "Add logging and debug statements"),
-                        RewriteOption("🛡️", "Add error handling & validation", "Add input validation and error handling")
+                        RewriteOption("", "Implement TODO", todoInstruction),
+                        RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
+                        RewriteOption("", "Add error handling", "Add input validation and error handling")
                     )
                 }
 
                 isComplexMethod(methodContent) -> listOf(
-                    RewriteOption("🔧", "Refactor & simplify (recommended)", "Refactor this method for better readability and maintainability"),
-                    RewriteOption("📝", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("📈", "Optimize performance", "Optimize this method for better performance")
+                    RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
+                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
+                    RewriteOption("", "Optimize performance", "Optimize this method for better performance")
                 )
 
                 else -> listOf(
-                    RewriteOption("🚀", "Improve method (recommended)", "Improve code quality, readability, and add proper error handling"),
-                    RewriteOption("📝", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("🛡️", "Add error handling & validation", "Add input validation and error handling")
+                    RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
+                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
+                    RewriteOption("", "Add error handling", "Add input validation and error handling")
                 )
             }
         }
 
-        private fun switchToCustomMode() {
+        private fun switchToCustomMode(initialText: String = "") {
             isCustomMode = true
+            customTextArea.text = initialText
             refreshDialog()
 
             SwingUtilities.invokeLater {
-                inputField.requestFocusInWindow()
+                customTextArea.requestFocusInWindow()
+                // Position cursor at the end
+                customTextArea.caretPosition = customTextArea.text.length
+            }
+        }
+        
+        /**
+         * Save custom prompt to available slots
+         */
+        private fun saveAsCustomPrompt(instruction: String) {
+            try {
+                val customPromptsLoader = ZestCustomPromptsLoader.getInstance(project)
+                val existingPrompts = customPromptsLoader.loadCustomPrompts()
+                
+                // Find the next available slot (1-9)
+                val usedSlots = existingPrompts.map { it.shortcut }.toSet()
+                val nextSlot = (1..9).firstOrNull { it !in usedSlots }
+                
+                if (nextSlot != null) {
+                    // Generate a title from the instruction (first few words)
+                    val title = generateTitleFromInstruction(instruction)
+                    
+                    // Save the custom prompt
+                    val success = customPromptsLoader.saveCustomPrompt(nextSlot, title, instruction)
+                    if (success) {
+                        logger.info("Saved custom prompt to slot $nextSlot: $title")
+                    }
+                } else {
+                    // All slots occupied, replace the last one (slot 9)
+                    val title = generateTitleFromInstruction(instruction)
+                    val success = customPromptsLoader.saveCustomPrompt(9, title, instruction)
+                    if (success) {
+                        logger.info("Replaced custom prompt in slot 9: $title")
+                    }
+                }
+            } catch (e: Exception) {
+                logger.error("Failed to save custom prompt", e)
+            }
+        }
+        
+        /**
+         * Generate a short title from the instruction
+         */
+        private fun generateTitleFromInstruction(instruction: String): String {
+            val words = instruction.split("\\s+".toRegex()).take(4)
+            var title = words.joinToString(" ")
+            if (title.length > 30) {
+                title = title.substring(0, 30) + "..."
+            }
+            return if (title.isNotEmpty()) {
+                title.first().uppercase() + title.drop(1)
+            } else {
+                title
             }
         }
 
@@ -291,23 +416,32 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
          * Update visual highlighting for the currently selected option
          */
         private fun updateHighlighting() {
-            val defaultTextColor = UIManager.getColor("Label.foreground") ?: Color.BLACK
-            val highlightColor = Color(0, 150, 0)
+            val defaultTextColor = UIManager.getColor("Label.foreground") ?: JBColor.BLACK
 
-            optionLabels.forEachIndexed { index, label ->
-                if (index == currentSelection) {
-                    label.foreground = highlightColor
+            // Update built-in options
+            builtInLabels.forEachIndexed { index, label ->
+                if (!isShiftPressed && index == currentSelection) {
                     label.font = label.font.deriveFont(Font.BOLD)
                 } else {
-                    label.foreground = defaultTextColor
                     label.font = label.font.deriveFont(Font.PLAIN)
                 }
+                label.foreground = defaultTextColor
+            }
+            
+            // Update custom options
+            customLabels.forEachIndexed { index, label ->
+                if (isShiftPressed && index == currentSelection) {
+                    label.font = label.font.deriveFont(Font.BOLD)
+                } else {
+                    label.font = label.font.deriveFont(Font.PLAIN)
+                }
+                label.foreground = defaultTextColor
             }
         }
 
         override fun createCenterPanel(): JComponent {
             val panel = JPanel(BorderLayout())
-            panel.preferredSize = Dimension(520, 220)
+            panel.preferredSize = Dimension(720, 280)
 
             // Header
             val headerPanel = JPanel(BorderLayout())
@@ -315,15 +449,24 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
             val headerLabel = JLabel(methodInfo)
             headerLabel.font = headerLabel.font.deriveFont(Font.BOLD)
 
-            if (!isCustomMode && options.isNotEmpty()) {
-                val selectionInfo = JLabel("Selected: ${options[currentSelection].title}")
-                selectionInfo.font = selectionInfo.font.deriveFont(Font.ITALIC, 11f)
-                selectionInfo.foreground = Color(0, 150, 0)
-                headerPanel.add(selectionInfo, BorderLayout.SOUTH)
+            if (!isCustomMode) {
+                val selectionText = if (isShiftPressed && customPrompts.isNotEmpty()) {
+                    "Custom: ${customPrompts.getOrNull(currentSelection)?.title ?: ""}"
+                } else if (builtInOptions.isNotEmpty()) {
+                    "Built-in: ${builtInOptions.getOrNull(currentSelection)?.title ?: ""}"
+                } else {
+                    ""
+                }
+                
+                if (selectionText.isNotEmpty()) {
+                    val selectionInfo = JLabel(selectionText)
+                    selectionInfo.font = selectionInfo.font.deriveFont(Font.BOLD)
+                    headerPanel.add(selectionInfo, BorderLayout.SOUTH)
+                }
             }
 
             headerPanel.add(headerLabel, BorderLayout.CENTER)
-            headerPanel.border = JBUI.Borders.empty(0, 0, 10, 0)
+            headerPanel.border = JBUI.Borders.emptyBottom(10)
             panel.add(headerPanel, BorderLayout.NORTH)
 
             if (isCustomMode) {
@@ -336,70 +479,157 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
         }
 
         private fun createOptionsPanel(): JComponent {
-            val panel = JPanel()
-            panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
-
-            optionLabels.clear()
-
-            options.forEachIndexed { index, option ->
-                val optionPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-                val label = JLabel("${index + 1}. ${option.icon} ${option.title}")
+            val mainPanel = JPanel(BorderLayout())
+            
+            // Create two-column layout
+            val columnsPanel = JPanel(GridLayout(1, 2, 20, 0))
+            columnsPanel.border = JBUI.Borders.empty(5)
+            
+            // Left column - Built-in prompts
+            val leftPanel = JPanel()
+            leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
+            leftPanel.border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(JBColor.LIGHT_GRAY, 1),
+                JBUI.Borders.empty(10)
+            )
+            
+            val leftHeader = JLabel("Built-in Prompts (1-3)")
+            leftHeader.font = leftHeader.font.deriveFont(Font.BOLD, 14f)
+            leftHeader.alignmentX = Component.LEFT_ALIGNMENT
+            leftPanel.add(leftHeader)
+            leftPanel.add(Box.createVerticalStrut(10))
+            
+            builtInLabels.clear()
+            builtInOptions.forEachIndexed { index, option ->
+                val label = JLabel("${index + 1}. ${option.title}")
                 label.font = label.font.deriveFont(Font.PLAIN, 13f)
-                optionLabels.add(label)
-                optionPanel.add(label)
-                panel.add(optionPanel)
+                label.alignmentX = Component.LEFT_ALIGNMENT
+                builtInLabels.add(label)
+                leftPanel.add(label)
+                leftPanel.add(Box.createVerticalStrut(5))
             }
-
-            updateHighlighting()
-
-            panel.add(Box.createVerticalStrut(10))
-
-            val instructionLabel = JLabel("Press 1-3, Enter for highlighted option, or type custom:")
-            instructionLabel.font = instructionLabel.font.deriveFont(Font.ITALIC, 11f)
-            instructionLabel.foreground = Color.GRAY
-            val instructionPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-            instructionPanel.add(instructionLabel)
-            panel.add(instructionPanel)
-
-            // Add note about status bar progress
+            
+            // Right column - Custom prompts
+            val rightPanel = JPanel()
+            rightPanel.layout = BoxLayout(rightPanel, BoxLayout.Y_AXIS)
+            rightPanel.border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(JBColor.LIGHT_GRAY, 1),
+                JBUI.Borders.empty(10)
+            )
+            
+            val rightHeader = JLabel("Custom Prompts (Shift+1-9)")
+            rightHeader.font = rightHeader.font.deriveFont(Font.BOLD, 14f)
+            rightHeader.alignmentX = Component.LEFT_ALIGNMENT
+            rightPanel.add(rightHeader)
+            rightPanel.add(Box.createVerticalStrut(10))
+            
+            customLabels.clear()
+            if (customPrompts.isEmpty()) {
+                val emptyLabel = JLabel("No custom prompts defined")
+                emptyLabel.font = emptyLabel.font.deriveFont(Font.ITALIC)
+                emptyLabel.foreground = JBColor.GRAY
+                emptyLabel.alignmentX = Component.LEFT_ALIGNMENT
+                rightPanel.add(emptyLabel)
+            } else {
+                customPrompts.forEach { prompt ->
+                    val label = JLabel("⇧${prompt.shortcut}. ${prompt.title}")
+                    label.font = label.font.deriveFont(Font.PLAIN, 13f)
+                    label.alignmentX = Component.LEFT_ALIGNMENT
+                    customLabels.add(label)
+                    rightPanel.add(label)
+                    rightPanel.add(Box.createVerticalStrut(5))
+                }
+            }
+            
+            columnsPanel.add(leftPanel)
+            columnsPanel.add(rightPanel)
+            mainPanel.add(columnsPanel, BorderLayout.CENTER)
+            
+            // Bottom instructions
+            val bottomPanel = JPanel()
+            bottomPanel.layout = BoxLayout(bottomPanel, BoxLayout.Y_AXIS)
+            bottomPanel.border = JBUI.Borders.empty(10, 5, 0, 5)
+            
+            val instructionLabel = JLabel("Press number for built-in, Shift+number for custom, or type your own prompt")
+            instructionLabel.font = instructionLabel.font.deriveFont(Font.PLAIN, 11f)
+            instructionLabel.foreground = JBColor.GRAY
+            instructionLabel.alignmentX = Component.CENTER_ALIGNMENT
+            bottomPanel.add(instructionLabel)
+            
+            bottomPanel.add(Box.createVerticalStrut(5))
+            
             val progressNote = JLabel("Progress will be shown in the status bar →")
             progressNote.font = progressNote.font.deriveFont(Font.ITALIC, 10f)
-            progressNote.foreground = Color(0, 100, 200)
-            val progressPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-            progressPanel.add(progressNote)
-            panel.add(progressPanel)
-
+            progressNote.foreground = JBColor(0x0064C8, 0x4A90E2)
+            progressNote.alignmentX = Component.CENTER_ALIGNMENT
+            bottomPanel.add(progressNote)
+            
+            mainPanel.add(bottomPanel, BorderLayout.SOUTH)
+            
+            updateHighlighting()
+            
+            // Hidden input field for capturing keystrokes
             inputField.isOpaque = false
             inputField.border = null
             inputField.preferredSize = Dimension(1, 1)
-            panel.add(inputField)
-
-            return panel
+            bottomPanel.add(inputField)
+            
+            return mainPanel
         }
 
         private fun createCustomPanel(): JComponent {
             val panel = JPanel(BorderLayout())
+            panel.preferredSize = Dimension(600, 200)
 
+            val headerPanel = JPanel()
+            headerPanel.layout = BoxLayout(headerPanel, BoxLayout.Y_AXIS)
+            
             val label = JLabel("Custom instruction:")
-            panel.add(label, BorderLayout.NORTH)
+            label.font = label.font.deriveFont(Font.BOLD)
+            headerPanel.add(label)
+            headerPanel.add(Box.createVerticalStrut(5))
+            
+            val infoLabel = JLabel("Type your custom instruction (will be saved for future use)")
+            infoLabel.font = infoLabel.font.deriveFont(Font.ITALIC, 11f)
+            infoLabel.foreground = JBColor.GRAY
+            headerPanel.add(infoLabel)
+            
+            panel.add(headerPanel, BorderLayout.NORTH)
 
-            inputField.isOpaque = true
-            inputField.border = JBUI.Borders.compound(JBUI.Borders.empty(5, 0), inputField.border)
-            inputField.preferredSize = Dimension(400, 30)
-            panel.add(inputField, BorderLayout.CENTER)
+            // Use text area with scroll pane for better text wrapping
+            val scrollPane = JBScrollPane(customTextArea)
+            scrollPane.preferredSize = Dimension(580, 100)
+            scrollPane.border = JBUI.Borders.compound(
+                JBUI.Borders.empty(5, 0),
+                JBUI.Borders.customLine(JBColor.LIGHT_GRAY, 1)
+            )
+            panel.add(scrollPane, BorderLayout.CENTER)
 
             val tipPanel = JPanel()
             tipPanel.layout = BoxLayout(tipPanel, BoxLayout.Y_AXIS)
+            tipPanel.border = JBUI.Borders.emptyTop(10)
 
-            val tipLabel = JLabel("Press Enter to apply")
+            val tipLabel = JLabel("Ctrl+Enter to apply, Escape to cancel")
             tipLabel.font = tipLabel.font.deriveFont(Font.ITALIC, 11f)
-            tipLabel.foreground = Color.GRAY
+            tipLabel.foreground = JBColor.GRAY
+            tipLabel.alignmentX = Component.CENTER_ALIGNMENT
             tipPanel.add(tipLabel)
+            
+            tipPanel.add(Box.createVerticalStrut(3))
 
             val progressNote = JLabel("Progress will be shown in the status bar")
             progressNote.font = progressNote.font.deriveFont(Font.ITALIC, 10f)
-            progressNote.foreground = Color(0, 100, 200)
+            progressNote.foreground = JBColor(0x0064C8, 0x4A90E2)
+            progressNote.alignmentX = Component.CENTER_ALIGNMENT
             tipPanel.add(progressNote)
+            
+            tipPanel.add(Box.createVerticalStrut(3))
+            
+            val saveNote = JLabel("Custom prompts are automatically saved for future use")
+            saveNote.font = saveNote.font.deriveFont(Font.ITALIC, 9f)
+            saveNote.foreground = JBColor(0x007800, 0x6BA644)
+            saveNote.alignmentX = Component.CENTER_ALIGNMENT
+            tipPanel.add(saveNote)
 
             panel.add(tipPanel, BorderLayout.SOUTH)
 

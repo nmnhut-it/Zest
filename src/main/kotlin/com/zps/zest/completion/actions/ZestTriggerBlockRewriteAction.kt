@@ -139,7 +139,9 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
 
         // Context-aware options
         private val builtInOptions = generateContextOptions()
-        private val customPrompts = ZestCustomPromptsLoader.getInstance(project).loadCustomPrompts()
+        private val customPrompts = ZestCustomPromptsLoader.getInstance(project).loadCustomPrompts().also { prompts ->
+            println("[DEBUG] Loaded ${prompts.size} custom prompts: ${prompts.map { "${it.shortcut}: ${it.title}" }}")
+        }
         private val builtInLabels = mutableListOf<JLabel>()
         private val customLabels = mutableListOf<JLabel>()
 
@@ -199,22 +201,6 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                 override fun keyTyped(e: KeyEvent) {
                     val char = e.keyChar
                     when {
-                        char.isDigit() && char in '1'..'3' && !isCustomMode && !isShiftPressed -> {
-                            // Quick selection for built-in prompts
-                            val optionIndex = char.toString().toInt() - 1
-                            if (optionIndex < builtInOptions.size) {
-                                executeSelectionAndClose(builtInOptions[optionIndex].instruction)
-                            }
-                        }
-                        
-                        char.isDigit() && char in '1'..'9' && !isCustomMode && isShiftPressed -> {
-                            // Quick selection for custom prompts
-                            val customPrompt = customPrompts.find { it.shortcut == char.toString().toInt() }
-                            if (customPrompt != null) {
-                                executeSelectionAndClose(customPrompt.prompt)
-                            }
-                        }
-
                         char.code == 27 -> {
                             // Escape pressed
                             close(CANCEL_EXIT_CODE)
@@ -236,8 +222,34 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                     
                     if (!isCustomMode) {
                         when (e.keyCode) {
+                            // Handle number keys for quick selection
+                            KeyEvent.VK_1, KeyEvent.VK_2, KeyEvent.VK_3, KeyEvent.VK_4, KeyEvent.VK_5,
+                            KeyEvent.VK_6, KeyEvent.VK_7, KeyEvent.VK_8, KeyEvent.VK_9 -> {
+                                val numberPressed = (e.keyCode - KeyEvent.VK_0)
+                                
+                                if (e.isShiftDown && numberPressed in 1..9) {
+                                    // Shift+number for custom prompts
+                                    println("[DEBUG] Shift+$numberPressed pressed, looking for custom prompt")
+                                    val customPrompt = customPrompts.find { it.shortcut == numberPressed }
+                                    if (customPrompt != null) {
+                                        println("[DEBUG] Found custom prompt: ${customPrompt.title}")
+                                        executeSelectionAndClose(customPrompt.prompt)
+                                        e.consume()
+                                    } else {
+                                        println("[DEBUG] No custom prompt found for shortcut $numberPressed")
+                                    }
+                                } else if (!e.isShiftDown && numberPressed in 1..3) {
+                                    // Regular number for built-in prompts
+                                    val optionIndex = numberPressed - 1
+                                    if (optionIndex < builtInOptions.size) {
+                                        executeSelectionAndClose(builtInOptions[optionIndex].instruction)
+                                        e.consume()
+                                    }
+                                }
+                            }
+                            
                             KeyEvent.VK_UP -> {
-                                currentSelection = if (!isShiftPressed) {
+                                currentSelection = if (!e.isShiftDown) {
                                     (currentSelection - 1 + builtInOptions.size) % builtInOptions.size
                                 } else {
                                     // Navigate custom prompts
@@ -248,7 +260,7 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                             }
 
                             KeyEvent.VK_DOWN -> {
-                                currentSelection = if (!isShiftPressed) {
+                                currentSelection = if (!e.isShiftDown) {
                                     (currentSelection + 1) % builtInOptions.size
                                 } else {
                                     (currentSelection + 1) % customPrompts.size
@@ -258,9 +270,9 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                             }
 
                             KeyEvent.VK_ENTER -> {
-                                if (!isShiftPressed && currentSelection < builtInOptions.size) {
+                                if (!e.isShiftDown && currentSelection < builtInOptions.size) {
                                     executeSelectionAndClose(builtInOptions[currentSelection].instruction)
-                                } else if (isShiftPressed && currentSelection < customPrompts.size) {
+                                } else if (e.isShiftDown && currentSelection < customPrompts.size) {
                                     executeSelectionAndClose(customPrompts[currentSelection].prompt)
                                 }
                                 e.consume()

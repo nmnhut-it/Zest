@@ -2,6 +2,7 @@ package com.zps.zest.codehealth.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.icons.AllIcons
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
@@ -27,6 +28,8 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import javax.swing.SwingUtilities
+import javax.swing.Timer
 
 /**
  * Panel for Code Guardian tool window with full and condensed modes
@@ -42,9 +45,13 @@ class CodeGuardianReportPanel(
     private var isCondensedMode = false
     private var mainContent: JComponent? = null
     private var todayResults: List<CodeHealthAnalyzer.MethodHealthResult>? = null
+    private var isRefreshing = false
+    private var lastStableWidth = 0
     
     // Width threshold for auto-switching to condensed mode
     private val CONDENSED_MODE_THRESHOLD = 400
+    // Hysteresis to prevent rapid switching - made larger to prevent boundary issues
+    private val HYSTERESIS = 50
     
     init {
         setupUI()
@@ -72,15 +79,46 @@ class CodeGuardianReportPanel(
     }
     
     private fun setupAutoResizeListener() {
-        addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) {
-                val shouldBeCondensed = width < CONDENSED_MODE_THRESHOLD && width > 0
-                if (shouldBeCondensed != isCondensedMode) {
-                    isCondensedMode = shouldBeCondensed
-                    refreshContent()
-                }
+        // Initialize with current width
+        lastStableWidth = width
+        
+        // Use a single timer that checks periodically
+        val checkTimer = Timer(300) { _ ->
+            if (!isRefreshing && isShowing) {
+                checkAndUpdateMode()
             }
-        })
+        }
+        checkTimer.start()
+        
+        // Store timer reference for cleanup if needed
+        putClientProperty("resizeCheckTimer", checkTimer)
+    }
+    
+    private fun checkAndUpdateMode() {
+        val currentWidth = width
+        if (currentWidth <= 0) return
+        
+        // Don't check if we're still initializing
+        if (lastStableWidth == 0) {
+            lastStableWidth = currentWidth
+            return
+        }
+        
+        // Only consider switching if width crossed the threshold significantly
+        val crossedThreshold = when {
+            isCondensedMode && currentWidth > (CONDENSED_MODE_THRESHOLD + 50) -> true // Need to be much wider to switch to full
+            !isCondensedMode && currentWidth < (CONDENSED_MODE_THRESHOLD - 50) -> true // Need to be much narrower to switch to condensed
+            else -> false
+        }
+        
+        if (crossedThreshold) {
+            val newMode = currentWidth < CONDENSED_MODE_THRESHOLD
+            println("[CodeGuardian] Switching mode: $isCondensedMode -> $newMode at width $currentWidth")
+            
+            lastStableWidth = currentWidth
+            isCondensedMode = newMode
+            refreshContent()
+        }
     }
     
     private fun createToolbar(): JComponent {
@@ -99,7 +137,7 @@ class CodeGuardianReportPanel(
         val actionGroup = DefaultActionGroup()
         
         // Refresh action
-        actionGroup.add(object : AnAction("Refresh", "Refresh health report", null) {
+        actionGroup.add(object : AnAction("Refresh", "Refresh health report", com.intellij.icons.AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
                 Messages.showInfoMessage(project, "Refreshing analysis...", "Code Guardian")
                 // TODO: Trigger actual refresh
@@ -110,7 +148,7 @@ class CodeGuardianReportPanel(
         actionGroup.add(object : ToggleAction(
             if (isCondensedMode) "Expand View" else "Compact View",
             "Toggle between full and condensed view",
-            null
+            com.intellij.icons.AllIcons.Actions.PreviewDetails
         ) {
             override fun isSelected(e: AnActionEvent): Boolean = !isCondensedMode
             
@@ -132,19 +170,29 @@ class CodeGuardianReportPanel(
     }
     
     private fun refreshContent() {
-        // Remove old content
-        mainContent?.let { remove(it) }
+        // Set flag to prevent recursive refreshes
+        isRefreshing = true
         
-        // Create new content based on mode
-        mainContent = if (isCondensedMode) {
-            createCondensedContent()
-        } else {
-            createFullContent()
+        try {
+            // Remove old content
+            mainContent?.let { remove(it) }
+            
+            // Create new content based on mode
+            mainContent = if (isCondensedMode) {
+                createCondensedContent()
+            } else {
+                createFullContent()
+            }
+            
+            add(mainContent!!, BorderLayout.CENTER)
+            revalidate()
+            repaint()
+        } finally {
+            // Use invokeLater to ensure layout is complete before clearing flag
+            SwingUtilities.invokeLater {
+                isRefreshing = false
+            }
         }
-        
-        add(mainContent!!, BorderLayout.CENTER)
-        revalidate()
-        repaint()
     }
     
     private fun createFullContent(): JComponent {
@@ -190,7 +238,14 @@ class CodeGuardianReportPanel(
     private fun createCondensedContent(): JComponent {
         val condensedPanel = JPanel(BorderLayout())
         
-        // Try to get today's data first
+        // First check for Git-triggered report (most recent)
+        val gitTriggeredData = storage.getGitTriggeredReport()
+        if (gitTriggeredData != null) {
+            val gitDate = storage.getGitTriggeredReportDate() ?: "Latest"
+            return createGitCommitPanel(gitDate, gitTriggeredData, true) // Pass condensed=true
+        }
+        
+        // Try to get today's data
         val today = LocalDate.now()
         var reportDate = today
         var reportData = todayResults ?: storage.getReportForDate(today)
@@ -260,16 +315,16 @@ class CodeGuardianReportPanel(
         return panel
     }
     
-    private fun createGitCommitPanel(dateString: String, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+    private fun createGitCommitPanel(dateString: String, results: List<CodeHealthAnalyzer.MethodHealthResult>, condensed: Boolean = false): JComponent {
         val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
         
         // Header with summary
-        val headerPanel = createGitCommitHeader(dateString, results)
+        val headerPanel = if (condensed) createCondensedGitCommitHeader(dateString, results) else createGitCommitHeader(dateString, results)
         panel.add(headerPanel, BorderLayout.NORTH)
         
         // Issues list with proper scrolling
-        val issuesPanel = createFullIssuesPanel(results)
+        val issuesPanel = if (condensed) createCondensedIssuesPanel(results) else createFullIssuesPanel(results)
         
         // Create scroll pane with vertical scrolling only
         val scrollPane = JBScrollPane(issuesPanel)
@@ -375,6 +430,31 @@ class CodeGuardianReportPanel(
         val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
         
         val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, false)
+        summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(summaryPanel)
+        
+        return panel
+    }
+    
+    private fun createCondensedGitCommitHeader(dateString: String, results: List<CodeHealthAnalyzer.MethodHealthResult>): JComponent {
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.border = EmptyBorder(10, 10, 10, 10)
+        panel.background = UIUtil.getPanelBackground()
+        
+        // Compact title
+        val titleLabel = JBLabel("🚀 Git Commit Review")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
+        titleLabel.alignmentX = Component.LEFT_ALIGNMENT
+        panel.add(titleLabel)
+        panel.add(Box.createVerticalStrut(5))
+        
+        // Compact summary
+        val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        val criticalCount = realIssues.count { it.severity >= 4 }
+        val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
+        
+        val summaryPanel = createSummaryPanel(averageScore, results.size, realIssues.size, criticalCount, true)
         summaryPanel.alignmentX = Component.LEFT_ALIGNMENT
         panel.add(summaryPanel)
         
@@ -572,13 +652,14 @@ class CodeGuardianReportPanel(
         gbc.weightx = 1.0
         gbc.anchor = GridBagConstraints.WEST
         gbc.insets = JBUI.insets(0, 0, 0, 10)
-        val methodText = JTextArea(result.fqn)
+        val methodText = JTextArea(formatMethodName(result.fqn))
         methodText.isEditable = false
         methodText.isOpaque = false
         methodText.background = UIUtil.getPanelBackground()
         methodText.font = Font(Font.MONOSPACED, Font.BOLD, 14)
         methodText.lineWrap = true
         methodText.wrapStyleWord = false // Don't break in middle of method names
+        methodText.toolTipText = result.fqn // Show full path on hover
         headerPanel.add(methodText, gbc)
         
         // Button
@@ -636,6 +717,9 @@ class CodeGuardianReportPanel(
         )
         panel.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
         
+        // Set maximum size to prevent expansion
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, 80)
+        
         val gbc = GridBagConstraints()
         gbc.gridy = 0
         gbc.fill = GridBagConstraints.HORIZONTAL
@@ -649,16 +733,17 @@ class CodeGuardianReportPanel(
         leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
         leftPanel.background = panel.background
         
-        // Method name with wrapping
-        val methodArea = JTextArea(result.fqn)
-        methodArea.isEditable = false
-        methodArea.isOpaque = false
-        methodArea.background = panel.background
-        methodArea.font = Font(Font.MONOSPACED, Font.BOLD, 12)
-        methodArea.lineWrap = true
-        methodArea.wrapStyleWord = false // Don't break method names
-        methodArea.rows = 1 // Try to keep it single line if possible
-        leftPanel.add(methodArea)
+        // Method name - use JLabel with ellipsis for overflow instead of wrapping
+        val displayName = formatMethodName(result.fqn)
+        val methodLabel = JBLabel(displayName)
+        methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 12)
+        // Truncate long method names with ellipsis
+        val maxChars = 40
+        if (displayName.length > maxChars) {
+            methodLabel.text = displayName.substring(0, maxChars - 3) + "..."
+            methodLabel.toolTipText = result.fqn // Show full name on hover
+        }
+        leftPanel.add(methodLabel)
         
         // Compact issue info
         val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
@@ -994,6 +1079,27 @@ class CodeGuardianReportPanel(
             appendLine("**Suggested fix:** ${issue.suggestedFix}")
             appendLine()
             appendLine("Please provide the fixed code with explanations of the changes made.")
+        }
+    }
+    
+    private fun formatMethodName(fqn: String): String {
+        // Check if it's a file path (contains : for line numbers or path separators)
+        return if (fqn.contains(":") || fqn.contains("/") || fqn.contains("\\")) {
+            // For file paths, extract just the filename and line info
+            val colonIndex = fqn.lastIndexOf(":")
+            if (colonIndex > 0) {
+                // Has line number info
+                val path = fqn.substring(0, colonIndex)
+                val lineInfo = fqn.substring(colonIndex)
+                val fileName = path.substringAfterLast("/").substringAfterLast("\\")
+                fileName + lineInfo
+            } else {
+                // Just a file path
+                fqn.substringAfterLast("/").substringAfterLast("\\")
+            }
+        } else {
+            // Java method FQN - show package.Class.method
+            fqn
         }
     }
     

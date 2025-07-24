@@ -13,7 +13,6 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.context.ZestMethodContextCollector
-import com.zps.zest.completion.diff.MethodRewriteDiffDialog
 import com.zps.zest.completion.diff.MethodRewriteDiffDialogV2
 import com.zps.zest.gdiff.GDiff
 import java.awt.*

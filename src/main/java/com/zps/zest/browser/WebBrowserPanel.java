@@ -171,11 +171,11 @@ public class WebBrowserPanel implements Disposable {
         // Create navigation buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 
-        JButton refreshButton = new JButton(AllIcons.Actions.Refresh);
-        refreshButton.setToolTipText("Refresh");
-        refreshButton.addActionListener(e -> browserManager.refresh());
+        JButton backToChatButton = new JButton("💬 Back to Chat");
+        backToChatButton.setToolTipText("Return to Chat Interface");
+        backToChatButton.addActionListener(e -> backToChat());
 
-        buttonPanel.add(refreshButton);
+        buttonPanel.add(backToChatButton);
 
         // Mode selection button
         JButton modeButton = new JButton("Mode");
@@ -260,6 +260,16 @@ public class WebBrowserPanel implements Disposable {
         } catch (Exception e) {
             LOG.error("Error loading Git UI", e);
         }
+    }
+    
+    /**
+     * Navigates back to the chat interface
+     */
+    private void backToChat() {
+        // Get the default chat URL from configuration
+        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        LOG.info("Navigating back to chat URL: " + url);
+        browserManager.loadURL(url);
     }
     /**
      * Sets the active browser mode.

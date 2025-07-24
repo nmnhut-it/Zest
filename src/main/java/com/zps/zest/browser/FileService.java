@@ -3,11 +3,7 @@ package com.zps.zest.browser;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.intellij.diff.DiffContentFactory;
-import com.intellij.diff.DiffDialogHints;
-import com.intellij.diff.DiffManager;
-import com.intellij.diff.contents.DocumentContent;
-import com.intellij.diff.requests.SimpleDiffRequest;
+import com.zps.zest.completion.diff.FileDiffDialog;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -17,8 +13,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.zps.zest.tools.AgentTool;
-import com.zps.zest.tools.ReplaceInFileTool;
+import com.zps.zest.langchain4j.tools.impl.ReplaceInFileTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -113,25 +108,23 @@ public class FileService {
             params.addProperty("regex", useRegex);
             params.addProperty("caseSensitive", caseSensitive);
 
-            AgentTool tool = new ReplaceInFileTool(project);
-            if (tool == null) {
-                LOG.error("Could not find replace_in_file tool");
-                return false;
-            }
-
+            ReplaceInFileTool tool = new ReplaceInFileTool(project);
+            
             // Execute the tool
-            String result = tool.execute(params);
+            ReplaceInFileTool.ToolResult result = tool.execute(params);
 
             // Show result asynchronously
             ApplicationManager.getApplication().invokeLater(() -> {
-                Messages.showInfoMessage("Replace in file result: " + result, "Replace in File Result");
+                String message = result.isSuccess() ? result.getContent() : result.getError();
+                Messages.showInfoMessage("Replace in file result: " + message, "Replace in File Result");
             });
 
             // Log the result
-            LOG.info("Replace in file result: " + result);
+            String message = result.isSuccess() ? result.getContent() : result.getError();
+            LOG.info("Replace in file result: " + message);
 
-            // Return success based on whether the result indicates success
-            return !result.startsWith("Error:") && !result.contains("Changes were not applied") && !result.contains("No matches found");
+            // Return success based on the tool result
+            return result.isSuccess();
         } catch (Exception e) {
             LOG.error("Error handling replace in file request", e);
             return false;
@@ -215,50 +208,47 @@ public class FileService {
 
             ApplicationManager.getApplication().invokeLater(() -> {
                 try {
-                    DiffContentFactory diffFactory = DiffContentFactory.getInstance();
-                    DocumentContent leftContent = diffFactory.create(originalContent);
-                    DocumentContent rightContent = diffFactory.create(finalModifiedContent);
-
-                    SimpleDiffRequest diffRequest = new SimpleDiffRequest(
-                            "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
-                            leftContent,
-                            rightContent,
-                            "Original",
-                            "After Replacements"
-                    );
-
-                    DiffManager.getInstance().showDiff(project, diffRequest, DiffDialogHints.MODAL);
-
-                    int option = Messages.showYesNoDialog(
+                    // Use the new FileDiffDialog with Accept/Reject buttons
+                    VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(finalTargetFile.getPath());
+                    
+                    FileDiffDialog.Companion.show(
                             project,
-                            "Apply " + finalTotalReplacementCount + " replacements to " + filePath + "?",
-                            "Confirm Batch Changes",
-                            "Apply",
-                            "Cancel",
-                            Messages.getQuestionIcon()
+                            vFile,
+                            originalContent,
+                            finalModifiedContent,
+                            "Batch Changes to " + finalTargetFile.getName() + " (" + finalTotalReplacementCount + " replacements)",
+                            new kotlin.jvm.functions.Function0<kotlin.Unit>() {
+                                @Override
+                                public kotlin.Unit invoke() {
+                                    // Accept callback - apply changes
+                                    if (vFile == null) {
+                                        LOG.error("Could not find file in virtual file system: " + filePath);
+                                        return kotlin.Unit.INSTANCE;
+                                    }
+
+                                    WriteCommandAction.runWriteCommandAction(project, () -> {
+                                        try {
+                                            vFile.refresh(false, false);
+                                            vFile.setBinaryContent(finalModifiedContent.getBytes(StandardCharsets.UTF_8));
+                                            FileEditorManager.getInstance(project).openFile(vFile, true);
+                                            LOG.info("Batch changes applied successfully");
+                                        } catch (Exception e) {
+                                            LOG.error("Error updating file: " + filePath, e);
+                                        }
+                                    });
+                                    return kotlin.Unit.INSTANCE;
+                                }
+                            },
+                            new kotlin.jvm.functions.Function0<kotlin.Unit>() {
+                                @Override
+                                public kotlin.Unit invoke() {
+                                    // Reject callback - cancel changes
+                                    LOG.info("Batch changes were not applied - discarded by user");
+                                    return kotlin.Unit.INSTANCE;
+                                }
+                            },
+                            true  // showButtons = true
                     );
-
-                    if (option == Messages.YES) {
-                        // Perform file update in write action
-                        VirtualFile vFile =
-                                LocalFileSystem.getInstance().findFileByPath(finalTargetFile.getPath());
-                        if (vFile == null) {
-                            LOG.error("Could not find file in virtual file system: " + filePath);
-                            return;
-                        }
-
-                        WriteCommandAction.runWriteCommandAction(project, () -> {
-                            try {
-                                vFile.refresh(false, false);
-                                vFile.setBinaryContent(finalModifiedContent.getBytes(StandardCharsets.UTF_8));
-                                FileEditorManager.getInstance(project).openFile(vFile, true);
-                            } catch (Exception e) {
-                                LOG.error("Error updating file: " + filePath, e);
-                            }
-                        });
-                    } else {
-                        LOG.info("Batch changes were not applied - discarded by user");
-                    }
                 } catch (Exception e) {
                     LOG.error("Error showing diff dialog", e);
                 }

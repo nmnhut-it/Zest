@@ -264,14 +264,12 @@ public class GitService {
             String cleanedPath = cleanFilePath(filePath, project.getName());
             LOG.info("Cleaned file path for diff: '" + filePath + "' -> '" + cleanedPath + "'");
             
-            // Show the diff in our custom viewer (asynchronously loads the diff content)
-            ApplicationManager.getApplication().invokeLater(() -> {
-                com.zps.zest.diff.GitHubStyleDiffViewer.showDiff(
-                    project, 
-                    cleanedPath, 
-                    status
-                );
-            });
+            // Show the diff in our new FileDiffDialog (asynchronously loads the diff content)
+            com.zps.zest.completion.diff.GitDiffUtil.INSTANCE.showGitDiff(
+                project, 
+                cleanedPath, 
+                status
+            );
             
             JsonObject response = new JsonObject();
             response.addProperty("success", true);

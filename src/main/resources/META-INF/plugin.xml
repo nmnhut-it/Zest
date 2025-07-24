@@ -35,6 +35,9 @@
         <!-- Application-level service for global settings -->
         <applicationService serviceImplementation="com.zps.zest.settings.ZestGlobalSettings"/>
         
+        <!-- Update checker service -->
+        <applicationService serviceImplementation="com.zps.zest.update.ZestUpdateChecker"/>
+        
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <projectService serviceImplementation="com.zps.zest.settings.PromptMigrationService"/>
@@ -99,6 +102,7 @@
 
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
         <notificationGroup id="Zest Completion Debug" displayType="BALLOON" isLogByDefault="false"/>
+        <notificationGroup id="Zest Updates" displayType="BALLOON" isLogByDefault="false"/>
 
         <intentionAction>
             <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>

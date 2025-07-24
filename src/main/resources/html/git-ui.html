@@ -89,6 +89,14 @@
         .file-item:hover {
             border-color: #3b82f6;
             transform: translateX(2px);
+            cursor: pointer;
+        }
+        
+        .file-item:hover .file-name::after {
+            content: ' (click to view diff)';
+            font-size: 11px;
+            color: #3b82f6;
+            font-weight: normal;
         }
         
         .file-status {
@@ -205,6 +213,22 @@
             resize: none;
             outline: none;
             transition: border-color 0.2s;
+            min-height: 100px;
+        }
+        
+        .commit-message.streaming {
+            border-color: #3b82f6;
+            background: linear-gradient(90deg, 
+                rgba(59, 130, 246, 0.05) 0%, 
+                rgba(59, 130, 246, 0.1) 50%, 
+                rgba(59, 130, 246, 0.05) 100%);
+            background-size: 200% 100%;
+            animation: streaming 2s ease-in-out infinite;
+        }
+        
+        @keyframes streaming {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
         
         .dark .commit-message {
@@ -335,9 +359,6 @@
             <div style="display: flex; gap: 10px;">
                 <button class="btn btn-secondary" onclick="GitUI.refreshFiles()">
                     <span>🔄</span> Refresh
-                </button>
-                <button class="btn btn-secondary" onclick="GitUI.showGitCommit()">
-                    <span>📝</span> Git Commit
                 </button>
                 <button class="btn btn-primary" onclick="GitUI.showQuickCommit()">
                     <span>⚡</span> Quick Commit
@@ -503,22 +524,78 @@
             files: [],
             
             init: function() {
+                // Notify IntelliJ that Git UI is ready
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('contentUpdated', {
+                        url: window.location.href,
+                        type: 'git-ui-ready'
+                    }).catch(e => console.warn('Failed to notify content update:', e));
+                }
                 this.loadFiles();
             },
             
             loadFiles: function() {
+                console.log('Loading git files...');
+                const container = document.getElementById('file-list-container');
+                
+                // Show loading state
+                container.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading changed files...
+                    </div>
+                `;
+                
                 // Request files from IntelliJ bridge
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    // Add timeout to prevent infinite loading
+                    const timeoutId = setTimeout(() => {
+                        console.error('Git status request timed out');
+                        this.showMessage('Request timed out. Please refresh.', 'error');
+                        container.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">⚠️</div>
+                                <div style="font-weight: 500; margin-bottom: 8px;">Failed to load files</div>
+                                <div style="font-size: 14px;">Please click Refresh to try again</div>
+                            </div>
+                        `;
+                    }, 5000); // 5 second timeout
+                    
+                    // Store timeout for cleanup
+                    container._loadTimeout = timeoutId;
+                    
                     window.intellijBridge.callIDE('getGitStatus')
                         .then(response => {
+                            clearTimeout(timeoutId);
                             if (response && response.changedFiles) {
                                 this.updateFileList(response.changedFiles);
+                            } else {
+                                console.warn('No changed files in response');
+                                this.updateFileList('');
                             }
                         })
                         .catch(error => {
+                            clearTimeout(timeoutId);
                             console.error('Error loading git status:', error);
                             this.showMessage('Failed to load git status', 'error');
+                            container.innerHTML = `
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">❌</div>
+                                    <div style="font-weight: 500; margin-bottom: 8px;">Error loading files</div>
+                                    <div style="font-size: 14px;">${error.message || 'Unknown error'}</div>
+                                </div>
+                            `;
                         });
+                } else {
+                    console.error('IntelliJ Bridge not available');
+                    this.showMessage('IntelliJ Bridge not available', 'error');
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔌</div>
+                            <div style="font-weight: 500; margin-bottom: 8px;">Bridge not connected</div>
+                            <div style="font-size: 14px;">Please ensure the IntelliJ bridge is loaded</div>
+                        </div>
+                    `;
                 }
             },
             
@@ -575,10 +652,23 @@
             },
             
             toggleFile: function(index) {
-                const checkbox = document.querySelector(`[data-index="${index}"]`);
-                if (checkbox) {
-                    checkbox.checked = !checkbox.checked;
-                    this.updateSelection();
+                const file = this.files[index];
+                if (file) {
+                    // Open diff in IntelliJ's diff viewer
+                    console.log('Opening diff for file:', file.filePath, 'status:', file.status);
+                    if (window.intellijBridge && window.intellijBridge.callIDE) {
+                        window.intellijBridge.callIDE('openFileDiffInIDE', {
+                            filePath: file.filePath,
+                            status: file.status
+                        }).then(response => {
+                            if (!response.success) {
+                                this.showMessage('Failed to open diff: ' + (response.error || 'Unknown error'), 'error');
+                            }
+                        }).catch(error => {
+                            console.error('Error opening diff:', error);
+                            this.showMessage('Error opening diff', 'error');
+                        });
+                    }
                 }
             },
             
@@ -636,20 +726,74 @@
                 
                 this.showMessage('Generating commit message...', 'info');
                 document.getElementById('generate-btn').disabled = true;
+                const messageTextarea = document.getElementById('commit-message');
+                messageTextarea.value = ''; // Clear existing message
                 
-                // Call the existing git modal generate message function
-                if (window.GitModal) {
-                    // Store selected files for modal
-                    const selectedCheckboxes = document.querySelectorAll('.file-checkbox[data-index]:checked');
-                    selectedCheckboxes.forEach(cb => {
-                        const index = parseInt(cb.dataset.index);
-                        const file = this.files[index];
-                        cb.dataset.filePath = file.filePath;
-                        cb.dataset.status = file.status;
+                // Start streaming session
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('generateCommitMessage', {
+                        files: selectedFiles
+                    }).then(response => {
+                        if (response && response.success) {
+                            // Start polling for streaming chunks
+                            this.streamCommitMessage(response.sessionId);
+                        } else {
+                            this.showMessage('Failed to start generation: ' + (response.error || 'Unknown error'), 'error');
+                            document.getElementById('generate-btn').disabled = false;
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                        document.getElementById('generate-btn').disabled = false;
                     });
-                    
-                    GitModal.generateCommitMessage();
                 }
+            },
+            
+            streamCommitMessage: function(sessionId) {
+                const messageTextarea = document.getElementById('commit-message');
+                let streamingText = '';
+                
+                // Add streaming visual effect
+                messageTextarea.classList.add('streaming');
+                
+                const pollForChunks = () => {
+                    if (window.intellijBridge && window.intellijBridge.callIDE) {
+                        window.intellijBridge.callIDE('streamCommitMessage', {
+                            sessionId: sessionId
+                        }).then(response => {
+                            if (response && response.success) {
+                                if (response.done) {
+                                    // Streaming complete
+                                    messageTextarea.value = response.fullMessage || streamingText;
+                                    messageTextarea.classList.remove('streaming');
+                                    this.showMessage('Commit message generated successfully!', 'success');
+                                    document.getElementById('generate-btn').disabled = false;
+                                } else {
+                                    // Append chunk if available
+                                    if (response.chunk) {
+                                        streamingText += response.chunk;
+                                        messageTextarea.value = streamingText;
+                                        // Auto-resize textarea
+                                        messageTextarea.style.height = 'auto';
+                                        messageTextarea.style.height = messageTextarea.scrollHeight + 'px';
+                                    }
+                                    // Continue polling
+                                    setTimeout(pollForChunks, 100);
+                                }
+                            } else {
+                                messageTextarea.classList.remove('streaming');
+                                this.showMessage('Streaming error: ' + (response.error || 'Unknown error'), 'error');
+                                document.getElementById('generate-btn').disabled = false;
+                            }
+                        }).catch(error => {
+                            messageTextarea.classList.remove('streaming');
+                            this.showMessage('Polling error: ' + error.message, 'error');
+                            document.getElementById('generate-btn').disabled = false;
+                        });
+                    }
+                };
+                
+                // Start polling
+                pollForChunks();
             },
             
             commit: function(shouldPush) {
@@ -688,6 +832,21 @@
                         if (response && response.success) {
                             this.showMessage(shouldPush ? 'Committed and pushed successfully!' : 'Committed successfully!', 'success');
                             document.getElementById('commit-message').value = '';
+                            
+                            // Trigger Code Guardian analysis on committed files if 5 or fewer
+                            if (selectedFiles.length <= 5) {
+                                console.log('Triggering Code Guardian analysis for', selectedFiles.length, 'committed files');
+                                window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
+                                    files: selectedFiles
+                                }).then(reviewResponse => {
+                                    if (reviewResponse && reviewResponse.success) {
+                                        this.showMessage('Code Guardian analysis started', 'info');
+                                    }
+                                }).catch(err => {
+                                    console.warn('Failed to trigger Code Guardian:', err);
+                                });
+                            }
+                            
                             this.refreshFiles();
                         } else {
                             throw new Error(response?.error || 'Operation failed');
@@ -703,34 +862,17 @@
             },
             
             refreshFiles: function() {
+                console.log('Refresh button clicked');
                 this.showMessage('Refreshing...', 'info');
+                // Clear any existing timeouts
+                const container = document.getElementById('file-list-container');
+                if (container._loadTimeout) {
+                    clearTimeout(container._loadTimeout);
+                    container._loadTimeout = null;
+                }
                 this.loadFiles();
             },
             
-            showGitCommit: function() {
-                console.log('Opening Git Commit dialog with current files');
-                
-                // Get changed files
-                if (window.intellijBridge && window.intellijBridge.callIDE) {
-                    window.intellijBridge.callIDE('getGitStatus')
-                        .then(response => {
-                            if (response && response.changedFiles) {
-                                // Show the git modal with the changed files
-                                window.showFileSelectionModal(response.changedFiles);
-                            } else {
-                                console.error('No changed files found');
-                                this.showMessage('No changed files found', 'error');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error getting git status:', error);
-                            this.showMessage('Failed to get git status', 'error');
-                        });
-                } else {
-                    console.error('IntelliJ Bridge not available');
-                    this.showMessage('IntelliJ Bridge not available', 'error');
-                }
-            },
             
             showQuickCommit: function() {
                 if (window.QuickCommitPipeline) {
@@ -771,14 +913,6 @@
         };
         }
         
-        // Git Modal functionality for the full commit dialog
-        window.showFileSelectionModal = function(changedFiles) {
-            console.log('Showing file selection modal is not available in standalone Git UI');
-            // Instead, trigger the IDE's git commit dialog
-            if (window.intellijBridge && window.intellijBridge.callIDE) {
-                window.intellijBridge.callIDE('triggerGitCommitAction');
-            }
-        };
         
         // Quick Commit Pipeline
         window.QuickCommitPipeline = {
@@ -788,9 +922,25 @@
             }
         };
         
-        // Initialize immediately since we don't need to wait for external scripts
-        if (window.GitUI) {
-            window.GitUI.init();
+        // Wait for intellijBridge to be available before initializing
+        function initializeGitUI() {
+            if (window.intellijBridge && window.intellijBridge.callIDE) {
+                console.log('IntelliJ Bridge detected, initializing Git UI');
+                if (window.GitUI) {
+                    window.GitUI.init();
+                }
+            } else {
+                console.log('Waiting for IntelliJ Bridge...');
+                setTimeout(initializeGitUI, 100);
+            }
+        }
+        
+        // Check if we're already loaded (for refresh cases)
+        if (document.readyState === 'complete') {
+            initializeGitUI();
+        } else {
+            // Wait for DOM to be ready
+            window.addEventListener('DOMContentLoaded', initializeGitUI);
         }
     </script>
 </body>

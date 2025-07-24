@@ -11,11 +11,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.zps.zest.browser.GitCommitContext;
+import com.zps.zest.git.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JavaScriptBridge;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.utils.GitCommandExecutor;
+import com.zps.zest.git.GitStatusCollector;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -698,180 +699,32 @@ class GitChangesCollectionStage implements PipelineStage {
         return GitCommandExecutor.execute(workingDir, command);
     }
 
-    // Add this new robust method to get changed files INCLUDING untracked files
+    // Use GitStatusCollector for robust file collection
     private String getChangedFilesRobust(String projectPath) throws IOException, InterruptedException {
-        LOG.info("Trying multiple git commands to get changed files (including untracked)...");
-
-        // Strategy 1: git status --porcelain --untracked-files=all (BEST for new files)
+        LOG.info("Getting changed files using GitStatusCollector...");
         try {
-            String porcelainResult = executeGitCommand(projectPath, "git status --porcelain --untracked-files=all");
-            LOG.info("git status --porcelain --untracked-files=all result: [" + porcelainResult + "]");
-            if (porcelainResult != null && !porcelainResult.trim().isEmpty()) {
-                LOG.info("Using git status --porcelain --untracked-files=all (length: " + porcelainResult.length() + ")");
-                return convertPorcelainToNameStatus(porcelainResult);
-            }
+            GitStatusCollector collector = new GitStatusCollector(projectPath);
+            String result = collector.collectAllChanges();
+            LOG.info("GitStatusCollector returned " + (result.isEmpty() ? "no changes" : result.split("\n").length + " files"));
+            return result;
         } catch (Exception e) {
-            LOG.warn("git status --porcelain --untracked-files=all failed: " + e.getMessage());
+            LOG.error("GitStatusCollector failed: " + e.getMessage(), e);
+            
+            // Debug: show git status for troubleshooting
+            try {
+                String debugStatus = executeGitCommand(projectPath, "git status");
+                LOG.info("=== FULL GIT STATUS DEBUG ===");
+                LOG.info("Full git status output:");
+                LOG.info(debugStatus.substring(0, Math.min(500, debugStatus.length())) + (debugStatus.length() > 500 ? "..." : ""));
+                LOG.info("==============================");
+            } catch (Exception debugEx) {
+                LOG.warn("Could not get full git status for debugging: " + debugEx.getMessage());
+            }
+            
+            throw new IOException("Failed to collect git changes: " + e.getMessage(), e);
         }
-
-        // Strategy 2: Combine tracked changes + untracked files
-        try {
-            StringBuilder combined = new StringBuilder();
-
-            // Get tracked changes
-            String trackedChanges = executeGitCommand(projectPath, "git diff --name-status");
-            if (trackedChanges != null && !trackedChanges.trim().isEmpty()) {
-                combined.append(trackedChanges);
-                LOG.info("Found tracked changes: " + trackedChanges.length() + " chars");
-            }
-
-            // Get staged changes
-            String stagedChanges = executeGitCommand(projectPath, "git diff --cached --name-status");
-            if (stagedChanges != null && !stagedChanges.trim().isEmpty()) {
-                if (combined.length() > 0) combined.append("\n");
-                combined.append(stagedChanges);
-                LOG.info("Found staged changes: " + stagedChanges.length() + " chars");
-            }
-
-            // Get untracked files using ls-files
-            String untrackedFiles = executeGitCommand(projectPath, "git ls-files --others --exclude-standard");
-            if (untrackedFiles != null && !untrackedFiles.trim().isEmpty()) {
-                String[] files = untrackedFiles.split("\n");
-                for (String file : files) {
-                    if (file.trim().isEmpty()) continue;
-                    if (combined.length() > 0) combined.append("\n");
-                    combined.append("A\t").append(file.trim()); // Mark untracked as Added
-                }
-                LOG.info("Found untracked files: " + files.length);
-            }
-
-            String result = combined.toString();
-            if (!result.trim().isEmpty()) {
-                LOG.info("Using combined approach (length: " + result.length() + ")");
-                return result;
-            }
-
-        } catch (Exception e) {
-            LOG.warn("Combined approach failed: " + e.getMessage());
-        }
-
-        // Strategy 3: git status --short --untracked-files=all (fallback)
-        try {
-            String shortResult = executeGitCommand(projectPath, "git status --short --untracked-files=all");
-            LOG.info("git status --short --untracked-files=all result: [" + shortResult + "]");
-            if (shortResult != null && !shortResult.trim().isEmpty()) {
-                LOG.info("Using git status --short --untracked-files=all (length: " + shortResult.length() + ")");
-                return convertShortStatusToNameStatus(shortResult);
-            }
-        } catch (Exception e) {
-            LOG.warn("git status --short --untracked-files=all failed: " + e.getMessage());
-        }
-
-        // Strategy 4: Basic git status --porcelain (without untracked flag)
-        try {
-            String porcelainResult = executeGitCommand(projectPath, "git status --porcelain");
-            LOG.info("git status --porcelain result: [" + porcelainResult + "]");
-            if (porcelainResult != null && !porcelainResult.trim().isEmpty()) {
-                LOG.info("Using git status --porcelain (length: " + porcelainResult.length() + ")");
-                return convertPorcelainToNameStatus(porcelainResult);
-            }
-        } catch (Exception e) {
-            LOG.warn("git status --porcelain failed: " + e.getMessage());
-        }
-
-        LOG.warn("All git commands failed or returned empty results");
-
-        // Debug: Let's also try to show what git sees
-        try {
-            String debugStatus = executeGitCommand(projectPath, "git status");
-            LOG.info("=== FULL GIT STATUS DEBUG ===");
-            LOG.info("Full git status output:");
-            LOG.info(debugStatus.substring(0, Math.min(500, debugStatus.length())) + (debugStatus.length() > 500 ? "..." : ""));
-            LOG.info("==============================");
-        } catch (Exception e) {
-            LOG.warn("Could not get full git status for debugging: " + e.getMessage());
-        }
-
-        return "";
     }
 
-    // Convert git status --porcelain output to name-status format
-    private String convertPorcelainToNameStatus(String porcelainOutput) {
-        StringBuilder result = new StringBuilder();
-        String[] lines = porcelainOutput.split("\n");
-
-        for (String line : lines) {
-            if (line.trim().isEmpty()) continue;
-
-            // Porcelain format: XY filename
-            // X = staged status, Y = unstaged status
-            // ?? = untracked file
-            // Special case: renamed files may have format "R  old_name -> new_name"
-            if (line.length() >= 3) {
-                String statusChars = line.substring(0, 2);
-                String filenamePart = line.substring(3); // Skip XY and space
-
-                char status;
-                String filename;
-
-                // Handle untracked files (marked as ??)
-                if (statusChars.equals("??")) {
-                    status = 'A'; // Treat untracked as "Added" for UI purposes
-                    filename = filenamePart;
-                    LOG.info("Found untracked file: " + filename);
-                } else {
-                    // Handle tracked files
-                    char staged = statusChars.charAt(0);
-                    char unstaged = statusChars.charAt(1);
-
-                    // Determine the primary status (prefer unstaged, then staged)
-                    if (unstaged != ' ' && unstaged != '?') {
-                        status = unstaged;
-                    } else if (staged != ' ' && staged != '?') {
-                        status = staged;
-                    } else {
-                        continue; // Skip if no meaningful status
-                    }
-
-                    // Special handling for renamed files
-                    if (status == 'R' || status == 'C') {
-                        // Renamed/copied files may have format "old_name -> new_name"
-                        if (filenamePart.contains(" -> ")) {
-                            // For renames, we want to show the new name in the UI
-                            String[] renameParts = filenamePart.split(" -> ");
-                            if (renameParts.length == 2) {
-                                filename = renameParts[1].trim(); // Use new name
-                                LOG.info("Found renamed file: " + renameParts[0].trim() + " -> " + filename);
-                            } else {
-                                filename = filenamePart; // Fallback to original
-                            }
-                        } else {
-                            filename = filenamePart;
-                        }
-                    } else {
-                        filename = filenamePart;
-                    }
-                }
-
-                // Convert to name-status format
-                if (status != ' ') {
-                    result.append(status).append("\t").append(filename).append("\n");
-                    LOG.info("Converted: " + statusChars + " " + filenamePart + " -> " + status + "\t" + filename);
-                }
-            }
-        }
-
-        String converted = result.toString();
-        LOG.info("Converted porcelain to name-status (" + lines.length + " lines -> " + converted.split("\n").length + " entries)");
-        LOG.info("Converted result preview: [" + converted.substring(0, Math.min(200, converted.length())) + "]");
-        return converted;
-    }
-
-    // Convert git status --short output to name-status format
-    private String convertShortStatusToNameStatus(String shortOutput) {
-        // Short format is similar to porcelain, so reuse the conversion
-        return convertPorcelainToNameStatus(shortOutput);
-    }
 }
 
 /**

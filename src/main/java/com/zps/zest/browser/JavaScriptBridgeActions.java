@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.git.GitService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -231,11 +232,14 @@ public class JavaScriptBridgeActions {
                 case "getFileContent":
                     return gitService.getFileContent(data);
                     
-                case "sendToChatForReview":
-                    return gitService.sendToChatForReview(data);
+                case "triggerCodeGuardianAnalysis":
+                    return gitService.triggerCodeGuardianAnalysis(data);
+
+                case "generateCommitMessage":
+                    return gitService.generateCommitMessage(data);
                     
-                case "triggerGitCommitAction":
-                    return gitService.triggerGitCommitAction();
+                case "streamCommitMessage":
+                    return gitService.streamCommitMessage(data);
 
                 // Content update handling (marks page as loaded)
                 case "contentUpdated":

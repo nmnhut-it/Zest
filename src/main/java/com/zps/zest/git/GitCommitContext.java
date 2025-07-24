@@ -1,4 +1,4 @@
-package com.zps.zest.browser;
+package com.zps.zest.git;
 
 import com.intellij.openapi.project.Project;
 import com.zps.zest.CodeContext;

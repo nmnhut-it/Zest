@@ -1,11 +1,10 @@
 package com.zps.zest.completion.diff
 
-import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.zps.zest.browser.GitService
+import com.zps.zest.git.GitService
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Paths

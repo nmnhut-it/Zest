@@ -397,7 +397,8 @@ public class JCEFBrowserManager implements Disposable {
             LOG.info("Setting up JavaScript bridge for frame: " + frameUrl);
             
             // Check if this is the Git UI page - if so, only inject minimal scripts
-            boolean isGitUI = frameUrl.contains("git-ui.html") || (frameUrl.startsWith("data:") && frameUrl.contains("Git Operations"));
+            boolean isGitUI = frameUrl.contains("git-ui.html") || 
+                            (frameUrl.startsWith("data:") && (frameUrl.contains("Git Operations") || frameUrl.contains("Git%20Operations")));
             boolean isLocalFile = frameUrl.startsWith("file://") || frameUrl.startsWith("jar:file://") || frameUrl.startsWith("data:");
             
             // For local files, don't inject auth tokens or cookie persistence

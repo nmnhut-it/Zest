@@ -711,17 +711,48 @@ const GitUI = {
         
         // Show only filename, not full path
         const fileName = filePath.split('/').pop() || filePath;
+        const htmlSafeFileName = fileName
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
         
         // Get directory part of the path for display
         let dirPath = '';
+        let htmlSafeDirPath = '';
         const pathParts = filePath.split('/');
         if (pathParts.length > 1) {
             pathParts.pop(); // Remove filename
             dirPath = pathParts.join('/');
+            // Escape directory path for HTML
+            htmlSafeDirPath = dirPath
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         }
 
+        // Escape file path for safe use in HTML attributes and JavaScript
+        // For JavaScript string in onclick, we need to escape backslashes, single quotes, and newlines
+        const escapedFilePath = filePath
+            .replace(/\\/g, '\\\\')  // Escape backslashes first
+            .replace(/'/g, "\\'")    // Escape single quotes
+            .replace(/"/g, '\\"')    // Escape double quotes
+            .replace(/\n/g, '\\n')   // Escape newlines
+            .replace(/\r/g, '\\r');  // Escape carriage returns
+            
+        // For HTML attributes, escape quotes and HTML entities
+        const htmlSafeFilePath = filePath
+            .replace(/&/g, '&amp;')  // Must be first
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        
         fileItem.innerHTML = `
-            <div class="file-item-content" data-file-path="${filePath}" data-status="${status}" style="
+            <div class="file-item-content" data-file-path="${htmlSafeFilePath}" data-status="${status}" style="
                 display: flex;
                 align-items: center;
                 padding: 8px 10px;
@@ -741,8 +772,8 @@ const GitUI = {
                 this.style.borderColor = '${isDark ? 'rgba(75, 85, 99, 0.4)' : 'rgba(229, 231, 235, 0.6)'}';
                 this.style.transform = 'translateX(0)';
                 this.style.boxShadow = 'none';
-            " onclick="GitUI.openFileDiff('${filePath}', '${status}')">
-                <input type="checkbox" class="file-checkbox" data-file-path="${filePath}" data-status="${status}" id="file-${index}" style="
+            " onclick="GitUI.openFileDiff('${escapedFilePath}', '${status}')">
+                <input type="checkbox" class="file-checkbox" data-file-path="${htmlSafeFilePath}" data-status="${status}" id="file-${index}" style="
                     margin-right: 10px;
                     width: 14px;
                     height: 14px;
@@ -776,7 +807,7 @@ const GitUI = {
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                    " title="${fileName}">${fileName}</label>
+                    " title="${htmlSafeFilePath}">${htmlSafeFileName}</label>
                     ${dirPath ? `
                     <div style="
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -785,7 +816,7 @@ const GitUI = {
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                    " title="${dirPath}">${dirPath}</div>
+                    " title="${htmlSafeDirPath}">${htmlSafeDirPath}</div>
                     ` : ''}
                 </div>
             </div>

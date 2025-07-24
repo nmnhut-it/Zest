@@ -233,7 +233,7 @@ public class FileService {
                                             FileEditorManager.getInstance(project).openFile(vFile, true);
                                             LOG.info("Batch changes applied successfully");
                                         } catch (Exception e) {
-                                            LOG.error("Error updating file: " + filePath, e);
+                                            LOG.error("Error updating tfile: " + filePath, e);
                                         }
                                     });
                                     return kotlin.Unit.INSTANCE;

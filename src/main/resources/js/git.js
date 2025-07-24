@@ -8,6 +8,26 @@
 // Git file status parsing and utilities
 const GitUtils = {
     /**
+     * Remove quotes from git file paths
+     * Git adds quotes around paths with spaces or special characters
+     */
+    unquoteFilePath: function(filePath) {
+        if (!filePath) return filePath;
+        
+        // Check if the path is quoted
+        if (filePath.startsWith('"') && filePath.endsWith('"')) {
+            // Remove the quotes
+            filePath = filePath.slice(1, -1);
+            
+            // Unescape any escaped characters within the quotes
+            // Git escapes quotes and backslashes within quoted paths
+            filePath = filePath.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        }
+        
+        return filePath;
+    },
+    
+    /**
      * Enhanced robust file parsing
      * Handles multiple git output formats including porcelain, name-status, and short formats
      */
@@ -48,6 +68,10 @@ const GitUtils = {
                 if (tabParts.length >= 2) {
                     status = tabParts[0].trim();
                     filePath = tabParts.slice(1).join('\t').trim(); // Handle filenames with tabs
+                    
+                    // Remove quotes from file paths (git adds quotes for paths with spaces)
+                    filePath = GitUtils.unquoteFilePath(filePath);
+                    
                     console.log(`  Tab-parsed: "${status}" | "${filePath}"`);
                 }
             }
@@ -60,7 +84,7 @@ const GitUtils = {
                 // Handle untracked files (?? filename)
                 if (statusChars === '??') {
                     status = 'A'; // Treat untracked as "Added"
-                    filePath = filenamePart.trim();
+                    filePath = GitUtils.unquoteFilePath(filenamePart.trim());
                     console.log(`  Untracked-parsed: "${status}" | "${filePath}"`);
                 } else {
                     // Convert XY format to single status
@@ -79,7 +103,7 @@ const GitUtils = {
                             if (filenamePart.includes(' -> ')) {
                                 const renameParts = filenamePart.split(' -> ');
                                 if (renameParts.length === 2) {
-                                    filePath = renameParts[1].trim(); // Use new name
+                                    filePath = GitUtils.unquoteFilePath(renameParts[1].trim()); // Use new name
                                     console.log(`  Renamed-parsed: "${status}" | "${renameParts[0].trim()}" -> "${filePath}"`);
                                 } else {
                                     filePath = filenamePart.trim();
@@ -90,7 +114,7 @@ const GitUtils = {
                                 console.log(`  Rename-simple-parsed: "${status}" | "${filePath}"`);
                             }
                         } else {
-                            filePath = filenamePart.trim();
+                            filePath = GitUtils.unquoteFilePath(filenamePart.trim());
                             console.log(`  Porcelain-parsed: "${status}" | "${filePath}"`);
                         }
                     }
@@ -103,14 +127,14 @@ const GitUtils = {
                 const match = trimmedLine.match(/^([MADRC?])\s+(.+)$/);
                 if (match) {
                     status = match[1] === '?' ? 'A' : match[1]; // Convert ? to A for untracked
-                    filePath = match[2];
+                    filePath = GitUtils.unquoteFilePath(match[2]);
                     console.log(`  Regex-parsed: "${status}" | "${filePath}"`);
                 } else {
                     // Try simple space split
                     const spaceParts = trimmedLine.split(/\s+/);
                     if (spaceParts.length >= 2 && /^[MADRC?]$/.test(spaceParts[0])) {
                         status = spaceParts[0] === '?' ? 'A' : spaceParts[0]; // Convert ? to A
-                        filePath = spaceParts.slice(1).join(' ');
+                        filePath = GitUtils.unquoteFilePath(spaceParts.slice(1).join(' '));
                         console.log(`  Space-parsed: "${status}" | "${filePath}"`);
                     }
                 }

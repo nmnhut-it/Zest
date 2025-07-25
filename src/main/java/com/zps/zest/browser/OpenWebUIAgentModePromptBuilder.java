@@ -53,6 +53,12 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("• Use the Zest Code Explorer tools to analyze the codebase in real-time\n");
         prompt.append("• Each tool is project-specific - select based on the project context\n");
         prompt.append("• Tools can search files, explore code structure, find implementations, and more\n\n");
+        
+        prompt.append("TOOL USAGE TIPS:\n");
+        prompt.append("• Start with faster tools: list_files_in_directory, read_file, get_project_structure\n");
+        prompt.append("• Use search_code sparingly - it performs deep analysis and takes 30-60 seconds\n");
+        prompt.append("• search_code is best for finding concepts, patterns, or features by meaning\n");
+        prompt.append("• For known file locations, use direct file reading instead of searching\n\n");
 
         prompt.append("WORKFLOW:\n");
         prompt.append("1. Confirm what you'll do\n");

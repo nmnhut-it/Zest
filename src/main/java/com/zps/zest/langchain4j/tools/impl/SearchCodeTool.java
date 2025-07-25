@@ -23,6 +23,10 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
     public SearchCodeTool(@NotNull Project project) {
         super(project, "search_code", 
             "Search for code using natural language queries. Uses semantic search to find conceptually related code. " +
+            "IMPORTANT: This tool performs deep semantic analysis and can take 30-60 seconds. Use it wisely:\n" +
+            "- First try simpler tools like list_files_in_directory or read_file if you know the location\n" +
+            "- Use this when you need to find code by concept rather than by name\n" +
+            "- Ideal for finding implementations of features, algorithms, or patterns\n" +
             "Tips for effective queries: " +
             "- Be specific: 'validate user email format' instead of 'validation' " +
             "- Use technical terms: 'authentication' instead of 'login' " +
@@ -83,7 +87,7 @@ public class SearchCodeTool extends ThreadSafeCodeExplorationTool {
             
             // Wait for results with timeout
             List<CodeSearchUtility.EnrichedSearchResult> results = 
-                future.get(600, TimeUnit.SECONDS);  // Increased to 10 minutes
+                future.get(60, TimeUnit.SECONDS);  // 60 seconds timeout
             
             // Format results
             StringBuilder content = new StringBuilder();

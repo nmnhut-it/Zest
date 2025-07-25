@@ -312,6 +312,9 @@ public class WebBrowserPanel implements Disposable {
      * Sets the active browser mode.
      */
     private void setMode(BrowserMode mode) {
+        boolean wasAgentMode = currentMode != null && currentMode.getName().equals("Agent Mode");
+        boolean isAgentMode = mode.getName().equals("Agent Mode");
+        
         this.currentMode = mode;
         modeButton.setText(mode.getName());
         modeButton.setIcon(mode.getIcon());
@@ -326,7 +329,7 @@ public class WebBrowserPanel implements Disposable {
         }
         
         // If switching to Agent Mode, ensure project is indexed
-        if (mode.getName().equals("Agent Mode")) {
+        if (isAgentMode) {
             ensureProjectIndexed();
         }
         
@@ -336,10 +339,23 @@ public class WebBrowserPanel implements Disposable {
         browserManager.executeJavaScript(modeChangeScript);
         
         // Handle tool injection based on mode
-        if (mode.getName().equals("Agent Mode")) {
-            // Enable tool injection for Agent Mode
-            browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(true);");
-            LOG.info("Enabled tool injection for Agent Mode");
+        if (isAgentMode) {
+            // Enable tool injection for Agent Mode and reload page after a delay (only if not already in Agent Mode)
+            String reloadScript = 
+                "window.enableZestToolInjection && window.enableZestToolInjection(true);\n";
+            
+            // Only reload if we're switching TO Agent Mode from another mode
+            if (!wasAgentMode) {
+                reloadScript += 
+                    "// Reload page after tools are injected to ensure they're available\n" +
+                    "setTimeout(() => {\n" +
+                    "  console.log('[Agent Mode] Reloading page to activate tools...');\n" +
+                    "  window.location.reload();\n" +
+                    "}, 1000);"; // 1 second delay to allow tool injection to complete
+            }
+            
+            browserManager.executeJavaScript(reloadScript);
+            LOG.info("Enabled tool injection for Agent Mode" + (wasAgentMode ? " (no reload needed)" : " with delayed reload"));
         } else {
             // Disable tool injection for other modes
             browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(false);");

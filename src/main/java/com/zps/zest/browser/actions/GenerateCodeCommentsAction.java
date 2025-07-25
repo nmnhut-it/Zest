@@ -14,10 +14,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.openapi.util.text.StringUtil;
 import com.zps.zest.*;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
-import org.apache.commons.lang.StringEscapeUtils;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -121,7 +121,7 @@ public class GenerateCodeCommentsAction extends AnAction {
             ApplicationManager.getApplication().invokeLater(()->{
                 toolWindow.activate(() -> {
                     // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
-                    WebBrowserService.getInstance(project).executeJavaScript("window.__text_to_replace_ide___ = '" + StringEscapeUtils.escapeJavaScript(context.getSelectedText()) +"';");
+                    WebBrowserService.getInstance(project).executeJavaScript("window.__text_to_replace_ide___ = '" + StringUtil.escapeStringCharacters(context.getSelectedText()) +"';");
                     ChatboxUtilities.clickNewChatButton(project);
                     ChatboxUtilities.sendTextAndSubmit(project, prompt, true, ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(),false, ChatboxUtilities.EnumUsage.AGENT_GENERATE_COMMENTS);
                 });

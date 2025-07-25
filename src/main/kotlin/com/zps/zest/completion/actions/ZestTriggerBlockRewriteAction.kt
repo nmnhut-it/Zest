@@ -83,26 +83,38 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
         val dialog = SmartRewriteDialog(project, methodContext) { instruction ->
             logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
 
-            // Get status bar widget for progress updates
-            val statusBarWidget = getStatusBarWidget(project)
+            // Check if this is the test generation option
+            if (instruction == "__WRITE_TEST__") {
+                // Send to test generation instead of rewrite
+                logger.info("Redirecting to test generation for method ${methodContext.methodName}")
+                com.zps.zest.browser.actions.SendMethodTestToChatBox.sendMethodTestPrompt(
+                    project,
+                    editor,
+                    methodContext
+                )
+            } else {
+                // Normal rewrite flow
+                // Get status bar widget for progress updates
+                val statusBarWidget = getStatusBarWidget(project)
 
-            // Start background processing with status bar progress
-            statusBarWidget?.updateMethodRewriteState(
-                ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
-                "Starting method rewrite..."
-            )
+                // Start background processing with status bar progress
+                statusBarWidget?.updateMethodRewriteState(
+                    ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
+                    "Starting method rewrite..."
+                )
 
-            // Start rewrite with status bar updates
-            methodRewriteService.rewriteCurrentMethodWithStatusCallback(
-                editor = editor,
-                methodContext = methodContext,
-                customInstruction = instruction,
-                dialog = null,  // No dialog updates needed
-                statusCallback = { status ->
-                    // All progress updates go to status bar widget
-                    statusBarWidget?.updateMethodRewriteStatus(status)
-                }
-            )
+                // Start rewrite with status bar updates
+                methodRewriteService.rewriteCurrentMethodWithStatusCallback(
+                    editor = editor,
+                    methodContext = methodContext,
+                    customInstruction = instruction,
+                    dialog = null,  // No dialog updates needed
+                    statusCallback = { status ->
+                        // All progress updates go to status bar widget
+                        statusBarWidget?.updateMethodRewriteStatus(status)
+                    }
+                )
+            }
         }
 
         // Show dialog and let user choose
@@ -238,8 +250,8 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                                     } else {
                                         println("[DEBUG] No custom prompt found for shortcut $numberPressed")
                                     }
-                                } else if (!e.isShiftDown && numberPressed in 1..3) {
-                                    // Regular number for built-in prompts
+                                } else if (!e.isShiftDown && numberPressed in 1..4) {
+                                    // Regular number for built-in prompts (now supports 1-4)
                                     val optionIndex = numberPressed - 1
                                     if (optionIndex < builtInOptions.size) {
                                         executeSelectionAndClose(builtInOptions[optionIndex].instruction)
@@ -321,7 +333,8 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                 isEmptyOrMinimalMethod(methodContent) -> listOf(
                     RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
-                    RewriteOption("", "Add error handling", "Add input validation and error handling")
+                    RewriteOption("", "Add error handling", "Add input validation and error handling"),
+                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
                 )
 
                 hasTodoComment(methodContent) -> {
@@ -330,20 +343,23 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                     listOf(
                         RewriteOption("", "Implement TODO", todoInstruction),
                         RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                        RewriteOption("", "Add error handling", "Add input validation and error handling")
+                        RewriteOption("", "Add error handling", "Add input validation and error handling"),
+                        RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
                     )
                 }
 
                 isComplexMethod(methodContent) -> listOf(
                     RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("", "Optimize performance", "Optimize this method for better performance")
+                    RewriteOption("", "Optimize performance", "Optimize this method for better performance"),
+                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
                 )
 
                 else -> listOf(
                     RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("", "Add error handling", "Add input validation and error handling")
+                    RewriteOption("", "Add error handling", "Add input validation and error handling"),
+                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
                 )
             }
         }
@@ -505,7 +521,7 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
                 JBUI.Borders.empty(10)
             )
             
-            val leftHeader = JLabel("Built-in Prompts (1-3)")
+            val leftHeader = JLabel("Built-in Prompts (1-4)")
             leftHeader.font = leftHeader.font.deriveFont(Font.BOLD, 14f)
             leftHeader.alignmentX = Component.LEFT_ALIGNMENT
             leftPanel.add(leftHeader)

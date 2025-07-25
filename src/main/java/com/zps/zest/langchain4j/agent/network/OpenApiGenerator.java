@@ -73,7 +73,11 @@ public class OpenApiGenerator {
         // explore_code endpoint
         JsonObject explorePath = new JsonObject();
         JsonObject explorePost = new JsonObject();
-        explorePost.addProperty("summary", "Explore code based on a query");
+        explorePost.addProperty("summary", "Orchestrate multiple code exploration tools to answer complex queries about the codebase");
+        explorePost.addProperty("description", 
+            "This endpoint intelligently combines multiple code exploration tools to provide comprehensive answers. " +
+            "It can search for code, analyze relationships, find implementations, and generate detailed reports. " +
+            "The agent automatically selects and executes the most appropriate tools based on your query.");
         explorePost.addProperty("operationId", "explore_code_post");
         
         // Request body
@@ -113,18 +117,27 @@ public class OpenApiGenerator {
         JsonObject queryProp = new JsonObject();
         queryProp.addProperty("type", "string");
         queryProp.addProperty("title", "Query");
-        queryProp.addProperty("description", "The code exploration query");
+        queryProp.addProperty("description", 
+            "Natural language query describing what you want to explore or understand about the codebase. " +
+            "Examples: 'How does authentication work?', 'Find all database connections', " +
+            "'What are the main components of the payment system?'");
         exploreReqProps.add("query", queryProp);
         
         JsonObject reportProp = new JsonObject();
         reportProp.addProperty("type", "boolean");
         reportProp.addProperty("title", "Generate Report");
         reportProp.addProperty("default", false);
-        reportProp.addProperty("description", "Whether to generate a detailed report");
+        reportProp.addProperty("description", 
+            "Whether to generate a comprehensive markdown report with findings, code snippets, and relationships. " +
+            "Set to true for detailed documentation-style output.");
         exploreReqProps.add("generateReport", reportProp);
         
         JsonObject configProp = new JsonObject();
         configProp.addProperty("$ref", "#/components/schemas/ConfigOverride");
+        configProp.addProperty("description", 
+            "Optional configuration to control the exploration behavior. " +
+            "Includes maxToolCalls (limit tool executions), includeTests (search test files), " +
+            "and deepExploration (more thorough but slower analysis).");
         exploreReqProps.add("config", configProp);
         
         exploreRequestSchema.add("properties", exploreReqProps);
@@ -159,7 +172,11 @@ public class OpenApiGenerator {
         // list_tools endpoint
         JsonObject listToolsPath = new JsonObject();
         JsonObject listToolsPost = new JsonObject();
-        listToolsPost.addProperty("summary", "List all available tools");
+        listToolsPost.addProperty("summary", "List all available code exploration tools with their descriptions and parameter schemas");
+        listToolsPost.addProperty("description", 
+            "Returns a comprehensive list of all available code exploration tools in this project. " +
+            "Each tool includes its name, description, and parameter schema. " +
+            "Use this to discover what tools are available and how to use them directly.");
         listToolsPost.addProperty("operationId", "list_tools_post");
         
         JsonObject listToolsResponses = new JsonObject();

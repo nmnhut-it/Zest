@@ -47,6 +47,10 @@ public class CodeContext {
     private String testFramework; // "Jest", "Mocha", "Jasmine", etc.
     private String frameworkContext; // "React", "Vue.js", "Angular", etc.
 
+    // Single method test generation fields
+    private boolean singleMethodMode = false;
+    private com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext;
+
     // Legacy compatibility fields (deprecated but kept for backward compatibility)
     @Deprecated
     private String junitVersion;
@@ -223,6 +227,17 @@ public class CodeContext {
      */
     public String getBuildTool() {
         return project != null ? TestFrameworkUtils.detectBuildTool(project) : "Unknown";
+    }
+
+    // Single method mode getters and setters
+    public boolean isSingleMethodMode() { return singleMethodMode; }
+    public void setSingleMethodMode(boolean singleMethodMode) { this.singleMethodMode = singleMethodMode; }
+
+    public com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext getTargetMethodContext() { 
+        return targetMethodContext; 
+    }
+    public void setTargetMethodContext(com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext) { 
+        this.targetMethodContext = targetMethodContext;
     }
 
     /**

@@ -38,6 +38,9 @@
         <!-- Update checker service -->
         <applicationService serviceImplementation="com.zps.zest.update.ZestUpdateChecker"/>
         
+        <!-- Project proxy manager service -->
+        <applicationService serviceImplementation="com.zps.zest.langchain4j.agent.network.ProjectProxyManager"/>
+        
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <projectService serviceImplementation="com.zps.zest.settings.PromptMigrationService"/>
@@ -46,6 +49,7 @@
         <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <postStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
+        <postStartupActivity implementation="com.zps.zest.langchain4j.agent.network.ProxyStartupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 

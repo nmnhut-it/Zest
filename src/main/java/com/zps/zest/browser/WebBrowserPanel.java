@@ -20,6 +20,7 @@ import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
+import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -114,6 +115,23 @@ public class WebBrowserPanel implements Disposable {
             @Override
             public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                 setMode(currentMode);
+                
+                // Get project-specific proxy URL
+                String proxyUrl = ProjectProxyManager.getInstance().getProxyUrlForProject(project);
+                
+                // If no project-specific proxy, fall back to system property
+                if (proxyUrl == null || proxyUrl.isEmpty()) {
+                    proxyUrl = System.getProperty("zest.agent.proxy.url");
+                }
+                
+                // Enable automatic tool injection if proxy is available
+                if (proxyUrl != null && !proxyUrl.isEmpty()) {
+                    // Set the proxy URL for this project context
+                    System.setProperty("zest.agent.proxy.url", proxyUrl);
+                    
+                    browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(true);");
+                    LOG.info("Enabled automatic tool injection for project " + project.getName() + " with proxy: " + proxyUrl);
+                }
             }
         }, browserManager.getBrowser().getCefBrowser());
     }
@@ -171,8 +189,8 @@ public class WebBrowserPanel implements Disposable {
         // Create navigation buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 
-        JButton backToChatButton = new JButton("💬 Back to Chat");
-        backToChatButton.setToolTipText("Return to Chat Interface");
+        JButton backToChatButton = new JButton("💬 Chat");
+        backToChatButton.setToolTipText("Go to Chat Interface (Reload if already there)");
         backToChatButton.addActionListener(e -> backToChat());
 
         buttonPanel.add(backToChatButton);
@@ -263,13 +281,32 @@ public class WebBrowserPanel implements Disposable {
     }
     
     /**
-     * Navigates back to the chat interface
+     * Navigates back to the chat interface or reloads if already there
      */
     private void backToChat() {
         // Get the default chat URL from configuration
-        String url = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
-        LOG.info("Navigating back to chat URL: " + url);
-        browserManager.loadURL(url);
+        String chatUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        
+        // Get current URL
+        String currentUrl = browserManager.getBrowser().getCefBrowser().getURL();
+        
+        // Check if we're already at the chat URL (handle trailing slashes)
+        boolean alreadyAtChat = false;
+        if (currentUrl != null) {
+            String normalizedCurrent = currentUrl.replaceAll("/$", "");
+            String normalizedChat = chatUrl.replaceAll("/$", "");
+            alreadyAtChat = normalizedCurrent.equals(normalizedChat) || 
+                           normalizedCurrent.equals(normalizedChat + "/") ||
+                           (normalizedCurrent + "/").equals(normalizedChat);
+        }
+        
+        if (alreadyAtChat) {
+            LOG.info("Already at chat URL, reloading: " + chatUrl);
+            browserManager.loadURL(chatUrl);
+        } else {
+            LOG.info("Navigating to chat URL: " + chatUrl);
+            browserManager.loadURL(chatUrl);
+        }
     }
     /**
      * Sets the active browser mode.
@@ -297,6 +334,17 @@ public class WebBrowserPanel implements Disposable {
         String modeChangeScript = "window.dispatchEvent(new CustomEvent('zestModeChanged', { detail: { mode: '" + 
                                   StringEscapeUtils.escapeJavaScript(mode.getName()) + "' } }));";
         browserManager.executeJavaScript(modeChangeScript);
+        
+        // Handle tool injection based on mode
+        if (mode.getName().equals("Agent Mode")) {
+            // Enable tool injection for Agent Mode
+            browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(true);");
+            LOG.info("Enabled tool injection for Agent Mode");
+        } else {
+            // Disable tool injection for other modes
+            browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(false);");
+            LOG.info("Disabled tool injection for " + mode.getName());
+        }
     }
     
     /**

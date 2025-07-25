@@ -488,6 +488,10 @@ public class JCEFBrowserManager implements Disposable {
                 String knowledgeApiScript = loadResourceAsString("/js/knowledgeApi.js");
                 cefBrowser.executeJavaScript(knowledgeApiScript, frame.getURL(), 0);
 
+                // Load and inject the tool injector script
+                String toolInjectorScript = loadResourceAsString("/js/tool-injector.js");
+                cefBrowser.executeJavaScript(toolInjectorScript, frame.getURL(), 0);
+
                 // Only ensure cookie persistence for non-local files
                 if (!isLocalFile) {
                     // Ensure cookie persistence

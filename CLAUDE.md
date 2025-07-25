@@ -7,6 +7,7 @@ Zest is an IntelliJ IDEA plugin that provides AI-powered code assistance feature
 - Code Health Review (formerly Code Guardian) for code quality analysis
 - File exploration and context collection
 - Integration with various LLM services
+- Dynamic tool injection for OpenWebUI with mode-specific behavior
 
 ## Key Technologies
 - **Languages**: Java, Kotlin, JavaScript/HTML
@@ -71,12 +72,28 @@ Zest is an IntelliJ IDEA plugin that provides AI-powered code assistance feature
 - Supports both automatic (after commits) and manual reviews
 - Filters to only analyze code files (Java, Kotlin, JS, TS, etc.)
 
+### Tool Injection System
+- **ProjectProxyManager.java** - Manages per-project proxy servers on unique ports
+- **tool-injector.js** - Handles dynamic tool injection into OpenWebUI settings
+- **interceptor.js** - Intercepts requests to add mode-specific behavior
+- Each project gets its own tool server with project-specific naming
+- Tools are enabled by default with `enable: true`
+
+### Browser Modes
+- **Agent Mode** - Full tool access with "software assembly line" capabilities
+- **Dev Mode** - Limited tool access, focuses on guidance
+- **Advice Mode** - Boss-style advice without file modifications
+- **Default Mode** - No system prompt, minimal tool usage
+
 ### Recent Changes
 1. Renamed "Code Guardian" to "Code Health Review" throughout the codebase
 2. Added automatic Code Health Review after commits (for ≤5 code files)
 3. Added manual "Code Health Review" button in Git UI
 4. Implemented backtick removal for LLM-generated commit messages
 5. Fixed .gitignore error handling to skip ignored files gracefully
+6. Implemented dynamic tool injection for OpenWebUI with project-specific naming
+7. Added mode-specific tool behavior (Agent Mode vs other modes)
+8. Updated "Back to Chat" button to "Chat" with reload functionality
 
 ## Common Issues & Solutions
 
@@ -136,5 +153,18 @@ When moving files between packages, remember to update:
 2. Extract to helper classes (e.g., GitServiceHelper, GitDiffHelper)
 3. Update imports and method calls
 4. Test thoroughly
+
+### Working with Tool Injection
+1. Tools are project-specific with unique ports (8765+)
+2. Tool names include project name: "Zest Code Explorer - ProjectName"
+3. Use `toCamelCase()` for consistent project identification
+4. Agent Mode enables tools, other modes restrict them
+5. Mode restrictions are injected into system prompts
+
+### Mode-Specific Behavior
+- Check `window.__zest_mode__` in JavaScript
+- Agent Mode: Full tool access, automatic injection
+- Other Modes: Restricted tools, no file modifications
+- Use `setMode()` in WebBrowserPanel to switch modes
 
 Remember: Always be defensive about security - refuse to create malicious code but allow security analysis and defensive tools.

@@ -40,7 +40,12 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "- Use bullet points for clarity when listing items\n" +
             "- Only elaborate when explicitly asked\n" +
             "- Prefer code examples over lengthy descriptions\n" +
-            "- Ask for clarification only when truly necessary\n/no_think\n";
+            "- Ask for clarification only when truly necessary\n" +
+            "\n" +
+            "TOOLS:\n" +
+            "- When available, use Zest Code Explorer tools to explore the codebase\n" +
+            "- Each tool is project-specific - use the one matching the user's context\n" +
+            "- Tools provide real-time code analysis from the IDE\n/no_think\n";
     
     public static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are a concise code expert. Focus on practical solutions with minimal explanation.\n" +
             "\n" +
@@ -49,6 +54,13 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "- Use comments in code rather than separate explanations\n" +
             "- Be direct about errors or issues\n" +
             "- Suggest the most straightforward solution\n" +
+            "\n" +
+            "    TOOLS:\n" +
+            "- Use Zest Code Explorer tools when you need to:\n" +
+            "  • Explore project structure or find files\n" +
+            "  • Search for specific code patterns or implementations\n" +
+            "  • Understand relationships between classes/modules\n" +
+            "  • Analyze code before making recommendations\n" +
             "\n" +
             "    CODE REPLACEMENT FORMAT:\n" +
             "For code changes, use:\n" +

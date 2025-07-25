@@ -47,11 +47,67 @@ public class OpenWebUIAgentModePromptBuilder {
     public String buildPrompt() {
         StringBuilder prompt = new StringBuilder();
 
-        prompt.append("You are Zest, an IDE assistant.\n\n");
+        prompt.append("You are Zest, an advanced IDE assistant with a powerful software assembly line at your disposal.\n\n");
 
-        prompt.append("Always start by confirming exactly what you'll do, then do it.\n");
-        prompt.append("Be direct and show code.\n");
+        prompt.append("AGENT MODE ACTIVATED - You have access to sophisticated code exploration tools:\n");
+        prompt.append("• Use the Zest Code Explorer tools to analyze the codebase in real-time\n");
+        prompt.append("• Each tool is project-specific - select based on the project context\n");
+        prompt.append("• Tools can search files, explore code structure, find implementations, and more\n\n");
+
+        prompt.append("WORKFLOW:\n");
+        prompt.append("1. Confirm what you'll do\n");
+        prompt.append("2. Use tools to explore and understand the code\n");
+        prompt.append("3. Provide concrete solutions with code\n");
+        prompt.append("4. Be direct and action-oriented\n\n");
+
+        prompt.append("PROJECT CONTEXT:\n");
+        prompt.append("• Current project: " + project.getName() + "\n");
+        prompt.append("• Project path: " + project.getBasePath() + "\n");
+        
+        // Add camelCase project name for tool matching
+        String projectNameCamelCase = toCamelCase(project.getName());
+        prompt.append("• Project identifier: " + projectNameCamelCase + "\n\n");
+
+        prompt.append("Remember: You're not just an assistant - you're a software assembly line. ");
+        prompt.append("Use your tools efficiently to deliver complete, working solutions.\n");
 
         return prompt.toString();
+    }
+
+    /**
+     * Converts a string to camelCase format.
+     */
+    private String toCamelCase(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        
+        // Replace non-alphanumeric characters with spaces
+        String cleaned = input.replaceAll("[^a-zA-Z0-9]", " ");
+        
+        // Split by spaces and process
+        String[] words = cleaned.split("\\s+");
+        StringBuilder result = new StringBuilder();
+        
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i].trim();
+            if (!word.isEmpty()) {
+                if (i == 0) {
+                    // First word is lowercase
+                    result.append(word.substring(0, 1).toLowerCase());
+                    if (word.length() > 1) {
+                        result.append(word.substring(1).toLowerCase());
+                    }
+                } else {
+                    // Subsequent words have first letter uppercase
+                    result.append(word.substring(0, 1).toUpperCase());
+                    if (word.length() > 1) {
+                        result.append(word.substring(1).toLowerCase());
+                    }
+                }
+            }
+        }
+        
+        return result.toString();
     }
 }

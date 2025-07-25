@@ -291,6 +291,19 @@ public class JavalinProxyServer {
                 return;
             }
             
+            // Validate project name if provided
+            if (request.has("projectNameCamelCase")) {
+                String providedProjectName = request.get("projectNameCamelCase").getAsString();
+                String expectedProjectName = toCamelCase(project.getName());
+                
+                if (!providedProjectName.equals(expectedProjectName)) {
+                    LOG.warn("Project name mismatch: provided=" + providedProjectName + 
+                             ", expected=" + expectedProjectName);
+                    // For now, log the mismatch but don't reject the request
+                    // This allows for gradual migration
+                }
+            }
+            
             String query = request.get("query").getAsString();
             boolean generateReport = request.has("generateReport") && 
                                    request.get("generateReport").getAsBoolean();
@@ -377,6 +390,43 @@ public class JavalinProxyServer {
         AgentProxyConfiguration merged = base.copy();
         merged.updateFromJson(updates);
         return merged;
+    }
+    
+    /**
+     * Converts a string to camelCase format.
+     */
+    private String toCamelCase(String input) {
+        if (input == null || input.isEmpty()) {
+            return input;
+        }
+        
+        // Replace non-alphanumeric characters with spaces
+        String cleaned = input.replaceAll("[^a-zA-Z0-9]", " ");
+        
+        // Split by spaces and process
+        String[] words = cleaned.split("\\s+");
+        StringBuilder result = new StringBuilder();
+        
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i].trim();
+            if (!word.isEmpty()) {
+                if (i == 0) {
+                    // First word is lowercase
+                    result.append(word.substring(0, 1).toLowerCase());
+                    if (word.length() > 1) {
+                        result.append(word.substring(1).toLowerCase());
+                    }
+                } else {
+                    // Subsequent words have first letter uppercase
+                    result.append(word.substring(0, 1).toUpperCase());
+                    if (word.length() > 1) {
+                        result.append(word.substring(1).toLowerCase());
+                    }
+                }
+            }
+        }
+        
+        return result.toString();
     }
     
     // Execute tool handler

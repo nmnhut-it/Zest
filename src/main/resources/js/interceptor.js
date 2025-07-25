@@ -10,6 +10,21 @@
   const originalFetch = window.fetch;
   let textToReplace = window.__text_to_replace_ide___;
 
+  // Debug flags for controlling log verbosity
+  window.__zest_debug__ = {
+    toolInjection: true,     // Log tool injection details
+    contextInjection: false, // Log context injection (disabled by default)
+    exploration: false,      // Log exploration details (disabled by default)
+    requests: false          // Log all request interception (disabled by default)
+  };
+
+  // Helper function for conditional logging
+  function debugLog(category, ...args) {
+    if (window.__zest_debug__ && window.__zest_debug__[category]) {
+      console.log(`[ZEST-${category.toUpperCase()}]`, ...args);
+    }
+  }
+
   // Global flag to control context injection
   window.__enable_context_injection__ = true; // Default to enabled
 
@@ -35,7 +50,7 @@
   window.updateProjectInfo = function() {
     return new Promise((resolve, reject) => {
       if (window.intellijBridge) {
-        console.log('Fetching current project info from IDE...');
+        debugLog('contextInjection', 'Fetching current project info from IDE...');
         window.intellijBridge.callIDE('getProjectInfo', {})
           .then(function(response) {
             if (response && response.success) {
@@ -296,8 +311,55 @@
         console.log('[Interceptor] Overwrote model with', window.__selected_model_name__);
       }
 
+      // === Inject tool servers dynamically based on mode ===
+      const currentMode = window.__zest_mode__ || 'Default Mode';
+      const isAgentMode = currentMode === 'Agent Mode';
+      
+      if (window.__zest_tool_servers__ && Array.isArray(window.__zest_tool_servers__)) {
+        // Merge with existing tool servers if any
+        if (!data.tool_servers) {
+          data.tool_servers = [];
+        }
+        
+        // Add Zest tool servers
+        data.tool_servers = [...data.tool_servers, ...window.__zest_tool_servers__];
+        console.log('[Interceptor] Injected ' + window.__zest_tool_servers__.length + ' tool servers');
+      } else if (window.__enable_zest_tools__ && window.intellijBridge) {
+        // Only inject tools in Agent Mode or if explicitly enabled
+        if (isAgentMode) {
+          try {
+            const toolResponse = await window.intellijBridge.callIDE('getToolServers', {});
+            if (toolResponse && toolResponse.success && toolResponse.servers) {
+              if (!data.tool_servers) {
+                data.tool_servers = [];
+              }
+              data.tool_servers = [...data.tool_servers, ...toolResponse.servers];
+              console.log('[Interceptor] Injected ' + toolResponse.servers.length + ' tool servers from IDE (Agent Mode)');
+            }
+          } catch (e) {
+            console.error('Failed to get tool servers from IDE:', e);
+          }
+        }
+      }
+
       // Check if this is a chat completion request
       if (data.messages && Array.isArray(data.messages)) {
+        // Add mode-specific instructions
+        if (!isAgentMode && data.messages.length > 0) {
+          // For non-Agent modes, add restrictions on tool usage
+          const systemMessage = data.messages.find(msg => msg.role === 'system');
+          if (systemMessage) {
+            const modeRestrictions = '\n\nMODE RESTRICTIONS:\n' +
+              '- Minimize use of external tools - rely on your knowledge\n' +
+              '- NEVER use tools that modify, create, or delete files\n' +
+              '- Only use read-only exploration tools when absolutely necessary\n' +
+              '- Focus on providing guidance and explanations rather than direct file manipulation';
+            
+            systemMessage.content = systemMessage.content + modeRestrictions;
+            console.log('[Interceptor] Added mode restrictions for non-Agent mode:', currentMode);
+          }
+        }
+        
         // Handle Project Mode enhancement
         if (window.__zest_mode__ === 'Project Mode' && window.enhanceWithProjectKnowledge) {
           window.enhanceWithProjectKnowledge(data);
@@ -411,7 +473,7 @@
    * @param {Response} response - The fetch response
    * @returns {Response} The original response
    */
-  function handleResponse(response) {
+  async function handleResponse(response) {
     const responseClone = response.clone();
     const url = responseClone.url || '';
 

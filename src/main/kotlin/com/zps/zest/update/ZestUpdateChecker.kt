@@ -36,7 +36,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 class ZestUpdateChecker : Disposable {
     companion object {
         private val logger = Logger.getInstance(ZestUpdateChecker::class.java)
-        private const val UPDATE_URL = "https://zest-internal.zingplay.com/static/release/latest/updatePlugins.xml"
+        const val UPDATE_URL = "https://zest-internal.zingplay.com/static/release/latest/updatePlugins.xml"
         private const val PLUGIN_ID = "com.zps.Zest"
         private const val CHECK_INTERVAL_HOURS = 1L
         private const val NOTIFICATION_GROUP = "Zest Updates"
@@ -93,7 +93,7 @@ class ZestUpdateChecker : Disposable {
         }
     }
     
-    private fun fetchUpdateInfo(): UpdateInfo? {
+    fun fetchUpdateInfo(): UpdateInfo? {
         return try {
             HttpRequests.request(UPDATE_URL)
                 .connect { request ->
@@ -144,7 +144,7 @@ class ZestUpdateChecker : Disposable {
         }
     }
     
-    private fun isUpdateAvailable(updateInfo: UpdateInfo): Boolean {
+    fun isUpdateAvailable(updateInfo: UpdateInfo): Boolean {
         val currentPlugin = findCurrentPlugin() ?: return false
         val currentVersion = currentPlugin.version
         
@@ -156,7 +156,7 @@ class ZestUpdateChecker : Disposable {
         }
     }
     
-    private fun findCurrentPlugin(): IdeaPluginDescriptor? {
+    fun findCurrentPlugin(): IdeaPluginDescriptor? {
         return PluginManagerCore.getPlugin(PluginManagerCore.getPluginByClassName(this::class.java.name))
     }
     
@@ -223,7 +223,7 @@ class ZestUpdateChecker : Disposable {
             .trim()
     }
     
-    private fun downloadUpdate(updateInfo: UpdateInfo, project: Project?) {
+    fun downloadUpdate(updateInfo: UpdateInfo, project: Project?) {
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
             "Downloading Zest Update",

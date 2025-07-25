@@ -222,24 +222,19 @@
 <!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
 <!--        </action>-->
 
-        <action id="Zest.ToggleDevTools"
-                class="com.zps.zest.browser.actions.ToggleDevToolsAction"
-                text="Toggle ZPS Chat Developer Tools"
-                description="Bật/tắt DevTools cho ZPS Chat">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
+        <!-- Removed ToggleDevTools - no longer needed -->
 
         <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
                 class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
                 description="Khởi động tools để dùng trong chat">
             <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <!-- Removed from ToolsMenu - available in ZestGroup -->
         </action>
         
         <!-- Code Guardian Group -->
         <group id="Zest.CodeGuardian" text="Code Guardian" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <!-- Removed from ToolsMenu - available in ZestGroup -->
             
             <action id="Zest.CheckCodeHealth"
                     class="com.zps.zest.codehealth.CheckHealthAction"
@@ -291,20 +286,7 @@
             </action>
         </group>
         
-        <!-- Zest Completion Debug Action -->
-        <action id="Zest.ShowCompletionTimingDebug"
-                class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
-                text="Zest Completion Timing Debug..."
-                description="Show detailed timing breakdown for recent completions">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-        
-        <action id="Zest.ToggleCompletionDebug"
-                class="com.zps.zest.actions.ToggleCompletionDebugAction"
-                text="Toggle Completion Debug Logging"
-                description="Enable/disable verbose debug logging for completion">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
+        <!-- Moved debug actions to a debug submenu -->
         
         <!-- Zest Rules Management Action -->
         <action id="Zest.CreateRulesFile"
@@ -312,7 +294,34 @@
                 text="Create/Open Zest Rules File"
                 description="Create or open zest_rules.md to define custom LLM rules">
             <add-to-group group-id="ZestGroup" anchor="first"/>
-            <add-to-group group-id="ToolsMenu" anchor="after" relative-to-action="Zest.ToggleCompletionDebug"/>
         </action>
+        
+        <!-- Zest Update Info Action -->
+        <action id="Zest.ShowUpdateInfo"
+                class="com.zps.zest.update.ShowUpdateInfoAction"
+                text="Check for Zest Updates..."
+                description="Show update information and download options">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        
+        <!-- Zest Debug Menu (only in Tools menu) -->
+        <group id="Zest.DebugMenu" text="Zest Debug" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            
+            <action id="Zest.ShowCompletionTimingDebug"
+                    class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
+                    text="Completion Timing Debug..."
+                    description="Show detailed timing breakdown for recent completions"/>
+            
+            <action id="Zest.ToggleCompletionDebug"
+                    class="com.zps.zest.actions.ToggleCompletionDebugAction"
+                    text="Toggle Completion Debug Logging"
+                    description="Enable/disable verbose debug logging for completion"/>
+            
+            <action id="Zest.ToggleDevTools"
+                    class="com.zps.zest.browser.actions.ToggleDevToolsAction"
+                    text="Toggle Browser DevTools"
+                    description="Toggle developer tools for the chat browser"/>
+        </group>
     </actions>
 </idea-plugin>

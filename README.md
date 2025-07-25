@@ -1,387 +1,164 @@
-# Mục Lục
+# 🌱 ZEST - Plugin AI Cho Anh Em Dev Lười
 
-- [Giới thiệu](#giới-thiệu)
-- [ZEST - Plugin Hỗ Trợ Phát Triển Phần Mềm với AI](#zest---plugin-hỗ-trợ-phát-triển-phần-mềm-với-ai)
-  - [Hướng dẫn cài đặt](#hướng-dẫn-cài-đặt)
-    - [1. Cài đặt Plugin](#1-cài-đặt-plugin)
-    - [2. Cài đặt MCP Server](#2-cài-đặt-mcp-server)
-    - [3. Khởi động và sử dụng](#3-khởi-động-và-sử-dụng)
-  - [Cấu trúc Menu](#cấu-trúc-menu)
-  - [Các tính năng chính](#các-tính-năng-chính)
-    - [Inline Completion - Gợi ý code thông minh](#inline-completion---gợi-ý-code-thông-minh)
-    - [ZPS Chat - Trợ lý lập trình](#zps-chat---trợ-lý-lập-trình)
-    - [Code Guardian - Bảo vệ chất lượng code](#code-guardian---bảo-vệ-chất-lượng-code)
-    - [Test Advisor](#test-advisor)
-    - [Code Review](#code-review)
-    - [Tạo Commit Message](#tạo-commit-message)
-  - [Agent Proxy - Kết nối AI với IDE](#agent-proxy---kết-nối-ai-với-ide)
-    - [Giới thiệu Agent Proxy](#giới-thiệu-agent-proxy)
-    - [Cài đặt và cấu hình](#cài-đặt-và-cấu-hình)
-    - [Sử dụng với Open WebUI](#sử-dụng-với-open-webui)
-- [Cấu hình](#cấu-hình)
-  - [Cấu hình cơ bản](#cấu-hình-cơ-bản)
-  - [Cấu hình nâng cao](#cấu-hình-nâng-cao)
-  - [Bảo mật](#bảo-mật)
-- [Khuyến nghị sử dụng](#khuyến-nghị-sử-dụng)
-- [Yêu cầu hệ thống](#yêu-cầu-hệ-thống)
-- [Hỗ trợ](#hỗ-trợ)
-- [Các vấn đề thường gặp](#các-vấn-đề-thường-gặp)
+> *"Mình chỉ là plugin nhỏ bé, nhưng sẽ cố gắng giúp bạn code ít bug hơn... một chút!"* 😅
 
----
+## 📖 Xin Chào!
 
-## Giới thiệu
+**ZEST** là một plugin khiêm tốn cho IntelliJ, được sinh ra từ nỗi đau của việc alt-tab qua lại giữa IDE và ChatGPT. Mình có thể không hoàn hảo, nhưng ít nhất bạn không phải copy-paste code nữa! 
 
-### Thách thức trong phát triển phần mềm
+**Version**: 1.9.890 (vẫn còn bug đấy, nhưng ít hơn version trước 🎉)
 
-Trong quá trình phát triển phần mềm, các developer thường gặp phải những thách thức sau:
-- Viết code lặp đi lặp lại cho các pattern phổ biến
-- Khó phát hiện bugs và issues trong code mới viết
-- Thiếu thời gian để review code trước khi commit
-- Viết commit message mô tả chính xác các thay đổi
-- Chuyển đổi liên tục giữa IDE và các công cụ AI
+## 🥺 Cài Đặt (Dễ Ợt)
 
-### Hạn chế khi sử dụng AI tools hiện tại
+1. **Download** file ZIP (mình hơi nặng, xin lỗi!)
+2. **Cài vào IntelliJ**: File → Settings → Plugins → ⚙️ → Install Plugin from Disk
+3. **Restart IDE** (cơ hội để đi pha cà phê ☕)
+4. **Tìm icon Z** ở góc phải (nhỏ xíu thôi, đừng bỏ qua mình)
+5. **Chọn model "Code Expert"** (nghe oai ghê nhưng thực ra cũng bình thường)
 
-Việc sử dụng các công cụ AI để hỗ trợ coding hiện tại còn một số hạn chế:
-- Phải chuyển đổi giữa nhiều ứng dụng khác nhau
-- Mất thời gian copy-paste code giữa IDE và chat interface
-- Khó maintain context khi làm việc với code phức tạp
-- Thiếu khả năng phát hiện lỗi real-time trong quá trình coding
+> 💌 **Chưa có tài khoản?** Nhắn AnhNT22 nhé, anh ấy tốt lắm!
 
-### Giải pháp ZEST
+## 🎁 Mình Có Thể Giúp Gì?
 
-**ZEST** là một plugin cho IntelliJ IDEA, tích hợp chat AI và các công cụ thông minh trực tiếp vào môi trường phát triển. Plugin cho phép developer sử dụng AI để hỗ trợ các tác vụ lập trình mà không cần rời khỏi IDE.
+### 1. 💬 ZPS Chat - Tâm Sự Cùng AI
 
-Với việc tích hợp MCP (Model Context Protocol) server, ZEST mang lại khả năng tương tác sâu giữa AI và code của bạn, giúp tự động hóa nhiều tác vụ phát triển phần mềm.
+Một cửa sổ chat nho nhỏ trong IDE, không có gì đặc biệt lắm...
 
-**Phiên bản 1.9.869** bổ sung các tính năng:
-- Inline Completion với hỗ trợ Cocos
-- Code Guardian - Tự động review code và cảnh báo lỗi
-- Tối ưu hiệu suất với file JAR nhỏ hơn
+**Ngoại trừ:**
+- Chat với AI (đôi khi nó hiểu, đôi khi không 🤷)
+- Có cả Git UI luôn (commit ngay trong chat, khỏi chuyển tab!)
+- Kéo thả file vào chat (drag & drop, fancy nhỉ?)
+- Bấm F12 xem DevTools (cho ai thích soi code HTML)
 
----
+**Cách dùng:** Bấm icon **Z** → Hãy kiên nhẫn với loading screen...
 
-# ZEST - Plugin Hỗ Trợ Phát Triển Phần Mềm với AI
+### 2. 🔮 Block Rewrite (Ctrl+Space) - Phép Thuật Nhỏ
 
-## Hướng dẫn cài đặt
+Đặt con trỏ trong method, bấm Ctrl+Space, và... điều kỳ diệu có thể xảy ra!
 
-### 1. Cài đặt Plugin
+**Menu xinh xắn với:**
+- **Số 1-4**: Gợi ý có sẵn (mình đoán theo context đấy!)
+- **Shift+1-9**: Custom prompts bạn lưu
+- **Gõ chữ**: Tự viết instruction của riêng bạn
 
-1. **Tải xuống file plugin** (định dạng ZIP) từ nguồn được cung cấp
-2. **Cài đặt vào IntelliJ IDEA**:
-   - Truy cập menu: File → Settings → Plugins → ⚙️ → Install Plugin from Disk
-   - Chọn file ZIP đã tải xuống
-   - Khởi động lại IDE để hoàn tất cài đặt
-   - Mở cửa sổ chat bằng cách nhấn vào icon Z ở thanh công cụ bên phải
-   - Trong cửa sổ chat, chọn model "Code Expert" và nhấn "Set as Default"
-   - Để nhận tài khoản sử dụng, vui lòng liên hệ AnhNT22
+**Mình thấy bạn có:**
+- Method trống? → "Implement method" (cố gắng đoán ý bạn)
+- TODO comment? → "Implement TODO" (TODO của bạn là gì?)
+- Code phức tạp? → "Refactor & simplify" (đơn giản hóa... nếu được)
 
-### 2. Cài đặt MCP Server
+*Progress bar ở status bar nhé, đừng tưởng mình đơ!*
 
-MCP Server cho phép AI tương tác trực tiếp với IntelliJ:
-- Cài đặt plugin IntelliJ MCP từ file mcp-server-plugin.zip
-- Khởi động MCP server bằng cách chạy file mcp.bat trong thư mục ./mcp
-- Cấu hình trong chat/talk interface:
-  - Vào Settings → Tools
-  - Thêm URL: localhost:8000/jetbrains/openapi.json
-  - Lưu cấu hình
-- Refresh trang web và kiểm tra mục Tools để xác nhận 'JetBrains' đã xuất hiện
+### 3. 🎨 Git UI - Commit Xinh Như Mơ
 
-### 3. Khởi động và sử dụng
+Một giao diện Git nho nhỏ, không pro bằng SourceTree nhưng...
 
-Sau khi hoàn tất cài đặt, ZEST đã sẵn sàng hỗ trợ công việc phát triển của bạn.
+**Có thể:**
+- Xem file changes với màu mè (xanh đỏ tím vàng 🌈)
+- Tick chọn files muốn commit
+- Generate commit message (AI viết hay hơn mình!)
+- Commit & Push một phát
+- Click file để xem diff (wow!)
 
-## Cấu trúc Menu
+*Bonus: Code Guardian tự động check sau khi commit đấy!*
 
-Khi nhấp chuột phải vào code, menu **Zest** sẽ hiển thị với các chức năng:
+### 4. 🤖 Inline Completion - Gợi Ý Khiêm Tốn
 
-### Main Actions
-- **Test Advisor (Chat)** - Tư vấn về việc viết test
-- **Code Review (Chat)** - Review code và đưa ra gợi ý
-- **Generate Commit Message (Chat)** - Tạo commit message tự động
+Mình cố gắng đoán bạn muốn gõ gì tiếp theo...
 
-### Code Guardian
-- **Activate Code Guardian** - Kích hoạt bảo vệ chất lượng code
-- **Guard This Method** - Theo dõi method cụ thể
-- **Start Guardian Patrol** - Kiểm tra tự động các method
-- **Guardian Daily Report** - Báo cáo chất lượng hàng ngày
+**Phím tắt dễ nhớ:**
+- `Tab` - "OK được rồi, lấy hết đi"
+- `Ctrl+Tab` - "Từ từ, cho tôi xem từng dòng"
+- `Alt+↓` - "Còn ý nào khác không?"
+- `Escape` - "Thôi, tự gõ cho lành"
 
-### Tools
-- **Start Tools** - Khởi động MCP tools cho chat
+*Đôi khi mình đoán sai, xin lỗi trước! 🙏*
 
----
+### 5. 🛡️ Code Guardian - Bạn Review Ảo
 
-## Các tính năng chính
+Như có một junior dev ngồi cạnh review code... nhưng junior này chăm chỉ hơn!
 
-### Inline Completion - Gợi ý code thông minh
+**Biết làm:**
+- Review code thay đổi (tìm bug cơ bản)
+- Báo cáo hàng ngày lúc 13h (sau giờ ăn trưa)
+- Kêu la khi thấy vấn đề (notification nhẹ nhàng thôi)
 
-**Mục đích**: Tự động gợi ý code trong quá trình lập trình, giảm thiểu việc gõ code lặp lại.
+**Menu dễ thương:**
+- `Activate Code Guardian` - "Mình bắt đầu canh nhé?"
+- `Guard This Method` - "Method này quan trọng à?"
+- `Guardian Watch List` - "Mình đang canh mấy chỗ rồi?"
 
-**Kích hoạt**: 
-- Tự động: Gợi ý xuất hiện khi bạn dừng gõ
-- Thủ công: Ctrl+Space để trigger ngay lập tức
+### 6. 🧪 Test Advisor - Cố Vấn Tập Sự
 
-**Phím tắt**:
-- **Tab**: Chấp nhận toàn bộ gợi ý
-- **Ctrl+Tab**: Chấp nhận từng dòng (chế độ LEAN)
-- **Escape**: Hủy gợi ý
+"Viết test kiểu gì ta?" - Để mình gợi ý cho!
 
-**Đặc điểm**:
-- Hỗ trợ đặc biệt cho Cocos2d-x
-- Học từ context code hiện tại
-- Gợi ý multi-line thông minh
-- Tối ưu cho Java và JavaScript/TypeScript
+*Disclaimer: Gợi ý thôi nhé, test vẫn phải tự viết!*
 
-### ZPS Chat - Trợ lý lập trình
+### 7. ⚙️ Settings - Tùy Chỉnh Thoải Mái
 
-**Mục đích**: Cung cấp trợ lý AI trong IDE để hỗ trợ các tác vụ lập trình.
+Settings → Tools → Zest Plugin
 
-**Tính năng**:
-- Giải đáp thắc mắc về code và architecture
-- Phân tích code được chọn
-- Tạo code mẫu theo yêu cầu
-- Hỗ trợ đặc biệt cho Cocos2d-x với hashtag #cocos
-- Tích hợp với MCP tools để tương tác trực tiếp với project
+**5 tabs ngăn nắp:**
+- **General**: API và những thứ cơ bản
+- **Models**: Chọn AI model (có 2-3 cái)
+- **Features**: Bật tắt tính năng
+- **Prompts**: Sửa prompt cho hợp gu
+- **Project**: Rules và custom prompts
 
-**Sử dụng**:
-1. Mở ZPS Chat từ icon Z trên thanh công cụ
-2. Chọn model phù hợp (khuyến nghị: Code Expert)
-3. Gửi câu hỏi hoặc yêu cầu
-4. Tương tác với AI để làm rõ hoặc điều chỉnh kết quả
+*Mình cố gắng làm UI dễ hiểu, không biết có được không? 😅*
 
-### Code Guardian - Bảo vệ chất lượng code
+## 🎮 Mẹo Nhỏ Từ Mình
 
-**Mục đích**: Tự động phát hiện và cảnh báo về các vấn đề trong code mới viết hoặc sửa đổi.
+1. **Method trống + Ctrl+Space** = Magic (đôi khi)
+2. **Shift+1-9** lưu prompts hay dùng (tiết kiệm thời gian)
+3. **Git UI** trong chat (khỏi chuyển window)
+4. **F12** để debug nếu chat bị lỗi
+5. **Code Guardian** để yên tâm hơn (một chút)
 
-**Kích hoạt**: Menu chuột phải → Zest → Code Guardian → Activate Code Guardian
+## 📝 Fun Facts
 
-**Tính năng chính**:
-- **Auto Review**: Tự động review các thay đổi code nhỏ (method/file)
-- **Daily Report**: Báo cáo tổng hợp lúc 13h hàng ngày
-- **Real-time Alert**: Cảnh báo ngay khi phát hiện issue
-- **Smart Tracking**: Theo dõi các method quan trọng
+- Mình được làm bởi team Zingplay (họ chơi game nhiều hơn code 🎮)
+- Code Guardian làm việc cả khi bạn đi ăn trưa
+- Commit message do AI viết thường... nghe pro hơn của dev
+- Có bug? Feature đấy! 🐛
 
-**Quy trình sử dụng**:
-1. Kích hoạt Code Guardian cho project
-2. Code Guardian tự động theo dõi các thay đổi
-3. Nhận cảnh báo real-time khi có issue
-4. Xem báo cáo tổng hợp hàng ngày
+## 🔧 Yêu Cầu Tối Thiểu
 
-**Guardian Tools**:
-- **Guardian Watch List**: Xem danh sách method đang theo dõi
-- **Guardian Test Mode**: Chế độ test với dữ liệu mẫu
-- **Guardian Help**: Hướng dẫn sử dụng chi tiết
+- IntelliJ 2022.3+ (già hơn thì... may rủi)
+- Java plugin (dĩ nhiên rồi)
+- RAM 8GB (mình ăn hơi nhiều RAM, sorry!)
+- Internet (không có thì mình câm như hến)
 
-### Test Advisor
+## 🆘 Cần Giúp Đỡ?
 
-**Mục đích**: Phân tích code và đưa ra lời khuyên về cách viết test hiệu quả.
+- **Xin account**: Tìm anh AnhNT22 (người tốt)
+- **Email**: nhutnm3@vng.com.vn
+- **Team**: Zingplay Game Studio
 
-**Kích hoạt**: Chọn code → Menu chuột phải → Zest → Test Advisor (Chat)
+## 🔍 Mở Settings Như Thế Nào?
 
-**Tính năng**:
-- Phân tích độ phức tạp của code
-- Đề xuất test scenarios
-- Hướng dẫn mock dependencies
-- Gợi ý best practices cho testing
+Có 3 cách để tìm mình trong Settings nhé:
 
-### Code Review
+**Cách 1 - Dùng menu:**
+- Windows/Linux: `File → Settings → Tools → Zest Plugin`
+- macOS: `IntelliJ IDEA → Preferences → Tools → Zest Plugin`
 
-**Mục đích**: Cung cấp code review tự động, phát hiện vấn đề tiềm ẩn.
+**Cách 2 - Dùng phím tắt:**
+- Windows/Linux: `Ctrl + Alt + S` → gõ "Zest" → Enter
+- macOS: `⌘ + ,` → gõ "Zest" → Enter
 
-**Kích hoạt**: Chọn code → Menu chuột phải → Zest → Code Review (Chat)
+**Cách 3 - Search everywhere:**
+- Double Shift → gõ "Zest settings" → Enter
 
-**Phân tích bao gồm**:
-- Phát hiện bug tiềm ẩn
-- Vấn đề về performance
-- Code style và best practices
-- Security concerns
-- Đề xuất cải thiện
+*Mẹo: Bookmark settings để mở nhanh lần sau! ⭐*
 
-### Tạo Commit Message
+## 🌟 Lời Cuối
 
-**Mục đích**: Tạo commit message có ý nghĩa dựa trên changes.
+ZEST có thể không phải plugin AI tốt nhất, nhưng ít nhất mình ở ngay trong IDE của bạn! Hãy cho mình cơ hội nhé? 🥺
 
-**Kích hoạt**: Menu chuột phải → Zest → Generate Commit Message (Chat)
-
-**Quy trình**:
-1. Thực hiện changes trong code
-2. Kích hoạt Generate Commit Message
-3. AI phân tích diff và tạo message
-4. Review và chỉnh sửa nếu cần
-5. Copy message để sử dụng
+*P/S: Nếu thấy hay, star cho project. Nếu thấy bug... thì báo nhẹ nhàng thôi!*
 
 ---
 
-## Agent Proxy - Kết nối AI với IDE
+**ZEST** - *Plugin nhỏ bé với ước mơ lớn lao: Giúp bạn code vui vẻ hơn!* 💚
 
-### Giới thiệu Agent Proxy
-
-Agent Proxy là một server trung gian cho phép AI tools (như Open WebUI) tương tác trực tiếp với IntelliJ IDEA của bạn. Điều này mang lại khả năng:
-
-- **Đọc và phân tích code**: AI có thể truy cập trực tiếp vào project files
-- **Thực thi commands**: Chạy các lệnh trong IDE từ AI chat
-- **Context-aware responses**: AI hiểu rõ context của project hiện tại
-- **Tool integration**: Sử dụng các tools trong IDE thông qua AI
-
-### Cài đặt và cấu hình
-
-1. **Khởi động Agent Proxy**:
-   - Menu: Zest → Start Tools
-   - Hoặc: Tools → Start Tools
-   - Server sẽ khởi động trên port 8765 (mặc định)
-
-2. **Kiểm tra trạng thái**:
-   - Mở trình duyệt: http://localhost:8765/health
-   - Xem API docs: http://localhost:8765/zest/docs
-   - OpenAPI spec: http://localhost:8765/zest/openapi.json
-
-3. **Monitor Window**:
-   - Hiển thị real-time activity
-   - Theo dõi requests và responses
-   - Xem performance metrics
-
-### Sử dụng với Open WebUI
-
-**Bước 1: Cấu hình Tools trong Open WebUI**
-
-1. Truy cập Open WebUI (chat.zingplay.com hoặc talk.zingplay.com)
-2. Vào Settings → Tools
-3. Thêm URL: `http://localhost:8765/zest/openapi.json`
-4. Nhấn Save và refresh trang
-
-**Bước 2: Kích hoạt Tools trong chat**
-
-1. Trong chat window, click vào biểu tượng "+" ở góc dưới bên trái
-2. Chọn các tools muốn sử dụng:
-   - `find_files_by_name`: Tìm files theo tên
-   - `get_file_text`: Đọc nội dung file
-   - `search_in_files`: Tìm kiếm trong code
-   - `list_files_in_folder`: Liệt kê files trong thư mục
-   - Và nhiều tools khác...
-
-**Bước 3: Sử dụng trong hội thoại**
-
-Khi chat với AI, bạn có thể yêu cầu AI sử dụng tools để:
-- Đọc và phân tích code trong project
-- Tìm kiếm files và nội dung cụ thể
-- Navigate qua cấu trúc project
-- Thực hiện phân tích deep với nhiều files
-
-Ví dụ các câu hỏi bạn có thể hỏi:
-- "Hãy dùng tools để tìm tất cả các file Service trong project"
-- "Đọc file UserController.java và phân tích code"
-- "Tìm tất cả các TODO trong project bằng tools"
-- "Dùng tools để review security của AuthenticationService"
-
-**Lợi ích**:
-- AI có full context của project
-- Không cần copy-paste code
-- Phân tích deep với nhiều files
-- Tự động navigate đến code khi cần
-
-**Lưu ý**: Hiện tại mỗi port chỉ phục vụ cho một project. Nếu làm việc với nhiều projects, cần khởi động Agent Proxy với port khác cho mỗi project.
-
----
-
-## Cấu hình
-
-### Cấu hình cơ bản
-
-ZEST sử dụng IntelliJ's settings system. Truy cập qua:
-- File → Settings → Tools → Zest Plugin
-
-**Các thiết lập chính**:
-
-```properties
-# API Configuration
-API URL: https://chat.zingplay.com/api/chat/completions
-Auth Token: [Your API Token]
-
-# Model Configuration  
-Test Model: unit_test_generator
-Code Model: code-expert
-Max Iterations: 3
-
-# Feature Toggles
-Enable Inline Completion: ✓
-Enable Auto-trigger: ✓
-Enable Code Guardian: ✓
-```
-
-### Cấu hình nâng cao
-
-**Inline Completion**:
-- Auto-trigger completion: Tự động gợi ý khi dừng gõ
-- Continuous completion: Tiếp tục gợi ý sau khi accept
-- Background context: Thu thập context trong background
-
-**Code Guardian**:
-- Enable daily check: Bật kiểm tra hàng ngày
-- Check time: 13:00 (có thể tùy chỉnh)
-- Max methods to track: Giới hạn số method theo dõi
-
-**Agent Proxy**:
-- Port: 8765 (có thể thay đổi nếu bị conflict)
-- Max tool calls: Giới hạn số lần gọi tool
-- Timeout: Thời gian timeout cho mỗi request
-
-### Bảo mật
-
-- API Token được lưu encrypted trong IntelliJ settings
-- Agent Proxy chỉ chạy trên localhost
-- Không expose sensitive data qua API
-- Có thể stop server bất cứ lúc nào
-
----
-
-## Khuyến nghị sử dụng
-
-1. **Inline Completion**: Tận dụng tối đa cho code lặp lại và patterns phổ biến
-2. **Code Guardian**: Bật ngay từ đầu project để theo dõi chất lượng code liên tục
-3. **Agent Proxy**: Sử dụng khi cần phân tích deep hoặc làm việc với nhiều files
-4. **Chat Integration**: Kết hợp với MCP tools để AI hiểu context project tốt hơn
-5. **Daily Review**: Kiểm tra báo cáo Code Guardian hàng ngày lúc 13h
-6. **Test Advisor**: Sử dụng trước khi viết test để có hướng đi đúng
-
----
-
-## Yêu cầu hệ thống
-
-- IntelliJ IDEA phiên bản 223.0 trở lên (tương thích đến 259.*)
-- Plugin "Java" đã cài đặt
-- Kết nối Internet ổn định
-- RAM tối thiểu 8GB
-- Lưu ý: Hiện tại plugin hoạt động ổn định nhất với code Java. Với JavaScript/TypeScript, inline completion và chat đảm bảo ổn định.
-
----
-
-## Hỗ trợ
-
-Để nhận hỗ trợ kỹ thuật, vui lòng liên hệ:
-
-- **Quản lý tài khoản và backend**: AnhNT22
-- **Email hỗ trợ**: nhutnm3@vng.com.vn
-- **Website**: https://www.vng.com.vn
-
-## Các vấn đề thường gặp
-
-### Đăng nhập
-- Tài khoản chat (mạng ngoài) và talk (mạng trong) là riêng biệt
-- Nếu chưa có tài khoản, vui lòng liên hệ AnhNT22
-- Plugin có thể yêu cầu đăng nhập lại trong lần sử dụng đầu tiên
-
-### Agent Proxy
-- Nếu port 8765 bị chiếm, có thể đổi sang port khác trong settings
-- Monitor window có thể đóng mà không ảnh hưởng đến server
-- Restart IDE nếu tools không xuất hiện trong Open WebUI
-
-### Vấn đề đã biết
-- Một số chức năng có thể gặp lỗi nếu cửa sổ chat chưa được mở
-- Git Client trong cửa sổ chat không tự động refresh sau khi commit
-- Git submodule support đang trong quá trình phát triển
-
----
-
-*ZEST - Nâng cao hiệu suất phát triển phần mềm với sự hỗ trợ của AI*
-
-*Cập nhật: Tháng 7, 2025 - Phiên bản 1.9.869*
+*Version 1.9.890 - Vẫn đang cố gắng từng ngày*

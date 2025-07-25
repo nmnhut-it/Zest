@@ -1,3 +1,12 @@
+# DEPRECATED - This file has been moved!
+
+Your rules have been migrated to: .zest/rules.md
+
+This file is no longer used and can be safely deleted.
+The new location allows better organization of Zest configuration.
+
+---
+
 # Zest Custom Rules
 
 Define your custom LLM rules below. These rules will be included at the top of all prompts sent to the LLM.

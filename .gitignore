@@ -53,3 +53,10 @@ zest-plugin.properties
 .idea/zest/name-index/
 .idea/zest/structural-index/
 /.intellijPlatform
+
+# Zest configuration folder
+# But not this .gitignore file
+!.gitignore
+*
+# Ignore all files in this directory
+/.zest/

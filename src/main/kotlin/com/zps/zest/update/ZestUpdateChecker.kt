@@ -36,7 +36,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 class ZestUpdateChecker : Disposable {
     companion object {
         private val logger = Logger.getInstance(ZestUpdateChecker::class.java)
-        const val UPDATE_URL = "https://zest-internal.zingplay.com/static/release/latest/updatePlugins.xml"
+        const val UPDATE_URL = "https://zest-internal.zingplay.com/static/release/updatePlugins.xml"
         private const val PLUGIN_ID = "com.zps.Zest"
         private const val CHECK_INTERVAL_HOURS = 1L
         private const val NOTIFICATION_GROUP = "Zest Updates"

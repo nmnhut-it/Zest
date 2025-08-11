@@ -25,7 +25,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
     elapsed: Long,
     actualModel: String,
     completionContent: String? = null,
-    metadata: Map<String, Any>? = null,
+    metadata: MetricMetadata,
     enumUsage: String
 ): Boolean = withContext(Dispatchers.IO) {
     try {
@@ -38,7 +38,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         val logName = when (enumUsage) {
             "INLINE_COMPLETION_LOGGING" -> "autocomplete"
             "CODE_HEALTH_LOGGING" -> "code_health"
-            "BLOCK_REWRITE_LOGGING" -> "block_rewrite"
+            "BLOCK_REWRITE_LOGGING" -> "quick_action"
             else -> null // Use legacy endpoint
         }
         
@@ -63,8 +63,8 @@ suspend fun LLMService.sendInlineCompletionMetrics(
         
         // Build request body based on log type
         val requestBody = when (logName) {
-            "autocomplete", "block_rewrite" -> {
-                // New format for autocomplete and block_rewrite endpoints
+            "autocomplete", "quick_action" -> {
+                // New format for autocomplete and quick_action endpoints
                 JsonObject().apply {
                     addProperty("event_type", eventType)
                     addProperty("completion_id", completionId)
@@ -73,9 +73,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                     completionContent?.let { addProperty("completion_text", it) }
                     
                     // Add metadata as nested object
-                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
-                        add("metadata", Gson().toJsonTree(meta))
-                    }
+                    add("metadata", Gson().toJsonTree(metadata))
                 }
             }
             "code_health" -> {
@@ -85,8 +83,10 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                     addProperty("timestamp", System.currentTimeMillis())
                     
                     // Add analysis data from metadata
-                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
-                        add("analysis_data", Gson().toJsonTree(meta))
+                    if (metadata is CodeHealthMetadata) {
+                        add("analysis_data", Gson().toJsonTree(metadata.analysisData))
+                    } else {
+                        add("analysis_data", Gson().toJsonTree(metadata))
                     }
                 }
             }
@@ -111,9 +111,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                     add("messages", dummyMsg)
                     addProperty("elapsed", elapsed)
                     completionContent?.let { addProperty("completion_content", it) }
-                    metadata?.takeIf { it.isNotEmpty() }?.let { meta ->
-                        add("metadata", Gson().toJsonTree(meta))
-                    }
+                    add("metadata", Gson().toJsonTree(metadata))
                 }
             }
         }
@@ -205,12 +203,31 @@ suspend fun LLMService.sendInlineCompletionMetrics(
  * Convenience method to send a metric event
  */
 suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): Boolean {
-    val metadata = event.metadata
-    
+    // Extract completion content from events that have it
     val completionContent = when (event) {
-        is MetricEvent.Select -> event.completionContent
-        is MetricEvent.CompletionResponse -> event.completionContent
+        is MetricEvent.InlineSelect -> event.completionContent
+        is MetricEvent.InlineCompletionResponse -> event.completionContent
+        is MetricEvent.QuickActionSelect -> event.completionContent
+        is MetricEvent.QuickActionResponse -> event.completionContent
         else -> null
+    }
+    
+    // Extract metadata based on event type
+    val metadata: MetricMetadata = when (event) {
+        is MetricEvent.InlineCompletionRequest -> event.metadata
+        is MetricEvent.InlineCompletionResponse -> event.metadata
+        is MetricEvent.InlineView -> event.metadata
+        is MetricEvent.InlineSelect -> event.metadata
+        is MetricEvent.InlineDecline -> event.metadata
+        is MetricEvent.InlineDismiss -> event.metadata
+        is MetricEvent.QuickActionRequest -> event.metadata
+        is MetricEvent.QuickActionResponse -> event.metadata
+        is MetricEvent.QuickActionView -> event.metadata
+        is MetricEvent.QuickActionSelect -> event.metadata
+        is MetricEvent.QuickActionDecline -> event.metadata
+        is MetricEvent.QuickActionDismiss -> event.metadata
+        is MetricEvent.CodeHealthEvent -> event.metadata
+        is MetricEvent.Custom -> event.metadata
     }
     
     return sendInlineCompletionMetrics(
@@ -219,7 +236,7 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): B
         elapsed = event.elapsed,
         actualModel = event.actualModel,
         completionContent = completionContent,
-        metadata = metadata.takeIf { it.isNotEmpty() },
+        metadata = metadata,
         enumUsage = enumUsage
     )
 }

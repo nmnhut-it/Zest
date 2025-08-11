@@ -125,7 +125,7 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     private val responseParser = ZestSimpleResponseParser() // Add response parser for real-time processing
 
     // Method rewrite service integration
-    private val methodRewriteService by lazy { project.getService(ZestMethodRewriteService::class.java) }
+    private val methodRewriteService by lazy { project.getService(ZestQuickActionService::class.java) }
 
     // Metrics service integration
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }

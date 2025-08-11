@@ -57,6 +57,8 @@ zest-plugin.properties
 # Zest configuration folder
 # But not this .gitignore file
 !.gitignore
+# Ignore all files in .zest directory
+/.zest/
+
 *
 # Ignore all files in this directory
-/.zest/

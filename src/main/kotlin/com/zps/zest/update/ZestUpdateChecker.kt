@@ -63,7 +63,7 @@ class ZestUpdateChecker : Disposable {
     fun startUpdateChecking() {
         // Cancel any existing scheduled check
         scheduledFuture?.cancel(false)
-        
+
         // Schedule periodic checks
         scheduledFuture = executor.scheduleWithFixedDelay(
             { checkForUpdates() },

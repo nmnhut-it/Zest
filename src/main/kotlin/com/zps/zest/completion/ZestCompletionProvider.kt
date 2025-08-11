@@ -23,11 +23,8 @@ import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
 import com.zps.zest.langchain4j.util.LLMService
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.*
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Completion provider with multiple strategies (A/B testing)
@@ -131,7 +128,7 @@ class ZestCompletionProvider(private val project: Project) {
 
     // Method rewrite strategy components
     private val methodRewriteService by lazy {
-        project.getService(ZestMethodRewriteService::class.java)
+        project.getService(ZestQuickActionService::class.java)
     }
 
     // Configuration

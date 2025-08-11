@@ -71,11 +71,8 @@ public class TestExecutionStage implements PipelineStage {
             return;
         }
         
-        // Show the test writing tool window to guide the user through the process
-        TestWritingToolWindow toolWindow = TestWritingToolWindow.showToolWindow(project, plan, progress);
-        if (toolWindow == null) {
-            throw new PipelineExecutionException("Failed to show test writing tool window");
-        }
+        // Test writing is now handled in TestWritingEditor via editor tabs
+        LOG.info("Test execution stage completed - editor will handle the UI");
         
         // Update the status message
         String statusMessage = String.format(

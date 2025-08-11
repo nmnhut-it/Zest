@@ -497,7 +497,7 @@ public class TestExecutionManager {
                 stateManager.clearTestWritingState();
 
                 // Only close the tool window when all test cases are complete
-                TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
+                // Tool window no longer used - using editor tabs now
                 return false;
             }
         }
@@ -557,7 +557,7 @@ public class TestExecutionManager {
             stateManager.clearTestWritingState();
 
             // Only close the tool window when all test cases are complete
-            TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
+            // Tool window no longer used - using editor tabs now
             return false;
         }
 
@@ -739,7 +739,7 @@ public class TestExecutionManager {
         stateManager.clearTestWritingState();
 
         // Close the tool window
-        TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
+        // Tool window no longer used - using editor tabs now
 
         // Show abort message
         ApplicationManager.getApplication().invokeLater(() -> {

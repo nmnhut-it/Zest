@@ -1,131 +1,146 @@
 package com.zps.zest.completion.metrics
 
 /**
- * Sealed class representing different types of metric events for inline completion
+ * Sealed class representing different types of metric events
+ * BREAKING CHANGE: metadata is now strongly typed
  */
 sealed class MetricEvent {
     abstract val completionId: String
     abstract val elapsed: Long
     abstract val eventType: String
-    abstract val metadata: Map<String, Any>
     abstract val actualModel: String
     
-    /**
-     * Convert the event to an API request format
-     */
-    open fun toApiRequest(): Map<String, Any> {
-        val baseRequest = mutableMapOf<String, Any>(
-            "model" to actualModel,
-            "stream" to false,
-            "custom_tool" to "Zest|INLINE_COMPLETION_LOGGING|$eventType",
-            "completion_id" to completionId,
-            "elapsed" to elapsed
-        )
-        
-        // Add event-specific fields
-        when (this) {
-            is Select -> baseRequest["completion_content"] = completionContent
-            is CompletionResponse -> baseRequest["completion_content"] = completionContent
-            is Custom -> {
-                // For custom events, use the custom tool string
-                baseRequest["custom_tool"] = customTool
-            }
-            else -> { /* No additional fields for other events */ }
-        }
-        
-        // Add metadata if present
-        if (metadata.isNotEmpty()) {
-            baseRequest["metadata"] = metadata
-        }
-        
-        return baseRequest
-    }
-    
-    /**
-     * Completion request initiated (bắt đầu gửi req)
-     */
-    data class CompletionRequest(
+    // Inline Completion Events
+    data class InlineCompletionRequest(
         override val completionId: String,
         override val actualModel: String,
-        override val elapsed: Long = 0,
-        override val metadata: Map<String, Any> = emptyMap()
+        override val elapsed: Long,
+        val metadata: InlineRequestMetadata
     ) : MetricEvent() {
         override val eventType = "request"
     }
     
-    /**
-     * Request returned result (req trả về kết quả)
-     */
-    data class CompletionResponse(
+    data class InlineCompletionResponse(
         override val completionId: String,
         val completionContent: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: InlineResponseMetadata
     ) : MetricEvent() {
         override val eventType = "response"
     }
     
-    /**
-     * Completion displayed to user (hiện ra cho user)
-     */
-    data class View(
+    data class InlineView(
         override val completionId: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: InlineViewMetadata
     ) : MetricEvent() {
         override val eventType = "view"
     }
     
-    /**
-     * User pressed TAB to accept (user nhấn tab để chọn gợi ý)
-     */
-    data class Select(
+    data class InlineSelect(
         override val completionId: String,
         val completionContent: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: InlineAcceptMetadata
     ) : MetricEvent() {
         override val eventType = "tab"
     }
     
-    /**
-     * User pressed ESC to reject (user nhấn esc để bỏ chọn gợi ý)
-     */
-    data class Decline(
+    data class InlineDecline(
         override val completionId: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: InlineRejectMetadata
     ) : MetricEvent() {
         override val eventType = "esc"
     }
     
-    /**
-     * User continued typing (user gõ tiếp - bỏ qua gợi ý)
-     */
-    data class Dismiss(
+    data class InlineDismiss(
         override val completionId: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: InlineDismissMetadata
     ) : MetricEvent() {
         override val eventType = "anykey"
     }
     
-    /**
-     * Custom event type for other metrics (e.g. Code Health)
-     */
-    data class Custom(
+    // Quick Action Events
+    data class QuickActionRequest(
         override val completionId: String,
-        val customTool: String,
         override val actualModel: String,
         override val elapsed: Long,
-        override val metadata: Map<String, Any> = emptyMap()
+        val metadata: QuickActionRequestMetadata
     ) : MetricEvent() {
-        override val eventType = customTool.substringAfterLast("|")
+        override val eventType = "request"
+    }
+    
+    data class QuickActionResponse(
+        override val completionId: String,
+        val completionContent: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: QuickActionResponseMetadata
+    ) : MetricEvent() {
+        override val eventType = "response"
+    }
+    
+    data class QuickActionView(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: QuickActionViewMetadata
+    ) : MetricEvent() {
+        override val eventType = "view"
+    }
+    
+    data class QuickActionSelect(
+        override val completionId: String,
+        val completionContent: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: QuickActionAcceptMetadata
+    ) : MetricEvent() {
+        override val eventType = "tab"
+    }
+    
+    data class QuickActionDecline(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: QuickActionRejectMetadata
+    ) : MetricEvent() {
+        override val eventType = "esc"
+    }
+    
+    data class QuickActionDismiss(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: QuickActionDismissMetadata
+    ) : MetricEvent() {
+        override val eventType = "anykey"
+    }
+    
+    // Other Events
+    data class CodeHealthEvent(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: CodeHealthMetadata
+    ) : MetricEvent() {
+        override val eventType = metadata.eventType
+    }
+    
+    data class Custom(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: CustomEventMetadata
+    ) : MetricEvent() {
+        override val eventType = metadata.customTool.substringAfterLast("|")
     }
 }
 

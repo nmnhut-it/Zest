@@ -11,8 +11,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiFile;
 import com.zps.zest.*;
 import com.zps.zest.browser.utils.ChatboxUtilities;
@@ -120,22 +118,17 @@ public class SendCodeReviewToChatBox extends AnAction {
     private boolean sendPromptToChatBoxAndSubmit(Project project, String prompt) {
         LOG.info("Sending generated code review prompt to chat box and submitting");
 
-        // Activate browser tool window and send prompt asynchronously
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-        if (toolWindow != null) {
-            ApplicationManager.getApplication().invokeLater(()->{
-                toolWindow.activate(() -> {
-                    // The ChatboxUtilities.sendTextAndSubmit method handles waiting for page load
-                    ChatboxUtilities.clickNewChatButton(project);
+        // Open chat in editor and send prompt asynchronously
+        ApplicationManager.getApplication().invokeLater(()->{
+            // Open chat in editor first
+            com.zps.zest.browser.actions.OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+            
+            // The ChatboxUtilities.sendTextAndSubmit method handles the rest
+            ChatboxUtilities.clickNewChatButton(project);
+            ChatboxUtilities.sendTextAndSubmit(project, prompt, true, ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false, ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW);
+        });
 
-                    ChatboxUtilities.sendTextAndSubmit(project, prompt, true, ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false, ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW);
-                });
-            });
-
-            return true;
-        }
-        
-        return false;
+        return true;
     }
 
     /**

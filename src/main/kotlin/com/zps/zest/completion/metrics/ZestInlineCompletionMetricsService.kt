@@ -83,14 +83,15 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         )
         session.timingInfo = timingInfo
         
-        sendEvent(MetricEvent.CompletionRequest(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, actualModel)
+        sendEvent(MetricEvent.InlineCompletionRequest(
             completionId = completionId,
             actualModel = actualModel,
             elapsed = 0,
-            metadata = mapOf(
-                "strategy" to strategy,
-                "file_type" to fileType
-            ) + contextInfo
+            metadata = baseBuilder.buildInlineRequest(
+                fileType = fileType,
+                strategy = MetricsUtils.parseStrategy(strategy)
+            )
         ))
     }
     
@@ -172,14 +173,15 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         session.completionLength = completionLength
         session.confidence = confidence
         
-        sendEvent(MetricEvent.View(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+        sendEvent(MetricEvent.InlineView(
             completionId = completionId,
             actualModel = session.actualModel,
             elapsed = elapsed,
-            metadata = mapOf(
-                "completion_length" to completionLength,
-                "completion_line_count" to completionLineCount,
-                "confidence" to (confidence ?: 0f)
+            metadata = baseBuilder.buildInlineView(
+                completionLength = completionLength,
+                completionLineCount = completionLineCount,
+                confidence = confidence ?: 0f
             )
         ))
     }
@@ -197,15 +199,16 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.CompletionResponse(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+        sendEvent(MetricEvent.InlineCompletionResponse(
             completionId = completionId,
             completionContent = completionContent,
             actualModel = session.actualModel,
             elapsed = elapsed,
-            metadata = mapOf(
-                "response_time" to responseTime,
-                "strategy" to session.strategy,
-                "file_type" to session.fileType
+            metadata = baseBuilder.buildInlineResponse(
+                fileType = session.fileType,
+                strategy = MetricsUtils.parseStrategy(session.strategy),
+                responseTimeMs = responseTime
             )
         ))
     }
@@ -224,11 +227,14 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             return;
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.Decline(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+        sendEvent(MetricEvent.InlineDecline(
             completionId = completionId,
             actualModel = session.actualModel,
             elapsed = elapsed,
-            metadata = mapOf("reason" to reason)
+            metadata = baseBuilder.buildInlineReject(
+                reason = MetricsUtils.parseRejectReason(reason)
+            )
         ))
         
         // Clean up session after a delay
@@ -247,11 +253,16 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val session = activeCompletions[completionId] ?: return
         val elapsed = System.currentTimeMillis() - session.startTime
         
-        sendEvent(MetricEvent.Dismiss(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+        sendEvent(MetricEvent.InlineDismiss(
             completionId = completionId,
             actualModel = session.actualModel,
             elapsed = elapsed,
-            metadata = mapOf("reason" to reason)
+            metadata = baseBuilder.buildInlineDismiss(
+                reason = reason,
+                partialAcceptCount = 0,
+                totalAcceptedLength = 0
+            )
         ))
         
         // Clean up session after a delay
@@ -273,14 +284,15 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         // Only send if there were partial acceptances
         if ((session.partialAcceptances ?: 0) > 0) {
-            sendEvent(MetricEvent.Dismiss(
+            val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+            sendEvent(MetricEvent.InlineDismiss(
                 completionId = completionId,
                 actualModel = session.actualModel,
                 elapsed = elapsed,
-                metadata = mapOf(
-                    "reason" to reason,
-                    "partial_accept_count" to (session.partialAcceptances ?: 0),
-                    "total_accepted_length" to (session.totalAcceptedLength ?: 0)
+                metadata = baseBuilder.buildInlineDismiss(
+                    reason = reason,
+                    partialAcceptCount = session.partialAcceptances ?: 0,
+                    totalAcceptedLength = session.totalAcceptedLength ?: 0
                 )
             ))
         }
@@ -329,20 +341,21 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             session.totalAcceptedLength = (session.totalAcceptedLength ?: 0) + completionContent.length
         }
         
-        sendEvent(MetricEvent.Select(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
+        sendEvent(MetricEvent.InlineSelect(
             completionId = completionId,
             completionContent = completionContent,
             actualModel = session.actualModel,
             elapsed = elapsed,
-            metadata = mapOf(
-                "accept_type" to acceptType,
-                "user_action" to userAction,
-                "strategy" to session.strategy,
-                "file_type" to session.fileType,
-                "is_partial" to !isAll,
-                "partial_accept_count" to (session.partialAcceptances ?: 0),
-                "total_accepted_length" to (session.totalAcceptedLength ?: completionContent.length),
-                "view_to_accept_time" to (session.viewedAt?.let { System.currentTimeMillis() - it } ?: 0L)
+            metadata = baseBuilder.buildInlineAccept(
+                acceptType = MetricsUtils.parseAcceptType(acceptType),
+                userAction = MetricsUtils.parseUserAction(userAction),
+                strategy = MetricsUtils.parseStrategy(session.strategy),
+                fileType = session.fileType,
+                isPartial = !isAll,
+                partialAcceptCount = session.partialAcceptances ?: 0,
+                totalAcceptedLength = session.totalAcceptedLength ?: completionContent.length,
+                viewToAcceptTimeMs = session.viewedAt?.let { System.currentTimeMillis() - it } ?: 0L
             )
         ))
         
@@ -373,12 +386,15 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         log("Tracking custom event: $eventType for $eventId")
         
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, actualModel)
         sendEvent(MetricEvent.Custom(
             completionId = eventId,
-            customTool = eventType,
             actualModel = actualModel,
             elapsed = 0,
-            metadata = metadata
+            metadata = baseBuilder.buildCustom(
+                customTool = eventType,
+                additionalData = metadata
+            )
         ))
     }
     
@@ -424,16 +440,17 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         }
         
         try {
-            val requestBody = event.toApiRequest()
-            
             // Print event details for debugging
             log("Processing event: ${event.eventType}")
             log("  - completionId: ${event.completionId}")
             log("  - elapsed: ${event.elapsed}ms")
             log("  - actualModel: ${event.actualModel}")
             when (event) {
-                is MetricEvent.Select -> log("  - content length: ${event.completionContent.length}")
-                is MetricEvent.Custom -> log("  - custom tool: ${event.customTool}")
+                is MetricEvent.InlineSelect -> log("  - content length: ${event.completionContent.length}")
+                is MetricEvent.InlineCompletionResponse -> log("  - content length: ${event.completionContent.length}")
+                is MetricEvent.QuickActionSelect -> log("  - content length: ${event.completionContent.length}")
+                is MetricEvent.QuickActionResponse -> log("  - content length: ${event.completionContent.length}")
+                is MetricEvent.Custom -> log("  - custom tool: ${event.metadata.customTool}")
                 else -> {}
             }
             
@@ -441,17 +458,29 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             val enumUsage = when (event) {
                 is MetricEvent.Custom -> {
                     // For custom events, extract the enum usage from the custom tool
-                    if (event.customTool.contains("CODE_HEALTH_LOGGING")) {
+                    if (event.metadata.customTool.contains("CODE_HEALTH_LOGGING")) {
                         "CODE_HEALTH_LOGGING"
                     } else {
                         "INLINE_COMPLETION_LOGGING"
                     }
                 }
-                else -> "INLINE_COMPLETION_LOGGING"
+                is MetricEvent.InlineCompletionRequest,
+                is MetricEvent.InlineCompletionResponse,
+                is MetricEvent.InlineView,
+                is MetricEvent.InlineSelect,
+                is MetricEvent.InlineDecline,
+                is MetricEvent.InlineDismiss -> "INLINE_COMPLETION_LOGGING"
+                is MetricEvent.QuickActionRequest,
+                is MetricEvent.QuickActionResponse,
+                is MetricEvent.QuickActionView,
+                is MetricEvent.QuickActionSelect,
+                is MetricEvent.QuickActionDecline,
+                is MetricEvent.QuickActionDismiss -> "QUICK_ACTION_LOGGING"
+                is MetricEvent.CodeHealthEvent -> "CODE_HEALTH_LOGGING"
             }
             
             // Send the metric using the extension method
-            sendMetricToApi(requestBody, enumUsage)
+            llmService.sendMetricEvent(event, enumUsage)
             
             log("Sent metric with enumUsage: $enumUsage and actualModel: ${event.actualModel}")
             
@@ -459,64 +488,6 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             
         } catch (e: Exception) {
             logger.warn("Failed to send metric event: ${event.eventType}", e)
-        }
-    }
-    
-    /**
-     * Send metric to API using LLMService infrastructure
-     */
-    private fun sendMetricToApi(requestBody: Map<String, Any>, enumUsage: String) {
-        // This is a fire-and-forget operation
-        scope.launch {
-            try {
-                // Use the extension method to send metrics
-                val event = createMetricEventFromRequest(requestBody)
-                llmService.sendMetricEvent(event, enumUsage)
-            } catch (e: Exception) {
-                // Log but don't fail - metrics are non-critical
-                logger.debug("Metric submission failed", e)
-            }
-        }
-    }
-    
-    /**
-     * Create a MetricEvent from the request body map
-     */
-    private fun createMetricEventFromRequest(requestBody: Map<String, Any>): MetricEvent {
-        val customTool = requestBody["custom_tool"] as String
-        val eventType = customTool.substringAfterLast("|")
-        val completionId = requestBody["completion_id"] as String
-        val elapsed = (requestBody["elapsed"] as Number).toLong()
-        val metadata = (requestBody["metadata"] as? Map<String, Any>) ?: emptyMap()
-        val actualModel = requestBody["model"] as? String ?: "local-model-mini"
-        
-        return when {
-            eventType == "request" -> MetricEvent.CompletionRequest(completionId, actualModel, elapsed, metadata)
-            eventType == "response" -> MetricEvent.CompletionResponse(
-                completionId = completionId,
-                completionContent = requestBody["completion_content"] as? String ?: "",
-                actualModel = actualModel,
-                elapsed = elapsed,
-                metadata = metadata
-            )
-            eventType == "view" -> MetricEvent.View(completionId, actualModel, elapsed, metadata)
-            eventType == "tab" -> MetricEvent.Select(
-                completionId = completionId,
-                completionContent = requestBody["completion_content"] as? String ?: "",
-                actualModel = actualModel,
-                elapsed = elapsed,
-                metadata = metadata
-            )
-            eventType == "anykey" -> MetricEvent.Dismiss(completionId, actualModel, elapsed, metadata)
-            eventType == "esc" -> MetricEvent.Decline(completionId, actualModel, elapsed, metadata)
-            customTool.contains("CODE_HEALTH_LOGGING") -> MetricEvent.Custom(
-                completionId = completionId,
-                customTool = customTool,
-                actualModel = actualModel,
-                elapsed = elapsed,
-                metadata = metadata
-            )
-            else -> MetricEvent.CompletionRequest(completionId, actualModel, elapsed, metadata) // Default
         }
     }
     

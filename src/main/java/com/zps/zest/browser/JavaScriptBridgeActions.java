@@ -70,9 +70,9 @@ public class JavaScriptBridgeActions {
                 return false;
             }
 
-            // Check if the page is actually loaded
-            boolean pageLoaded = WebBrowserToolWindow.isPageLoaded(project, currentUrl);
-            if (!pageLoaded) {
+            // Check if the page is actually loaded (simplified check since tool window is removed)
+            // Page is considered loaded if we have a valid URL and browser manager
+            if (currentUrl.contains("about:blank") || currentUrl.contains("chrome-error://")) {
                 LOG.debug("Browser page not fully loaded yet: " + currentUrl);
                 return false;
             }
@@ -305,19 +305,10 @@ public class JavaScriptBridgeActions {
 
         LOG.info("Content updated notification received for: " + pageUrl);
 
-        // Mark the page as loaded in WebBrowserToolWindow
+        // Page loading state tracking - simplified since WebBrowserToolWindow was removed
         ApplicationManager.getApplication().invokeLater(() -> {
-            // Get the key using the same format as in WebBrowserToolWindow
-            String key = project.getName() + ":" + pageUrl;
-
-            // Update the page loaded state
-            WebBrowserToolWindow.pageLoadedState.put(key, true);
-
-            // Complete any pending futures for this URL
-            java.util.concurrent.CompletableFuture<Boolean> future = WebBrowserToolWindow.pageLoadedFutures.remove(key);
-            if (future != null && !future.isDone()) {
-                future.complete(true);
-            }
+            LOG.debug("Page content updated for: " + pageUrl);
+            // Note: Page loading state tracking removed with WebBrowserToolWindow migration
         });
 
         JsonObject response = new JsonObject();

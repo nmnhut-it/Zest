@@ -11,8 +11,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiFile;
 import com.zps.zest.*;
 import com.zps.zest.browser.utils.ChatboxUtilities;
@@ -123,23 +121,17 @@ public class SendTestPipelineToChatBox extends AnAction {
         // Format the prompt with a header for better readability
         String formattedPrompt = prompt;
 
-        // Activate browser tool window and send prompt asynchronously
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-        if (toolWindow != null) {
-            ApplicationManager.getApplication().invokeLater(()->{
-                toolWindow.activate(() -> {
-                    // The ChatboxUtilities.sendTextAndSubmit method now handles waiting for page load
-                    ChatboxUtilities.clickNewChatButton(project);
+        // Open chat in editor and send prompt asynchronously
+        ApplicationManager.getApplication().invokeLater(()->{
+            // Open chat in editor first
+            com.zps.zest.browser.actions.OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+            
+            // The ChatboxUtilities.sendTextAndSubmit method now handles waiting for page load
+            ChatboxUtilities.clickNewChatButton(project);
+            ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true,ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false, ChatboxUtilities.EnumUsage.CHAT_WRITE_TESTS);
+        });
 
-                    ChatboxUtilities.sendTextAndSubmit(project, formattedPrompt, true,ConfigurationManager.getInstance(project).getOpenWebUISystemPromptForCode(), false, ChatboxUtilities.EnumUsage.CHAT_WRITE_TESTS);
-
-                });
-            });
-
-            return true;
-        }
-        
-        return false;
+        return true;
     }
 
     /**

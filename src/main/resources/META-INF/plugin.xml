@@ -35,12 +35,6 @@
         <!-- Application-level service for global settings -->
         <applicationService serviceImplementation="com.zps.zest.settings.ZestGlobalSettings"/>
         
-        <!-- Update checker service -->
-        <applicationService serviceImplementation="com.zps.zest.update.ZestUpdateChecker"/>
-        
-        <!-- Project proxy manager service -->
-        <applicationService serviceImplementation="com.zps.zest.langchain4j.agent.network.ProjectProxyManager"/>
-        
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <projectService serviceImplementation="com.zps.zest.settings.PromptMigrationService"/>
@@ -53,35 +47,8 @@
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
-        <toolWindow id="ZPS Chat"
-                    anchor="right"
-                    factoryClass="com.zps.zest.browser.WebBrowserToolWindow"
-                    icon="com.zps.zest.ZestIcons.ZPS_CHAT"
-                    canCloseContents="false"/>
                     
-        <toolWindow id="Code Guardian"
-                    anchor="right"
-                    factoryClass="com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory"
-                    icon="com.zps.zest.ZestIcons.SHIELD"
-                    canCloseContents="false"
-                    doNotActivateOnStart="true"
-                    secondary="true"/>
 
-        <toolWindow id="Test Writing Assistant"
-                    anchor="bottom"
-                    factoryClass="com.zps.zest.testing.TestWritingToolWindowFactory"
-                    icon="com.zps.zest.ZestIcons.TEST_WRITING"
-                    canCloseContents="true"
-                    doNotActivateOnStart="false"
-                    secondary="false"/>
-
-        <toolWindow id="Refactoring for Testability"
-                    anchor="bottom"
-                    factoryClass="com.zps.zest.refactoring.RefactoringToolWindowFactory"
-                    icon="com.zps.zest.ZestIcons.REFACTORING"
-                    canCloseContents="true"
-                    doNotActivateOnStart="false"
-                    secondary="false"/>
             
         <projectConfigurable
                 groupId="tools"
@@ -129,6 +96,24 @@
         
         <!-- Code Guardian Notification Group -->
         <notificationGroup id="Zest Code Guardian" displayType="BALLOON" isLogByDefault="false"/>
+        
+        <!-- Code Health Editor Provider -->
+        <fileEditorProvider implementation="com.zps.zest.codehealth.ui.editor.CodeHealthEditorProvider"/>
+        
+        <!-- Test Plan Editor Provider -->
+        <fileEditorProvider implementation="com.zps.zest.codehealth.testplan.editor.TestPlanEditorProvider"/>
+        
+        <!-- Test Writing Editor Provider -->
+        <fileEditorProvider implementation="com.zps.zest.testing.ui.TestWritingEditorProvider"/>
+        
+        <!-- Zest Chat Editor Provider -->
+        <fileEditorProvider implementation="com.zps.zest.browser.editor.ZestChatEditorProvider"/>
+        
+        <!-- Test Plan Services -->
+        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.analysis.TestabilityAnalyzer"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.storage.TestPlanStorage"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.generation.TestGenerationService"/>
+        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.tutorial.TestGenerationTutorialService"/>
     </extensions>
     
     <actions>
@@ -186,6 +171,15 @@
                icon="com.zps.zest.ZestIcons.ZEST">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
+        
+        <!-- Open Chat in Editor Action -->
+        <action id="Zest.OpenChatInEditor"
+                class="com.zps.zest.browser.actions.OpenChatInEditorAction"
+                text="💬 Open Chat in Editor"
+                description="Open ZPS Chat in full-screen editor tab">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
+        </action>
+
 
         <action id="Zest.SendPipelineToChatBox"
                 class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
@@ -193,6 +187,32 @@
                 icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
                 description="Phân tích class và đưa ra hướng dẫn viết test chi tiết">
             <add-to-group group-id="ZestGroup" anchor="last"/>
+        </action>
+
+        <action id="Zest.AgentBasedTestWriting"
+                class="com.zps.zest.testing.AgentBasedTestWritingAction"
+                text="🧪 AI Test Writing"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
+                description="Open AI-powered test writing editor with real-time streaming">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+        </action>
+
+        <!-- Toolbar Actions -->
+        <action id="Zest.OpenChat"
+                class="com.zps.zest.browser.actions.OpenZestChatAction"
+                text="💬 Chat"
+                icon="com.zps.zest.ZestIcons.ZPS_CHAT"
+                description="Open ZPS AI Chat">
+            <add-to-group group-id="MainToolbarRight" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift C"/>
+        </action>
+
+        <action id="Zest.OpenCodeHealth"
+                class="com.zps.zest.codehealth.actions.OpenCodeHealthAction"
+                text="🛡️ Health"
+                icon="AllIcons.General.InspectionsMixed"
+                description="Open Code Health Overview">
+            <add-to-group group-id="MainToolBar" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>
 
         <action id="Zest.SendCodeReviewToChatBox"
@@ -211,18 +231,7 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
-<!--        <action id="Zest.QuickCommitAction"-->
-<!--                class="com.zps.zest.QuickCommitAction"-->
-<!--                text="Quick Commit &amp; Push"-->
-<!--                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"-->
-<!--                description="Commit và push nhanh với message tự động (Ctrl+Shift+Z, C)">-->
-<!--            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift Z" second-keystroke="C"/>-->
-<!--            <add-to-group group-id="ZestGroup" anchor="after"-->
-<!--                          relative-to-action="Zest.GitCommitMessageGeneratorAction"/>-->
-<!--            <add-to-group group-id="VcsGroups" anchor="last"/>-->
-<!--        </action>-->
 
-        <!-- Removed ToggleDevTools - no longer needed -->
 
         <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
                 class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
@@ -231,49 +240,49 @@
             <!-- Removed from ToolsMenu - available in ZestGroup -->
         </action>
         
-        <!-- Code Guardian Group -->
-        <group id="Zest.CodeGuardian" text="Code Guardian" popup="true">
+        <!-- Code Health Group -->
+        <group id="Zest.CodeHealth" text="Code Health Review" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <!-- Removed from ToolsMenu - available in ZestGroup -->
             
             <action id="Zest.CheckCodeHealth"
                     class="com.zps.zest.codehealth.CheckHealthAction"
-                    text="Activate Code Guardian"
+                    text="Activate Code Health Review"
                     description="Phân tích code đã thay đổi trong ngày để phát hiện lỗi tiềm ẩn">
             </action>
             
             <action id="Zest.AddMethodAtCaret"
                     class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
-                    text="Guard This Method"
+                    text="Review This Method"
                     description="Theo dõi method này để kiểm tra chất lượng">
             </action>
             
             <action id="Zest.TriggerBackgroundReview"
                     class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
-                    text="Start Guardian Patrol"
+                    text="Start Health Review"
                     description="Bắt đầu kiểm tra tự động tất cả method đang theo dõi">
             </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="Guardian Daily Report"
+                    text="Health Daily Report"
                     description="Tạo báo cáo tổng hợp chất lượng code hàng ngày">
             </action>
         </group>
         
-        <!-- Code Guardian Debug Actions Group -->
-        <group id="Zest.CodeGuardianDebug" text="Guardian Debugging Tools" popup="true">
-            <add-to-group group-id="Zest.CodeGuardian" anchor="last"/>
+        <!-- Code Health Debug Actions Group -->
+        <group id="Zest.CodeHealthDebug" text="Health Review Debug Tools" popup="true">
+            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>
             
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="Guardian Watch List"
+                    text="Health Watch List"
                     description="Xem danh sách method đang được theo dõi">
             </action>
             
             <action id="Zest.DebugHealthAction"
                     class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="Guardian Test Mode"
+                    text="Health Test Mode"
                     description="Chế độ test với dữ liệu mẫu">
             </action>
             
@@ -281,7 +290,7 @@
             
             <action id="Zest.ShowGuardianHelp"
                     class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
-                    text="Guardian Help"
+                    text="Health Review Help"
                     description="Xem hướng dẫn sử dụng">
             </action>
         </group>
@@ -296,6 +305,14 @@
             <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>
         
+        <!-- Open Chat in Editor (also in Tools menu) -->
+        <action id="Zest.OpenChatInEditorTools"
+                class="com.zps.zest.browser.actions.OpenChatInEditorAction"
+                text="💬 ZPS Chat (Editor)"
+                description="Open ZPS Chat in full-screen editor tab">
+            <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="Zest.TestGeneration"/>
+        </action>
+        
         <!-- Zest Update Info Action -->
         <action id="Zest.ShowUpdateInfo"
                 class="com.zps.zest.update.ShowUpdateInfoAction"
@@ -303,6 +320,28 @@
                 description="Show update information and download options">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        
+        <!-- Zest Test Generation Menu -->
+        <group id="Zest.TestGeneration" text="🧪 Zest Test Generation" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="Zest.ShowUpdateInfo"/>
+            
+            <action id="Zest.GenerateAllTests" 
+                    class="com.zps.zest.codehealth.testplan.actions.GenerateAllTestsAction"
+                    text="Generate All Tests from Plans"
+                    description="Generate test files from all stored test plans"/>
+            
+            <action id="Zest.OpenTestOverview"
+                    class="com.zps.zest.codehealth.testplan.actions.OpenTestOverviewAction" 
+                    text="Open Test Plans Overview"
+                    description="View all generated test plans"/>
+                    
+            <separator/>
+            
+            <action id="Zest.TestGenerationTutorial"
+                    class="com.zps.zest.codehealth.testplan.actions.ShowTestGenerationTutorialAction"
+                    text="🎓 Test Generation Tutorial"
+                    description="Learn the test generation workflow"/>
+        </group>
         
         <!-- Zest Debug Menu (only in Tools menu) -->
         <group id="Zest.DebugMenu" text="Zest Debug" popup="true">

@@ -30,10 +30,14 @@ public class TestPlanAnalysisStage implements PipelineStage {
             throw new PipelineExecutionException("Project is null");
         }
         
-        // Get the API response from the context
-        String apiResponse = context.getApiResponse();
+        // Get the LLM response from the context
+        String apiResponse = context.getLastLLMResponse();
         if (apiResponse == null || apiResponse.isEmpty()) {
-            throw new PipelineExecutionException("API response is empty or null");
+            // Try to get the API response for backward compatibility
+            apiResponse = context.getApiResponse();
+            if (apiResponse == null || apiResponse.isEmpty()) {
+                throw new PipelineExecutionException("LLM response is empty or null");
+            }
         }
         
         // Extract JSON from the response (it might be embedded in markdown code blocks)

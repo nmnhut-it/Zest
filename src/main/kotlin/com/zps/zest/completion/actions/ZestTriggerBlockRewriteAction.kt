@@ -14,7 +14,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
-import com.zps.zest.completion.ZestMethodRewriteService
+import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
@@ -35,7 +35,7 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        val methodRewriteService = project.serviceOrNull<ZestMethodRewriteService>()
+        val methodRewriteService = project.serviceOrNull<ZestQuickActionService>()
 
         if (methodRewriteService == null) {
             logger.warn("ZestMethodRewriteService not available")
@@ -78,7 +78,7 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
         project: Project,
         editor: com.intellij.openapi.editor.Editor,
         methodContext: ZestMethodContextCollector.MethodContext,
-        methodRewriteService: ZestMethodRewriteService
+        methodRewriteService: ZestQuickActionService
     ) {
         val dialog = SmartRewriteDialog(project, methodContext) { instruction ->
             logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
@@ -713,7 +713,7 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
     override fun update(e: AnActionEvent) {
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
-        val methodRewriteService = project?.serviceOrNull<ZestMethodRewriteService>()
+        val methodRewriteService = project?.serviceOrNull<ZestQuickActionService>()
 
         val isAvailable = project != null && editor != null && methodRewriteService != null && !editor.isDisposed
 

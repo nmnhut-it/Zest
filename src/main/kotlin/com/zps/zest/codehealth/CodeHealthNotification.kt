@@ -428,19 +428,13 @@ object CodeHealthNotification {
             CodeHealthReportStorage.getInstance(project).storeReport(results)
         }
         
-        // Show the tool window
+        // Open Code Health Overview in editor tab instead of old tool window
         ApplicationManager.getApplication().invokeLater {
-            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Code Guardian")
-            if (toolWindow != null) {
-                toolWindow.show()
-                
-                // Update with the new results
-                com.zps.zest.codehealth.ui.CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results, isGitTriggered)
-            } else {
-                // Fallback to dialog if tool window not available
-                val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
-                dialog.show()
-            }
+            val overviewFile = com.zps.zest.codehealth.ui.editor.CodeHealthOverviewVirtualFile()
+            val editorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project) as com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+            
+            // Open in split view for better UX
+            editorManager.openFile(overviewFile, true)
         }
     }
 

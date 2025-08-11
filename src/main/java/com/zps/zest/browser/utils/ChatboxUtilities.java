@@ -4,7 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.WebBrowserService;
-import com.zps.zest.browser.WebBrowserToolWindow;
+import com.zps.zest.browser.actions.OpenChatInEditorAction;
 import org.apache.commons.lang.StringEscapeUtils;
 
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +31,9 @@ public class ChatboxUtilities {
             return false;
         }
 
+        // Ensure chat is open in editor first
+        OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+        
         WebBrowserService browserService = WebBrowserService.getInstance(project);
         if (browserService == null) {
             LOG.warn("Cannot click new chat button: Browser service is null");
@@ -121,8 +124,8 @@ public class ChatboxUtilities {
         CODE_HEALTH,                  // Code Health Analysis
         CODE_HEALTH_LOGGING,          // Code Health Analysis logging 
         
-        // Block Rewrite
-        BLOCK_REWRITE_LOGGING,        // Block Rewrite Metrics Logging
+        // Quick Action
+        QUICK_ACTION_LOGGING,         // Quick Action Metrics Logging
 
         EXPLORE_TOOL, // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools
@@ -143,6 +146,9 @@ public class ChatboxUtilities {
             return false;
         }
         
+        // Ensure chat is open in editor first
+        OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+        
         WebBrowserService browserService = WebBrowserService.getInstance(project);
         if (browserService == null) {
             LOG.warn("Cannot send text and submit: Browser service is null");
@@ -157,7 +163,8 @@ public class ChatboxUtilities {
         }
 
         String currentUrl = browserPanel.getCurrentUrl();
-        WebBrowserToolWindow.resetPageLoadState(project, currentUrl);
+        // Page load state tracking has been moved to editor-based system
+        // WebBrowserToolWindow.resetPageLoadState(project, currentUrl);
         AtomicBoolean success = new AtomicBoolean(false);
         browserPanel.getComponent().requestFocus();
         text = StringEscapeUtils.escapeHtml(text);
@@ -266,21 +273,9 @@ public class ChatboxUtilities {
             }
         }
         
-        // Check if page is already loaded
-        if (WebBrowserToolWindow.isPageLoaded(project, url)) {
-            LOG.info("Page already loaded: " + url);
-            return CompletableFuture.completedFuture(true);
-        }
-        
-        // Wait for page to load with timeout
-        LOG.info("Waiting for page to load: " + url);
-        String finalUrl = url;
-        return WebBrowserToolWindow.waitForPageToLoad(project, url)
-                .orTimeout(PAGE_LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .exceptionally(ex -> {
-                    LOG.warn("Timeout waiting for page to load: " + finalUrl);
-                    return true;
-                });
+        // Page load tracking simplified - editor-based system handles this
+        LOG.info("Page load check for: " + url);
+        return CompletableFuture.completedFuture(true);
     }
     
     /**

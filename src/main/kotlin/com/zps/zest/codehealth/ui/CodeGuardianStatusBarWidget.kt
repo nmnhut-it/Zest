@@ -43,11 +43,11 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
         const val WIDGET_ID = "CodeGuardianStatus"
 
         // Icons for different states
-        private val ICON_IDLE = AllIcons.RunConfigurations.TestPassed // Green check
+        private val ICON_IDLE = AllIcons.General.InspectionsOK // Shield with check
         private val ICON_ANALYZING = AllIcons.Process.Step_1 // Spinning
-        private val ICON_ISSUES = AllIcons.RunConfigurations.TestFailed // Red X
-        private val ICON_WARNING = AllIcons.General.Warning // Yellow warning
-        private val ICON_ERROR = AllIcons.General.Error // Red error
+        private val ICON_ISSUES = AllIcons.General.InspectionsError // Shield with X
+        private val ICON_WARNING = AllIcons.General.InspectionsEye // Shield with eye
+        private val ICON_BUTTON = AllIcons.General.InspectionsMixed // Shield
         private val ICON_SUCCESS = AllIcons.General.InspectionsOK // Green checkmark
     }
 
@@ -65,7 +65,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
         ANALYZING("Guardian: Analyzing...", ICON_ANALYZING),
         ISSUES_FOUND("Guardian", ICON_ISSUES),
         WARNING("Guardian", ICON_WARNING),
-        ERROR("Guardian: Error", ICON_ERROR),
+        ERROR("Guardian: Error", ICON_ISSUES),
         SUCCESS("Guardian: Healthy", ICON_SUCCESS)
     }
 
@@ -473,7 +473,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
         val lastResults = tracker.getLastResults()
 
         if (lastResults != null && lastResults.isNotEmpty()) {
-            showToolWindow(lastResults)
+            openCodeHealthOverviewEditor()
         } else {
             showStoredReports()
         }
@@ -481,24 +481,17 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
     
     private fun showStoredReports() {
         ApplicationManager.getApplication().invokeLater {
-            showToolWindow(null)
+            openCodeHealthOverviewEditor()
         }
     }
     
-    private fun showToolWindow(results: List<CodeHealthAnalyzer.MethodHealthResult>?) {
-        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Code Guardian")
-        if (toolWindow != null) {
-            toolWindow.show()
-            
-            // Update with latest data if provided
-            if (results != null) {
-                CodeGuardianToolWindowFactory.getPanel(project)?.updateResults(results)
-            }
-        } else {
-            // Fallback to dialog if tool window not available
-            val dialog = com.zps.zest.codehealth.ui.SwingHealthReportDialog(project, results)
-            dialog.show()
-        }
+    private fun openCodeHealthOverviewEditor() {
+        // Open Code Health Overview in right split instead of full-screen tab
+        val overviewFile = com.zps.zest.codehealth.ui.editor.CodeHealthOverviewVirtualFile()
+        val editorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project) as com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+        
+        // Open in split view - request focus
+        editorManager.openFile(overviewFile, true)
     }
 
     private fun startBackgroundPatrol() {

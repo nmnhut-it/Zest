@@ -40,13 +40,12 @@ public class SendToBrowserAction extends AnAction {
 
         // Get browser service
         WebBrowserService browserService = WebBrowserService.getInstance(project);
+        
+        // Open chat in editor if not already open
+        com.zps.zest.browser.actions.OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+        
+        // Send text to browser
         browserService.sendTextToBrowser(selectedText);
-
-        // Activate browser tool window
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-        if (toolWindow != null) {
-            toolWindow.activate(null);
-        }
     }
 
     @Override

@@ -23,7 +23,6 @@ import kotlinx.coroutines.*
 import java.awt.Component
 import com.intellij.openapi.ui.MessageType
 import com.intellij.openapi.ui.popup.Balloon
-import com.intellij.openapi.util.Disposer
 import com.intellij.ui.awt.RelativePoint
 import java.awt.Point
 
@@ -678,7 +677,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     private fun cancelMethodRewrite() {
         try {
             // Get method rewrite service and cancel
-            val methodRewriteService = project.getService(com.zps.zest.completion.ZestMethodRewriteService::class.java)
+            val methodRewriteService = project.getService(com.zps.zest.completion.ZestQuickActionService::class.java)
             methodRewriteService?.cancelCurrentRewrite()
 
             clearMethodRewriteState()

@@ -29,6 +29,7 @@ public class CodeContext {
     // Test generation context
     private String prompt;
     private String apiResponse;
+    private String lastLLMResponse; // Direct LLM response from LLMService
     private String testCode;
     private String testFilePath;
     private boolean useTestWrightModel = true;
@@ -102,6 +103,9 @@ public class CodeContext {
     public String getApiResponse() { return apiResponse; }
     public void setApiResponse(String apiResponse) { this.apiResponse = apiResponse; }
 
+    public String getLastLLMResponse() { return lastLLMResponse; }
+    public void setLastLLMResponse(String lastLLMResponse) { this.lastLLMResponse = lastLLMResponse; }
+
     public String getTestCode() { return testCode; }
     public void setTestCode(String testCode) { this.testCode = testCode; }
 
@@ -109,6 +113,7 @@ public class CodeContext {
     public void setTestFilePath(String testFilePath) { this.testFilePath = testFilePath; }
 
     public boolean isUsingTestWrightModel() { return useTestWrightModel; }
+    public boolean isTestWrightModel() { return useTestWrightModel; } // Alias for compatibility
     public void useTestWrightModel(boolean useTestWrightModel) { this.useTestWrightModel = useTestWrightModel; }
 
     public String getModel(ConfigurationManager config) {

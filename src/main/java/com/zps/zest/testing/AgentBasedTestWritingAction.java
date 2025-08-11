@@ -3,185 +3,106 @@ package com.zps.zest.testing;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
-import com.zps.zest.*;
-import com.zps.zest.browser.WebBrowserService;
-import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.zps.zest.testing.ui.TestWritingVirtualFile;
+import com.zps.zest.testing.ui.TestWritingVirtualFileSystem;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.UUID;
 
 /**
- * Action that orchestrates the agent-based test writing process.
- * This enhanced version uses a multi-step pipeline with state persistence.
+ * Action that opens the modern Test Writing Editor for AI-powered test generation.
+ * This streamlined version provides an immersive editor-based experience with real-time streaming.
  */
 public class AgentBasedTestWritingAction extends AnAction {
     private static final Logger LOG = Logger.getInstance(AgentBasedTestWritingAction.class);
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-        // Create the pipeline context to maintain state
-        CodeContext context = new CodeContext();
-        context.setEvent(e);
-        context.setProject(e.getProject());
-        context.setEditor(e.getData(CommonDataKeys.EDITOR));
-        context.setPsiFile(e.getData(CommonDataKeys.PSI_FILE));
-        context.useTestWrightModel(true); // Use test model for test writing
+        Project project = e.getProject();
+        if (project == null) {
+            LOG.warn("No project available for test writing action");
+            return;
+        }
 
-        // Execute the pipeline
-        executeTestWritingPipeline(context);
+        // Get the target class from the current context
+        String targetClass = extractTargetClass(e);
+        if (targetClass == null) {
+            LOG.warn("Could not determine target class for test writing");
+            return;
+        }
+
+        // Create and open the test writing editor
+        openTestWritingEditor(project, targetClass);
     }
 
     /**
-     * Executes the test writing pipeline with appropriate stages.
+     * Extracts the target class name from the action event context.
      */
-    private void executeTestWritingPipeline(CodeContext context) {
-        Project project = context.getProject();
-        if (project == null) return;
+    private String extractTargetClass(@NotNull AnActionEvent e) {
+        PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
+        if (psiFile == null) {
+            return null;
+        }
 
-        // Use a background task with progress indicators
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Agent-Based Test Writing", true) {
-            @Override
-            public void run(@NotNull ProgressIndicator indicator) {
-                indicator.setIndeterminate(false);
+        // Try to get the class from the current caret position
+        PsiElement element = e.getData(CommonDataKeys.PSI_ELEMENT);
+        if (element != null) {
+            PsiClass psiClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+            if (psiClass != null) {
+                return psiClass.getQualifiedName();
+            }
+        }
 
-                try {
-                    // Check if there's a test writing in progress
-                    TestWritingStateManager stateManager = new TestWritingStateManager(project);
-                    boolean isTestWritingInProgress = stateManager.isTestWritingInProgress();
-
-                    // If there is a test writing state, check if it's aborted or completed
-                    if (isTestWritingInProgress) {
-                        TestWritingProgress progress = stateManager.loadProgress();
-                        if (progress != null && (progress.getStatus() == TestWritingStatus.ABORTED ||
-                                progress.getStatus() == TestWritingStatus.COMPLETED)) {
-                            // Clear the state to start a new test writing session
-                            LOG.info("Found aborted or completed test writing. Clearing state to start fresh.");
-                            stateManager.clearTestWritingState();
-                            isTestWritingInProgress = false;
-
-                            // Close the tool window if it's open
-                            TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
-                        }
-                    } else {
-                        // Make sure the tool window is closed if no test writing is in progress
-                        TestWritingToolWindow.checkAndCloseIfNoTestWriting(project);
-                    }
-
-                    AgentBasedTestWritingPipeline pipeline;
-                    WebBrowserService.getInstance(project).getBrowserPanel().switchToAgentMode();
-
-                    if (isTestWritingInProgress) {
-                        // Create a pipeline for resuming an existing test writing session
-                        pipeline = new AgentBasedTestWritingPipeline()
-                                .addStage(new TestConfigurationStage())
-                                .addStage(new TestExecutionStage());
-
-                        LOG.info("Resuming existing test writing session");
-                    } else {
-                        // Create a pipeline for starting a new test writing session
-                        pipeline = new AgentBasedTestWritingPipeline()
-                                .addStage(new TestConfigurationStage())
-                                .addStage(new TargetClassDetectionStage())
-                                .addStage(new ClassAnalysisStage()) // Add ClassAnalysisStage
-                                .addStage(new TestAnalysisStage())
-                                .addStage(new TestabilityAnalysisStage()) // Testability analysis prompt creation
-                                .addStage(new ChatboxLlmApiCallStage(false, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING)) // LLM call for testability analysis
-                                .addStage(new TestabilityAnalysisResponseStage()) // Process testability response
-                                .addStage(new TestPlanningStage()) // Test planning prompt creation (only if testability good)
-                                .addStage(new ChatboxLlmApiCallStage(false,ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING)) // LLM call for test planning
-                                .addStage(new TestPlanAnalysisStage()) // Process test plan response
-                                .addStage(new TestExecutionStage());
-
-                        LOG.info("Starting new test writing pipeline");
-                    }
-
-                    // Execute each stage with progress updates
-                    int totalStages = pipeline.getStageCount();
-                    for (int i = 0; i < totalStages; i++) {
-                        PipelineStage stage = pipeline.getStage(i);
-                        String stageName = stage.getClass().getSimpleName()
-                                .replace("Stage", "")
-                                .replaceAll("([A-Z])", " $1").trim();
-
-                        indicator.setText("Stage " + (i + 1) + "/" + totalStages + ": " + stageName);
-                        indicator.setFraction((double) i / totalStages);
-
-                        // Process the current stage
-                        try {
-                            stage.process(context);
-                        } catch (PipelineExecutionException e) {
-                            showError(project, e);
-                            break;
-                        }
-
-                        // Update progress
-                        indicator.setFraction((double) (i + 1) / totalStages);
-                    }
-
-                    indicator.setText("Test writing process initiated successfully!");
-                    indicator.setFraction(1.0);
-
-                } catch (Exception e) {
-                    showError(project, new PipelineExecutionException("Unexpected error", e));
+        // Fallback: try to find the first public class in the file
+        PsiClass[] classes = PsiTreeUtil.getChildrenOfType(psiFile, PsiClass.class);
+        if (classes != null && classes.length > 0) {
+            for (PsiClass psiClass : classes) {
+                if (psiClass.hasModifierProperty("public")) {
+                    return psiClass.getQualifiedName();
                 }
             }
-        });
+            // If no public class, return the first class
+            return classes[0].getQualifiedName();
+        }
+
+        // Final fallback: use the file name
+        String fileName = psiFile.getName();
+        if (fileName.endsWith(".java")) {
+            return fileName.substring(0, fileName.length() - 5);
+        }
+
+        return fileName;
     }
 
     /**
-     * Shows an error message on the UI thread.
+     * Opens the test writing editor for the specified target class.
      */
-    private void showError(Project project, PipelineExecutionException e) {
-        e.printStackTrace();
-        LOG.error("Error in AgentBasedTestWritingAction: " + e.getMessage(), e);
-        
-        ApplicationManager.getApplication().invokeLater(() -> {
-            Messages.showErrorDialog(project, "Error: " + e.getMessage(), "Test Writing Failed");
-        });
+    private void openTestWritingEditor(Project project, String targetClass) {
+        try {
+            // Create a unique session ID for this test writing session
+            String sessionId = UUID.randomUUID().toString().substring(0, 8);
+            
+            // Create the virtual file for the test writing session
+            TestWritingVirtualFile virtualFile = TestWritingVirtualFileSystem.Companion.createTestWritingFile(
+                    targetClass,
+                    sessionId
+            );
+
+            // Open the editor
+            FileEditorManager.getInstance(project).openFile(virtualFile, true);
+            
+            LOG.info("Opened test writing editor for class: " + targetClass + " (session: " + sessionId + ")");
+
+        } catch (Exception ex) {
+            LOG.error("Failed to open test writing editor for class: " + targetClass, ex);
+        }
     }
 }
 
-/**
- * Pipeline for the agent-based test writing process.
- */
-class AgentBasedTestWritingPipeline {
-    private final List<PipelineStage> stages = new ArrayList<>();
-
-    /**
-     * Adds a stage to the pipeline.
-     *
-     * @param stage The stage to add
-     * @return This pipeline instance for method chaining
-     */
-    public AgentBasedTestWritingPipeline addStage(PipelineStage stage) {
-        stages.add(stage);
-        return this;
-    }
-
-    /**
-     * Gets the number of stages in the pipeline.
-     *
-     * @return The number of stages
-     */
-    public int getStageCount() {
-        return stages.size();
-    }
-
-    /**
-     * Gets a stage by index.
-     *
-     * @param index The index of the stage
-     * @return The stage at the given index
-     */
-    public PipelineStage getStage(int index) {
-        return stages.get(index);
-    }
-}

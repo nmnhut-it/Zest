@@ -1,12 +1,10 @@
 package com.zps.zest.completion.actions
 
-import ai.grazie.text.TextRange
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.components.serviceOrNull
-import com.intellij.util.text.TextRangeUtil
 import com.zps.zest.completion.ZestInlineCompletionService
-import com.zps.zest.completion.ZestMethodRewriteService
+import com.zps.zest.completion.ZestQuickActionService
 import kotlin.math.abs
 
 /**
@@ -18,7 +16,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
     
     override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
         // First check if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestMethodRewriteService>()
+        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
         if (methodRewriteService?.isRewriteInProgress() == true) {
             // Accept the method rewrite instead of inline completion
             methodRewriteService.acceptMethodRewrite(editor)
@@ -31,7 +29,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
 
     override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
         // Enable if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestMethodRewriteService>()
+        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
         if (methodRewriteService?.isRewriteInProgress() == true) {
             return true
         }

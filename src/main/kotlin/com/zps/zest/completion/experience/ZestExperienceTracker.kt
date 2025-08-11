@@ -116,7 +116,7 @@ class ZestExperienceTracker(private val project: Project) {
                     .withMaxTokens(100)
                     .withTemperature(0.3)
                 
-                val analysis = llmService.queryWithParams(queryParams, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.BLOCK_REWRITE_LOGGING)
+                val analysis = llmService.queryWithParams(queryParams, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
                 
                 if (analysis != null && analysis.isNotBlank()) {
                     recordExperience(session.methodName, analysis.trim())

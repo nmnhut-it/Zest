@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.tools.impl.*;
+import com.zps.zest.langchain4j.tools.impl.GenerateTestPlanTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -54,6 +55,9 @@ public final class CodeExplorationToolRegistry {
         
         // Project structure tools
         register(new GetProjectStructureTool(project));
+        
+        // Test plan generation tools
+        register(new GenerateTestPlanTool(project));
         
         // Documentation search tool (if enabled)
         ConfigurationManager config = ConfigurationManager.getInstance(project);
@@ -147,6 +151,9 @@ public final class CodeExplorationToolRegistry {
             return "ANALYSIS";
         }
         // Detail tools - specific content and file operations
+        else if (toolName.contains("generate_test_plan")) {
+            return "ANALYSIS";
+        }
         else {
             return "DETAIL";
         }

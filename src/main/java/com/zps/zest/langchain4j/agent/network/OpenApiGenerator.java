@@ -48,19 +48,28 @@ public class OpenApiGenerator {
         CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
         
         if (registry != null) {
+            // Dynamically add all registered tools
+            int toolCount = 0;
             for (CodeExplorationTool tool : registry.getAllTools()) {
-                // Create path
-                JsonObject path = createPathForTool(tool, schemas);
-                paths.add("/" + tool.getName(), path);
-                
-                // Create schema for this tool's form model
-                String formModelName = tool.getName() + "_form_model";
-                JsonObject formSchema = createFormSchema(tool);
-                schemas.add(formModelName, formSchema);
+                try {
+                    // Create path for tool endpoint
+                    JsonObject path = createPathForTool(tool, schemas);
+                    paths.add("/" + tool.getName(), path);
+                    
+                    // Create schema for this tool's form model
+                    String formModelName = tool.getName() + "_form_model";
+                    JsonObject formSchema = createFormSchema(tool);
+                    schemas.add(formModelName, formSchema);
+                    
+                    toolCount++;
+                } catch (Exception e) {
+                    System.err.println("Warning: Failed to generate OpenAPI spec for tool " + tool.getName() + ": " + e.getMessage());
+                }
             }
+            System.out.println("Generated OpenAPI spec for " + toolCount + " tools dynamically");
         } else {
             // Log warning if registry is not available
-            System.err.println("Warning: CodeExplorationToolRegistry not available");
+            System.err.println("Warning: CodeExplorationToolRegistry not available - no tools will be exposed");
         }
         
         spec.add("paths", paths);
@@ -260,10 +269,10 @@ public class OpenApiGenerator {
         JsonObject path = new JsonObject();
         JsonObject post = new JsonObject();
         
-        // Extract clean description
-        String cleanDescription = extractCleanDescription(tool.getDescription());
+        // Use tool's self-provided summary instead of extracting from description
+        String toolSummary = tool.getSummary();
         
-        post.addProperty("summary", cleanDescription);
+        post.addProperty("summary", toolSummary);
         post.addProperty("operationId", "tool_" + tool.getName() + "_post");
         
         // Request body (only if tool has parameters)

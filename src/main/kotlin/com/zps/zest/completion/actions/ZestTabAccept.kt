@@ -36,7 +36,7 @@ class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionAc
         
         // Check if completion is visible
         if (!service.isInlineCompletionVisibleAt(editor, caret.offset)) {
-            val current = service.renderer.current
+            val current = service.currentRendererContext
             if (  abs((if (current != null) current.offset else Integer.MAX_VALUE) - caret.offset) >= 10 ) {
                 return false
             }

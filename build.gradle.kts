@@ -1,6 +1,9 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import java.time.Duration
+
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.25"
+    id("org.jetbrains.kotlin.jvm") version "2.1.0"
     id("org.jetbrains.intellij.platform") version "2.1.0"
 }
 
@@ -20,11 +23,17 @@ dependencies {
         
         // Plugin Dependencies
         bundledPlugin("com.intellij.java")
+        bundledPlugin("org.jetbrains.kotlin")
         
         // Required for testing
         pluginVerifier()
         zipSigner()
         instrumentationTools()
+        
+        // IntelliJ Platform testing framework
+        testFramework(TestFrameworkType.Platform)
+        // Add Java test framework for LightJavaCodeInsightFixtureTestCase
+        testFramework(TestFrameworkType.Plugin.Java)
     }
 
     // JUnit 4 for IntelliJ platform tests
@@ -35,6 +44,9 @@ dependencies {
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    
+    // Coroutines testing
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
@@ -126,11 +138,138 @@ tasks {
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
     }
     
-    // Configure the test task for JUnit 4 (IntelliJ platform tests)
+    // Configure the test task for IntelliJ platform tests
     test {
         useJUnit()
+        
+        // IntelliJ Platform specific JVM arguments
+        jvmArgs(
+            "-ea", // Enable assertions
+            "-Xmx3g", // More memory for IntelliJ platform tests
+            "-XX:+UseG1GC",
+            
+            // IntelliJ Platform specific properties
+            "-Djava.awt.headless=true", // Headless mode for CI
+            "-Didea.platform.prefix=Idea",
+            "-Didea.test.cyclic.buffer.size=1048576",
+            
+            // Disable GUI components for testing
+            "-Djb.privacy.policy.text=<!--999.999-->",
+            "-Djb.consents.confirmation.enabled=false",
+            
+            // Enable proper EDT handling
+            "-Dswing.bufferPerWindow=false",
+            "-Dsun.awt.noerasebackground=true",
+            
+            // Platform testing optimizations
+            "-Didea.fatal.error.notification=disabled",
+            "-Didea.ui.icons.svg.disk.cache=false",
+            
+            // Security properties for tests
+            "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.awt=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.font=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.java2d=ALL-UNNAMED",
+            "--add-exports=java.base/sun.security.util=ALL-UNNAMED"
+        )
+        
+        // Test environment properties
+        systemProperties(mapOf(
+            "idea.test.execution.policy" to "com.intellij.testFramework.TestExecutionPolicy",
+            "java.awt.headless" to "true",
+            "idea.test" to "true"
+        ))
+        
+        // Increased timeout for platform tests
+        timeout.set(Duration.ofMinutes(15))
+        
+        // Test logging
         testLogging {
-            events("passed", "skipped", "failed")
+            events("started", "passed", "skipped", "failed", "standardOut", "standardError")
+            showStandardStreams = false
+            showExceptions = true
+            showStackTraces = true
+            
+            afterSuite(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+                if (desc.parent == null) {
+                    val testType = "IntelliJ Platform Tests"
+                    val output = "$testType: ${result.resultType} " +
+                        "(${result.testCount} tests, " +
+                        "${result.successfulTestCount} passed, " +
+                        "${result.failedTestCount} failed, " +
+                        "${result.skippedTestCount} skipped)"
+                    
+                    val border = "=".repeat(output.length)
+                    println("\n$border")
+                    println(output)
+                    println("$border\n")
+                    
+                    if (result.failedTestCount > 0) {
+                        println("❌ Some IntelliJ platform tests failed!")
+                        println("Check test reports for detailed information")
+                    } else {
+                        println("✅ All IntelliJ platform tests passed!")
+                    }
+                }
+            }))
+        }
+        
+        // Keep at 1 for EDT thread safety
+        maxParallelForks = 1
+    }
+    
+    // IntelliJ-specific test tasks
+    register<Test>("testCompletion") {
+        description = "Run only completion service tests"
+        group = "verification"
+        
+        useJUnit()
+        include("**/completion/**")
+        
+        outputs.upToDateWhen { false } // Always run
+    }
+    
+    register<Test>("testIntellij") {
+        description = "Run IntelliJ platform integration tests"
+        group = "intellij"
+        
+        useJUnit()
+        include("**/*IntelliJ*")
+        include("**/integration/**")
+        
+        // Extended timeout for integration tests
+        timeout.set(Duration.ofMinutes(20))
+        
+        doFirst {
+            println("Running IntelliJ Platform Integration Tests...")
+        }
+    }
+    
+    register<Test>("testPerformance") {
+        description = "Run performance tests"
+        group = "verification"
+        
+        useJUnit()
+        include("**/*Performance*")
+        
+        // Performance tests need more resources
+        maxHeapSize = "4g"
+        jvmArgs("-XX:+UnlockExperimentalVMOptions", "-XX:+UseZGC")
+        
+        doFirst {
+            println("Running Performance Tests...")
+        }
+    }
+    
+    // Combined completion test task
+    register("checkCompletion") {
+        group = "verification"
+        description = "Run all completion service tests and generate reports"
+        
+        dependsOn("testCompletion", "testPerformance", "testIntellij")
+        
+        doLast {
+            println("✅ All completion service tests completed!")
         }
     }
 

@@ -14,7 +14,8 @@ class CodeGuardianStatusBarWidgetFactory : StatusBarWidgetFactory {
     
     override fun getId(): String = CodeGuardianStatusBarWidget.WIDGET_ID
     
-    override fun getDisplayName(): @Nls String = "Code Guardian Status"
+    @Nls
+    override fun getDisplayName(): String = "Code Guardian Status"
     
     override fun isAvailable(project: Project): Boolean = true
     

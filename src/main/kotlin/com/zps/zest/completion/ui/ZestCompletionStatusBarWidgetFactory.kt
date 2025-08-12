@@ -14,7 +14,8 @@ class ZestCompletionStatusBarWidgetFactory : StatusBarWidgetFactory {
     
     override fun getId(): String = ZestCompletionStatusBarWidget.WIDGET_ID
     
-    override fun getDisplayName(): @Nls String = "Zest Completion Status"
+    @Nls
+    override fun getDisplayName(): String = "Zest Completion Status"
     
     override fun isAvailable(project: Project): Boolean = true
     

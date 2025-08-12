@@ -9,7 +9,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.codehealth.BackgroundHealthReviewer
-import com.zps.zest.codehealth.CodeHealthTracker
+import com.zps.zest.codehealth.ProjectChangesTracker
 
 /**
  * Test action to add the method at caret to the review queue
@@ -41,7 +41,7 @@ class AddMethodAtCaretAction : AnAction() {
         val fqn = "${containingClass.qualifiedName}.${method.name}"
         
         // Add to tracker
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         tracker.trackMethodModification(fqn)
         
         // Add to background reviewer

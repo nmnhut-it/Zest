@@ -8,7 +8,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.codehealth.BackgroundHealthReviewer
-import com.zps.zest.codehealth.CodeHealthTracker
+import com.zps.zest.codehealth.ProjectChangesTracker
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.*
@@ -38,7 +38,7 @@ class ShowReviewQueueStatusAction : AnAction() {
             val panel = JPanel(BorderLayout())
             
             val reviewer = BackgroundHealthReviewer.getInstance(project)
-            val tracker = CodeHealthTracker.getInstance(project)
+            val tracker = ProjectChangesTracker.getInstance(project)
             val stats = reviewer.getQueueStats()
             val reviewedMethods = reviewer.getReviewedMethods()
             val trackedMethods = tracker.getModifiedMethodDetails()

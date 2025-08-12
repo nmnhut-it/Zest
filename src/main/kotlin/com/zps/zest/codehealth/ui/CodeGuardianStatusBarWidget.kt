@@ -19,7 +19,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Disposer
-import com.zps.zest.codehealth.CodeHealthTracker
+import com.zps.zest.codehealth.ProjectChangesTracker
 import com.zps.zest.codehealth.CodeHealthAnalyzer
 import com.zps.zest.codehealth.BackgroundHealthReviewer
 import com.zps.zest.codehealth.CodeHealthReportStorage
@@ -415,7 +415,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
     private fun syncWithHealthTracker() {
         ApplicationManager.getApplication().invokeLater {
             try {
-                val tracker = CodeHealthTracker.getInstance(project)
+                val tracker = ProjectChangesTracker.getInstance(project)
                 val lastResults = tracker.getLastResults()
 
                 if (lastResults != null) {
@@ -452,7 +452,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
 
         scope.launch {
             try {
-                val tracker = CodeHealthTracker.getInstance(project)
+                val tracker = ProjectChangesTracker.getInstance(project)
 
                 ApplicationManager.getApplication().invokeLater {
                     tracker.checkAndNotify()
@@ -469,7 +469,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
     }
 
     private fun showDetailedReport() {
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         val lastResults = tracker.getLastResults()
 
         if (lastResults != null && lastResults.isNotEmpty()) {

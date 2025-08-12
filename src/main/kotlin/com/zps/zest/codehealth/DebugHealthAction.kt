@@ -12,7 +12,7 @@ class DebugHealthAction : AnAction("🔧 Debug Zest Guardian") {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         
         // Clear all tracked methods
         tracker.clearAllTrackedMethods()

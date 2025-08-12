@@ -99,7 +99,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                     
                     for (method in methods) {
                         val fqn = method.containingClass?.qualifiedName + "." + method.name
-                        val mockMethod = CodeHealthTracker.ModifiedMethod(
+                        val mockMethod = ProjectChangesTracker.ModifiedMethod(
                             fqn = fqn,
                             modificationCount = 1,
                             lastModified = System.currentTimeMillis()
@@ -116,7 +116,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 else if (filePath.endsWith(".js") || filePath.endsWith(".ts") || 
                          filePath.endsWith(".jsx") || filePath.endsWith(".tsx")) {
                     val regionFqn = "$filePath:1"
-                    val mockMethod = CodeHealthTracker.ModifiedMethod(
+                    val mockMethod = ProjectChangesTracker.ModifiedMethod(
                         fqn = regionFqn,
                         modificationCount = 1,
                         lastModified = System.currentTimeMillis()
@@ -136,7 +136,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     /**
      * Synchronous method analysis for immediate feedback
      */
-    private fun analyzeMethodSync(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
+    private fun analyzeMethodSync(method: ProjectChangesTracker.ModifiedMethod): MethodHealthResult {
         return try {
             val future = CompletableFuture<MethodHealthResult>()
             analyzeMethodAsync(method) { result ->
@@ -159,7 +159,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     /**
      * Synchronous JS/TS region analysis
      */
-    private fun analyzeJsTsRegionSync(method: CodeHealthTracker.ModifiedMethod): MethodHealthResult {
+    private fun analyzeJsTsRegionSync(method: ProjectChangesTracker.ModifiedMethod): MethodHealthResult {
         return try {
             val future = CompletableFuture<MethodHealthResult>()
             analyzeJsTsRegionAsync(method) { result ->
@@ -227,7 +227,7 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Analyze all modified methods using async processing with progress indicator
      */
     fun analyzeAllMethodsAsync(
-        methods: List<CodeHealthTracker.ModifiedMethod>,
+        methods: List<ProjectChangesTracker.ModifiedMethod>,
         indicator: ProgressIndicator? = null
     ): List<MethodHealthResult> {
         // Limit the number of methods to analyze
@@ -340,7 +340,7 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Analyze a single method asynchronously
      */
     private fun analyzeMethodAsync(
-        method: CodeHealthTracker.ModifiedMethod,
+        method: ProjectChangesTracker.ModifiedMethod,
         onComplete: (MethodHealthResult) -> Unit
     ) {
         if (method.fqn.isBlank()) {
@@ -452,7 +452,7 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Analyze a JS/TS region asynchronously
      */
     private fun analyzeJsTsRegionAsync(
-        method: CodeHealthTracker.ModifiedMethod,
+        method: ProjectChangesTracker.ModifiedMethod,
         onComplete: (MethodHealthResult) -> Unit
     ) {
         // Check if already analyzed
@@ -567,7 +567,7 @@ class CodeHealthAnalyzer(private val project: Project) {
      * First pass: LLM detects all potential issues
      */
     private fun detectIssuesWithLLM(
-        method: CodeHealthTracker.ModifiedMethod,
+        method: ProjectChangesTracker.ModifiedMethod,
         context: String,
         callers: List<String>,
         callerSnippets: List<CallerSnippet>

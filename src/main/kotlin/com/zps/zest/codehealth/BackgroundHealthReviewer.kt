@@ -157,7 +157,7 @@ class BackgroundHealthReviewer(private val project: Project) {
                     }
                 } else {
                     // Fallback to individual method review
-                    val method = CodeHealthTracker.ModifiedMethod(
+                    val method = ProjectChangesTracker.ModifiedMethod(
                         fqn = fqn,
                         modificationCount = 1, 
                         lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
@@ -267,7 +267,7 @@ class BackgroundHealthReviewer(private val project: Project) {
         reviewAllPendingMethods()
         
         // Then trigger the code health check
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         tracker.checkAndNotify()
     }
     
@@ -276,7 +276,7 @@ class BackgroundHealthReviewer(private val project: Project) {
      */
     private fun saveReviewedMethods() {
         try {
-            val tracker = CodeHealthTracker.getInstance(project)
+            val tracker = ProjectChangesTracker.getInstance(project)
             val state = tracker.state
             
             // Serialize reviewed methods

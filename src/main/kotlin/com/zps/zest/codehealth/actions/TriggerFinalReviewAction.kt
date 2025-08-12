@@ -5,7 +5,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.zps.zest.codehealth.CodeHealthTracker
+import com.zps.zest.codehealth.ProjectChangesTracker
 
 /**
  * Test action to trigger the final 13h review and report
@@ -16,7 +16,7 @@ class TriggerFinalReviewAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
@@ -49,7 +49,7 @@ class TriggerFinalReviewAction : AnAction() {
         e.presentation.isEnabledAndVisible = project != null
         
         if (project != null) {
-            val tracker = CodeHealthTracker.getInstance(project)
+            val tracker = ProjectChangesTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
             e.presentation.text = if (tracker.isAnalysisRunning.get()) {
                 "🔄 Final Review Running..."

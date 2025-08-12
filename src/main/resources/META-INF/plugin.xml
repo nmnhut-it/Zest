@@ -86,12 +86,7 @@
         <!-- Status Bar Widgets -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
         <statusBarWidgetFactory implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" order="last"/>
-        
-        <!-- Code Guardian Services -->
-        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
-         <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthReportStorage"/>
+
         
         <!-- Code Guardian Notification Group -->
         <notificationGroup id="Zest Code Guardian" displayType="BALLOON" isLogByDefault="false"/>

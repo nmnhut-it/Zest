@@ -114,7 +114,7 @@ class JsTsHealthTracker(private val project: Project) {
     /**
      * Get all modified regions as ModifiedMethod objects for compatibility
      */
-    fun getModifiedRegionsAsMethods(): List<CodeHealthTracker.ModifiedMethod> {
+    fun getModifiedRegionsAsMethods(): List<ProjectChangesTracker.ModifiedMethod> {
         return regionModifications.values
             .map { it.toModifiedMethod() }
             .sortedByDescending { it.modificationCount }

@@ -814,10 +814,10 @@ public String handleGitPush() {
             }
 
             // Otherwise, use the regular tracking mechanism
-            var tracker = com.zps.zest.codehealth.CodeHealthTracker.Companion.getInstance(project);
+            var tracker = com.zps.zest.codehealth.ProjectChangesTracker.Companion.getInstance(project);
 
             // Create modified method entries for the files
-            List<com.zps.zest.codehealth.CodeHealthTracker.ModifiedMethod> methods = new ArrayList<>();
+            List<com.zps.zest.codehealth.ProjectChangesTracker.ModifiedMethod> methods = new ArrayList<>();
 
             for (JsonElement fileElement : filesArray) {
                 JsonObject fileObj = fileElement.getAsJsonObject();
@@ -834,7 +834,7 @@ public String handleGitPush() {
                     fqn = filePath;
                 }
                 
-                methods.add(new com.zps.zest.codehealth.CodeHealthTracker.ModifiedMethod(
+                methods.add(new com.zps.zest.codehealth.ProjectChangesTracker.ModifiedMethod(
                     fqn,
                     1,  // modification count
                     System.currentTimeMillis(),  // lastModified

@@ -28,13 +28,13 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     override fun getDisplayName(): String = "Code Health"
     
     override fun createComponent(): JComponent {
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         val state = tracker.state
         
         // Initialize UI components with current values
         enabledCheckBox.isSelected = state.enabled
         checkTimeField.text = state.checkTime
-        maxMethodsField.text = CodeHealthTracker.MAX_METHODS_TO_TRACK.toString()
+        maxMethodsField.text = ProjectChangesTracker.MAX_METHODS_TO_TRACK.toString()
         skipVerificationCheckBox.isSelected = CodeHealthAnalyzer.SKIP_VERIFICATION
         enableJsTsCheckBox.isSelected = ENABLE_JS_TS_SUPPORT
         
@@ -53,7 +53,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     }
     
     override fun isModified(): Boolean {
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         val state = tracker.state
         
         return enabledCheckBox.isSelected != state.enabled ||
@@ -63,7 +63,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     }
     
     override fun apply() {
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         val state = tracker.state
         
         state.enabled = enabledCheckBox.isSelected
@@ -81,7 +81,7 @@ class CodeHealthConfigurable(private val project: Project) : Configurable {
     }
     
     override fun reset() {
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         val state = tracker.state
         
         enabledCheckBox.isSelected = state.enabled

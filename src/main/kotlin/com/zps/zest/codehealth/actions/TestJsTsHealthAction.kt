@@ -5,7 +5,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.zps.zest.codehealth.CodeHealthConfigurable
-import com.zps.zest.codehealth.CodeHealthTracker
+import com.zps.zest.codehealth.ProjectChangesTracker
 
 /**
  * Test action for JS/TS health tracking
@@ -19,7 +19,7 @@ class TestJsTsHealthAction : AnAction("Test JS/TS Health") {
         CodeHealthConfigurable.ENABLE_JS_TS_SUPPORT = true
         
         // Get tracker
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         
         // Add a test JS method
         tracker.trackMethodModification("test.js:123")

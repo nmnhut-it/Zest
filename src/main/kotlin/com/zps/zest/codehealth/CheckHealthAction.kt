@@ -18,7 +18,7 @@ class CheckHealthAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         
-        val tracker = CodeHealthTracker.getInstance(project)
+        val tracker = ProjectChangesTracker.getInstance(project)
         
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
@@ -46,7 +46,7 @@ class CheckHealthAction : AnAction() {
         
         // Disable if analysis is running
         if (project != null) {
-            val tracker = CodeHealthTracker.getInstance(project)
+            val tracker = ProjectChangesTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
             if (tracker.isAnalysisRunning.get()) {
                 e.presentation.text = "🔄 Zest Guardian Analyzing..."

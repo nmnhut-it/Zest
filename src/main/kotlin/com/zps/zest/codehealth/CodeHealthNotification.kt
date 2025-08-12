@@ -1275,7 +1275,7 @@ object CodeHealthNotification {
             return arrayOf(
                 object : DialogWrapperAction("🔄 Run Again") {
                     override fun doAction(e: java.awt.event.ActionEvent?) {
-                        CodeHealthTracker.getInstance(project).checkAndNotify()
+                        ProjectChangesTracker.getInstance(project).checkAndNotify()
                         close(OK_EXIT_CODE)
                     }
                 },

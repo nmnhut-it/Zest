@@ -43,8 +43,8 @@ data class ModifiedRegion(
     /**
      * Convert to a format compatible with the analyzer
      */
-    fun toModifiedMethod(): CodeHealthTracker.ModifiedMethod {
-        return CodeHealthTracker.ModifiedMethod(
+    fun toModifiedMethod(): ProjectChangesTracker.ModifiedMethod {
+        return ProjectChangesTracker.ModifiedMethod(
             fqn = getIdentifier(),
             modificationCount = modificationCount,
             lastModified = lastModified

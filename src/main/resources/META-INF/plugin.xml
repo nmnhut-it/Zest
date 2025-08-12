@@ -23,8 +23,7 @@
     <idea-version since-build="223.0" until-build="259.*"/>
     
     <projectListeners>
-        <listener class="com.zps.zest.inlinechat.SelectionGutterIconManager"
-                  topic="com.intellij.openapi.startup.ProjectActivity"/>
+
 
         <listener class="com.zps.zest.inlinechat.JCefInitializer"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
@@ -37,7 +36,6 @@
         
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
-        <projectService serviceImplementation="com.zps.zest.settings.PromptMigrationService"/>
         <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <postStartupActivity implementation="com.zps.zest.completion.debug.EnableVerboseLoggingStartup"/>
         <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
@@ -57,12 +55,6 @@
                 id="zest.settings"
                 nonDefaultProject="true"/>
 
-        <projectConfigurable
-                instance="com.zps.zest.langchain4j.HybridIndexConfigurable"
-                displayName="Hybrid Code Search Index"
-                id="zest.hybrid.index"
-                parentId="tools"
-                nonDefaultProject="true"/>
                 
         <projectConfigurable
                 instance="com.zps.zest.codehealth.CodeHealthConfigurable"
@@ -75,14 +67,7 @@
         <notificationGroup id="Zest Completion Debug" displayType="BALLOON" isLogByDefault="false"/>
         <notificationGroup id="Zest Updates" displayType="BALLOON" isLogByDefault="false"/>
 
-        <intentionAction>
-            <className>com.zps.zest.inlinechat.InlineChatIntentionAction</className>
-            <category>Zest</category>
-            <descriptionDirectoryName>InlineChatIntentionAction</descriptionDirectoryName>
-        </intentionAction>
 
-        <highlightingPassFactory implementation="com.zps.zest.inlinechat.DiffHighlighterRegister"/>
-        
         <!-- Status Bar Widgets -->
         <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
         <statusBarWidgetFactory implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" order="last"/>
@@ -94,25 +79,15 @@
         <!-- Code Health Editor Provider -->
         <fileEditorProvider implementation="com.zps.zest.codehealth.ui.editor.CodeHealthEditorProvider"/>
         
-        <!-- Test Plan Editor Provider -->
-        <fileEditorProvider implementation="com.zps.zest.codehealth.testplan.editor.TestPlanEditorProvider"/>
-        
-        <!-- Test Writing Editor Provider -->
-        <fileEditorProvider implementation="com.zps.zest.testing.ui.TestWritingEditorProvider"/>
+
         
         <!-- Zest Chat Editor Provider -->
         <fileEditorProvider implementation="com.zps.zest.browser.editor.ZestChatEditorProvider"/>
         
-        <!-- Test Plan Services -->
-        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.analysis.TestabilityAnalyzer"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.storage.TestPlanStorage"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.generation.TestGenerationService"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.testplan.tutorial.TestGenerationTutorialService"/>
-        
+
         <!-- LangChain4j Services for agentic retrieval and AI task management -->
         <projectService serviceImplementation="com.zps.zest.langchain4j.ZestLangChain4jService"/>
         <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
-        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>
     </extensions>
     
     <actions>
@@ -180,21 +155,6 @@
         </action>
 
 
-        <action id="Zest.SendPipelineToChatBox"
-                class="com.zps.zest.browser.actions.SendTestPipelineToChatBox"
-                text="Test Advisor (Chat)"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
-                description="Phân tích class và đưa ra hướng dẫn viết test chi tiết">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
-
-        <action id="Zest.AgentBasedTestWriting"
-                class="com.zps.zest.testing.AgentBasedTestWritingAction"
-                text="🧪 AI Test Writing"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
-                description="Open AI-powered test writing editor with real-time streaming">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
 
         <!-- Toolbar Actions -->
         <action id="Zest.OpenChat"
@@ -323,23 +283,7 @@
         <!-- Zest Test Generation Menu -->
         <group id="Zest.TestGeneration" text="🧪 Zest Test Generation" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="Zest.ShowUpdateInfo"/>
-            
-            <action id="Zest.GenerateAllTests" 
-                    class="com.zps.zest.codehealth.testplan.actions.GenerateAllTestsAction"
-                    text="Generate All Tests from Plans"
-                    description="Generate test files from all stored test plans"/>
-            
-            <action id="Zest.OpenTestOverview"
-                    class="com.zps.zest.codehealth.testplan.actions.OpenTestOverviewAction" 
-                    text="Open Test Plans Overview"
-                    description="View all generated test plans"/>
-                    
-            <separator/>
-            
-            <action id="Zest.TestGenerationTutorial"
-                    class="com.zps.zest.codehealth.testplan.actions.ShowTestGenerationTutorialAction"
-                    text="🎓 Test Generation Tutorial"
-                    description="Learn the test generation workflow"/>
+
         </group>
         
         <!-- Zest Debug Menu (only in Tools menu) -->

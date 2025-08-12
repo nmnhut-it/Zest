@@ -48,9 +48,15 @@ public class TestEmbeddingRetrievalAction extends AnAction {
         
         private JTextArea queryField;
         private JTextArea resultArea;
+        private JCheckBox useAdvancedRAGCheckbox;
+        private JCheckBox useQueryExpansionCheckbox;
+        private JCheckBox useMultiRetrievalCheckbox;
         private JButton testEmbeddingButton;
         private JButton testRetrievalButton;
         private JButton indexStatusButton;
+        private JButton reindexButton;
+        private JButton incrementalUpdateButton;
+        private JButton cleanupButton;
         private JProgressBar progressBar;
         private JLabel statusLabel;
 
@@ -97,6 +103,26 @@ public class TestEmbeddingRetrievalAction extends AnAction {
             JScrollPane scrollPane = new JScrollPane(queryField);
             panel.add(scrollPane, BorderLayout.CENTER);
             
+            // Advanced RAG options panel
+            JPanel optionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            optionsPanel.setBorder(new TitledBorder("Advanced RAG Options"));
+            
+            useAdvancedRAGCheckbox = new JCheckBox("Use Advanced RAG", true);
+            useAdvancedRAGCheckbox.setToolTipText("Enable query transformation, multi-retrieval, and contextual compression");
+            optionsPanel.add(useAdvancedRAGCheckbox);
+            
+            useQueryExpansionCheckbox = new JCheckBox("Query Expansion", true);
+            useQueryExpansionCheckbox.setToolTipText("Expand queries into multiple variations for better coverage");
+            optionsPanel.add(useQueryExpansionCheckbox);
+            
+            useMultiRetrievalCheckbox = new JCheckBox("Multi-source Retrieval", true);
+            useMultiRetrievalCheckbox.setToolTipText("Retrieve from specialized content sources (Java, config, test files)");
+            optionsPanel.add(useMultiRetrievalCheckbox);
+            
+            // Container for options and buttons
+            JPanel bottomPanel = new JPanel(new BorderLayout());
+            bottomPanel.add(optionsPanel, BorderLayout.NORTH);
+            
             // Button panel
             JPanel buttonPanel = new JPanel(new FlowLayout());
             
@@ -112,7 +138,20 @@ public class TestEmbeddingRetrievalAction extends AnAction {
             indexStatusButton.addActionListener(e -> checkIndexStatus());
             buttonPanel.add(indexStatusButton);
             
-            panel.add(buttonPanel, BorderLayout.SOUTH);
+            reindexButton = new JButton("Force Re-index");
+            reindexButton.addActionListener(e -> forceReindex());
+            buttonPanel.add(reindexButton);
+            
+            incrementalUpdateButton = new JButton("Incremental Update");
+            incrementalUpdateButton.addActionListener(e -> forceIncrementalUpdate());
+            buttonPanel.add(incrementalUpdateButton);
+            
+            cleanupButton = new JButton("Memory Cleanup");
+            cleanupButton.addActionListener(e -> forceCleanup());
+            buttonPanel.add(cleanupButton);
+            
+            bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
+            panel.add(bottomPanel, BorderLayout.SOUTH);
             
             return panel;
         }
@@ -222,13 +261,34 @@ public class TestEmbeddingRetrievalAction extends AnAction {
 
             setProgress(true, "Testing context retrieval...");
             appendResult("=== Testing Context Retrieval ===\n");
-            appendResult("Query: " + query + "\n\n");
+            appendResult("Query: " + query + "\n");
+            
+            if (useAdvancedRAGCheckbox.isSelected()) {
+                appendResult("Mode: Advanced RAG (Query Expansion: " + useQueryExpansionCheckbox.isSelected() + 
+                           ", Multi-Retrieval: " + useMultiRetrievalCheckbox.isSelected() + ")\n\n");
+            } else {
+                appendResult("Mode: Basic Hybrid Search\n\n");
+            }
 
             CompletableFuture.supplyAsync(() -> {
                 try {
-                    // Test context retrieval
+                    // Test context retrieval with advanced RAG if enabled
                     long startTime = System.currentTimeMillis();
-                    ZestLangChain4jService.RetrievalResult result = langChainService.retrieveContext(query, 5, 0.6).get(30, TimeUnit.SECONDS);
+                    ZestLangChain4jService.RetrievalResult result;
+                    
+                    if (useAdvancedRAGCheckbox.isSelected()) {
+                        result = langChainService.retrieveContextAdvanced(
+                            query, 
+                            5, 
+                            0.3, 
+                            null, // No conversation history for testing
+                            useQueryExpansionCheckbox.isSelected(),
+                            useMultiRetrievalCheckbox.isSelected()
+                        ).get(45, TimeUnit.SECONDS); // Longer timeout for advanced RAG
+                    } else {
+                        result = langChainService.retrieveContext(query, 5, 0.3).get(30, TimeUnit.SECONDS);
+                    }
+                    
                     long duration = System.currentTimeMillis() - startTime;
                     
                     StringBuilder output = new StringBuilder();
@@ -281,14 +341,26 @@ public class TestEmbeddingRetrievalAction extends AnAction {
                     StringBuilder status = new StringBuilder();
                     
                     // Check if services are available
-                    status.append("LangChain Service: ").append(langChainService != null ? "✅ Available" : "❌ Not available").append("\n");
-                    status.append("Embedding Service: ").append(embeddingService != null ? "✅ Available" : "❌ Not available").append("\n");
+                    status.append("🔧 Services Status:\n");
+                    status.append("  LangChain Service: ").append(langChainService != null ? "✅ Available" : "❌ Not available").append("\n");
+                    status.append("  Embedding Service: ").append(embeddingService != null ? "✅ Available" : "❌ Not available").append("\n");
+                    
+                    if (langChainService != null) {
+                        int indexedChunks = langChainService.getIndexedChunkCount();
+                        status.append("\n📚 Vector Store Status:\n");
+                        status.append("  Indexed chunks: ").append(indexedChunks).append("\n");
+                        status.append("  Index ready: ").append(indexedChunks > 0 ? "✅ Yes" : "❌ No - Index is empty!").append("\n");
+                        
+                        if (indexedChunks == 0) {
+                            status.append("  ⚠️ The index is empty. Click 'Force Re-index' to populate it.\n");
+                        }
+                    }
                     
                     if (embeddingService != null) {
                         EmbeddingService.EmbeddingCacheStats stats = embeddingService.getCacheStats();
-                        status.append("\nEmbedding Cache:\n");
-                        status.append("  Cached embeddings: ").append(stats.getCacheSize()).append("\n");
-                        status.append("  Max cache size: ").append(stats.getMaxCacheSize()).append("\n");
+                        status.append("\n🗃️ Embedding Cache:\n");
+                        status.append("  Cached embeddings: ").append(stats.getCacheSize()).append("/").append(stats.getMaxCacheSize()).append("\n");
+                        status.append("  Cache utilization: ").append(String.format("%.1f%%", stats.getCacheUtilization() * 100)).append("\n");
                         status.append("  Memory usage: ").append(String.format("%.2f MB", stats.getCacheSizeMB())).append("\n");
                     }
                     
@@ -296,12 +368,50 @@ public class TestEmbeddingRetrievalAction extends AnAction {
                     if (langChainService != null) {
                         try {
                             ZestLangChain4jService.RetrievalResult testResult = langChainService.retrieveContext("test", 1, 0.5).get(10, TimeUnit.SECONDS);
-                            status.append("\nIndex Status: ").append(testResult.isSuccess() ? "✅ Working" : "⚠️ May not be ready").append("\n");
+                            status.append("\n🔍 Retrieval Test:\n");
+                            status.append("  Status: ").append(testResult.isSuccess() ? "✅ Working" : "⚠️ May not be ready").append("\n");
                             if (testResult.isSuccess()) {
-                                status.append("  Test query returned ").append(testResult.getItems().size()).append(" items\n");
+                                status.append("  Test query found: ").append(testResult.getItems().size()).append(" items\n");
+                                if (testResult.getItems().size() > 0) {
+                                    status.append("  Sample result: ").append(testResult.getItems().get(0).getTitle()).append("\n");
+                                }
+                            } else {
+                                status.append("  Error: ").append(testResult.getMessage()).append("\n");
                             }
                         } catch (Exception e) {
-                            status.append("\nIndex Status: ❌ Error during test - ").append(e.getMessage()).append("\n");
+                            status.append("\n🔍 Retrieval Test: ❌ Error - ").append(e.getMessage()).append("\n");
+                        }
+                    }
+                    
+                    // Add incremental indexing information
+                    if (langChainService != null) {
+                        long lastUpdate = langChainService.getLastIncrementalUpdateTime();
+                        status.append("\n🔄 Incremental Updates:\n");
+                        if (lastUpdate > 0) {
+                            long timeSince = System.currentTimeMillis() - lastUpdate;
+                            long minutes = timeSince / (60 * 1000);
+                            status.append("  Last update: ").append(minutes).append(" minutes ago\n");
+                        } else {
+                            status.append("  Last update: Never\n");
+                        }
+                        status.append("  Auto-update: ✅ Every 5 minutes\n");
+                        status.append("  Change tracking: ✅ ProjectChangesTracker integrated\n");
+                        status.append("  Memory cleanup: ✅ Every 30 minutes\n");
+                        
+                        // Show memory management info
+                        int chunks = langChainService.getIndexedChunkCount();
+                        status.append("\n🧠 Memory Management:\n");
+                        status.append("  Current chunks: ").append(chunks).append("\n");
+                        status.append("  Cleanup threshold: ").append("45,000 chunks\n");
+                        status.append("  Max capacity: ").append("50,000 chunks\n");
+                        
+                        if (chunks > 45000) {
+                            status.append("  ⚠️ Approaching cleanup threshold!\n");
+                        } else if (chunks > 50000) {
+                            status.append("  🚨 Over capacity - cleanup needed!\n");
+                        } else {
+                            double usage = (chunks / 50000.0) * 100;
+                            status.append("  Memory usage: ").append(String.format("%.1f%%", usage)).append("\n");
                         }
                     }
                     
@@ -330,6 +440,168 @@ public class TestEmbeddingRetrievalAction extends AnAction {
                 testEmbeddingButton.setEnabled(!running);
                 testRetrievalButton.setEnabled(!running);
                 indexStatusButton.setEnabled(!running);
+                reindexButton.setEnabled(!running);
+                incrementalUpdateButton.setEnabled(!running);
+                cleanupButton.setEnabled(!running);
+            });
+        }
+
+        private void forceReindex() {
+            int result = Messages.showYesNoDialog(
+                project,
+                "This will clear the current index and re-index all code files in the project.\n" +
+                "This may take several minutes depending on project size.\n\n" +
+                "Continue?",
+                "Force Re-index",
+                Messages.getQuestionIcon()
+            );
+            
+            if (result != Messages.YES) {
+                return;
+            }
+
+            setProgress(true, "Force re-indexing codebase...");
+            appendResult("=== Force Re-indexing Codebase ===\n");
+            appendResult("Starting fresh indexing process...\n\n");
+
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    long startTime = System.currentTimeMillis();
+                    
+                    // Force re-index by calling indexCodebase directly
+                    boolean success = langChainService.indexCodebase().get(300, TimeUnit.SECONDS); // 5 minute timeout
+                    
+                    long duration = System.currentTimeMillis() - startTime;
+                    
+                    StringBuilder indexResult = new StringBuilder();
+                    indexResult.append(success ? "✅ Re-indexing completed successfully!\n" : "❌ Re-indexing failed!\n");
+                    indexResult.append("Duration: ").append(duration).append("ms (").append(duration / 1000).append(" seconds)\n");
+                    
+                    if (success) {
+                        int chunks = langChainService.getIndexedChunkCount();
+                        indexResult.append("Total indexed chunks: ").append(chunks).append("\n");
+                        
+                        if (chunks == 0) {
+                            indexResult.append("⚠️ Warning: No chunks were indexed. Check logs for issues.\n");
+                        }
+                    }
+                    
+                    return indexResult.toString();
+                    
+                } catch (Exception ex) {
+                    LOG.error("Error during force re-index", ex);
+                    return "❌ Re-indexing failed with error: " + ex.getMessage() + "\n";
+                }
+            }).thenAccept(indexingResult -> {
+                SwingUtilities.invokeLater(() -> {
+                    appendResult(indexingResult);
+                    appendResult("\n" + "=".repeat(50) + "\n\n");
+                    setProgress(false, "Re-indexing completed");
+                });
+            });
+        }
+        
+        private void forceIncrementalUpdate() {
+            setProgress(true, "Running incremental update...");
+            appendResult("=== Force Incremental Update ===\n");
+            appendResult("Checking for modified files and updating index...\n\n");
+
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    long startTime = System.currentTimeMillis();
+                    
+                    // Force incremental update
+                    int newChunks = langChainService.forceIncrementalUpdate().get(60, TimeUnit.SECONDS);
+                    
+                    long duration = System.currentTimeMillis() - startTime;
+                    
+                    StringBuilder updateResult = new StringBuilder();
+                    updateResult.append("✅ Incremental update completed!\n");
+                    updateResult.append("Duration: ").append(duration).append("ms (").append(duration / 1000).append(" seconds)\n");
+                    updateResult.append("New chunks added: ").append(newChunks).append("\n");
+                    
+                    if (newChunks == 0) {
+                        updateResult.append("ℹ️ No changes detected or all changes already indexed.\n");
+                    } else {
+                        updateResult.append("🎉 Successfully updated index with recent changes!\n");
+                    }
+                    
+                    // Show updated stats
+                    int totalChunks = langChainService.getIndexedChunkCount();
+                    updateResult.append("Total indexed chunks: ").append(totalChunks).append("\n");
+                    
+                    return updateResult.toString();
+                    
+                } catch (Exception ex) {
+                    LOG.error("Error during force incremental update", ex);
+                    return "❌ Incremental update failed with error: " + ex.getMessage() + "\n";
+                }
+            }).thenAccept(result -> {
+                SwingUtilities.invokeLater(() -> {
+                    appendResult(result);
+                    appendResult("\n" + "=".repeat(50) + "\n\n");
+                    setProgress(false, "Incremental update completed");
+                });
+            });
+        }
+        
+        private void forceCleanup() {
+            int result = Messages.showYesNoDialog(
+                project,
+                "This will clean up old chunks from the vector store to manage memory usage.\n" +
+                "Chunks older than 7 days may be removed if the store is approaching capacity.\n\n" +
+                "Continue?",
+                "Memory Cleanup",
+                Messages.getQuestionIcon()
+            );
+            
+            if (result != Messages.YES) {
+                return;
+            }
+
+            setProgress(true, "Running memory cleanup...");
+            appendResult("=== Memory Cleanup ===\n");
+            appendResult("Cleaning up vector store to manage memory usage...\n\n");
+
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    long startTime = System.currentTimeMillis();
+                    int beforeCount = langChainService.getIndexedChunkCount();
+                    
+                    // Force cleanup using the public method
+                    int freed = langChainService.forceCleanup().get(120, TimeUnit.SECONDS);
+                    
+                    int afterCount = langChainService.getIndexedChunkCount();
+                    long duration = System.currentTimeMillis() - startTime;
+                    
+                    StringBuilder cleanupResult = new StringBuilder();
+                    cleanupResult.append("✅ Memory cleanup completed!\n");
+                    cleanupResult.append("Duration: ").append(duration).append("ms (").append(duration / 1000).append(" seconds)\n");
+                    cleanupResult.append("Chunks before: ").append(beforeCount).append("\n");
+                    cleanupResult.append("Chunks after: ").append(afterCount).append("\n");
+                    cleanupResult.append("Chunks freed: ").append(freed).append("\n");
+                    
+                    if (freed > 0) {
+                        cleanupResult.append("🎉 Memory cleanup successful!\n");
+                    } else {
+                        cleanupResult.append("ℹ️ No cleanup needed - store is within limits.\n");
+                    }
+                    
+                    double usage = (afterCount / 50000.0) * 100;
+                    cleanupResult.append("Memory usage: ").append(String.format("%.1f%%", usage)).append("\n");
+                    
+                    return cleanupResult.toString();
+                    
+                } catch (Exception ex) {
+                    LOG.error("Error during force cleanup", ex);
+                    return "❌ Cleanup failed with error: " + ex.getMessage() + "\n";
+                }
+            }).thenAccept(r2 -> {
+                SwingUtilities.invokeLater(() -> {
+                    appendResult(r2);
+                    appendResult("\n" + "=".repeat(50) + "\n\n");
+                    setProgress(false, "Memory cleanup completed");
+                });
             });
         }
 

@@ -12,8 +12,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.zps.zest.browser.utils.ChatboxUtilities;
-import com.zps.zest.langchain4j.agent.CodeExplorationReport;
-import com.zps.zest.langchain4j.agent.ImprovedToolCallingAutonomousAgent;
+// Agent classes have been removed
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.langchain4j.util.LLMService;
@@ -533,6 +532,14 @@ public class AgentProxyServer {
     CompletableFuture<JsonObject> exploreAsync(String query, boolean generateReport,
                                                        AgentProxyConfiguration requestConfig,
                                                        String requestId) {
+        // Agent functionality has been removed - return stub response
+        return CompletableFuture.supplyAsync(() -> {
+            JsonObject response = new JsonObject();
+            response.addProperty("error", "Agent functionality has been removed");
+            response.addProperty("message", "The autonomous agent features have been disabled");
+            return response;
+        });
+        /* Original implementation removed due to missing agent classes
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Create a configured agent with progress callback
@@ -597,12 +604,22 @@ public class AgentProxyServer {
                 return error;
             }
         });
+        */
     }
 
     /**
      * Augments a query with code context and rewrites it.
      */
     CompletableFuture<JsonObject> augmentQueryAsync(String query, String requestId) {
+        // Agent functionality has been removed - return original query
+        return CompletableFuture.supplyAsync(() -> {
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("rewrittenQuery", query); // Return original query unchanged
+            response.addProperty("message", "Agent functionality disabled - returning original query");
+            return response;
+        });
+        /* Original implementation removed
         return CompletableFuture.supplyAsync(() -> {
             try {
                 ImprovedToolCallingAutonomousAgent agent = createConfiguredAgent(config);
@@ -651,21 +668,25 @@ public class AgentProxyServer {
                 return error;
             }
         });
+        */
     }
 
     /**
      * Creates a configured agent with custom limits.
      */
+    /* Agent functionality removed - stub method
     private ImprovedToolCallingAutonomousAgent createConfiguredAgent(AgentProxyConfiguration config) {
         // Create a new agent instance with custom configuration
         // Note: This would require modifying ImprovedToolCallingAutonomousAgent to accept config
         // For now, we'll use the standard agent
         return project.getService(ImprovedToolCallingAutonomousAgent.class);
     }
+    */
 
     /**
      * Rewrites the query with code context using LLM.
      */
+    /* Agent functionality removed - stub method
     private String rewriteQueryWithContext(String originalQuery, CodeExplorationReport report) {
         LLMService llmService = project.getService(LLMService.class);
 
@@ -698,10 +719,12 @@ public class AgentProxyServer {
         String rewritten = llmService.query(prompt, ChatboxUtilities.EnumUsage.EXPLORE_TOOL);
         return rewritten != null ? rewritten : originalQuery;
     }
+    */
 
     /**
      * Converts CodeExplorationReport to JSON.
      */
+    /* Agent functionality removed - stub method
     private JsonObject reportToJson(CodeExplorationReport report) {
         JsonObject json = new JsonObject();
         json.addProperty("summary", report.getSummary());
@@ -723,6 +746,7 @@ public class AgentProxyServer {
 
         return json;
     }
+    */
 
     /**
      * Checks if the project is properly indexed.

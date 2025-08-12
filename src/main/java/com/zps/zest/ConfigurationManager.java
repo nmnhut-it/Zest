@@ -8,7 +8,6 @@ import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.browser.WebBrowserService;
-import com.zps.zest.langchain4j.index.GitIgnoreManager;
 import com.zps.zest.settings.ZestGlobalSettings;
 import com.zps.zest.settings.ZestProjectSettings;
 
@@ -540,12 +539,7 @@ public class ConfigurationManager {
                 LOG.info("Created .zest directory at: " + zestPath);
             }
             
-            // Ensure it's in .gitignore
-            GitIgnoreManager.ensureGitIgnore(
-                Paths.get(projectPath),
-                "# Zest configuration folder",
-                "/" + ZEST_FOLDER + "/"
-            );
+            // Git ignore management has been removed
             
             // Migrate legacy rules if they exist
             migrateLegacyRules();

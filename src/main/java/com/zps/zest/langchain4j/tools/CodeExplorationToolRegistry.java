@@ -5,7 +5,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.tools.impl.*;
-import com.zps.zest.langchain4j.tools.impl.GenerateTestPlanTool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -30,25 +29,13 @@ public final class CodeExplorationToolRegistry {
      * Simplified to focus on essential tools that guide AI exploration.
      */
     private void registerDefaultTools() {
-        // Primary exploration tools - enable AI to explore effectively
-        register(new GrepSearchTool(project));
-        register(new GlobSearchTool(project));
-        
-        // Essential file operations
+        // Essential file operations (only tools that still exist and work)
         register(new ReadFileTool(project));
         register(new ListFilesInDirectoryTool(project));
         register(new CreateFileTool(project));
         register(new ReplaceInFileTool(project));
         
-        // Project structure understanding
-        register(new GetProjectStructureTool(project));
-        
-        // Documentation search tool (if enabled)
-        ConfigurationManager config = ConfigurationManager.getInstance(project);
-        if (config.isDocsSearchEnabled()) {
-            register(new SearchDocsTool(project));
-            LOG.info("Registered documentation search tool");
-        }
+        // Other exploration tools have been removed with the cleanup
         
         LOG.info("Registered " + tools.size() + " essential exploration tools (focusing on AI-guided exploration)");
     }

@@ -15,7 +15,6 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.HybridIndexManager;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -385,13 +384,7 @@ public class WebBrowserPanel implements Disposable {
 //            LOG.info("Project already indexed with knowledge ID: " + knowledgeId);
 //        }
         
-        // Also ensure local index for exploration tools
-        HybridIndexManager service = project.getService(HybridIndexManager.class);
-        if (service != null) {
-            if (!service.hasIndex()){
-                service.indexProject(false);
-            }
-        }
+        // Index management functionality has been removed
     }
 
     /**

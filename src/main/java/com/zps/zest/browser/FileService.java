@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.zps.zest.completion.diff.FileDiffDialog;
+import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -111,7 +112,7 @@ public class FileService {
             ReplaceInFileTool tool = new ReplaceInFileTool(project);
             
             // Execute the tool
-            ReplaceInFileTool.ToolResult result = tool.execute(params);
+            CodeExplorationTool.ToolResult result = tool.execute(params);
 
             // Show result asynchronously
             ApplicationManager.getApplication().invokeLater(() -> {

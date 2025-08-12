@@ -617,15 +617,9 @@ public class EnhancedTodoDiffComponent {
             SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() throws Exception {
-                    // Call LLM API
-                    LlmApiCallStage apiCallStage = new LlmApiCallStage();
-                    apiCallStage.process(context);
-
-                    // Extract code from response
-                    CodeExtractionStage extractionStage = new CodeExtractionStage();
-                    extractionStage.process(context);
-
-                    return context.getTestCode();
+                    // Pipeline stages have been removed - return placeholder for now
+                    // TODO: Implement direct LLM API call if needed
+                    return "// TODO implementation removed - pipeline stages no longer available";
                 }
 
                 @Override
@@ -634,7 +628,7 @@ public class EnhancedTodoDiffComponent {
                         String newImplementation = get();
 
                         if (newImplementation == null || newImplementation.isEmpty()) {
-                            throw new PipelineExecutionException("LLM returned empty implementation");
+                            throw new RuntimeException("LLM returned empty implementation");
                         }
 
                         // Add the new implementation to chat history

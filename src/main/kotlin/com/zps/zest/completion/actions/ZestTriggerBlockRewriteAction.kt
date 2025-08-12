@@ -84,37 +84,33 @@ class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPrio
             logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
 
             // Check if this is the test generation option
+            var finalInstruction = instruction
             if (instruction == "__WRITE_TEST__") {
-                // Send to test generation instead of rewrite
-                logger.info("Redirecting to test generation for method ${methodContext.methodName}")
-                com.zps.zest.browser.actions.SendMethodTestToChatBox.sendMethodTestPrompt(
-                    project,
-                    editor,
-                    methodContext
-                )
-            } else {
-                // Normal rewrite flow
-                // Get status bar widget for progress updates
-                val statusBarWidget = getStatusBarWidget(project)
-
-                // Start background processing with status bar progress
-                statusBarWidget?.updateMethodRewriteState(
-                    ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
-                    "Starting method rewrite..."
-                )
-
-                // Start rewrite with status bar updates
-                methodRewriteService.rewriteCurrentMethodWithStatusCallback(
-                    editor = editor,
-                    methodContext = methodContext,
-                    customInstruction = instruction,
-                    dialog = null,  // No dialog updates needed
-                    statusCallback = { status ->
-                        // All progress updates go to status bar widget
-                        statusBarWidget?.updateMethodRewriteStatus(status)
-                    }
-                )
+                // Test generation functionality has been removed - convert to test writing instruction
+                logger.info("Test generation functionality has been removed - treating as regular rewrite for method ${methodContext.methodName}")
+                finalInstruction = "Write comprehensive unit tests for this method using appropriate testing framework"
             }
+
+            // Get status bar widget for progress updates
+            val statusBarWidget = getStatusBarWidget(project)
+
+            // Start background processing with status bar progress
+            statusBarWidget?.updateMethodRewriteState(
+                ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
+                "Starting method rewrite..."
+            )
+
+            // Start rewrite with status bar updates
+            methodRewriteService.rewriteCurrentMethodWithStatusCallback(
+                editor = editor,
+                methodContext = methodContext,
+                customInstruction = finalInstruction,
+                dialog = null,  // No dialog updates needed
+                statusCallback = { status ->
+                    // All progress updates go to status bar widget
+                    statusBarWidget?.updateMethodRewriteStatus(status)
+                }
+            )
         }
 
         // Show dialog and let user choose

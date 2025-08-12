@@ -27,7 +27,6 @@ public class JavaScriptBridgeActions {
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
-    private final ExplorationService explorationService;
 
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -37,7 +36,6 @@ public class JavaScriptBridgeActions {
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
         this.gitService = new GitService(project);
-        this.explorationService = new ExplorationService(project);
     }
 
     /**
@@ -189,8 +187,6 @@ public class JavaScriptBridgeActions {
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
 
-                case "getProjectKnowledgeId":
-                    return getProjectKnowledgeId();
 
 //                    return getProjectIndexStatus();
 
@@ -249,28 +245,8 @@ public class JavaScriptBridgeActions {
                 case "contentUpdated":
                     return handleContentUpdated(data);
 
-                // Exploration actions
-                case "startExploration":
-                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
-                    return explorationService.startExploration(data);
-
-                case "getExplorationStatus":
-                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
-                    return explorationService.getExplorationStatus(data);
-
-                case "getExplorationContext":
-                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
-                    return explorationService.getExplorationContext(data);
 
                 // Configuration actions (don't require panel loading)
-                case "getButtonStates":
-                    return getButtonStates();
-
-                case "setContextInjectionEnabled":
-                    return setContextInjectionEnabled(data);
-
-                case "setProjectIndexEnabled":
-                    return setProjectIndexEnabled(data);
 
                 case "getCommitPromptTemplate":
                     return getCommitPromptTemplate();
@@ -316,27 +292,6 @@ public class JavaScriptBridgeActions {
         return gson.toJson(response);
     }
 
-    /**
-     * Gets the project knowledge ID from configuration.
-     */
-    private String getProjectKnowledgeId() {
-        JsonObject response = new JsonObject();
-        try {
-            String knowledgeId = ConfigurationManager.getInstance(project).getKnowledgeId();
-            if (knowledgeId != null && !knowledgeId.isEmpty()) {
-                response.addProperty("success", true);
-                response.addProperty("result", knowledgeId);
-            } else {
-                response.addProperty("success", false);
-                response.addProperty("error", "No knowledge base configured. Please index your project first.");
-            }
-        } catch (Exception e) {
-//            LOG.error("Error getting knowledge ID", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
 
     /**
      * Returns the chat response service for external access.
@@ -355,62 +310,8 @@ public class JavaScriptBridgeActions {
         if (fileService != null) fileService.dispose();
         if (chatResponseService != null) chatResponseService.dispose();
         if (gitService != null) gitService.dispose();
-        if (explorationService != null) explorationService.dispose();
     }
 
-    /**
-     * Gets the current button states from configuration.
-     */
-    private String getButtonStates() {
-        JsonObject response = new JsonObject();
-        try {
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            response.addProperty("success", true);
-            response.addProperty("contextInjectionEnabled", config.isContextInjectionEnabled());
-            response.addProperty("projectIndexEnabled", config.isProjectIndexEnabled());
-        } catch (Exception e) {
-            LOG.error("Error getting button states", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
-
-    /**
-     * Sets the context injection enabled state.
-     */
-    private String setContextInjectionEnabled(JsonObject data) {
-        JsonObject response = new JsonObject();
-        try {
-            boolean enabled = data.get("enabled").getAsBoolean();
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            config.setContextInjectionEnabled(enabled);
-            response.addProperty("success", true);
-        } catch (Exception e) {
-            LOG.error("Error setting context injection state", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
-
-    /**
-     * Sets the project index enabled state.
-     */
-    private String setProjectIndexEnabled(JsonObject data) {
-        JsonObject response = new JsonObject();
-        try {
-            boolean enabled = data.get("enabled").getAsBoolean();
-            ConfigurationManager config = ConfigurationManager.getInstance(project);
-            config.setProjectIndexEnabled(enabled);
-            response.addProperty("success", true);
-        } catch (Exception e) {
-            LOG.error("Error setting project index state", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
-        return gson.toJson(response);
-    }
 
     /**
      * Gets the commit prompt template from configuration.

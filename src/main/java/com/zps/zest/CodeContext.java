@@ -170,12 +170,9 @@ public class CodeContext {
         return false;
     }
 
-    // Legacy compatibility methods (deprecated - use TestFrameworkUtils instead)
+    // Legacy compatibility methods (test framework removed)
     @Deprecated
     public String getJunitVersion() {
-        if (project != null) {
-            return TestFrameworkUtils.detectJUnitVersion(project);
-        }
         return junitVersion != null ? junitVersion : "JUnit 5";
     }
 
@@ -186,9 +183,6 @@ public class CodeContext {
 
     @Deprecated
     public boolean isMockitoPresent() {
-        if (project != null) {
-            return TestFrameworkUtils.isMockitoAvailable(project);
-        }
         return isMockitoPresent;
     }
 
@@ -197,41 +191,41 @@ public class CodeContext {
         this.isMockitoPresent = hasMockito;
     }
 
-    // Convenience methods that delegate to TestFrameworkUtils
+    // Convenience methods (test framework removed)
 
     /**
-     * Gets JUnit version using TestFrameworkUtils.
+     * Gets JUnit version (test framework removed).
      */
     public String detectJUnitVersion() {
-        return project != null ? TestFrameworkUtils.detectJUnitVersion(project) : "JUnit 5";
+        return "JUnit 5";
     }
 
     /**
-     * Checks if Mockito is available using TestFrameworkUtils.
+     * Checks if Mockito is available (test framework removed).
      */
     public boolean checkMockitoAvailable() {
-        return project != null ? TestFrameworkUtils.isMockitoAvailable(project) : false;
+        return false;
     }
 
     /**
-     * Gets framework summary using TestFrameworkUtils.
+     * Gets framework summary (test framework removed).
      */
     public String getFrameworksSummary() {
-        return project != null ? TestFrameworkUtils.getFrameworksSummary(project) : "No frameworks detected";
+        return "No frameworks detected";
     }
 
     /**
-     * Gets recommended assertion style using TestFrameworkUtils.
+     * Gets recommended assertion style (test framework removed).
      */
     public String getRecommendedAssertionStyle() {
-        return project != null ? TestFrameworkUtils.getRecommendedAssertionStyle(project) : "Standard Assertions";
+        return "Standard Assertions";
     }
 
     /**
-     * Gets build tool using TestFrameworkUtils.
+     * Gets build tool (test framework removed).
      */
     public String getBuildTool() {
-        return project != null ? TestFrameworkUtils.detectBuildTool(project) : "Unknown";
+        return "Unknown";
     }
 
     // Single method mode getters and setters
@@ -246,17 +240,17 @@ public class CodeContext {
     }
 
     /**
-     * Gets complete framework information using TestFrameworkUtils.
+     * Gets complete framework information (test framework removed).
      */
     public String getCompleteFrameworkInfo() {
-        return project != null ? TestFrameworkUtils.getCompleteFrameworkInfo(project) : "Framework information not available";
+        return "Framework information not available";
     }
 
     /**
-     * Gets essential framework information using TestFrameworkUtils.
+     * Gets essential framework information (test framework removed).
      */
     public String getEssentialFrameworkInfo() {
-        return project != null ? TestFrameworkUtils.getEssentialFrameworkInfo(project) : "No framework info";
+        return "No framework info";
     }
 
     /**

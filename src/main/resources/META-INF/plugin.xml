@@ -90,8 +90,7 @@
         <!-- Code Guardian Services -->
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthTracker"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthAnalyzer"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthVerificationAgent"/>
-        <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
+         <projectService serviceImplementation="com.zps.zest.codehealth.BackgroundHealthReviewer"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.CodeHealthReportStorage"/>
         
         <!-- Code Guardian Notification Group -->

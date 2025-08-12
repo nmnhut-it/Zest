@@ -63,11 +63,12 @@ public final class ZestLangChain4jService {
     private final QueryTransformer expandingTransformer;
     private final List<ContentRetriever> multipleRetrievers;
     
+    // AST-based code chunking
+    private final ASTChunker astChunker;
+    
     // Configuration
     private static final int DEFAULT_MAX_RESULTS = 10;
     private static final double DEFAULT_RELEVANCE_THRESHOLD = 0.3;
-    private static final int CHUNK_SIZE = 200; // lines per chunk (reduced for better granularity)
-    private static final int CHUNK_OVERLAP = 50; // lines overlap between chunks
     private static final int MAX_VECTOR_STORE_SIZE = 50000; // Maximum number of chunks in vector store
     private static final int CLEANUP_THRESHOLD = 45000; // Start cleanup when reaching this many chunks
     private static final Set<String> CODE_EXTENSIONS = Set.of(
@@ -105,6 +106,9 @@ public final class ZestLangChain4jService {
         
         // Initialize multiple retrievers for different content types
         this.multipleRetrievers = initializeMultipleRetrievers();
+        
+        // Initialize AST-based code chunker
+        this.astChunker = new ASTChunker(1500); // 1500 characters per chunk (optimal for embeddings)
         
         LOG.info("ZestLangChain4jService initialized with in-memory vector store and remote embeddings for project: " + project.getName());
         LOG.info("Project base path: " + project.getBasePath());
@@ -1549,12 +1553,8 @@ public final class ZestLangChain4jService {
             
             LOG.debug("File content length: " + content.length() + " characters");
             
-            // Use smarter chunking strategy based on file type
-            if (isJavaFile(file)) {
-                indexJavaFileByMethods(content, relativePath);
-            } else {
-                indexFileByLinesWithOverlap(content, relativePath);
-            }
+            // Use AST-based semantic chunking for better code understanding
+            indexFileWithASTChunking(content, relativePath);
             
             LOG.debug("Successfully indexed file: " + file);
             
@@ -1565,80 +1565,132 @@ public final class ZestLangChain4jService {
     }
     
     /**
-     * Index Java files by methods and classes for better semantic chunks
+     * Index file using AST-based semantic chunking (replaces old line-based approach)
      */
-    private void indexJavaFileByMethods(String content, String relativePath) {
-        List<String> lines = content.lines().collect(Collectors.toList());
-        
-        // For now, use overlapping line chunks but mark as Java
-        indexFileByLinesWithOverlap(content, relativePath);
-        
-        // TODO: Add proper AST-based method extraction for better chunking
+    private void indexFileWithASTChunking(String content, String relativePath) {
+        try {
+            // Use AST chunker to create semantic chunks
+            List<ASTChunker.CodeChunk> codeChunks = astChunker.chunkCode(content, relativePath);
+            
+            LOG.debug("AST chunking created " + codeChunks.size() + " chunks for " + relativePath);
+            
+            for (ASTChunker.CodeChunk codeChunk : codeChunks) {
+                try {
+                    // Create enhanced chunk with metadata
+                    String enhancedChunk = createEnhancedChunkContent(codeChunk);
+                    
+                    // Create metadata with detailed information
+                    java.util.Map<String, String> metadataMap = new java.util.HashMap<>();
+                    metadataMap.put("file", relativePath);
+                    metadataMap.put("startLine", String.valueOf(codeChunk.getStartLine()));
+                    metadataMap.put("endLine", String.valueOf(codeChunk.getEndLine()));
+                    metadataMap.put("nodeType", codeChunk.getNodeType());
+                    metadataMap.put("chunkSize", String.valueOf(codeChunk.getSize()));
+                    metadataMap.put("project", project.getName());
+                    metadataMap.put("fileType", getFileExtension(relativePath));
+                    metadataMap.put("chunkingMethod", "AST");
+                    Metadata metadata = Metadata.from(metadataMap);
+                    
+                    // Create text segment
+                    TextSegment segment = TextSegment.from(enhancedChunk, metadata);
+                    
+                    // Generate embedding and store
+                    LOG.debug("Generating embedding for AST chunk " + codeChunk.getNodeType() + 
+                             " in " + relativePath + ":" + codeChunk.getStartLine() + "-" + codeChunk.getEndLine());
+                             
+                    Embedding embedding = embeddingModel.embed(segment).content();
+                    
+                    if (embedding == null) {
+                        LOG.warn("Failed to generate embedding for AST chunk in " + relativePath);
+                        continue;
+                    }
+                    
+                    embeddingStore.add(embedding, segment);
+                    
+                    // Track chunk timestamp for memory management
+                    String chunkId = getChunkId(segment);
+                    chunkTimestamps.put(chunkId, System.currentTimeMillis());
+                    
+                    LOG.debug("✅ Added AST chunk to vector store: " + relativePath + ":" + 
+                             codeChunk.getStartLine() + "-" + codeChunk.getEndLine() + 
+                             " (" + codeChunk.getNodeType() + ")");
+                    
+                } catch (Exception e) {
+                    LOG.error("Failed to generate embedding for AST chunk in " + relativePath + 
+                             " lines " + codeChunk.getStartLine() + "-" + codeChunk.getEndLine(), e);
+                    // Continue with next chunk instead of failing the whole file
+                }
+            }
+            
+        } catch (Exception e) {
+            LOG.error("AST chunking failed for " + relativePath + ", falling back to line-based chunking", e);
+            // Fallback to old method if AST chunking fails
+            indexFileByLinesWithOverlap(content, relativePath);
+        }
     }
     
     /**
-     * Index files using overlapping line-based chunks
+     * Create enhanced chunk content with context information
+     */
+    private String createEnhancedChunkContent(ASTChunker.CodeChunk codeChunk) {
+        StringBuilder enhanced = new StringBuilder();
+        
+        // Add chunk metadata as comment
+        enhanced.append("// AST Chunk: ").append(codeChunk.getNodeType())
+                .append(" in ").append(codeChunk.getFilePath())
+                .append(" (lines ").append(codeChunk.getStartLine())
+                .append("-").append(codeChunk.getEndLine()).append(")\n");
+                
+        // Add the actual content
+        enhanced.append(codeChunk.getContent());
+        
+        return enhanced.toString();
+    }
+    
+    /**
+     * Legacy line-based chunking (kept as fallback for AST chunking failures)
      */
     private void indexFileByLinesWithOverlap(String content, String relativePath) {
         List<String> lines = content.lines().collect(Collectors.toList());
         
-        // Create overlapping chunks for better context continuity
-        for (int i = 0; i < lines.size(); i += (CHUNK_SIZE - CHUNK_OVERLAP)) {
-            int endLine = Math.min(i + CHUNK_SIZE, lines.size());
+        LOG.warn("Using fallback line-based chunking for: " + relativePath);
+        
+        // Use simpler line-based chunking as fallback
+        int linesPerChunk = Math.max(10, 1500 / 50); // Estimate lines per chunk to match AST chunk size
+        
+        for (int i = 0; i < lines.size(); i += linesPerChunk) {
+            int endLine = Math.min(i + linesPerChunk, lines.size());
             
             // Skip tiny chunks at the end
-            if (endLine - i < 10) break;
+            if (endLine - i < 5) break;
             
             String chunk = lines.subList(i, endLine).stream()
                 .collect(Collectors.joining("\n"));
             
-            // Add context about the chunk position and overlap
-            String chunkInfo = String.format("// Chunk %d-%d of %s (total lines: %d)", 
-                i + 1, endLine, relativePath, lines.size());
-            String enhancedChunk = chunkInfo + "\n" + chunk;
-            
-            // Create metadata with more details
+            // Create metadata (simplified for fallback)
             java.util.Map<String, String> metadataMap = new java.util.HashMap<>();
             metadataMap.put("file", relativePath);
             metadataMap.put("startLine", String.valueOf(i + 1));
             metadataMap.put("endLine", String.valueOf(endLine));
             metadataMap.put("project", project.getName());
             metadataMap.put("fileType", getFileExtension(relativePath));
-            metadataMap.put("chunkSize", String.valueOf(endLine - i));
-            metadataMap.put("hasOverlap", String.valueOf(i > 0 && i < lines.size() - CHUNK_SIZE));
+            metadataMap.put("chunkingMethod", "line_based_fallback");
             Metadata metadata = Metadata.from(metadataMap);
             
-            // Create text segment
-            TextSegment segment = TextSegment.from(enhancedChunk, metadata);
+            TextSegment segment = TextSegment.from(chunk, metadata);
             
             try {
-                // Generate embedding and store
-                LOG.debug("Generating embedding for chunk " + (i + 1) + "-" + endLine + " of " + relativePath);
                 Embedding embedding = embeddingModel.embed(segment).content();
-                
-                if (embedding == null) {
-                    LOG.warn("Failed to generate embedding for chunk in " + relativePath);
-                    continue;
+                if (embedding != null) {
+                    embeddingStore.add(embedding, segment);
+                    chunkTimestamps.put(getChunkId(segment), System.currentTimeMillis());
                 }
-                
-                embeddingStore.add(embedding, segment);
-                
-                // Track chunk timestamp for memory management
-                String chunkId = getChunkId(segment);
-                chunkTimestamps.put(chunkId, System.currentTimeMillis());
-                
-                LOG.debug("✅ Added chunk to vector store: " + relativePath + ":" + (i + 1) + "-" + endLine);
-                
             } catch (Exception e) {
-                LOG.error("Failed to generate embedding for chunk in " + relativePath + " lines " + (i + 1) + "-" + endLine, e);
-                // Continue with next chunk instead of failing the whole file
+                LOG.error("Failed to generate embedding for fallback chunk in " + relativePath, e);
             }
         }
     }
     
-    private boolean isJavaFile(Path file) {
-        return file.toString().endsWith(".java");
-    }
     
     private String getFileExtension(String fileName) {
         int lastDot = fileName.lastIndexOf('.');

@@ -55,22 +55,26 @@ dependencies {
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")
     implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
-    
+
     // Javalin for REST API server
     implementation("io.javalin:javalin:5.6.3")
 
     implementation("dev.langchain4j:langchain4j:0.35.0")
-    // Apache Tika
-//    implementation("org.apache.tika:tika-core:2.9.2")
-//    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
-    
+//
+    // Tree-sitter for AST-based code chunking (correct Maven coordinates)
+    implementation("io.github.bonede:tree-sitter:0.25.3")
+    implementation("io.github.bonede:tree-sitter-java:0.23.4") 
+    implementation("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
+    implementation("io.github.bonede:tree-sitter-javascript:0.23.1")
+// https://mvnrepository.com/artifact/io.github.bonede/tree-sitter-typescript
+    implementation("io.github.bonede:tree-sitter-typescript:0.23.2")
+//        implementation("io.github.bonede:tree-sitter-python:0.24.4")
+
     // No Lucene dependencies needed - using in-memory index instead
     
     // Java Diff Utils for gdiff functionality
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
-    
-    // GumTree for AST-based diffing - using only core which is reliably available
-//    implementation("com.github.gumtreediff:core:3.0.0")
+
 }
 
 intellijPlatform {

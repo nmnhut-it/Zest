@@ -62,6 +62,7 @@ public final class ZestLangChain4jService {
     private final QueryTransformer compressingTransformer;
     private final QueryTransformer expandingTransformer;
     private final List<ContentRetriever> multipleRetrievers;
+    private final AdvancedRAGService advancedRAGService;
     
     // AST-based code chunking
     private final ASTChunker astChunker;
@@ -110,7 +111,10 @@ public final class ZestLangChain4jService {
         // Initialize AST-based code chunker
         this.astChunker = new ASTChunker(1500); // 1500 characters per chunk (optimal for embeddings)
         
-        LOG.info("ZestLangChain4jService initialized with in-memory vector store and remote embeddings for project: " + project.getName());
+        // Initialize Advanced RAG service
+        this.advancedRAGService = new AdvancedRAGService(project, llmService, embeddingModel, embeddingStore);
+        
+        LOG.info("ZestLangChain4jService initialized with in-memory vector store and advanced RAG techniques for project: " + project.getName());
         LOG.info("Project base path: " + project.getBasePath());
         LOG.info("Integrated with ProjectChangesTracker for auto-updating index");
         
@@ -446,11 +450,89 @@ public final class ZestLangChain4jService {
     }
     
     /**
-     * Retrieve relevant context using LangChain4j vector store
+     * Retrieve relevant context using Advanced RAG techniques (primary method)
      */
     @NotNull
     public CompletableFuture<RetrievalResult> retrieveContext(@NotNull String query) {
-        return retrieveContext(query, DEFAULT_MAX_RESULTS, DEFAULT_RELEVANCE_THRESHOLD);
+        return retrieveContextUsingAdvancedRAG(query, DEFAULT_MAX_RESULTS, DEFAULT_RELEVANCE_THRESHOLD);
+    }
+    
+    /**
+     * Retrieve relevant context with custom parameters using Advanced RAG (overloaded for backward compatibility)
+     */
+    @NotNull
+    public CompletableFuture<RetrievalResult> retrieveContext(@NotNull String query, int maxResults, double threshold) {
+        return retrieveContextUsingAdvancedRAG(query, maxResults, threshold);
+    }
+    
+    /**
+     * New primary retrieval method using Advanced RAG techniques
+     */
+    @NotNull
+    public CompletableFuture<RetrievalResult> retrieveContextUsingAdvancedRAG(@NotNull String query, int maxResults, double threshold) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!isIndexed) {
+                    LOG.warn("Codebase not yet indexed, results may be incomplete");
+                }
+                
+                LOG.info("Using Advanced RAG techniques for query: " + query);
+                
+                // Use the AdvancedRAGService for retrieval
+                List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
+                    .retrieveAdvanced(query, maxResults).join();
+                
+                // Convert AdvancedRAGService results to ContextItems
+                List<ContextItem> contextItems = advancedResults.stream()
+                    .map(this::convertToContextItem)
+                    .collect(Collectors.toList());
+                
+                LOG.info("Advanced RAG retrieved " + contextItems.size() + " contextual results with enhanced techniques");
+                return new RetrievalResult(true, "Advanced RAG retrieved " + contextItems.size() + " results with multi-technique approach", contextItems);
+                
+            } catch (Exception e) {
+                LOG.error("Advanced RAG retrieval failed, falling back to hybrid search", e);
+                // Fallback to existing hybrid search
+                return retrieveContextLegacyHybrid(query, maxResults, threshold).join();
+            }
+        });
+    }
+    
+    /**
+     * Convert AdvancedRAGService.ContextualResult to ContextItem
+     */
+    private ContextItem convertToContextItem(AdvancedRAGService.ContextualResult result) {
+        TextSegment segment = result.originalSegment;
+        Metadata metadata = segment.metadata();
+        
+        String filePath = metadata.getString("file");
+        Integer lineNumber = metadata.getInteger("startLine");
+        
+        String title = filePath != null ? filePath : "unknown";
+        if (lineNumber != null) {
+            title += ":" + lineNumber;
+        }
+        
+        // Use the best available context (contextual > parent > window > original)
+        String bestContent = result.contextualContent;
+        if (bestContent == null || bestContent.equals(segment.text())) {
+            bestContent = result.parentContext;
+        }
+        if (bestContent == null || bestContent.equals(segment.text())) {
+            bestContent = result.windowContext;
+        }
+        if (bestContent == null) {
+            bestContent = segment.text();
+        }
+        
+        return new ContextItem(
+            UUID.randomUUID().toString(),
+            title,
+            bestContent,
+            filePath,
+            lineNumber,
+            result.score
+        );
     }
     
     /**
@@ -510,10 +592,10 @@ public final class ZestLangChain4jService {
     }
     
     /**
-     * Retrieve relevant context with custom parameters using hybrid search (legacy method)
+     * Legacy hybrid search method (kept for fallback compatibility)
      */
     @NotNull
-    public CompletableFuture<RetrievalResult> retrieveContext(@NotNull String query, int maxResults, double threshold) {
+    public CompletableFuture<RetrievalResult> retrieveContextLegacyHybrid(@NotNull String query, int maxResults, double threshold) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (!isIndexed) {
@@ -567,10 +649,17 @@ public final class ZestLangChain4jService {
                 
                 // Add retrieval context if requested
                 if (useRetrieval && isIndexed) {
-                    // Use hybrid search for better retrieval
-                    List<EmbeddingMatch<TextSegment>> matches = performHybridSearch(
-                        taskDescription, 5, 0.3
-                    );
+                    // Use Advanced RAG for better retrieval
+                    List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
+                        .retrieveAdvanced(taskDescription, 5).join();
+                        
+                    List<EmbeddingMatch<TextSegment>> matches = advancedResults.stream()
+                        .map(result -> new EmbeddingMatch<>(
+                            result.score, 
+                            UUID.randomUUID().toString(), 
+                            null, 
+                            result.originalSegment))
+                        .collect(Collectors.toList());
                     
                     if (!matches.isEmpty()) {
                         String contextString = formatMatchesForPrompt(matches);
@@ -666,13 +755,12 @@ public final class ZestLangChain4jService {
                 List<ContextItem> contextItems = new ArrayList<>();
                 
                 if (isIndexed) {
-                    // Use hybrid search for better context retrieval
-                    List<EmbeddingMatch<TextSegment>> matches = performHybridSearch(
-                        message, 3, 0.3
-                    );
-                    
-                    contextItems = matches.stream()
-                        .map(this::matchToContextItem)
+                    // Use Advanced RAG for better context retrieval
+                    List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
+                        .retrieveAdvanced(message, 3).join();
+                        
+                    contextItems = advancedResults.stream()
+                        .map(this::convertToContextItem)
                         .collect(Collectors.toList());
                 }
                 

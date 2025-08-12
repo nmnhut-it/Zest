@@ -47,6 +47,12 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox backgroundContextCheckbox;
     private JBCheckBox continuousCompletionCheckbox;
     
+    // Inline Completion RAG/AST Settings
+    private JBCheckBox inlineRagEnabledCheckbox;
+    private JBCheckBox astPatternMatchingCheckbox;
+    private JSpinner maxRagContextSizeSpinner;
+    private JSpinner embeddingCacheSizeSpinner;
+    
     // Context Settings
     private JBRadioButton contextInjectionRadio;
     private JBRadioButton projectIndexRadio;
@@ -213,10 +219,50 @@ public class ZestSettingsConfigurable implements Configurable {
         backgroundContextCheckbox = new JBCheckBox("Collect context in background", config.isBackgroundContextEnabled());
         builder.addComponent(backgroundContextCheckbox);
         
+        // Inline Completion RAG/AST Settings
+        builder.addSeparator();
+        builder.addComponent(new JLabel("Advanced Inline Completion:"));
+        
+        inlineRagEnabledCheckbox = new JBCheckBox("Enable RAG for inline completion", config.isInlineCompletionRagEnabled());
+        inlineRagEnabledCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(inlineRagEnabledCheckbox);
+        
+        astPatternMatchingCheckbox = new JBCheckBox("Enable AST pattern matching", config.isAstPatternMatchingEnabled());
+        astPatternMatchingCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(astPatternMatchingCheckbox);
+        
+        maxRagContextSizeSpinner = new JSpinner(new SpinnerNumberModel(
+            config.getMaxRagContextSize(), 100, 5000, 100));
+        maxRagContextSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        JPanel ragSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        ragSizePanel.add(new JLabel("Max RAG context size:"));
+        ragSizePanel.add(maxRagContextSizeSpinner);
+        ragSizePanel.add(new JLabel("characters"));
+        builder.addComponent(ragSizePanel);
+        
+        embeddingCacheSizeSpinner = new JSpinner(new SpinnerNumberModel(
+            config.getEmbeddingCacheSize(), 10, 500, 10));
+        embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        JPanel cachePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        cachePanel.add(new JLabel("Embedding cache size:"));
+        cachePanel.add(embeddingCacheSizeSpinner);
+        cachePanel.add(new JLabel("files"));
+        builder.addComponent(cachePanel);
+        
         inlineCompletionCheckbox.addItemListener(e -> {
             boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
             autoTriggerCheckbox.setEnabled(enabled);
             continuousCompletionCheckbox.setEnabled(enabled);
+            inlineRagEnabledCheckbox.setEnabled(enabled);
+            astPatternMatchingCheckbox.setEnabled(enabled);
+            maxRagContextSizeSpinner.setEnabled(enabled && inlineRagEnabledCheckbox.isSelected());
+            embeddingCacheSizeSpinner.setEnabled(enabled && inlineRagEnabledCheckbox.isSelected());
+        });
+        
+        inlineRagEnabledCheckbox.addItemListener(e -> {
+            boolean ragEnabled = e.getStateChange() == ItemEvent.SELECTED;
+            maxRagContextSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
+            embeddingCacheSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
         });
         
         // RAG Settings
@@ -409,6 +455,10 @@ public class ZestSettingsConfigurable implements Configurable {
                autoTriggerCheckbox.isSelected() != config.isAutoTriggerEnabled() ||
                backgroundContextCheckbox.isSelected() != config.isBackgroundContextEnabled() ||
                continuousCompletionCheckbox.isSelected() != config.isContinuousCompletionEnabled() ||
+               inlineRagEnabledCheckbox.isSelected() != config.isInlineCompletionRagEnabled() ||
+               astPatternMatchingCheckbox.isSelected() != config.isAstPatternMatchingEnabled() ||
+               !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
+               !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
                ragEnabledCheckbox.isSelected() != config.isRagEnabled() ||
                mcpEnabledCheckbox.isSelected() != config.isMcpEnabled() ||
                !mcpServerUriField.getText().equals(config.getMcpServerUri()) ||
@@ -447,6 +497,10 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setAutoTriggerEnabled(autoTriggerCheckbox.isSelected());
         config.setBackgroundContextEnabled(backgroundContextCheckbox.isSelected());
         config.setContinuousCompletionEnabled(continuousCompletionCheckbox.isSelected());
+        config.setInlineCompletionRagEnabled(inlineRagEnabledCheckbox.isSelected());
+        config.setAstPatternMatchingEnabled(astPatternMatchingCheckbox.isSelected());
+        config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
+        config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
         config.setRagEnabled(ragEnabledCheckbox.isSelected());
         config.setMcpEnabled(mcpEnabledCheckbox.isSelected());
         config.setMcpServerUri(mcpServerUriField.getText().trim());
@@ -493,6 +547,15 @@ public class ZestSettingsConfigurable implements Configurable {
         backgroundContextCheckbox.setSelected(config.isBackgroundContextEnabled());
         continuousCompletionCheckbox.setSelected(config.isContinuousCompletionEnabled());
         continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        
+        inlineRagEnabledCheckbox.setSelected(config.isInlineCompletionRagEnabled());
+        inlineRagEnabledCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        astPatternMatchingCheckbox.setSelected(config.isAstPatternMatchingEnabled());
+        astPatternMatchingCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        maxRagContextSizeSpinner.setValue(config.getMaxRagContextSize());
+        maxRagContextSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        embeddingCacheSizeSpinner.setValue(config.getEmbeddingCacheSize());
+        embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
         
         ragEnabledCheckbox.setSelected(config.isRagEnabled());
         mcpEnabledCheckbox.setSelected(config.isMcpEnabled());

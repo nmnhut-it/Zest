@@ -232,10 +232,8 @@ public final class EmbeddingService {
         requestBody.addProperty("model", model);
         requestBody.addProperty("input", text);
         
-        // Add dimensions for models that support it
-        if (model.contains("text-embedding-3") || model.contains("Qwen")) {
-            requestBody.addProperty("dimensions", DEFAULT_EMBEDDING_DIMENSIONS);
-        }
+        // Note: dimensions parameter removed as litellm doesn't support it for Qwen models
+        // The API will use the model's default dimensions automatically
         
         // Make HTTP request to embedding endpoint
         String response = makeEmbeddingRequest(requestBody.toString());
@@ -258,10 +256,8 @@ public final class EmbeddingService {
         }
         requestBody.add("input", inputArray);
         
-        // Add dimensions for models that support it
-        if (model.contains("text-embedding-3") || model.contains("Qwen")) {
-            requestBody.addProperty("dimensions", DEFAULT_EMBEDDING_DIMENSIONS);
-        }
+        // Note: dimensions parameter removed as litellm doesn't support it for Qwen models
+        // The API will use the model's default dimensions automatically
         
         // Make HTTP request
         String response = makeEmbeddingRequest(requestBody.toString());
@@ -301,28 +297,40 @@ public final class EmbeddingService {
         // Get base URL from configuration
         String baseUrl = config.getApiUrl();
         
+        // Special handling for ZingPlay endpoints - always use litellm for embeddings
+        if (baseUrl.contains("chat.zingplay.com") || baseUrl.contains("openwebui.zingplay.com")) {
+            LOG.info("Detected ZingPlay endpoint, redirecting to litellm for embeddings");
+            return "https://litellm.zingplay.com/v1/embeddings";
+        }
+        
+        // Special handling for talk.zingplay.com - use litellm-internal
+        if (baseUrl.contains("talk.zingplay.com")) {
+            LOG.info("Detected talk.zingplay endpoint, redirecting to litellm-internal for embeddings");
+            return "https://litellm-internal.zingplay.com/v1/embeddings";
+        }
+        
         // Extract base URL without the path
         try {
             URI uri = URI.create(baseUrl);
             String host = uri.getScheme() + "://" + uri.getAuthority();
             
-            // Use the OpenAI-compatible /api/embeddings endpoint
-            return host + "/api/embeddings";
+            // Use the OpenAI-compatible /v1/embeddings endpoint
+            return host + "/v1/embeddings";
         } catch (Exception e) {
             LOG.warn("Failed to parse base URL, using fallback: " + e.getMessage());
             
             // Fallback: For standard OpenAI-compatible endpoints
             if (baseUrl.contains("/v1/chat/completions")) {
-                return baseUrl.replace("/v1/chat/completions", "/api/embeddings");
+                return baseUrl.replace("/v1/chat/completions", "/v1/embeddings");
             } else if (baseUrl.contains("/api/chat/completions")) {
-                return baseUrl.replace("/api/chat/completions", "/api/embeddings");
+                return baseUrl.replace("/api/chat/completions", "/v1/embeddings");
             }
             
-            // Default to appending /api/embeddings
+            // Default to appending /v1/embeddings
             if (!baseUrl.endsWith("/")) {
                 baseUrl += "/";
             }
-            return baseUrl + "api/embeddings";
+            return baseUrl + "v1/embeddings";
         }
     }
     
@@ -331,6 +339,9 @@ public final class EmbeddingService {
      */
     private String makeDirectEmbeddingRequest(@NotNull String endpoint, @NotNull String requestBody) throws IOException {
         try {
+            // Log the endpoint being used
+            LOG.info("Making embedding request to: " + endpoint);
+            
             // Get API token from configuration
             String apiToken = config.getAuthTokenNoPrompt();
             
@@ -355,12 +366,18 @@ public final class EmbeddingService {
             
             HttpRequest request = requestBuilder.build();
             
+            // Log request details
+            LOG.debug("Request method: " + request.method());
+            LOG.debug("Request URI: " + request.uri());
+            
             // Send request and get response
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             
             // Check response status
             if (response.statusCode() != 200) {
                 LOG.error("Embedding request failed with status " + response.statusCode() + ": " + response.body());
+                LOG.error("Endpoint was: " + endpoint);
+                LOG.error("Request method was: " + request.method());
                 throw new IOException("Embedding request failed: " + response.statusCode());
             }
             

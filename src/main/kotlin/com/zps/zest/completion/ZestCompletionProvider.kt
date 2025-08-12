@@ -451,20 +451,19 @@ class ZestCompletionProvider(private val project: Project) {
             // Collect context with dependency analysis (will use preemptive cache if available)
             val contextDeferred = kotlinx.coroutines.CompletableDeferred<ZestLeanContextCollectorPSI.LeanContext?>()
             
-            ApplicationManager.getApplication().invokeLater {
-                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
-                    log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
-                    log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
-                    log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
-                    if (!contextDeferred.isCompleted) {
-                        contextDeferred.complete(ctx)
-                    }
+            // Call directly - collectWithDependencyAnalysis already handles invokeLater internally
+            leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
+                log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
+                log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
+                log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
+                if (!contextDeferred.isCompleted) {
+                    contextDeferred.complete(ctx)
                 }
             }
             
             // Wait for context with timeout
             val leanContext = try {
-                withTimeoutOrNull(2000) {  // 2 seconds max wait
+                withTimeoutOrNull(5000) {  // 5 seconds max wait (increased from 2)
                     contextDeferred.await()
                 }
             } catch (e: Exception) {

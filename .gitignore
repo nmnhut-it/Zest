@@ -61,3 +61,4 @@ zest-plugin.properties
 /.zest/
 
 # Ignore all files in this directory
+/.kotlin

@@ -60,8 +60,8 @@ public class ConfigurationManager {
     }
 
     private final Project project;
-    private final ZestGlobalSettings globalSettings;
-    private final ZestProjectSettings projectSettings;
+    private   ZestGlobalSettings globalSettings;
+    private   ZestProjectSettings projectSettings;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -70,8 +70,29 @@ public class ConfigurationManager {
      */
     private ConfigurationManager(Project project) {
         this.project = project;
-        this.globalSettings = ZestGlobalSettings.getInstance();
-        this.projectSettings = ZestProjectSettings.getInstance(project);
+        
+        // Initialize settings with null checks
+        try {
+            this.globalSettings = ZestGlobalSettings.getInstance();
+        } catch (Exception e) {
+            LOG.error("Failed to get ZestGlobalSettings instance", e);
+            // Create a default instance if getInstance fails
+            this.globalSettings = new ZestGlobalSettings();
+        }
+        
+        try {
+            this.projectSettings = ZestProjectSettings.getInstance(project);
+        } catch (Exception e) {
+            LOG.error("Failed to get ZestProjectSettings instance", e);
+            // Create a default instance if getInstance fails
+            this.projectSettings = new ZestProjectSettings();
+        }
+        
+        // Ensure globalSettings is never null
+        if (this.globalSettings == null) {
+            LOG.error("GlobalSettings is still null after initialization, creating default");
+            this.globalSettings = new ZestGlobalSettings();
+        }
         
         // Check if API URL needs to be updated on first run
         checkAndUpdateDefaultApiUrl();
@@ -274,10 +295,18 @@ public class ConfigurationManager {
     }
 
     public boolean isInlineCompletionEnabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for inlineCompletionEnabled");
+            return true; // Default to enabled
+        }
         return globalSettings.inlineCompletionEnabled;
     }
 
     public void setInlineCompletionEnabled(boolean enabled) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set inlineCompletionEnabled - globalSettings is null");
+            return;
+        }
         globalSettings.inlineCompletionEnabled = enabled;
         
         try {
@@ -329,49 +358,52 @@ public class ConfigurationManager {
         }
     }
 
-    // Compatibility methods
-    public String getOpenWebUIRagEndpoint() {
-        return globalSettings.apiUrl;
+    // RAG-specific configurations for inline completion
+    public boolean isInlineCompletionRagEnabled() {
+        return globalSettings.inlineCompletionRagEnabled;
     }
-
-    public String getOpenWebUISystemPrompt() {
-        return globalSettings.systemPrompt;
+    
+    public void setInlineCompletionRagEnabled(boolean enabled) {
+        globalSettings.inlineCompletionRagEnabled = enabled;
     }
-
-    public String getOpenWebUISystemPromptForCode() {
-        return globalSettings.codeSystemPrompt;
+    
+    public boolean isAstPatternMatchingEnabled() {
+        return globalSettings.astPatternMatchingEnabled;
     }
-
-    public String getBossPrompt() {
-        String s = "Bạn là sếp của tôi. Bạn nói chuyện ngắn gọn, không giải thích nhiều trừ khi cần thiết, và dùng nhiều câu trực tiếp mà thân thiện. \n" +
-                "\n" +
-                "Ví dụ: \n" +
-                "Péo lắm đấy em\n" +
-                "Anh qua em review Game design Match3 nha\n" +
-                "Thực ra cái này có những điểm yếu như sau ...\n" +
-                "Nếu mà em làm cái này thì sẽ có nguy cơ là, ....., em giải quyết như thế nào ...\n" +
-                "-------\n" +
-                "Bạn có những kỹ năng xuất sắc, bao gồm nhưng không giới hạn ở việc trả lời câu hỏi, tư duy phản biện, phân tích vấn đề. Bạn đã thông thạo các khung tư duy hiện có và các khung giải quyết vấn đề luôn tận dụng chúng, dùng SWOT Analysis để phân tích và cho lời khuyên. \n" +
-                "\n" +
-                "Bạn luôn tìm cách nắm trọn ý người nói muốn diễn đạt bằng cách đặt câu hỏi, sau đó phân tích rồi đưa ra nhận xét ngắn gọn dưới hình thức các câu hỏi để tôi tự trả lời.\n" +
-                "---------\n" +
-                "Bạn đang trong một cuộc họp. Bạn sẽ lắng nghe, đặt câu hỏi để làm rõ và thách thức tôi bằng các câu hỏi. Bạn hỏi tôi từng câu hỏi một để giúp tôi giải quyết vấn đề hoặc tìm ra điểm yếu, hoặc để đưa ra một ý tưởng mới hoặc giải quyết các vấn đề.";
-        return s;
+    
+    public void setAstPatternMatchingEnabled(boolean enabled) {
+        globalSettings.astPatternMatchingEnabled = enabled;
+    }
+    
+    public int getMaxRagContextSize() {
+        return globalSettings.maxRagContextSize;
+    }
+    
+    public void setMaxRagContextSize(int size) {
+        globalSettings.maxRagContextSize = size;
+    }
+    
+    public int getEmbeddingCacheSize() {
+        return globalSettings.embeddingCacheSize;
+    }
+    
+    public void setEmbeddingCacheSize(int size) {
+        globalSettings.embeddingCacheSize = size;
     }
 
     /**
-     * Legacy method - no longer loads from file, just ensures defaults are set
+     * @deprecated Use IntelliJ settings directly
      */
+    @Deprecated
     public void loadConfig() {
-        // This method is kept for compatibility but doesn't do anything
         // Settings are now loaded automatically by IntelliJ
     }
 
     /**
-     * Legacy method - no longer saves to file
+     * @deprecated Use IntelliJ settings directly
      */
+    @Deprecated
     public void saveConfig() {
-        // This method is kept for compatibility but doesn't do anything
         // Settings are now saved automatically by IntelliJ
     }
 

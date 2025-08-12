@@ -110,7 +110,8 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 ""
             }
 
-            val strategy = "\nStrategy: ${getStrategyName()}"
+            // Strategy display removed
+            // val strategy = "\nStrategy: ${getStrategyName()}"
             
             // Add request state info
             val detailedState = try {
@@ -138,7 +139,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 }
             }
 
-            return "$primaryState$statusInfo$strategy$requestInfo\n\nClick for options • Right-click for menu"
+            return "$primaryState$statusInfo$requestInfo\n\nClick for options • Right-click for menu"
         }
 
         override fun getClickConsumer(): Consumer<MouseEvent>? {
@@ -306,15 +307,16 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     private fun showQuickMenu(mouseEvent: MouseEvent) {
         val group = DefaultActionGroup()
 
-        group.add(object : AnAction(
-            "Switch Strategy (${getStrategyName()})",
-            "Switch between completion strategies",
-            AllIcons.Actions.ChangeView
-        ) {
-            override fun actionPerformed(e: AnActionEvent) {
-                switchCompletionStrategy()
-            }
-        })
+        // Disabled - Switch Strategy removed
+        // group.add(object : AnAction(
+        //     "Switch Strategy (${getStrategyName()})",
+        //     "Switch between completion strategies",
+        //     AllIcons.Actions.ChangeView
+        // ) {
+        //     override fun actionPerformed(e: AnActionEvent) {
+        //         switchCompletionStrategy()
+        //     }
+        // })
 
         group.add(object : AnAction("Refresh State", "Clear any orphaned state", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -620,12 +622,13 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             }
         })
 
-        group.add(object :
-            AnAction("Switch Strategy", "Switch between completion strategies", AllIcons.Actions.ToggleVisibility) {
-            override fun actionPerformed(e: AnActionEvent) {
-                switchCompletionStrategy()
-            }
-        })
+        // Disabled - Switch Strategy removed
+        // group.add(object :
+        //     AnAction("Switch Strategy", "Switch between completion strategies", AllIcons.Actions.ToggleVisibility) {
+        //     override fun actionPerformed(e: AnActionEvent) {
+        //         switchCompletionStrategy()
+        //     }
+        // })
 
         group.addSeparator()
 
@@ -746,7 +749,8 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 appendLine("  Time since last accept: ${detailedState["timeSinceAccept"]}ms")
                 appendLine()
                 appendLine("Configuration:")
-                appendLine("  Strategy: ${detailedState["strategy"]}")
+                // Strategy display removed
+                // appendLine("  Strategy: ${detailedState["strategy"]}")
                 appendLine("  Enabled: ${detailedState["isEnabled"]}")
                 appendLine("  Auto-trigger: ${detailedState["autoTrigger"]}")
                 appendLine()

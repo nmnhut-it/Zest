@@ -30,7 +30,13 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public boolean inlineCompletionEnabled = true;  // Changed to true by default
     public boolean autoTriggerEnabled = true;  // Changed to true by default
     public boolean backgroundContextEnabled = false;
-    public boolean continuousCompletionEnabled = true; // NEW: Auto-trigger next completion after acceptance
+    public boolean continuousCompletionEnabled = true; // Auto-trigger next completion after acceptance
+    
+    // RAG and AST Settings for inline completion
+    public boolean inlineCompletionRagEnabled = true;  // Enable RAG for inline completion
+    public boolean astPatternMatchingEnabled = true;   // Enable AST pattern matching
+    public int maxRagContextSize = 1000;              // Max size for RAG context in chars
+    public int embeddingCacheSize = 100;              // Number of files to cache embeddings for
     
     // Default system prompts as static constants
     public static final String DEFAULT_SYSTEM_PROMPT = "You are a concise technical assistant. Keep responses brief and to the point.\n" +

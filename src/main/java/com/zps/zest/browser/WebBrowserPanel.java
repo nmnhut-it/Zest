@@ -156,15 +156,15 @@ public class WebBrowserPanel implements Disposable {
                 "Dev Mode",
                 AllIcons.Actions.Run_anything,
                 "It's like you have a developer behind your back",
-                p -> ConfigurationManager.getInstance(p).getOpenWebUISystemPrompt()
+                p -> ConfigurationManager.getInstance(p).getSystemPrompt()
         ));
 
         // Add Advice Mode
         browserModes.add(new BrowserMode(
                 "Advice Mode",
                 AllIcons.Actions.IntentionBulb,
-                "It's like you have boss behind your back",
-                p -> ConfigurationManager.getInstance(p).getBossPrompt()
+                "Provide concise strategic advice",
+                p -> "You are a strategic advisor. Provide concise, actionable advice focused on high-level decisions and best practices. Be direct and focus on what matters most."
         ));
 
         // Add Agent Mode

@@ -6,8 +6,11 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.search.GlobalSearchScope
 import com.zps.zest.ClassAnalyzer
+import com.zps.zest.ConfigurationManager
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.completion.context.ZestCompleteGitContext
+import com.zps.zest.completion.rag.InlineCompletionRAG
+import com.zps.zest.completion.ast.ASTPatternMatcher
 
 /**
  * Builds prompts for lean completion strategy with full file context
@@ -54,6 +57,8 @@ class ZestLeanPromptBuilder(private val project: Project) {
                 "hasRelatedClasses" to context.relatedClassContents.isNotEmpty(),
                 "hasSyntaxInstructions" to !context.syntaxInstructions.isNullOrBlank(),
                 "hasVcsContext" to (context.uncommittedChanges != null),
+                "hasRagChunks" to context.ragChunks.isNotEmpty(),
+                "hasAstPatterns" to context.astPatternMatches.isNotEmpty(),
                 "modifiedFilesCount" to (context.uncommittedChanges?.allModifiedFiles?.size ?: 0),
                 "contextType" to context.contextType.name,
                 "offset" to context.cursorOffset
@@ -68,6 +73,8 @@ class ZestLeanPromptBuilder(private val project: Project) {
         val contextInfo = buildContextInfo(context)
         val relatedClassesSection = buildRelatedClassesSection(context)
         val vcsSection = buildVcsContextSection(context)
+        val ragSection = buildRagSection(context)
+        val astPatternSection = buildAstPatternSection(context)
         
         // Extract the line containing the cursor for AI to repeat
         val lineWithCursor = extractLineWithCursor(context.markedContent, context.cursorOffset)
@@ -104,6 +111,18 @@ class ZestLeanPromptBuilder(private val project: Project) {
             if (relatedClassesSection.isNotBlank()) {
                 append("\n## Related Classes\n")
                 append(relatedClassesSection)
+            }
+            
+            // Add RAG-retrieved context
+            if (ragSection.isNotBlank()) {
+                append("\n## Similar Code Context (RAG)\n")
+                append(ragSection)
+            }
+            
+            // Add AST pattern matches
+            if (astPatternSection.isNotBlank()) {
+                append("\n## Similar Code Patterns\n")
+                append(astPatternSection)
             }
             
             // Add the line with cursor for AI to repeat
@@ -438,6 +457,91 @@ class ZestLeanPromptBuilder(private val project: Project) {
         return qualifiedName.startsWith("java.") ||
                 qualifiedName.startsWith("javax.") ||
                 qualifiedName.startsWith("kotlin.")
+    }
+    
+    /**
+     * Build RAG section from retrieved chunks
+     */
+    private fun buildRagSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
+        if (context.ragChunks.isEmpty()) {
+            return ""
+        }
+        
+        val config = ConfigurationManager.getInstance(project)
+        val maxRagSize = config.maxRagContextSize
+        
+        val sb = StringBuilder()
+        sb.append("Retrieved relevant code chunks:\n\n")
+        
+        var totalSize = 0
+        val chunksToInclude = mutableListOf<InlineCompletionRAG.RetrievedChunk>()
+        
+        // Only include chunks that fit within size limit
+        for (chunk in context.ragChunks) {
+            if (totalSize + chunk.content.length <= maxRagSize) {
+                chunksToInclude.add(chunk)
+                totalSize += chunk.content.length
+            } else {
+                break
+            }
+        }
+        
+        chunksToInclude.forEachIndexed { index, chunk ->
+            sb.append("### ${index + 1}. ")
+            
+            // Add file path if available
+            val filePath = chunk.filePath
+            if (filePath != null) {
+                sb.append("From `$filePath`")
+            }
+            
+            // Add method name if available
+            val methodName = chunk.methodName
+            if (methodName != null) {
+                sb.append(" - Method: `$methodName`")
+            }
+            
+            sb.append(" (score: ${String.format("%.2f", chunk.score)})\n")
+            sb.append("```${context.language.lowercase()}\n")
+            sb.append(truncateCode(chunk.content, 300))
+            sb.append("\n```\n\n")
+        }
+        
+        return sb.toString()
+    }
+    
+    /**
+     * Build AST pattern section from matches
+     */
+    private fun buildAstPatternSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
+        if (context.astPatternMatches.isEmpty()) {
+            return ""
+        }
+        
+        val sb = StringBuilder()
+        sb.append("Similar structural patterns found:\n\n")
+        
+        context.astPatternMatches.take(2).forEachIndexed { index, match ->
+            sb.append("### ${index + 1}. Pattern Match")
+            sb.append(" (similarity: ${String.format("%.2f", match.similarity)})\n")
+            sb.append("Lines ${match.startLine}-${match.endLine}:\n")
+            sb.append("```${context.language.lowercase()}\n")
+            sb.append(truncateCode(match.code, 200))
+            sb.append("\n```\n\n")
+        }
+        
+        return sb.toString()
+    }
+    
+    /**
+     * Truncate code to specified length
+     */
+    private fun truncateCode(code: String, maxLength: Int): String {
+        return if (code.length <= maxLength) {
+            code
+        } else {
+            code.take(maxLength) + "\n... (truncated)"
+        }
     }
 
 }

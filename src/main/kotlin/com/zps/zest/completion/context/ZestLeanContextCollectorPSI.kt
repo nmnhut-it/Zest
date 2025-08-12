@@ -6,8 +6,13 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
+import com.zps.zest.ConfigurationManager
 import com.zps.zest.completion.async.AsyncClassAnalyzer
 import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
+import com.zps.zest.completion.rag.InlineCompletionRAG
+import com.zps.zest.completion.ast.ASTPatternMatcher
+import com.zps.zest.langchain4j.ASTChunker
+import com.zps.zest.chunking.ChunkingOptions
 
 /**
  * Lean context collector that uses PSI (Program Structure Interface) for accurate Java code analysis
@@ -32,6 +37,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
     }
 
     private val asyncAnalyzer = AsyncClassAnalyzer(project)
+    private val ragService = InlineCompletionRAG(project)
+    private val patternMatcher = ASTPatternMatcher()
+    private val chunker = ASTChunker()
 
     data class LeanContext(
         val fileName: String,
@@ -50,7 +58,11 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         val relatedClassContents: Map<String, String> = emptyMap(),
         val syntaxInstructions: String? = null,
         // VCS context for uncommitted changes
-        val uncommittedChanges: ZestCompleteGitContext.CompleteGitInfo? = null
+        val uncommittedChanges: ZestCompleteGitContext.CompleteGitInfo? = null,
+        // RAG retrieved chunks
+        val ragChunks: List<InlineCompletionRAG.RetrievedChunk> = emptyList(),
+        // AST pattern matches
+        val astPatternMatches: List<ASTPatternMatcher.PatternMatch> = emptyList()
     )
 
     enum class CursorContextType {
@@ -142,6 +154,35 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             println("Failed to get cached VCS context: ${e.message}")
             null
         }
+        
+        val config = ConfigurationManager.getInstance(project)
+        
+        // Extract pattern at cursor for AST matching (if enabled)
+        val cursorPattern = if (config.isAstPatternMatchingEnabled) {
+            try {
+                patternMatcher.extractPatternAtCursor(text, offset, language)
+            } catch (e: Exception) {
+                println("Failed to extract AST pattern: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+        
+        // Get RAG chunks if enabled and we have a pattern or context
+        val ragChunks = if (config.isInlineCompletionRagEnabled && 
+                            (cursorPattern != null || contextType != CursorContextType.UNKNOWN)) {
+            try {
+                val query = extractQueryFromContext(text, offset, contextType)
+                val maxChunks = config.maxRagContextSize / 300 // Estimate chunks based on size
+                ragService.retrieveRelevantChunks(query, minOf(maxChunks, 3))
+            } catch (e: Exception) {
+                println("Failed to retrieve RAG chunks: ${e.message}")
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
 
         return LeanContext(
             fileName = fileName,
@@ -154,7 +195,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             isTruncated = isTruncated,
             preservedMethods = preservedMethods,
             syntaxInstructions = null,
-            uncommittedChanges = uncommittedChanges
+            uncommittedChanges = uncommittedChanges,
+            ragChunks = ragChunks,
+            astPatternMatches = findAstPatternMatchesIfEnabled(psiFile, text, offset, language, cursorPattern)
         )
     }
 
@@ -179,16 +222,22 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                 calledMethods = cachedAnalysis.calledMethods,
                 usedClasses = cachedAnalysis.usedClasses,
                 relatedClassContents = cachedAnalysis.relatedClassContents,
-                preservedMethods = immediateContext.preservedMethods.plus(cachedAnalysis.calledMethods)
+                preservedMethods = immediateContext.preservedMethods.plus(cachedAnalysis.calledMethods),
+                ragChunks = immediateContext.ragChunks,
+                astPatternMatches = immediateContext.astPatternMatches // Keep original for now
             )
             
             // Re-process with all dependency information
             val finalContext = ApplicationManager.getApplication().runReadAction<LeanContext> {
                 val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
-                if (psiFile is PsiJavaFile) {
-                    recreateContextWithFullAnalysis(psiFile, enhancedContext, offset)
-                } else {
-                    enhancedContext
+                val contextWithPatterns = enhancedContext.copy(
+                    astPatternMatches = findAstPatternMatches(psiFile, enhancedContext, offset)
+                )
+                
+                // Recreate context based on file type
+                when {
+                    psiFile is PsiJavaFile -> recreateContextWithFullAnalysis(psiFile, contextWithPatterns, offset)
+                    else -> contextWithPatterns // For JS, Cocos2d-x, and other files
                 }
             }
             
@@ -246,7 +295,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                                     usedClasses = analysisResult.usedClasses,
                                     relatedClassContents = analysisResult.relatedClassContents,
                                     preservedMethods = latestContext.preservedMethods.plus(analysisResult.calledMethods),
-                                    uncommittedChanges = latestContext.uncommittedChanges // Preserve VCS context
+                                    uncommittedChanges = latestContext.uncommittedChanges, // Preserve VCS context
+                                    ragChunks = latestContext.ragChunks,
+                                    astPatternMatches = latestContext.astPatternMatches
                                 )
                                 
                                 // Send progressive updates
@@ -333,7 +384,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         return context.copy(
             fullContent = finalContent,
             markedContent = finalMarkedContent,
-            uncommittedChanges = context.uncommittedChanges // Preserve VCS context
+            uncommittedChanges = context.uncommittedChanges, // Preserve VCS context
+            ragChunks = context.ragChunks,
+            astPatternMatches = context.astPatternMatches
         )
     }
 
@@ -530,24 +583,48 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             val methodStart = method.textRange.startOffset
             val methodEnd = method.textRange.endOffset
             
-            // Add content before method
+            // Add content before method with bounds checking
             if (methodStart > lastOffset) {
-                val beforeMethod = originalText.substring(lastOffset, methodStart)
-                result.append(beforeMethod)
-                markedResult.append(markedText.substring(lastOffset, methodStart))
+                val safeLastOffset = minOf(lastOffset, originalText.length)
+                val safeMethodStart = minOf(methodStart, originalText.length)
+                if (safeLastOffset < safeMethodStart) {
+                    val beforeMethod = originalText.substring(safeLastOffset, safeMethodStart)
+                    result.append(beforeMethod)
+                    
+                    val safeMarkedLastOffset = minOf(lastOffset, markedText.length)
+                    val safeMarkedMethodStart = minOf(methodStart, markedText.length)
+                    if (safeMarkedLastOffset < safeMarkedMethodStart) {
+                        markedResult.append(markedText.substring(safeMarkedLastOffset, safeMarkedMethodStart))
+                    }
+                }
             }
             
             if (method in methodsToExpand) {
-                // Include full method
-                result.append(originalText.substring(methodStart, methodEnd))
-                markedResult.append(markedText.substring(methodStart, methodEnd))
+                // Include full method with bounds checking
+                val safeMethodStart = minOf(methodStart, originalText.length)
+                val safeMethodEnd = minOf(methodEnd, originalText.length)
+                if (safeMethodStart < safeMethodEnd) {
+                    result.append(originalText.substring(safeMethodStart, safeMethodEnd))
+                    
+                    val safeMarkedStart = minOf(methodStart, markedText.length)
+                    val safeMarkedEnd = minOf(methodEnd, markedText.length)
+                    if (safeMarkedStart < safeMarkedEnd) {
+                        markedResult.append(markedText.substring(safeMarkedStart, safeMarkedEnd))
+                    }
+                }
             } else {
                 // Collapse method body
                 val collapsedMethod = collapseMethodBody(method, originalText)
                 result.append(collapsedMethod)
                 
-                // Handle cursor marker in collapsed method
-                val methodTextInMarked = markedText.substring(methodStart, methodEnd)
+                // Handle cursor marker in collapsed method with bounds checking
+                val safeMarkedStart = minOf(methodStart, markedText.length)
+                val safeMarkedEnd = minOf(methodEnd, markedText.length)
+                val methodTextInMarked = if (safeMarkedStart < safeMarkedEnd) {
+                    markedText.substring(safeMarkedStart, safeMarkedEnd)
+                } else {
+                    ""
+                }
                 if (methodTextInMarked.contains("[CURSOR]")) {
                     // Keep cursor marker in collapsed version
                     val beforeCursor = methodTextInMarked.substringBefore("[CURSOR]")
@@ -571,8 +648,13 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         
         // Add remaining content
         if (lastOffset < originalText.length) {
-            result.append(originalText.substring(lastOffset))
-            markedResult.append(markedText.substring(lastOffset))
+            val safeLastOffset = minOf(lastOffset, originalText.length)
+            result.append(originalText.substring(safeLastOffset))
+            
+            if (lastOffset < markedText.length) {
+                val safeMarkedLastOffset = minOf(lastOffset, markedText.length)
+                markedResult.append(markedText.substring(safeMarkedLastOffset))
+            }
         }
         
         return Triple(result.toString(), markedResult.toString(), preservedMethods)
@@ -582,11 +664,28 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
      * Collapse a method body using PSI information
      */
     private fun collapseMethodBody(method: PsiMethod, originalText: String): String {
-        val body = method.body ?: return originalText.substring(method.textRange.startOffset, method.textRange.endOffset)
+        val methodStart = method.textRange.startOffset
+        val methodEnd = method.textRange.endOffset
         
-        // Get method signature (everything before the body)
-        val signatureEnd = body.textOffset
-        val signature = originalText.substring(method.textRange.startOffset, signatureEnd)
+        // Bounds checking
+        val safeStart = minOf(methodStart, originalText.length)
+        val safeEnd = minOf(methodEnd, originalText.length)
+        
+        if (safeStart >= safeEnd) {
+            return "" // Invalid range
+        }
+        
+        val body = method.body ?: return originalText.substring(safeStart, safeEnd)
+        
+        // Get method signature (everything before the body) with bounds checking
+        val signatureEnd = minOf(body.textOffset, originalText.length)
+        val safeSignatureStart = minOf(methodStart, originalText.length)
+        
+        if (safeSignatureStart >= signatureEnd) {
+            return originalText.substring(safeStart, safeEnd) // Fallback to full method
+        }
+        
+        val signature = originalText.substring(safeSignatureStart, signatureEnd)
         
         // Check if opening brace is on same line as signature
         val signatureLines = signature.lines()
@@ -810,6 +909,98 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         return inFunction && braceCount > 0
     }
 
+    /**
+     * Find AST pattern matches if enabled
+     */
+    private fun findAstPatternMatchesIfEnabled(
+        psiFile: PsiFile?,
+        text: String,
+        offset: Int,
+        language: String,
+        cursorPattern: ASTPatternMatcher.ASTPattern?
+    ): List<ASTPatternMatcher.PatternMatch> {
+        val config = ConfigurationManager.getInstance(project)
+        
+        if (!config.isAstPatternMatchingEnabled || cursorPattern == null) {
+            return emptyList()
+        }
+        
+        return try {
+            // Find similar patterns in the current file
+            patternMatcher.findSimilarPatterns(cursorPattern, text, language)
+                .take(3) // Limit to top 3 matches
+        } catch (e: Exception) {
+            println("Failed to find AST pattern matches: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    /**
+     * Find AST pattern matches for enhanced context
+     */
+    private fun findAstPatternMatches(
+        psiFile: PsiFile?,
+        context: LeanContext,
+        offset: Int
+    ): List<ASTPatternMatcher.PatternMatch> {
+        val config = ConfigurationManager.getInstance(project)
+        
+        if (!config.isAstPatternMatchingEnabled) {
+            return context.astPatternMatches
+        }
+        
+        // Try to extract pattern at cursor if not already done
+        val pattern = try {
+            patternMatcher.extractPatternAtCursor(
+                context.fullContent,
+                offset,
+                context.language
+            )
+        } catch (e: Exception) {
+            null
+        }
+        
+        return if (pattern != null) {
+            try {
+                patternMatcher.findSimilarPatterns(
+                    pattern,
+                    context.fullContent,
+                    context.language
+                ).take(3)
+            } catch (e: Exception) {
+                context.astPatternMatches
+            }
+        } else {
+            context.astPatternMatches
+        }
+    }
+    
+    /**
+     * Extract query string from context for RAG retrieval
+     */
+    private fun extractQueryFromContext(text: String, offset: Int, contextType: CursorContextType): String {
+        // Extract surrounding context (100 chars before and after)
+        val contextStart = maxOf(0, offset - 100)
+        val contextEnd = minOf(text.length, offset + 100)
+        val contextWindow = text.substring(contextStart, contextEnd)
+        
+        // Extract meaningful tokens
+        val tokens = contextWindow.split(Regex("\\W+"))
+            .filter { it.isNotEmpty() && it.length > 2 }
+            .distinct()
+        
+        // Add context type hint
+        val contextHint = when (contextType) {
+            CursorContextType.METHOD_BODY -> "method implementation"
+            CursorContextType.CLASS_DECLARATION -> "class definition"
+            CursorContextType.FUNCTION_BODY -> "function implementation"
+            CursorContextType.VARIABLE_ASSIGNMENT -> "variable assignment"
+            else -> "code completion"
+        }
+        
+        return "$contextHint ${tokens.joinToString(" ")}"
+    }
+    
     private fun isInsideObjectLiteral(beforeCursor: String): Boolean {
         var braceCount = 0
         var inObject = false

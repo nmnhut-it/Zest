@@ -17,6 +17,7 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
+import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Rectangle
@@ -365,7 +366,12 @@ class ZestInlineCompletionRenderer {
     }
     
     private fun getCompletionColor(): JBColor {
-        return JBColor.GRAY
+        // Use a more visible color that adapts to the theme
+        // Light theme: darker gray, Dark theme: lighter gray
+        return JBColor(
+            Color(128, 128, 128, 180), // Light theme: semi-transparent gray
+            Color(160, 160, 160, 180)  // Dark theme: lighter semi-transparent gray
+        )
     }
     
     private fun calculateTextWidth(editor: Editor, text: String): Int {

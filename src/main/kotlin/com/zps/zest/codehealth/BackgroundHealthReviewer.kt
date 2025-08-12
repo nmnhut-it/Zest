@@ -58,7 +58,7 @@ class BackgroundHealthReviewer(private val project: Project) {
         if (fqn.isBlank()) return
         
         pendingReviews[fqn] = lastModified
-        println("[BackgroundHealthReviewer] Queued method for review: $fqn (last modified: $lastModified)")
+//        println("[BackgroundHealthReviewer] Queued method for review: $fqn (last modified: $lastModified)")
     }
     
     /**
@@ -74,7 +74,7 @@ class BackgroundHealthReviewer(private val project: Project) {
             // Remove from reviewed cache since it's been modified again
             reviewedMethods.remove(fqn)
             updateDebouncer.remove(fqn)
-            println("[BackgroundHealthReviewer] Updated modification time for $fqn after debounce")
+//            println("[BackgroundHealthReviewer] Updated modification time for $fqn after debounce")
         }, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS)
         
         updateDebouncer[fqn] = future
@@ -96,7 +96,7 @@ class BackgroundHealthReviewer(private val project: Project) {
             .map { it.key }
         
         if (methodsToReview.isNotEmpty()) {
-            println("[BackgroundHealthReviewer] Found ${methodsToReview.size} methods ready for background review")
+//            println("[BackgroundHealthReviewer] Found ${methodsToReview.size} methods ready for background review")
             methodsToReview.forEach { fqn ->
                 // Double-check before queuing
                 if (!hasReviewedMethod(fqn)) {
@@ -112,13 +112,13 @@ class BackgroundHealthReviewer(private val project: Project) {
     private fun reviewMethodInBackground(fqn: String) {
         // Skip if already reviewed
         if (hasReviewedMethod(fqn)) {
-            println("[BackgroundHealthReviewer] Method $fqn already reviewed, skipping")
+//            println("[BackgroundHealthReviewer] Method $fqn already reviewed, skipping")
             return
         }
         
         reviewExecutor.submit {
             try {
-                println("[BackgroundHealthReviewer] Starting background review of $fqn")
+//                println("[BackgroundHealthReviewer] Starting background review of $fqn")
                 
                 // Check if this method is part of a small file or group that should be reviewed together
                 val optimizer = ReviewOptimizer(project)
@@ -130,11 +130,11 @@ class BackgroundHealthReviewer(private val project: Project) {
                     
                     // Check if this unit has already been reviewed
                     if (hasReviewedUnit(unitId)) {
-                        println("[BackgroundHealthReviewer] Unit $unitId already reviewed, skipping")
+//                        println("[BackgroundHealthReviewer] Unit $unitId already reviewed, skipping")
                         return@submit
                     }
                     
-                    println("[BackgroundHealthReviewer] Reviewing as part of unit: ${unit.getDescription()}")
+//                    println("[BackgroundHealthReviewer] Reviewing as part of unit: ${unit.getDescription()}")
                     
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
                     val results = analyzer.analyzeReviewUnitsAsync(listOf(unit), optimizer, null)
@@ -148,9 +148,9 @@ class BackgroundHealthReviewer(private val project: Project) {
                             pendingReviews.remove("${unit.className}.$methodName")
                         }
                         
-                        println("[BackgroundHealthReviewer] Completed review of unit $unitId: " +
-                                "${results.size} method results, " +
-                                "${results.sumOf { it.issues.size }} total issues")
+//                        println("[BackgroundHealthReviewer] Completed review of unit $unitId: " +
+//                                "${results.size} method results, " +
+//                                "${results.sumOf { it.issues.size }} total issues")
                         
                         // Persist to state
                         saveReviewedMethods()
@@ -171,8 +171,8 @@ class BackgroundHealthReviewer(private val project: Project) {
                         reviewedMethods[fqn] = result
                         pendingReviews.remove(fqn)
                         
-                        println("[BackgroundHealthReviewer] Completed individual review of $fqn: " +
-                                "${result.issues.size} issues found, health score: ${result.healthScore}")
+//                        println("[BackgroundHealthReviewer] Completed individual review of $fqn: " +
+//                                "${result.issues.size} issues found, health score: ${result.healthScore}")
                         
                         saveReviewedMethods()
                     }

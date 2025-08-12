@@ -36,12 +36,12 @@
         
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
-        <postStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
-        <postStartupActivity implementation="com.zps.zest.completion.debug.EnableVerboseLoggingStartup"/>
-        <postStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
-        <postStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
-        <postStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
-        <postStartupActivity implementation="com.zps.zest.langchain4j.agent.network.ProxyStartupActivity"/>
+        <!-- Using backgroundPostStartupActivity for better performance -->
+        <backgroundPostStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.langchain4j.agent.network.ProxyStartupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
@@ -69,8 +69,12 @@
 
 
         <!-- Status Bar Widgets -->
-        <statusBarWidgetFactory implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" order="last"/>
-        <statusBarWidgetFactory implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" order="last"/>
+        <statusBarWidgetFactory id="ZestCompletionStatus" 
+                               implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" 
+                               order="last"/>
+        <statusBarWidgetFactory id="CodeGuardianStatusBarWidget" 
+                               implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" 
+                               order="last"/>
 
         
         <!-- Code Guardian Notification Group -->
@@ -88,6 +92,9 @@
         <!-- LangChain4j Services for agentic retrieval and AI task management -->
         <projectService serviceImplementation="com.zps.zest.langchain4j.ZestLangChain4jService"/>
         <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
+        
+        <!-- Inline Completion Services -->
+        <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
     </extensions>
     
     <actions>
@@ -98,12 +105,14 @@
                     description="Gợi ý code thông minh tại vị trí con trỏ">
             </action>
 
+            <!-- Temporarily disabled - needs reimplementation
             <action id="Zest.InlineCompletion.ImmediateTrigger"
                     class="com.zps.zest.completion.actions.ZestTriggerBlockRewriteAction"
                     text="Immediate Inline Completion"
                     description="Gợi ý code nhanh với khả năng viết lại block (Ctrl+Space)">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
             </action>
+            -->
 
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
@@ -112,13 +121,16 @@
                 <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
             </action>
 
+            <!-- Temporarily disabled - needs reimplementation
             <action id="Zest.InlineCompletion.Accept"
                     class="com.zps.zest.completion.actions.ZestAccept"
                     text="Accept Completion"
                     description="Chấp nhận gợi ý bằng Ctrl+Tab">
                 <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
             </action>
+            -->
 
+            <!-- Temporarily disabled - needs reimplementation
             <action id="Zest.InlineCompletion.CycleNext"
                     class="com.zps.zest.completion.actions.ZestCycleNext"
                     text="Cycle Next Completion"
@@ -132,6 +144,7 @@
                     description="Xem gợi ý trước đó (Alt+Up)">
                 <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
             </action>
+            -->
 
             <action id="Zest.InlineCompletion.Dismiss"
                     class="com.zps.zest.completion.actions.ZestDismiss"
@@ -174,6 +187,7 @@
             <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>
 
+        <!-- Temporarily disabled - needs reimplementation
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="Code Review (Chat)"
@@ -181,6 +195,7 @@
                 description="Review code và đưa ra gợi ý cải thiện">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
+        -->
 
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
@@ -295,10 +310,12 @@
                     text="Completion Timing Debug..."
                     description="Show detailed timing breakdown for recent completions"/>
             
+            <!-- Temporarily disabled - debug action removed
             <action id="Zest.ToggleCompletionDebug"
                     class="com.zps.zest.actions.ToggleCompletionDebugAction"
                     text="Toggle Completion Debug Logging"
                     description="Enable/disable verbose debug logging for completion"/>
+            -->
             
             <action id="Zest.ToggleDevTools"
                     class="com.zps.zest.browser.actions.ToggleDevToolsAction"

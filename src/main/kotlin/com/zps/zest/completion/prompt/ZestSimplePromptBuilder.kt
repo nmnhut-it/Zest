@@ -27,8 +27,9 @@ class ZestSimplePromptBuilder {
      * Build structured prompt with separate system and user components
      */
     fun buildStructuredPrompt(context: ZestSimpleContextCollector.SimpleContext): StructuredPrompt {
+        // Use instruction-based prompt instead of FIM for better compatibility
         return when {
-            isCodeLanguage(context.language) -> buildStructuredFimPrompt(context)
+            isCodeLanguage(context.language) -> buildStructuredInstructionPrompt(context)
             else -> buildStructuredTextPrompt(context)
         }
     }
@@ -91,8 +92,9 @@ Text to insert at [COMPLETE HERE]:""",
     
     // Keep old methods for backward compatibility
     fun buildCompletionPrompt(context: ZestSimpleContextCollector.SimpleContext): String {
+        // Use instruction format instead of FIM for better compatibility
         return when {
-            isCodeLanguage(context.language) -> buildFimPrompt(context)
+            isCodeLanguage(context.language) -> buildInstructionPromptWithContext(context)
             else -> buildTextCompletionPrompt(context)
         }
     }

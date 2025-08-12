@@ -576,24 +576,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
                 }
             }
 
-            override fun completionAccepted(type: ZestInlineCompletionService.AcceptType) {
-                ApplicationManager.getApplication().invokeLater {
-                    if (!completionService.isEnabled()) {
-                        updateCompletionState(CompletionState.DISABLED)
-                        return@invokeLater
-                    }
-
-                    updateCompletionState(CompletionState.ACCEPTING)
-
-                    // Don't immediately switch back - let the service manage the state
-                    scope.launch {
-                        delay(1000) // Wait a bit longer
-                        ApplicationManager.getApplication().invokeLater {
-                            checkForOrphanedState() // Let the state check determine the right state
-                        }
-                    }
-                }
-            }
+            // Removed old completionAccepted method - now tracked through state changes
         })
     }
 

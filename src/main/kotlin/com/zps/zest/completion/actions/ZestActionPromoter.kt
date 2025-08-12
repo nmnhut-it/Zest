@@ -3,50 +3,71 @@ package com.zps.zest.completion.actions
 import com.intellij.openapi.actionSystem.ActionPromoter
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.diagnostic.Logger
 
 /**
- * High-priority action promoter for Zest inline completion actions.
- * Ensures that Zest completion actions have priority over IntelliJ's built-in actions
- * when multiple actions are available for the same keyboard shortcut.
- * This prevents IntelliJ's completion popup from interfering with our inline completions.
+ * Action promoter that gives Zest completion actions priority over IntelliJ's default actions.
+ * This ensures that our Tab action is executed instead of IntelliJ's default tab behavior.
  */
 class ZestActionPromoter : ActionPromoter {
-    private val logger = Logger.getInstance(ZestActionPromoter::class.java)
-
+    
+    companion object {
+        // List of our action IDs that should have priority
+        private val PROMOTED_ACTION_IDS = setOf(
+            "Zest.InlineCompletion.TabAccept",
+            "Zest.InlineCompletion.Dismiss",
+            "Zest.InlineCompletion.Trigger"
+            // Commented out - actions not implemented yet:
+            // "Zest.InlineCompletion.ImmediateTrigger",
+            // "Zest.InlineCompletion.Accept",
+            // "Zest.InlineCompletion.CycleNext",
+            // "Zest.InlineCompletion.CyclePrevious"
+        )
+    }
+    
     override fun promote(actions: List<AnAction>, context: DataContext): List<AnAction> {
-        // Check if we have any Zest completion actions
-        val zestActions = actions.filter { it is ZestInlineCompletionAction || it is HasPriority }
-        val otherActions = actions.filter { it !is ZestInlineCompletionAction && it !is HasPriority }
-        
-        if (zestActions.isNotEmpty()) {
-            System.out.println("Promoting ${zestActions.size} Zest actions over ${otherActions.size} other actions")
-            
-            // Sort Zest actions by priority
-            val sortedZestActions = zestActions.sortedByDescending { action ->
-                when {
-                    action is HasPriority -> {
-                        System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
-                        action.priority + 1000
-                    }
-                    action is ZestInlineCompletionAction -> {
-                        System.out.println("Zest action ${action.javaClass.simpleName} has priority ${action.priority}")
-                        action.priority + 10000 // Boost Zest actions significantly
-                    }
-                    else -> 0
-                }
-            }
-            
-            // Return Zest actions first, then other actions
-            return sortedZestActions + otherActions
+        if (actions.size <= 1) {
+            return actions
         }
         
-        // No Zest actions, use normal priority sorting
-        return actions.sortedByDescending { action ->
-            when {
-                action is HasPriority -> action.priority
-                else -> 0
+        // Separate our actions from others
+        val zestActions = mutableListOf<AnAction>()
+        val otherActions = mutableListOf<AnAction>()
+        
+        for (action in actions) {
+            // Check if this is one of our promoted actions
+            val actionId = action.javaClass.simpleName
+            if (isZestCompletionAction(action)) {
+                zestActions.add(action)
+            } else {
+                otherActions.add(action)
             }
         }
+        
+        // Put our actions first to give them priority
+        return if (zestActions.isNotEmpty()) {
+            zestActions + otherActions
+        } else {
+            actions
+        }
+    }
+    
+    /**
+     * Check if an action is one of our Zest completion actions
+     */
+    private fun isZestCompletionAction(action: AnAction): Boolean {
+        // Check by class name
+        val className = action.javaClass.name
+        if (className.startsWith("com.zps.zest.completion.actions.")) {
+            return true
+        }
+        
+        // Check by action ID if available
+        val actionManager = com.intellij.openapi.actionSystem.ActionManager.getInstance()
+        val actionId = actionManager.getId(action)
+        if (actionId != null && PROMOTED_ACTION_IDS.contains(actionId)) {
+            return true
+        }
+        
+        return false
     }
 }

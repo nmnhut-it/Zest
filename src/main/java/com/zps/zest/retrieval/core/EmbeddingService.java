@@ -7,14 +7,20 @@ import com.google.gson.JsonParser;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.util.LLMService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,14 +30,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * for semantic search. Supports caching and batch processing.
  */
 @Service(Service.Level.PROJECT)
-public class EmbeddingService {
+public final class EmbeddingService {
     private static final Logger LOG = Logger.getInstance(EmbeddingService.class);
     private static final Gson GSON = new Gson();
     
     private final Project project;
     private final LLMService llmService;
+    private final ConfigurationManager config;
     private final Map<String, float[]> embeddingCache;
     private final Object cacheLock = new Object();
+    private final HttpClient httpClient;
     
     // Configuration constants
     private static final String DEFAULT_EMBEDDING_MODEL = "Qwen3-Embedding-0.6B";
@@ -43,7 +51,15 @@ public class EmbeddingService {
     public EmbeddingService(@NotNull Project project) {
         this.project = project;
         this.llmService = project.getService(LLMService.class);
+        this.config = ConfigurationManager.getInstance(project);
         this.embeddingCache = new ConcurrentHashMap<>();
+        
+        // Initialize HTTP client for embedding requests
+        this.httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .version(HttpClient.Version.HTTP_2)
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
         
         LOG.info("EmbeddingService initialized for project: " + project.getName());
     }
@@ -282,23 +298,82 @@ public class EmbeddingService {
      * Get the embedding endpoint URL based on LLMService configuration
      */
     private String getEmbeddingEndpoint() {
-        // This would typically get the base URL from LLMService configuration
-        // and append /v1/embeddings
-        // For now, return a placeholder
-        return "https://api.openai.com/v1/embeddings"; // Default OpenAI endpoint
+        // Get base URL from configuration
+        String baseUrl = config.getApiUrl();
+        
+        // Extract base URL without the path
+        try {
+            URI uri = URI.create(baseUrl);
+            String host = uri.getScheme() + "://" + uri.getAuthority();
+            
+            // Use the OpenAI-compatible /api/embeddings endpoint
+            return host + "/api/embeddings";
+        } catch (Exception e) {
+            LOG.warn("Failed to parse base URL, using fallback: " + e.getMessage());
+            
+            // Fallback: For standard OpenAI-compatible endpoints
+            if (baseUrl.contains("/v1/chat/completions")) {
+                return baseUrl.replace("/v1/chat/completions", "/api/embeddings");
+            } else if (baseUrl.contains("/api/chat/completions")) {
+                return baseUrl.replace("/api/chat/completions", "/api/embeddings");
+            }
+            
+            // Default to appending /api/embeddings
+            if (!baseUrl.endsWith("/")) {
+                baseUrl += "/";
+            }
+            return baseUrl + "api/embeddings";
+        }
     }
     
     /**
      * Make direct HTTP request to embedding endpoint
-     * This is a simplified implementation - in practice, you'd reuse LLMService's HTTP client
      */
     private String makeDirectEmbeddingRequest(@NotNull String endpoint, @NotNull String requestBody) throws IOException {
-        // This is a placeholder implementation
-        // In practice, you'd use LLMService's HTTP client infrastructure
-        LOG.warn("Direct embedding request not implemented - using mock response");
-        
-        // Return mock response for testing
-        return createMockEmbeddingResponse();
+        try {
+            // Get API token from configuration
+            String apiToken = config.getAuthTokenNoPrompt();
+            
+            // Handle special endpoints with custom tokens
+            if (endpoint.contains("litellm.zingplay.com")) {
+                apiToken = "sk-0c1l7KCScBLmcYDN-Oszmg"; // Use embedding service token
+            } else if (endpoint.contains("litellm-internal.zingplay.com")) {
+                apiToken = "sk-0c1l7KCScBLmcYDN-Oszmg"; // Use embedding service token
+            }
+            
+            // Build HTTP request
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+            
+            if (apiToken != null && !apiToken.isEmpty()) {
+                requestBuilder.header("Authorization", "Bearer " + apiToken);
+            }
+            
+            HttpRequest request = requestBuilder.build();
+            
+            // Send request and get response
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            // Check response status
+            if (response.statusCode() != 200) {
+                LOG.error("Embedding request failed with status " + response.statusCode() + ": " + response.body());
+                throw new IOException("Embedding request failed: " + response.statusCode());
+            }
+            
+            LOG.debug("Successfully received embedding response from " + endpoint);
+            return response.body();
+            
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Embedding request interrupted", e);
+        } catch (Exception e) {
+            LOG.error("Failed to make embedding request to " + endpoint, e);
+            throw new IOException("Failed to make embedding request", e);
+        }
     }
     
     /**

@@ -27,8 +27,8 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public String codeModel = "code-expert";
     
     // Feature Toggles
-    public boolean inlineCompletionEnabled = false;
-    public boolean autoTriggerEnabled = false;
+    public boolean inlineCompletionEnabled = true;  // Changed to true by default
+    public boolean autoTriggerEnabled = true;  // Changed to true by default
     public boolean backgroundContextEnabled = false;
     public boolean continuousCompletionEnabled = true; // NEW: Auto-trigger next completion after acceptance
     

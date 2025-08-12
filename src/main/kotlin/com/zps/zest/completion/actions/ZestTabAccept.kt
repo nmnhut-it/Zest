@@ -1,73 +1,56 @@
 package com.zps.zest.completion.actions
 
-import com.intellij.openapi.editor.Caret
-import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.components.serviceOrNull
 import com.zps.zest.completion.ZestInlineCompletionService
 import com.zps.zest.completion.ZestQuickActionService
-import kotlin.math.abs
 
 /**
- * TAB action for full completion acceptance.
- * Tab always accepts the entire completion regardless of strategy.
- * For line-by-line acceptance, use Ctrl+Tab instead.
+ * Simplified TAB action for accepting completions.
+ * Works with the new self-managing state machine.
  */
-class ZestTabAccept : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
+class ZestTabAccept : AnAction() {
     
-    override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
-        // First check if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val editor = e.getData(CommonDataKeys.EDITOR) ?: return
+        
+        // First check if we have an active method rewrite (separate feature)
+        val methodRewriteService = project.serviceOrNull<ZestQuickActionService>()
         if (methodRewriteService?.isRewriteInProgress() == true) {
-            // Accept the method rewrite instead of inline completion
             methodRewriteService.acceptMethodRewrite(editor)
             return
         }
         
-        // Always accept full completion with Tab (no more line-by-line)
-        service.accept(editor, caret?.offset, ZestInlineCompletionService.AcceptType.FULL_COMPLETION)
+        // Accept inline completion
+        val completionService = project.serviceOrNull<ZestInlineCompletionService>() ?: return
+        completionService.acceptCompletion("TAB")
     }
-
-    override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
-        // Enable if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
-        if (methodRewriteService?.isRewriteInProgress() == true) {
-            return true
-        }
-        
-        // Check if completion is visible
-        if (!service.isInlineCompletionVisibleAt(editor, caret.offset)) {
-            val current = service.currentRendererContext
-            if (  abs((if (current != null) current.offset else Integer.MAX_VALUE) - caret.offset) >= 10 ) {
-                return false
-            }
-        }
-
-        
-        // Simple check: accept if completion contains meaningful content
-        val currentCompletion = service.getCurrentCompletion() ?: return false
-        val completionText = currentCompletion.insertText.trim()
-        
-        // Don't accept if it's just whitespace
-        if (completionText.isBlank()) {
-            return false
-        }
-        
-        // Don't accept if the cursor is at the start of a line and completion is just indentation
-        val document = editor.document
-        val lineNumber = document.getLineNumber(caret.offset)
-        val lineStart = document.getLineStartOffset(lineNumber)
-        val isAtLineStart = caret.offset == lineStart
-        
-        if (isAtLineStart && completionText.all { it.isWhitespace() }) {
-            return false
-        }
-        
-        return true
-    }
-}) {
     
-    /**
-     * Very high priority for tab accept to override IntelliJ's tab handling.
-     */
-    override val priority: Int = 500
+    override fun update(e: AnActionEvent) {
+        val project = e.project
+        val editor = e.getData(CommonDataKeys.EDITOR)
+        
+        if (project == null || editor == null) {
+            e.presentation.isEnabled = false
+            return
+        }
+        
+        // Check if method rewrite is active
+        val methodRewriteService = project.serviceOrNull<ZestQuickActionService>()
+        if (methodRewriteService?.isRewriteInProgress() == true) {
+            e.presentation.isEnabled = true
+            return
+        }
+        
+        // Check if inline completion can be accepted
+        val completionService = project.serviceOrNull<ZestInlineCompletionService>()
+        e.presentation.isEnabled = completionService?.canAcceptCompletion() == true
+    }
+    
+    override fun getActionUpdateThread(): com.intellij.openapi.actionSystem.ActionUpdateThread {
+        return com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+    }
 }

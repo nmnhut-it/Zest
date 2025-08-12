@@ -109,25 +109,25 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                     if (method != null) {
                         val methodSignature = method.getSignature(PsiSubstitutor.EMPTY).toString()
                         if (cachedAnalysis.analyzedMethods.contains(methodSignature)) {
-                            println("PreemptiveAnalyzer: Class ${classKey.className} and method ${method.name} already analyzed")
+//                            println("PreemptiveAnalyzer: Class ${classKey.className} and method ${method.name} already analyzed")
                             return@runReadAction
                         }
                         // Add new method to analysis
-                        println("PreemptiveAnalyzer: Adding method ${method.name} to existing class analysis")
+//                        println("PreemptiveAnalyzer: Adding method ${method.name} to existing class analysis")
                         analyzeAdditionalMethod(classKey, method, cachedAnalysis)
                     } else {
-                        println("PreemptiveAnalyzer: Class ${classKey.className} already analyzed")
+//                        println("PreemptiveAnalyzer: Class ${classKey.className} already analyzed")
                     }
                     return@runReadAction
                 }
                 
                 if (activeAnalysis.putIfAbsent(classKey, true) != null) {
-                    println("PreemptiveAnalyzer: Already analyzing class: ${classKey.className}")
+//                    println("PreemptiveAnalyzer: Already analyzing class: ${classKey.className}")
                     return@runReadAction
                 }
                 
                 // Start analysis for the whole class
-                println("PreemptiveAnalyzer: Starting analysis for class: ${classKey.className}")
+//                println("PreemptiveAnalyzer: Starting analysis for class: ${classKey.className}")
                 lastAnalysisTime = currentTime
                 
                 // Create initial cache entry
@@ -140,7 +140,7 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                 
                 // Analyze all methods in the class
                 val methods = containingClass.methods.toList()
-                println("PreemptiveAnalyzer: Found ${methods.size} methods in class ${classKey.className}")
+//                println("PreemptiveAnalyzer: Found ${methods.size} methods in class ${classKey.className}")
                 
                 // Keep track of all results to merge
                 val allCalledMethods = mutableSetOf<String>()
@@ -167,17 +167,17 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                                 )
                                 cache.timestamp = System.currentTimeMillis()
                             }
-                            println("PreemptiveAnalyzer: Progress update for ${classKey.className}.${classMethod.name} - " +
-                                    "${result.usedClasses.size} classes, ${result.calledMethods.size} methods")
+//                            println("PreemptiveAnalyzer: Progress update for ${classKey.className}.${classMethod.name} - " +
+//                                    "${result.usedClasses.size} classes, ${result.calledMethods.size} methods")
                         },
                         onComplete = {
-                            println("PreemptiveAnalyzer: Completed analysis for method ${classMethod.name} in class ${classKey.className}")
+//                            println("PreemptiveAnalyzer: Completed analysis for method ${classMethod.name} in class ${classKey.className}")
                         }
                     )
                 }
                 
                 activeAnalysis.remove(classKey)
-                println("PreemptiveAnalyzer: Completed scheduling analysis for class: ${classKey.className}")
+//                println("PreemptiveAnalyzer: Completed scheduling analysis for class: ${classKey.className}")
             }
         }
     }
@@ -204,10 +204,10 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                     cachedAnalysis.analyzedMethods.add(methodSignature)
                     cachedAnalysis.timestamp = System.currentTimeMillis()
                 }
-                println("PreemptiveAnalyzer: Added analysis for ${method.name} to class ${classKey.className}")
+//                println("PreemptiveAnalyzer: Added analysis for ${method.name} to class ${classKey.className}")
             },
             onComplete = {
-                println("PreemptiveAnalyzer: Completed additional method analysis for ${method.name}")
+//                println("PreemptiveAnalyzer: Completed additional method analysis for ${method.name}")
             }
         )
     }
@@ -229,10 +229,10 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
             
             val cached = analysisCache[classKey]
             if (cached != null && !isCacheExpired(classKey)) {
-                println("PreemptiveAnalyzer: Found cached analysis for class ${classKey.className}")
+//                println("PreemptiveAnalyzer: Found cached analysis for class ${classKey.className}")
                 cached.result
             } else {
-                println("PreemptiveAnalyzer: No cached analysis for class ${classKey.className}")
+//                println("PreemptiveAnalyzer: No cached analysis for class ${classKey.className}")
                 null
             }
         }
@@ -258,7 +258,7 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
         
         keysToRemove.forEach { analysisCache.remove(it) }
         if (keysToRemove.isNotEmpty()) {
-            println("PreemptiveAnalyzer: Cleaned up ${keysToRemove.size} expired cache entries")
+//            println("PreemptiveAnalyzer: Cleaned up ${keysToRemove.size} expired cache entries")
         }
     }
     

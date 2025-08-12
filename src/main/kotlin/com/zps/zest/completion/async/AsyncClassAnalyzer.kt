@@ -177,7 +177,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                     if (!isJavaLangClass(psiClass)) {
                         val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                         usedClasses.add(className)
-                        println("AsyncClassAnalyzer: Found class in parameter type: $className")
+//                        println("AsyncClassAnalyzer: Found class in parameter type: $className")
                     }
                 }
             }
@@ -190,7 +190,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                     if (!isJavaLangClass(psiClass)) {
                         val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                         usedClasses.add(className)
-                        println("AsyncClassAnalyzer: Found class in return type: $className")
+//                        println("AsyncClassAnalyzer: Found class in return type: $className")
                     }
                 }
             }
@@ -229,7 +229,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                                 if (!isJavaLangClass(psiClass)) {
                                     val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                                     usedClasses.add(className)
-                                    println("AsyncClassAnalyzer: Found class from method return type: $className")
+//                                    println("AsyncClassAnalyzer: Found class from method return type: $className")
                                 }
                             }
                         }
@@ -250,7 +250,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                                     if (!isJavaLangClass(psiClass)) {
                                         val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                                         usedClasses.add(className)
-                                        println("AsyncClassAnalyzer: Found class from field type: $className")
+//                                        println("AsyncClassAnalyzer: Found class from field type: $className")
                                     }
                                 }
                             }
@@ -261,7 +261,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                         if (!isJavaLangClass(resolved)) {
                             val className = resolved.qualifiedName ?: resolved.name ?: ""
                             usedClasses.add(className)
-                            println("AsyncClassAnalyzer: Found used class in reference: $className")
+//                            println("AsyncClassAnalyzer: Found used class in reference: $className")
                         }
                     }
                 }
@@ -273,7 +273,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                     if (psiClass is PsiClass && !isJavaLangClass(psiClass)) {
                         val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                         usedClasses.add(className)
-                        println("AsyncClassAnalyzer: Found used class in new expression: $className")
+//                        println("AsyncClassAnalyzer: Found used class in new expression: $className")
                     }
                 }
             }
@@ -287,7 +287,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                             if (!isJavaLangClass(psiClass)) {
                                 val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                                 usedClasses.add(className)
-                                println("AsyncClassAnalyzer: Found class from local variable type: $className")
+//                                println("AsyncClassAnalyzer: Found class from local variable type: $className")
                             }
                         }
                     }
@@ -303,7 +303,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                         if (!isJavaLangClass(psiClass)) {
                             val className = psiClass.qualifiedName ?: psiClass.name ?: ""
                             usedClasses.add(className)
-                            println("AsyncClassAnalyzer: Found class from type element: $className")
+//                            println("AsyncClassAnalyzer: Found class from type element: $className")
                         }
                     }
                 }
@@ -331,7 +331,7 @@ class AsyncClassAnalyzer(private val project: Project) {
         for (scope in scopes) {
             psiClass = JavaPsiFacade.getInstance(project).findClass(className, scope)
             if (psiClass != null) {
-                println("AsyncClassAnalyzer: Found class $className in scope: $scope")
+//                println("AsyncClassAnalyzer: Found class $className in scope: $scope")
                 break
             }
         }
@@ -341,7 +341,7 @@ class AsyncClassAnalyzer(private val project: Project) {
                 ClassAnalyzer.appendClassStructure(this, psiClass)
             }
             relatedClassContents[className] = classStructure
-            println("AsyncClassAnalyzer: Loaded class content for $className, size: ${classStructure.length}")
+//            println("AsyncClassAnalyzer: Loaded class content for $className, size: ${classStructure.length}")
         } else {
             println("AsyncClassAnalyzer: Could not find class $className in any scope or it's a Java lang class")
         }

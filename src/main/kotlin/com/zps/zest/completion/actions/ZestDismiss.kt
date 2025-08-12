@@ -1,44 +1,36 @@
 package com.zps.zest.completion.actions
 
-import com.intellij.openapi.editor.Caret
-import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.components.serviceOrNull
 import com.zps.zest.completion.ZestInlineCompletionService
-import com.zps.zest.completion.ZestQuickActionService
 
 /**
- * Action to dismiss the currently visible inline completion.
- * This will hide the completion without accepting it.
+ * Simplified dismiss action for the completion service.
  */
-class ZestDismiss : ZestInlineCompletionAction(object : ZestInlineCompletionActionHandler {
+class ZestDismiss : AnAction() {
     
-    override fun doExecute(editor: Editor, caret: Caret?, service: ZestInlineCompletionService) {
-        // First check if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
-        if (methodRewriteService?.isRewriteInProgress() == true) {
-            // Reject the method rewrite instead of dismissing completion
-            methodRewriteService.cancelCurrentRewrite()
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        val completionService = project.serviceOrNull<ZestInlineCompletionService>() ?: return
+        completionService.dismiss()
+    }
+    
+    override fun update(e: AnActionEvent) {
+        val project = e.project
+        val editor = e.getData(CommonDataKeys.EDITOR)
+        
+        if (project == null || editor == null) {
+            e.presentation.isEnabled = false
             return
         }
         
-        // Otherwise dismiss inline completion
-        service.dismiss()
+        val completionService = project.serviceOrNull<ZestInlineCompletionService>()
+        e.presentation.isEnabled = completionService?.getCurrentCompletion() != null
     }
-
-    override fun isEnabledForCaret(editor: Editor, caret: Caret, service: ZestInlineCompletionService): Boolean {
-        // Enable if we have an active method rewrite
-        val methodRewriteService = editor.project?.serviceOrNull<ZestQuickActionService>()
-        if (methodRewriteService?.isRewriteInProgress() == true) {
-            return true
-        }
-        
-        // Otherwise check for inline completion
-        return service.isInlineCompletionVisibleAt(editor, caret.offset)
-    }
-}) {
     
-    /**
-     * Lower priority for dismiss action - it should be a fallback.
-     */
-    override val priority: Int = -1
+    override fun getActionUpdateThread(): com.intellij.openapi.actionSystem.ActionUpdateThread {
+        return com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+    }
 }

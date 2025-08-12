@@ -1,0 +1,1 @@
+- memorize C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.1.1.1\jbr\bin as jbr home to rn intelij plugin

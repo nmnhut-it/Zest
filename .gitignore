@@ -60,5 +60,4 @@ zest-plugin.properties
 # Ignore all files in .zest directory
 /.zest/
 
-*
 # Ignore all files in this directory

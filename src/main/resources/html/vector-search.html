@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Zest Vector Search</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        #status {
+            padding: 10px;
+            background: #e8f5e8;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">🔍 Vector Search Engine Ready</div>
+    
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-value" id="itemCount">0</div>
+            <div class="stat-label">Indexed Items</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="lastUpdate">Never</div>
+            <div class="stat-label">Last Update</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="dbSize">0 MB</div>
+            <div class="stat-label">Database Size</div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Zest Vector Store - Browser-based vector database using IndexedDB
+         * Optimized for code search with cosine similarity
+         */
+        class ZestVectorStore {
+            constructor() {
+                this.db = null;
+                this.isInitialized = false;
+                this.dbName = 'ZestVectorDB';
+                this.version = 1;
+                this.storeName = 'vectors';
+            }
+
+            /**
+             * Initialize the IndexedDB database
+             */
+            async initialize() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.version);
+                    
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        this.isInitialized = true;
+                        this.updateStats();
+                        resolve({ success: true, message: 'Vector store initialized' });
+                    };
+                    
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            const store = db.createObjectStore(this.storeName, { keyPath: 'id' });
+                            store.createIndex('filePath', 'metadata.filePath', { unique: false });
+                            store.createIndex('type', 'metadata.type', { unique: false });
+                            store.createIndex('timestamp', 'timestamp', { unique: false });
+                        }
+                    };
+                });
+            }
+
+            /**
+             * Calculate cosine similarity between two vectors
+             */
+            cosineSimilarity(vecA, vecB) {
+                if (vecA.length !== vecB.length) {
+                    throw new Error('Vectors must have the same length');
+                }
+                
+                let dotProduct = 0;
+                let normA = 0;
+                let normB = 0;
+                
+                for (let i = 0; i < vecA.length; i++) {
+                    dotProduct += vecA[i] * vecB[i];
+                    normA += vecA[i] * vecA[i];
+                    normB += vecB[i] * vecB[i];
+                }
+                
+                normA = Math.sqrt(normA);
+                normB = Math.sqrt(normB);
+                
+                if (normA === 0 || normB === 0) {
+                    return 0;
+                }
+                
+                return dotProduct / (normA * normB);
+            }
+
+            /**
+             * Insert or update a vector with metadata
+             */
+            async upsertVector(params) {
+                if (!this.isInitialized) {
+                    throw new Error('Vector store not initialized');
+                }
+                
+                const { id, embedding, content, metadata = {} } = params;
+                
+                const item = {
+                    id: id,
+                    vector: Array.isArray(embedding) ? embedding : Array.from(embedding),
+                    content: content,
+                    metadata: {
+                        ...metadata,
+                        contentHash: await this.hashContent(content)
+                    },
+                    timestamp: Date.now()
+                };
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.put(item);
+                    
+                    request.onsuccess = () => {
+                        this.updateStats();
+                        resolve({ success: true, id: id });
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            /**
+             * Search for similar vectors using cosine similarity
+             */
+            async vectorSearch(params) {
+                if (!this.isInitialized) {
+                    throw new Error('Vector store not initialized');
+                }
+                
+                const { embedding, limit = 10, threshold = 0.7, filters = {} } = params;
+                const queryVector = Array.isArray(embedding) ? embedding : Array.from(embedding);
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readonly');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => {
+                        const items = request.result;
+                        const results = [];
+                        
+                        for (const item of items) {
+                            // Apply filters
+                            if (filters.filePath && !item.metadata.filePath?.includes(filters.filePath)) {
+                                continue;
+                            }
+                            if (filters.type && item.metadata.type !== filters.type) {
+                                continue;
+                            }
+                            
+                            try {
+                                const similarity = this.cosineSimilarity(queryVector, item.vector);
+                                
+                                if (similarity >= threshold) {
+                                    results.push({
+                                        id: item.id,
+                                        score: similarity,
+                                        content: item.content,
+                                        metadata: item.metadata
+                                    });
+                                }
+                            } catch (error) {
+                                console.warn(`Error calculating similarity for item ${item.id}:`, error);
+                            }
+                        }
+                        
+                        // Sort by similarity score (descending) and limit results
+                        results.sort((a, b) => b.score - a.score);
+                        const limitedResults = results.slice(0, limit);
+                        
+                        resolve(limitedResults);
+                    };
+                    
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            /**
+             * Batch insert vectors for initial indexing
+             */
+            async buildIndex(chunks) {
+                if (!this.isInitialized) {
+                    throw new Error('Vector store not initialized');
+                }
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    let processed = 0;
+                    let errors = 0;
+                    
+                    const processChunk = async (chunk) => {
+                        try {
+                            const item = {
+                                id: chunk.id,
+                                vector: Array.isArray(chunk.embedding) ? chunk.embedding : Array.from(chunk.embedding),
+                                content: chunk.content,
+                                metadata: {
+                                    filePath: chunk.filePath,
+                                    startLine: chunk.startLine,
+                                    endLine: chunk.endLine,
+                                    type: chunk.type,
+                                    contentHash: await this.hashContent(chunk.content)
+                                },
+                                timestamp: Date.now()
+                            };
+                            
+                            const request = store.put(item);
+                            request.onsuccess = () => processed++;
+                            request.onerror = () => errors++;
+                        } catch (error) {
+                            errors++;
+                            console.error('Error processing chunk:', chunk.id, error);
+                        }
+                    };
+                    
+                    transaction.oncomplete = () => {
+                        this.updateStats();
+                        resolve({ 
+                            success: true, 
+                            processed: processed,
+                            errors: errors,
+                            total: chunks.length 
+                        });
+                    };
+                    
+                    transaction.onerror = () => reject(transaction.error);
+                    
+                    // Process all chunks
+                    chunks.forEach(processChunk);
+                });
+            }
+
+            /**
+             * Get database statistics
+             */
+            async getStats() {
+                if (!this.isInitialized) {
+                    return {
+                        itemCount: 0,
+                        isInitialized: false,
+                        dbSize: 0
+                    };
+                }
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readonly');
+                    const store = transaction.objectStore(this.storeName);
+                    const countRequest = store.count();
+                    
+                    countRequest.onsuccess = async () => {
+                        const itemCount = countRequest.result;
+                        const dbSize = await this.getDatabaseSize();
+                        
+                        resolve({
+                            itemCount: itemCount,
+                            isInitialized: this.isInitialized,
+                            dbSize: dbSize,
+                            lastUpdate: new Date().toISOString()
+                        });
+                    };
+                    
+                    countRequest.onerror = () => reject(countRequest.error);
+                });
+            }
+
+            /**
+             * Clear all vectors from the database
+             */
+            async clearAll() {
+                if (!this.isInitialized) {
+                    throw new Error('Vector store not initialized');
+                }
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.clear();
+                    
+                    request.onsuccess = () => {
+                        this.updateStats();
+                        resolve({ success: true, message: 'All vectors cleared' });
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            /**
+             * Delete a specific vector by ID
+             */
+            async deleteVector(id) {
+                if (!this.isInitialized) {
+                    throw new Error('Vector store not initialized');
+                }
+                
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction([this.storeName], 'readwrite');
+                    const store = transaction.objectStore(this.storeName);
+                    const request = store.delete(id);
+                    
+                    request.onsuccess = () => {
+                        this.updateStats();
+                        resolve({ success: true, id: id });
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            /**
+             * Hash content for deduplication
+             */
+            async hashContent(content) {
+                const encoder = new TextEncoder();
+                const data = encoder.encode(content);
+                const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+
+            /**
+             * Estimate database size
+             */
+            async getDatabaseSize() {
+                if (!navigator.storage || !navigator.storage.estimate) {
+                    return 0;
+                }
+                
+                try {
+                    const estimate = await navigator.storage.estimate();
+                    return Math.round((estimate.usage || 0) / (1024 * 1024)); // MB
+                } catch (error) {
+                    return 0;
+                }
+            }
+
+            /**
+             * Update UI statistics
+             */
+            async updateStats() {
+                try {
+                    const stats = await this.getStats();
+                    document.getElementById('itemCount').textContent = stats.itemCount.toLocaleString();
+                    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                    document.getElementById('dbSize').textContent = `${stats.dbSize} MB`;
+                } catch (error) {
+                    console.error('Error updating stats:', error);
+                }
+            }
+        }
+
+        // Global instance for IntelliJ bridge
+        window.zestVectorStore = new ZestVectorStore();
+
+        // Bridge functions for IntelliJ
+        window.initializeVectorStore = async () => {
+            try {
+                const result = await window.zestVectorStore.initialize();
+                console.log('Vector store initialized:', result);
+                return result;
+            } catch (error) {
+                console.error('Failed to initialize vector store:', error);
+                return { success: false, error: error.message };
+            }
+        };
+
+        window.upsertVector = async (params) => {
+            try {
+                return await window.zestVectorStore.upsertVector(params);
+            } catch (error) {
+                console.error('Failed to upsert vector:', error);
+                return { success: false, error: error.message };
+            }
+        };
+
+        window.vectorSearch = async (params) => {
+            try {
+                return await window.zestVectorStore.vectorSearch(params);
+            } catch (error) {
+                console.error('Failed to search vectors:', error);
+                return [];
+            }
+        };
+
+        window.buildIndex = async (chunks) => {
+            try {
+                console.log(`Building index with ${chunks.length} chunks...`);
+                const result = await window.zestVectorStore.buildIndex(chunks);
+                console.log('Index built:', result);
+                return result;
+            } catch (error) {
+                console.error('Failed to build index:', error);
+                return { success: false, error: error.message };
+            }
+        };
+
+        window.getVectorStats = async () => {
+            try {
+                return await window.zestVectorStore.getStats();
+            } catch (error) {
+                console.error('Failed to get stats:', error);
+                return { itemCount: 0, isInitialized: false, dbSize: 0 };
+            }
+        };
+
+        window.clearAllVectors = async () => {
+            try {
+                return await window.zestVectorStore.clearAll();
+            } catch (error) {
+                console.error('Failed to clear vectors:', error);
+                return { success: false, error: error.message };
+            }
+        };
+
+        window.deleteVector = async (id) => {
+            try {
+                return await window.zestVectorStore.deleteVector(id);
+            } catch (error) {
+                console.error('Failed to delete vector:', error);
+                return { success: false, error: error.message };
+            }
+        };
+
+        // Auto-initialize when page loads
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await window.initializeVectorStore();
+                document.getElementById('status').innerHTML = '✅ Vector Search Engine Ready';
+                console.log('Zest Vector Store is ready!');
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Initialization Failed: ' + error.message;
+                console.error('Failed to initialize vector store:', error);
+            }
+        });
+
+        // Debug functions for testing
+        window.debugVectorStore = {
+            testSimilarity: () => {
+                const vec1 = [1, 0, 0];
+                const vec2 = [0, 1, 0];
+                const vec3 = [1, 0, 0];
+                
+                console.log('Similarity tests:');
+                console.log('vec1 vs vec2 (different):', window.zestVectorStore.cosineSimilarity(vec1, vec2));
+                console.log('vec1 vs vec3 (identical):', window.zestVectorStore.cosineSimilarity(vec1, vec3));
+            },
+            
+            insertTestData: async () => {
+                const testData = [
+                    { id: 'test1', embedding: [1, 0, 0], content: 'public void testMethod() {}', metadata: { type: 'method', filePath: 'Test.java' } },
+                    { id: 'test2', embedding: [0, 1, 0], content: 'private String field;', metadata: { type: 'field', filePath: 'Test.java' } },
+                    { id: 'test3', embedding: [0.8, 0.2, 0], content: 'public void similarMethod() {}', metadata: { type: 'method', filePath: 'Other.java' } }
+                ];
+                
+                for (const item of testData) {
+                    await window.upsertVector(item);
+                }
+                console.log('Test data inserted');
+            },
+            
+            searchTest: async () => {
+                const results = await window.vectorSearch({
+                    embedding: [1, 0, 0],
+                    limit: 5,
+                    threshold: 0.5
+                });
+                console.log('Search results:', results);
+            }
+        };
+    </script>
+</body>
+</html>

@@ -204,7 +204,7 @@
         <action id="Zest.OpenCodeHealth"
                 class="com.zps.zest.codehealth.actions.OpenCodeHealthAction"
                 text="🛡️ Health"
-                icon="AllIcons.General.InspectionsMixed"
+                icon="com.zps.zest.ZestIcons.CODE_HEALTH"
                 description="Open Code Health Overview">
             <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>

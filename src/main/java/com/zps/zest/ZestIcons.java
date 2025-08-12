@@ -26,4 +26,9 @@ public class ZestIcons {
     public static final Icon ZPS_CHAT = IconLoader.getIcon("/icons/zpsChat.svg", ZestIcons.class);
     /** ZPS Chat icon (16px) for menu items */
     public static final Icon ZPS_CHAT_16 = IconLoader.getIcon("/icons/zpsChat16.svg", ZestIcons.class);
+    
+    /** Code Health Review icon */
+    public static final Icon CODE_HEALTH = IconLoader.getIcon("/icons/codeHealth.svg", ZestIcons.class);
+    /** Code Health Review icon (16px) for menu items */
+    public static final Icon CODE_HEALTH_16 = IconLoader.getIcon("/icons/codeHealth16.svg", ZestIcons.class);
 }

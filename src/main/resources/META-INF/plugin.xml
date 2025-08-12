@@ -108,6 +108,11 @@
         <projectService serviceImplementation="com.zps.zest.codehealth.testplan.storage.TestPlanStorage"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.testplan.generation.TestGenerationService"/>
         <projectService serviceImplementation="com.zps.zest.codehealth.testplan.tutorial.TestGenerationTutorialService"/>
+        
+        <!-- LangChain4j Services for agentic retrieval and AI task management -->
+        <projectService serviceImplementation="com.zps.zest.langchain4j.ZestLangChain4jService"/>
+        <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
+        <projectService serviceImplementation="com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry"/>
     </extensions>
     
     <actions>
@@ -355,6 +360,11 @@
                     class="com.zps.zest.browser.actions.ToggleDevToolsAction"
                     text="Toggle Browser DevTools"
                     description="Toggle developer tools for the chat browser"/>
+                    
+            <action id="Zest.TestEmbeddingRetrieval"
+                    class="com.zps.zest.langchain4j.actions.TestEmbeddingRetrievalAction"
+                    text="Test Embedding &amp; Retrieval"
+                    description="Test the embedding service and context retrieval functionality"/>
         </group>
     </actions>
 </idea-plugin>

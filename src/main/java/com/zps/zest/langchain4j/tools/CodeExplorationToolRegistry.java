@@ -35,6 +35,12 @@ public final class CodeExplorationToolRegistry {
         register(new CreateFileTool(project));
         register(new ReplaceInFileTool(project));
         
+        // LangChain4j RAG and Agent tools
+        register(new RetrievalTool(project));
+        register(new TaskExecutionTool(project));
+        register(new WorkflowTool(project));
+        register(new ChatWithContextTool(project));
+        
         // Other exploration tools have been removed with the cleanup
         
         LOG.info("Registered " + tools.size() + " essential exploration tools (focusing on AI-guided exploration)");
@@ -76,12 +82,14 @@ public final class CodeExplorationToolRegistry {
         }
         
         sb.append("EXPLORATION STRATEGY:\n");
-        sb.append("1. Use glob_search to find files by patterns (**.java, **README*, etc.)\n");
-        sb.append("2. Use grep_search with parallel patterns to find relevant code content\n");
-        sb.append("3. Use list_files_in_directory to understand directory structures\n");
-        sb.append("4. Use read_file to examine specific files found during search\n");
-        sb.append("5. Use create_file and replace_in_file to implement solutions\n");
-        sb.append("6. Always run multiple searches in parallel for comprehensive coverage\n");
+        sb.append("1. Use retrieve_context to find relevant code using semantic search\n");
+        sb.append("2. Use execute_task to perform AI-assisted development tasks\n");
+        sb.append("3. Use execute_workflow for multi-step autonomous work\n");
+        sb.append("4. Use chat_with_context for conversational code assistance\n");
+        sb.append("5. Use list_files_in_directory to understand directory structures\n");
+        sb.append("6. Use read_file to examine specific files found during search\n");
+        sb.append("7. Use create_file and replace_in_file to implement solutions\n");
+        sb.append("8. Always combine RAG retrieval with traditional file operations\n");
         
         return sb.toString();
     }

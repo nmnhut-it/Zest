@@ -83,8 +83,9 @@ public interface CodeExplorationTool {
         SEARCH("Search & Discovery", "Tools for finding code, files, and patterns"),
         FILE_OPS("File Operations", "Tools for reading, writing, and manipulating files"),
         PROJECT("Project Structure", "Tools for understanding project layout and organization"),
-        UTILITY("Utility", "General-purpose utility tools");
-        
+        UTILITY("Utility", "General-purpose utility tools"),
+        AI("AI", "Tools for AI to use");
+
         private final String displayName;
         private final String description;
         

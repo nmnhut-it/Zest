@@ -34,8 +34,8 @@ public class EmbeddingService {
     private final Object cacheLock = new Object();
     
     // Configuration constants
-    private static final String DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
-    private static final int DEFAULT_EMBEDDING_DIMENSIONS = 1536;
+    private static final String DEFAULT_EMBEDDING_MODEL = "Qwen3-Embedding-0.6B";
+    private static final int DEFAULT_EMBEDDING_DIMENSIONS = 768; // Qwen3-Embedding-0.6B dimensions
     private static final int MAX_CACHE_SIZE = 10000;
     private static final int BATCH_SIZE = 100; // Max texts per batch request
     private static final int MAX_TEXT_LENGTH = 8000; // Approximate token limit
@@ -217,7 +217,7 @@ public class EmbeddingService {
         requestBody.addProperty("input", text);
         
         // Add dimensions for models that support it
-        if (model.contains("text-embedding-3")) {
+        if (model.contains("text-embedding-3") || model.contains("Qwen")) {
             requestBody.addProperty("dimensions", DEFAULT_EMBEDDING_DIMENSIONS);
         }
         
@@ -243,7 +243,7 @@ public class EmbeddingService {
         requestBody.add("input", inputArray);
         
         // Add dimensions for models that support it
-        if (model.contains("text-embedding-3")) {
+        if (model.contains("text-embedding-3") || model.contains("Qwen")) {
             requestBody.addProperty("dimensions", DEFAULT_EMBEDDING_DIMENSIONS);
         }
         
@@ -259,11 +259,10 @@ public class EmbeddingService {
      */
     private String makeEmbeddingRequest(@NotNull String requestBody) throws IOException {
         // Create custom LLM query parameters for embedding endpoint
-        LLMService.LLMQueryParams params = new LLMService.LLMQueryParams();
-        params.setPrompt(""); // Not used for embeddings
-        params.setModel(DEFAULT_EMBEDDING_MODEL);
-        params.setMaxTokens(0); // Not applicable for embeddings
-        params.setTimeoutMs(30000); // 30 second timeout
+        LLMService.LLMQueryParams params = new LLMService.LLMQueryParams("")
+            .withModel(DEFAULT_EMBEDDING_MODEL)
+            .withMaxTokens(0)
+            .withTimeout(30000);
         
         // Use LLMService to make request to /v1/embeddings endpoint
         // Note: This requires modifying LLMService to support custom endpoints
@@ -398,7 +397,7 @@ public class EmbeddingService {
      * Calculate approximate cache size in MB
      */
     private double calculateCacheSize() {
-        // Rough estimate: each float is 4 bytes, average 1536 dimensions per embedding
+        // Rough estimate: each float is 4 bytes, 768 dimensions per embedding for Qwen3
         long totalFloats = (long) embeddingCache.size() * DEFAULT_EMBEDDING_DIMENSIONS;
         double sizeBytes = totalFloats * 4.0; // 4 bytes per float
         return sizeBytes / (1024.0 * 1024.0); // Convert to MB

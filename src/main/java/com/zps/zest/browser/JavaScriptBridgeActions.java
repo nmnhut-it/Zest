@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.git.GitService;
 import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
+import com.zps.zest.langchain4j.ZestLangChain4jService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -27,6 +28,7 @@ public class JavaScriptBridgeActions {
     private final FileService fileService;
     private final ChatResponseService chatResponseService;
     private final GitService gitService;
+    private final ZestLangChain4jService langChainService;
 
     public JavaScriptBridgeActions(@NotNull Project project) {
         this.project = project;
@@ -36,6 +38,7 @@ public class JavaScriptBridgeActions {
         this.fileService = new FileService(project);
         this.chatResponseService = new ChatResponseService(project);
         this.gitService = new GitService(project);
+        this.langChainService = project.getService(ZestLangChain4jService.class);
     }
 
     /**
@@ -204,6 +207,12 @@ public class JavaScriptBridgeActions {
                 case "notifyChatResponse":
                     if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
                     return chatResponseService.notifyChatResponse(data);
+                    
+                // Enhanced chat with LangChain retrieval
+                case "enhancedChatMessage":
+                    if (isNotAgentMode) break;
+                    if (panelNotReady) return gson.toJson(createPanelNotReadyResponse());
+                    return handleEnhancedChatMessage(data);
 
                 // Git commit operations (don't require panel loading)
                 case "filesSelectedForCommit":
@@ -292,6 +301,44 @@ public class JavaScriptBridgeActions {
         return gson.toJson(response);
     }
 
+
+    /**
+     * Handles enhanced chat messages with LangChain retrieval for better context.
+     */
+    private String handleEnhancedChatMessage(JsonObject data) {
+        try {
+            String message = data.get("message").getAsString();
+            
+            // Get conversation history if provided
+            String[] history = new String[0];
+            if (data.has("history") && data.get("history").isJsonArray()) {
+                history = gson.fromJson(data.get("history"), String[].class);
+            }
+            
+            LOG.info("Processing enhanced chat message with LangChain retrieval");
+            
+            // Use LangChain service to process the message with context
+            String enhancedResponse = langChainService.chatWithContext(
+                message, 
+                java.util.List.of(history)
+            ).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.addProperty("response", enhancedResponse);
+            response.addProperty("enhanced", true);
+            response.addProperty("timestamp", System.currentTimeMillis());
+            
+            return gson.toJson(response);
+            
+        } catch (Exception e) {
+            LOG.error("Error processing enhanced chat message", e);
+            JsonObject errorResponse = new JsonObject();
+            errorResponse.addProperty("success", false);
+            errorResponse.addProperty("error", "Enhanced chat failed: " + e.getMessage());
+            return gson.toJson(errorResponse);
+        }
+    }
 
     /**
      * Returns the chat response service for external access.

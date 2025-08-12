@@ -20,6 +20,7 @@ import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollector
 import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import java.util.concurrent.*
@@ -49,6 +50,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private val contextCollector = ZestLeanContextCollector(project)
     private val llmService: LLMService = project.service()
+    private val langChainService: ZestLangChain4jService = project.service()
     private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
     private val results = ConcurrentHashMap<String, MethodHealthResult>()
     private val gson = Gson()
@@ -854,7 +856,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     private fun getMethodContext(fqn: String): String {
         if (project.isDisposed) return ""
         
-        // Use existing context collector
+        // Use existing context collector for basic context
         val parts = fqn.split(".")
         if (parts.size < 2) return ""
         
@@ -870,7 +872,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             return "// Not a Java file: $fqn"
         }
         
-        return psiClass?.methods?.find { it.name == methodName }?.let { psiMethod ->
+        val basicContext = psiClass?.methods?.find { it.name == methodName }?.let { psiMethod ->
             buildString {
                 appendLine("// File: ${psiMethod.containingFile?.virtualFile?.path}")
                 appendLine("// Class: ${psiClass.qualifiedName}")
@@ -878,6 +880,46 @@ class CodeHealthAnalyzer(private val project: Project) {
                 append(psiMethod.text)
             }
         } ?: "// Method not found: $fqn"
+        
+        // Enhance with LangChain retrieval for better context
+        return enhanceContextWithRetrieval(fqn, basicContext)
+    }
+    
+    /**
+     * Enhance method context using LangChain retrieval to find related code
+     */
+    private fun enhanceContextWithRetrieval(fqn: String, basicContext: String): String {
+        return try {
+            // Create a query based on the method name and class
+            val parts = fqn.split(".")
+            val methodName = parts.last()
+            val className = parts.dropLast(1).last()
+            
+            val query = "method $methodName in class $className related code patterns dependencies"
+            
+            // Use LangChain retrieval to find related context
+            val retrievalResult = langChainService.retrieveContext(query, 3, 0.6).get(5, TimeUnit.SECONDS)
+            
+            if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
+                buildString {
+                    append(basicContext)
+                    appendLine()
+                    appendLine("// === Related Code Context (via RAG) ===")
+                    retrievalResult.items.forEach { item ->
+                        appendLine("// From: ${item.title} (score: ${String.format("%.2f", item.score)})")
+                        appendLine("/*")
+                        appendLine(item.content.take(300) + if (item.content.length > 300) "..." else "")
+                        appendLine("*/")
+                        appendLine()
+                    }
+                }
+            } else {
+                basicContext
+            }
+        } catch (e: Exception) {
+            println("[CodeHealthAnalyzer] Error enhancing context with retrieval: ${e.message}")
+            basicContext
+        }
     }
 
     private fun findCallers(fqn: String): List<String> {

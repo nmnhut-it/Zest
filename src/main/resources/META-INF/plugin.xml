@@ -206,7 +206,7 @@
                 text="🛡️ Health"
                 icon="AllIcons.General.InspectionsMixed"
                 description="Open Code Health Overview">
-            <add-to-group group-id="MainToolBar" anchor="after" relative-to-action="Zest.OpenChat"/>
+            <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>
 
         <action id="Zest.SendCodeReviewToChatBox"

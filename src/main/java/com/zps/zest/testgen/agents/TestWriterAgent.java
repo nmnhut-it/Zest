@@ -9,6 +9,8 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.PsiDocumentManager;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
@@ -27,7 +29,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-public class TestWriterAgent extends BaseAgent {
+public class TestWriterAgent extends StreamingBaseAgent {
     
     public TestWriterAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -46,22 +48,39 @@ public class TestWriterAgent extends BaseAgent {
                 
                 List<GeneratedTest> generatedTests = new ArrayList<>();
                 
+                // Notify start of test generation for each scenario
+                notifyStream("\n📝 Generating tests for " + testPlan.getTestScenarios().size() + " scenarios...\n\n");
+                
                 // Generate tests for each scenario
+                int scenarioNum = 1;
                 for (TestPlan.TestScenario scenario : testPlan.getTestScenarios()) {
-                    String task = "Generate a " + scenario.getType().getDisplayName() + " for scenario: " + scenario.getName() + 
-                                 ". Description: " + scenario.getDescription() + 
-                                 ". Expected outcome: " + scenario.getExpectedOutcome();
+                    notifyStream("--- Test " + scenarioNum + "/" + testPlan.getTestScenarios().size() + " ---\n");
+                    notifyStream("🎯 Scenario: " + scenario.getName() + "\n");
+                    notifyStream("📝 Type: " + scenario.getType().getDisplayName() + "\n");
+                    
+                    String task = "Generate ONE test for: " + scenario.getName() + 
+                                 " (" + scenario.getType().getDisplayName() + ")";
                     
                     String contextInfo = buildContextInfo(testPlan, context, scenario);
                     
-                    // Execute ReAct workflow for this test
-                    String testResult = executeReActTask(task, contextInfo).join();
+                    // Direct generation for faster response
+                    notifyStream("🤔 Generating test code...\n");
+                    String testResult = generateDirectTest(scenario, testPlan, context, contextInfo);
                     
                     // Parse the test result into a GeneratedTest
                     GeneratedTest test = parseGeneratedTest(testResult, scenario, testPlan, context);
                     if (test != null) {
                         generatedTests.add(test);
+                        notifyStream("✅ Test generated: " + test.getTestName() + "\n");
+                        
+                        // Notify UI to update progressively with the new test
+                        notifyStream("TEST_GENERATED: " + test.getTestName() + " | CLASS: " + test.getTestClassName() + "\n");
+                    } else {
+                        notifyStream("⚠️ Failed to generate test for scenario: " + scenario.getName() + "\n");
                     }
+                    
+                    notifyStream("\n");
+                    scenarioNum++;
                 }
                 
                 if (generatedTests.isEmpty()) {
@@ -83,32 +102,45 @@ public class TestWriterAgent extends BaseAgent {
      */
     @NotNull
     public String writeTestFile(@NotNull GeneratedTest test) {
-        return ApplicationManager.getApplication().runWriteAction((Computable<String>) () -> {
-            try {
-                // Determine test file path
-                String testDirectory = determineTestDirectory();
-                String testFilePath = Paths.get(testDirectory, test.getFileName()).toString();
-                
-                // Create directory if it doesn't exist
-                Path testDirPath = Paths.get(testDirectory);
-                if (!Files.exists(testDirPath)) {
-                    Files.createDirectories(testDirPath);
-                }
-                
-                // Write the test file
-                Files.writeString(Paths.get(testFilePath), test.getFullContent());
-                
-                // Refresh the VFS
+        // This method should be called from a background thread
+        // The actual write operation needs to be done on EDT with write action
+        try {
+            // Determine test file path (can be done on any thread)
+            String testDirectory = determineTestDirectory();
+            String testFilePath = Paths.get(testDirectory, test.getFileName()).toString();
+            
+            // Create directory if it doesn't exist (IO operation, not PSI)
+            Path testDirPath = Paths.get(testDirectory);
+            if (!Files.exists(testDirPath)) {
+                Files.createDirectories(testDirPath);
+            }
+            
+            // Write the test file (IO operation, not PSI)
+            Files.writeString(Paths.get(testFilePath), test.getFullContent());
+            
+            // Refresh the VFS and format - this needs to be on EDT
+            ApplicationManager.getApplication().invokeLater(() -> {
                 VirtualFileManager.getInstance().refreshWithoutFileWatcher(false);
                 
-                LOG.info("[TestWriterAgent] Written test file: " + testFilePath);
-                return testFilePath;
-                
-            } catch (Exception e) {
-                LOG.error("[TestWriterAgent] Failed to write test file: " + test.getFileName(), e);
-                throw new RuntimeException("Failed to write test file: " + e.getMessage());
-            }
-        });
+                // Format the newly created file
+                VirtualFile vFile = VirtualFileManager.getInstance().findFileByUrl("file://" + testFilePath);
+                if (vFile != null) {
+                    ApplicationManager.getApplication().runWriteAction(() -> {
+                        PsiFile psiFile = PsiManager.getInstance(project).findFile(vFile);
+                        if (psiFile != null) {
+                            CodeStyleManager.getInstance(project).reformat(psiFile);
+                        }
+                    });
+                }
+            });
+            
+            LOG.info("[TestWriterAgent] Written test file: " + testFilePath);
+            return testFilePath;
+            
+        } catch (Exception e) {
+            LOG.error("[TestWriterAgent] Failed to write test file: " + test.getFileName(), e);
+            throw new RuntimeException("Failed to write test file: " + e.getMessage());
+        }
     }
     
     /**
@@ -223,17 +255,12 @@ public class TestWriterAgent extends BaseAgent {
     }
     
     private String analyzeTestRequirements(@NotNull String parameters) {
-        String prompt = "Analyze the test requirements and provide a detailed breakdown:\n\n" +
+        String prompt = "What to test (one line):\n" +
                        parameters + "\n\n" +
-                       "Provide analysis on:\n" +
-                       "1. What specific behavior needs to be tested\n" +
-                       "2. What test setup is required\n" +
-                       "3. What assertions should be made\n" +
-                       "4. What mocking might be needed\n" +
-                       "5. What edge cases to consider\n\n" +
-                       "Analysis:";
+                       "Output: main behavior only.\n\n" +
+                       "Behavior:";
         
-        return queryLLM(prompt, 1000);
+        return queryLLM(prompt, 100); // Reduced from 1000
     }
     
     private String searchTestExamples(@NotNull String parameters) {
@@ -265,27 +292,93 @@ public class TestWriterAgent extends BaseAgent {
     }
     
     private String generateTestCode(@NotNull String parameters) {
-        String prompt = "Generate complete, compilable test code based on the following requirements:\n\n" +
+        String prompt = "Generate ONE test method:\n" +
                        parameters + "\n\n" +
-                       "Requirements:\n" +
-                       "1. Generate a complete Java test class with proper package declaration\n" +
-                       "2. Include all necessary imports\n" +
-                       "3. Use appropriate testing framework annotations\n" +
-                       "4. Include proper setup and teardown methods if needed\n" +
-                       "5. Generate realistic test data and assertions\n" +
-                       "6. Follow best practices for naming and structure\n" +
-                       "7. Include proper error handling and edge case testing\n" +
-                       "8. Add meaningful comments explaining the test logic\n\n" +
-                       "Format the response as:\n" +
-                       "PACKAGE: [package name]\n" +
-                       "CLASS_NAME: [test class name]\n" +
+                       "Keep it simple. Max 20 lines.\n\n" +
+                       "Format:\n" +
+                       "PACKAGE: packageName\n" +
+                       "CLASS_NAME: TestClassName\n" +
                        "IMPORTS:\n" +
-                       "[import statements]\n" +
+                       "import lines (max 5)\n" +
                        "TEST_CODE:\n" +
-                       "[complete test class code]\n\n" +
-                       "Generated Test:";
+                       "test method only\n\n" +
+                       "Test:";
         
-        return queryLLM(prompt, 3000);
+        return queryLLM(prompt, 1000); // Reduced from 3000
+    }
+    
+    /**
+     * Generate test directly without ReAct loop for faster response
+     */
+    private String generateDirectTest(@NotNull TestPlan.TestScenario scenario,
+                                     @NotNull TestPlan testPlan,
+                                     @NotNull TestContext context,
+                                     @NotNull String contextInfo) {
+        // Determine if we need setup based on dependencies
+        boolean needsSetup = !testPlan.getDependencies().isEmpty() || 
+                            scenario.getType() == TestPlan.TestScenario.Type.INTEGRATION;
+        
+        String className = testPlan.getTargetClass() + "Test";
+        String methodName = scenarioToMethodName(scenario.getName());
+        
+        String prompt = "Generate a complete test for: " + scenario.getName() + "\n\n" +
+                       "Context:\n" + contextInfo + "\n\n" +
+                       "Output this format EXACTLY:\n" +
+                       "PACKAGE: " + inferPackageName(testPlan.getTargetClass()) + "\n" +
+                       "CLASS_NAME: " + className + "\n" +
+                       "IMPORTS:\n" +
+                       "import org.junit.jupiter.api.Test\n" +
+                       "import org.junit.jupiter.api.BeforeEach\n" +
+                       "import static org.junit.jupiter.api.Assertions.*\n";
+        
+        if (!testPlan.getDependencies().isEmpty()) {
+            prompt += "import org.mockito.Mock\n" +
+                     "import org.mockito.MockitoAnnotations\n" +
+                     "import static org.mockito.Mockito.*\n";
+        }
+        
+        prompt += "TEST_SETUP:\n";
+        if (needsSetup) {
+            prompt += "    private " + testPlan.getTargetClass() + " target;\n";
+            for (String dep : testPlan.getDependencies()) {
+                prompt += "    @Mock\n    private " + dep + " mock" + dep + ";\n";
+            }
+            prompt += "\n    @BeforeEach\n" +
+                     "    void setUp() {\n" +
+                     "        MockitoAnnotations.openMocks(this);\n" +
+                     "        target = new " + testPlan.getTargetClass() + "();\n" +
+                     "        // TODO: Initialize target with mocks\n" +
+                     "    }\n";
+        } else {
+            prompt += "NONE\n";
+        }
+        
+        prompt += "TEST_CODE:\n" +
+                 "    @Test\n" +
+                 "    void " + methodName + "() {\n" +
+                 "        // " + scenario.getDescription() + "\n" +
+                 "        // Given\n" +
+                 "        // TODO: Setup test data\n" +
+                 "        \n" +
+                 "        // When\n" +
+                 "        // TODO: Execute method\n" +
+                 "        \n" +
+                 "        // Then\n" +
+                 "        // TODO: Assert results\n" +
+                 "        assertNotNull(\"Test implemented\");\n" +
+                 "    }\n\n" +
+                 "Generate proper test with Given-When-Then structure. Max 20 lines. Be concise.\n\n" +
+                 "Test:";
+        
+        // Stream the generation
+        if (streamingConsumer != null) {
+            notifyStream("\n📝 Writing test with setup...\n");
+            String result = queryLLM(prompt, 700);
+            notifyStream("\n✅ Test written\n");
+            return result;
+        } else {
+            return queryLLM(prompt, 700);
+        }
     }
     
     private String extractTestType(@NotNull String parameters) {
@@ -314,61 +407,85 @@ public class TestWriterAgent extends BaseAgent {
         try {
             String[] lines = testResult.split("\n");
             
-            String packageName = "";
-            String className = "";
+            String packageName = inferPackageName(testPlan.getTargetClass());
+            String className = testPlan.getTargetClass() + "Test";
             List<String> imports = new ArrayList<>();
+            StringBuilder testSetup = new StringBuilder();
             StringBuilder testCode = new StringBuilder();
             
             String currentSection = "";
+            boolean foundTestCode = false;
+            boolean foundTestSetup = false;
             
             for (String line : lines) {
-                line = line.trim();
+                String trimmed = line.trim();
                 
-                if (line.startsWith("PACKAGE:")) {
-                    packageName = line.substring("PACKAGE:".length()).trim();
-                } else if (line.startsWith("CLASS_NAME:")) {
-                    className = line.substring("CLASS_NAME:".length()).trim();
-                } else if (line.equals("IMPORTS:")) {
+                // Look for markers
+                if (trimmed.contains("PACKAGE:") && trimmed.length() > 8) {
+                    packageName = trimmed.substring(trimmed.indexOf("PACKAGE:") + 8).trim();
+                } else if (trimmed.contains("CLASS_NAME:") && trimmed.length() > 11) {
+                    className = trimmed.substring(trimmed.indexOf("CLASS_NAME:") + 11).trim();
+                } else if (trimmed.contains("IMPORTS:")) {
                     currentSection = "IMPORTS";
-                } else if (line.equals("TEST_CODE:")) {
+                } else if (trimmed.contains("TEST_SETUP:")) {
+                    currentSection = "TEST_SETUP";
+                    foundTestSetup = true;
+                } else if (trimmed.contains("TEST_CODE:")) {
                     currentSection = "TEST_CODE";
-                } else if (!line.isEmpty()) {
-                    switch (currentSection) {
-                        case "IMPORTS":
-                            if (!line.startsWith("TEST_CODE:")) {
-                                imports.add(line.replace("import ", "").replace(";", ""));
-                            }
-                            break;
-                        case "TEST_CODE":
-                            testCode.append(line).append("\n");
-                            break;
+                    foundTestCode = true;
+                } else if (!trimmed.isEmpty() && currentSection.equals("IMPORTS")) {
+                    // Parse import lines
+                    if (trimmed.startsWith("import ")) {
+                        imports.add(trimmed.replace("import ", "").replace(";", "").trim());
+                    } else if (!trimmed.contains("TEST_SETUP") && !trimmed.contains("TEST_CODE")) {
+                        // Assume it's an import without "import" keyword
+                        imports.add(trimmed.replace(";", "").trim());
                     }
+                } else if (currentSection.equals("TEST_SETUP") && !trimmed.equals("NONE")) {
+                    testSetup.append(line).append("\n");
+                } else if (!trimmed.isEmpty() && currentSection.equals("TEST_CODE")) {
+                    testCode.append(line).append("\n");
+                } else if (!trimmed.isEmpty() && !foundTestCode && trimmed.contains("@Test")) {
+                    // If we see @Test without TEST_CODE marker, assume this is the test code
+                    currentSection = "TEST_CODE";
+                    foundTestCode = true;
+                    testCode.append(line).append("\n");
                 }
             }
             
-            // Fallback values if parsing failed
-            if (className.isEmpty()) {
-                className = testPlan.getTargetClass() + "Test";
-            }
-            if (packageName.isEmpty()) {
-                packageName = inferPackageName(testPlan.getTargetClass());
-            }
+            // Default imports if none found
             if (imports.isEmpty()) {
                 imports = getDefaultImports(context.getFrameworkInfo());
             }
+            
+            // Combine setup and test code
+            StringBuilder fullTestCode = new StringBuilder();
+            if (testSetup.length() > 0) {
+                fullTestCode.append(testSetup);
+                fullTestCode.append("\n");
+            }
+            fullTestCode.append(testCode);
+            
+            // Generate simple test if no code found
             if (testCode.length() == 0) {
-                testCode.append(generateFallbackTest(className, scenario, context.getFrameworkInfo()));
+                fullTestCode.append(generateSimpleTest(scenario, context.getFrameworkInfo()));
             }
             
             String fileName = className + ".java";
             String testName = extractTestMethodName(testCode.toString());
+            if (testName.equals("generatedTest")) {
+                testName = scenarioToMethodName(scenario.getName());
+            }
             
-            List<String> annotations = extractAnnotations(testCode.toString());
+            List<String> annotations = Arrays.asList("@Test");
+            if (testSetup.length() > 0 && testSetup.toString().contains("@BeforeEach")) {
+                annotations = Arrays.asList("@Test", "@BeforeEach");
+            }
             
             return new GeneratedTest(
                 testName,
                 className,
-                testCode.toString(),
+                fullTestCode.toString(),
                 scenario,
                 fileName,
                 packageName,
@@ -378,9 +495,29 @@ public class TestWriterAgent extends BaseAgent {
             );
             
         } catch (Exception e) {
-            LOG.error("[TestWriterAgent] Failed to parse generated test", e);
+            LOG.error("[TestWriterAgent] Failed to parse test, using fallback", e);
             return createFallbackTest(scenario, testPlan, context);
         }
+    }
+    
+    private String generateSimpleTest(@NotNull TestPlan.TestScenario scenario, @NotNull String framework) {
+        StringBuilder code = new StringBuilder();
+        String methodName = scenarioToMethodName(scenario.getName());
+        
+        if (framework.contains("JUnit 5")) {
+            code.append("    @Test\n");
+            code.append("    void ").append(methodName).append("() {\n");
+        } else {
+            code.append("    @Test\n");
+            code.append("    public void ").append(methodName).append("() {\n");
+        }
+        
+        code.append("        // ").append(scenario.getDescription()).append("\n");
+        code.append("        // TODO: Implement test\n");
+        code.append("        assertNotNull(\"Test not implemented\");\n");
+        code.append("    }\n");
+        
+        return code.toString();
     }
     
     private String inferPackageName(@NotNull String targetClass) {
@@ -538,5 +675,26 @@ public class TestWriterAgent extends BaseAgent {
             AgentAction.ActionType.GENERATE,
             AgentAction.ActionType.COMPLETE
         );
+    }
+    
+    @NotNull
+    @Override
+    protected String buildActionPrompt(@NotNull AgentAction action) {
+        switch (action.getType()) {
+            case ANALYZE:
+                return analyzeTestRequirements(action.getParameters());
+                
+            case SEARCH:
+                return "Find test pattern (one example):\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output: ONE example. Max 10 lines.\n\n" +
+                       "Example:";
+                       
+            case GENERATE:
+                return generateTestCode(action.getParameters());
+                
+            default:
+                return action.getParameters();
+        }
     }
 }

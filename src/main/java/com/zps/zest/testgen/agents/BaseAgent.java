@@ -40,7 +40,7 @@ public abstract class BaseAgent {
                 
                 List<ReActStep> steps = new ArrayList<>();
                 String currentObservation = context;
-                int maxSteps = 5; // Prevent infinite loops
+                int maxSteps = 2; // Reduced to prevent long responses
                 
                 for (int step = 0; step < maxSteps; step++) {
                     // Reasoning: Let the agent think about what to do next
@@ -82,13 +82,9 @@ public abstract class BaseAgent {
     protected String performReasoning(@NotNull String task, @NotNull String observation, @NotNull List<ReActStep> previousSteps) {
         String prompt = buildReasoningPrompt(task, observation, previousSteps);
         
-        LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(prompt)
-            .withModel("local-model")
-            .withMaxTokens(1000)
-            .withTimeout(30000);
-        
-        String reasoning = llmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
-        return reasoning != null ? reasoning.trim() : "Unable to reason about the current situation.";
+        // Use queryLLM method which can be overridden for streaming
+        String reasoning = queryLLM(prompt, 200); // Reduced from 1000 for shorter responses
+        return reasoning != null && !reasoning.isEmpty() ? reasoning.trim() : "Unable to reason about the current situation.";
     }
     
     /**

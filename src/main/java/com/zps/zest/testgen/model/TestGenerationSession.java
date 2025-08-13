@@ -13,7 +13,7 @@ public class TestGenerationSession {
     private final LocalDateTime startTime;
     
     private Status status;
-    private TestPlan testPlan;
+    protected TestPlan testPlan;
     private TestContext context;
     private List<GeneratedTest> generatedTests;
     private ValidationResult validationResult;
@@ -22,6 +22,7 @@ public class TestGenerationSession {
     
     public enum Status {
         PLANNING("Planning test strategy..."),
+        AWAITING_USER_SELECTION("Waiting for test selection..."),
         GATHERING_CONTEXT("Gathering context..."),
         GENERATING("Generating tests..."),
         VALIDATING("Validating tests..."),

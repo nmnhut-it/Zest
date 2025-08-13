@@ -4,6 +4,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.util.Computable;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.ClassAnalyzer;
@@ -16,7 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
-public class ContextAgent extends BaseAgent {
+public class  ContextAgent extends StreamingBaseAgent {
     
     public ContextAgent(@NotNull Project project,
                        @NotNull ZestLangChain4jService langChainService,
@@ -199,27 +201,35 @@ public class ContextAgent extends BaseAgent {
     
     private String extractSearchTerms(@NotNull String parameters) {
         // Use LLM to extract key search terms
-        String prompt = "Extract key search terms for finding related code from the following context:\n\n" +
+        String prompt = "Extract 3 search terms:\n" +
                        parameters + "\n\n" +
-                       "Extract 3-5 key terms that would help find relevant code, classes, methods, or patterns. " +
-                       "Return only the search terms separated by spaces:";
+                       "Output: term1 term2 term3\n\n" +
+                       "Terms:";
         
-        String response = queryLLM(prompt, 200);
+        String response = queryLLM(prompt, 50); // Reduced from 200
         return response.isEmpty() ? "test methods patterns" : response;
     }
     
     private List<VirtualFile> findExistingTestFiles() {
         try {
-            Collection<VirtualFile> testFiles = FilenameIndex.getAllFilesByExt(
-                project, "java", GlobalSearchScope.projectScope(project)
-            );
-            
-            return testFiles.stream()
-                .filter(file -> file.getName().contains("Test") || 
-                               file.getPath().contains("test") ||
-                               file.getPath().contains("/test/"))
-                .limit(10) // Limit to avoid too much processing
-                .toList();
+            // Wrap file index access in read action to avoid threading issues
+            return ApplicationManager.getApplication().runReadAction((Computable<List<VirtualFile>>) () -> {
+                try {
+                    Collection<VirtualFile> testFiles = FilenameIndex.getAllFilesByExt(
+                        project, "java", GlobalSearchScope.projectScope(project)
+                    );
+                    
+                    return testFiles.stream()
+                        .filter(file -> file.getName().contains("Test") || 
+                                       file.getPath().contains("test") ||
+                                       file.getPath().contains("/test/"))
+                        .limit(10) // Limit to avoid too much processing
+                        .toList();
+                } catch (Exception e) {
+                    LOG.warn("[ContextAgent] Failed to find test files in read action", e);
+                    return new ArrayList<>();
+                }
+            });
                 
         } catch (Exception e) {
             LOG.warn("[ContextAgent] Failed to find existing test files", e);
@@ -261,27 +271,35 @@ public class ContextAgent extends BaseAgent {
     
     private String detectTestingFramework() {
         try {
-            // Search for common testing framework indicators
-            Collection<VirtualFile> javaFiles = FilenameIndex.getAllFilesByExt(
-                project, "java", GlobalSearchScope.projectScope(project)
-            );
-            
-            for (VirtualFile file : javaFiles) {
-                PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
-                if (psiFile != null) {
-                    String content = ClassAnalyzer.getTextOfPsiElement(psiFile);
+            // Wrap file index access in read action to avoid threading issues
+            return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+                try {
+                    // Search for common testing framework indicators
+                    Collection<VirtualFile> javaFiles = FilenameIndex.getAllFilesByExt(
+                        project, "java", GlobalSearchScope.projectScope(project)
+                    );
                     
-                    if (content.contains("@Test") && content.contains("org.junit.jupiter")) {
-                        return "JUnit 5";
-                    } else if (content.contains("@Test") && content.contains("org.junit.")) {
-                        return "JUnit 4";
-                    } else if (content.contains("@Test") && content.contains("testng")) {
-                        return "TestNG";
+                    for (VirtualFile file : javaFiles) {
+                        PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+                        if (psiFile != null) {
+                            String content = ClassAnalyzer.getTextOfPsiElement(psiFile);
+                            
+                            if (content.contains("@Test") && content.contains("org.junit.jupiter")) {
+                                return "JUnit 5";
+                            } else if (content.contains("@Test") && content.contains("org.junit.")) {
+                                return "JUnit 4";
+                            } else if (content.contains("@Test") && content.contains("testng")) {
+                                return "TestNG";
+                            }
+                        }
                     }
+                    
+                    return "Unknown (will use JUnit 5 as default)";
+                } catch (Exception e) {
+                    LOG.warn("[ContextAgent] Framework detection failed in read action", e);
+                    return "Detection failed (will use JUnit 5 as default)";
                 }
-            }
-            
-            return "Unknown (will use JUnit 5 as default)";
+            });
             
         } catch (Exception e) {
             LOG.warn("[ContextAgent] Framework detection failed", e);
@@ -468,5 +486,32 @@ public class ContextAgent extends BaseAgent {
             AgentAction.ActionType.GENERATE,
             AgentAction.ActionType.COMPLETE
         );
+    }
+    
+    @NotNull
+    @Override
+    protected String buildActionPrompt(@NotNull AgentAction action) {
+        switch (action.getType()) {
+            case SEARCH:
+                return "Find existing test files (names only):\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output: file names. NO code.\n\n" +
+                       "Files:";
+                       
+            case ANALYZE:
+                return "Identify test framework:\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output: JUnit5/JUnit4/TestNG. One word only.\n\n" +
+                       "Framework:";
+                       
+            case GENERATE:
+                return "List project info:\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output: build system, test directory. NO code.\n\n" +
+                       "Info:";
+                       
+            default:
+                return action.getParameters();
+        }
     }
 }

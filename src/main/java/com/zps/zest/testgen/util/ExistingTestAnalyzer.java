@@ -1,5 +1,6 @@
 package com.zps.zest.testgen.util;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -70,27 +71,34 @@ public class ExistingTestAnalyzer {
         List<ExistingTestClass> testClasses = new ArrayList<>();
         
         try {
-            // Search for files containing "Test"
-            Collection<VirtualFile> testFiles = FilenameIndex.getAllFilesByExt(
-                project, "java", GlobalSearchScope.projectScope(project)
-            );
-            
-            PsiManager psiManager = PsiManager.getInstance(project);
-            
-            for (VirtualFile file : testFiles) {
-                if (isTestFile(file)) {
-                    PsiFile psiFile = psiManager.findFile(file);
-                    if (psiFile instanceof PsiJavaFile) {
-                        PsiJavaFile javaFile = (PsiJavaFile) psiFile;
-                        for (PsiClass psiClass : javaFile.getClasses()) {
-                            if (isTestClass(psiClass)) {
-                                ExistingTestClass testClass = analyzeTestClass(psiClass, null);
-                                testClasses.add(testClass);
+            // Wrap file index access in read action to avoid threading issues
+            ApplicationManager.getApplication().runReadAction(() -> {
+                try {
+                    // Search for files containing "Test"
+                    Collection<VirtualFile> testFiles = FilenameIndex.getAllFilesByExt(
+                        project, "java", GlobalSearchScope.projectScope(project)
+                    );
+                    
+                    PsiManager psiManager = PsiManager.getInstance(project);
+                    
+                    for (VirtualFile file : testFiles) {
+                        if (isTestFile(file)) {
+                            PsiFile psiFile = psiManager.findFile(file);
+                            if (psiFile instanceof PsiJavaFile) {
+                                PsiJavaFile javaFile = (PsiJavaFile) psiFile;
+                                for (PsiClass psiClass : javaFile.getClasses()) {
+                                    if (isTestClass(psiClass)) {
+                                        ExistingTestClass testClass = analyzeTestClass(psiClass, null);
+                                        testClasses.add(testClass);
+                                    }
+                                }
                             }
                         }
                     }
+                } catch (Exception e) {
+                    LOG.warn("Failed to find all test classes in read action", e);
                 }
-            }
+            });
             
         } catch (Exception e) {
             LOG.warn("Failed to find all test classes", e);

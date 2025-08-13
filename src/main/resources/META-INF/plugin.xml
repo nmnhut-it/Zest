@@ -92,6 +92,7 @@
 
         <!-- LangChain4j Services for agentic retrieval and AI task management -->
         <projectService serviceImplementation="com.zps.zest.langchain4j.ZestLangChain4jService"/>
+        <projectService serviceImplementation="com.zps.zest.langchain4j.util.StreamingLLMService"/>
         <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
         
         <!-- Inline Completion Services -->

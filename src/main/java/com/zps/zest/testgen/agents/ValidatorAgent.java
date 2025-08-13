@@ -15,7 +15,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class ValidatorAgent extends BaseAgent {
+public class ValidatorAgent extends StreamingBaseAgent {
     
     private static final Pattern IMPORT_PATTERN = Pattern.compile("import\\s+([\\w\\.\\*]+);");
     private static final Pattern CLASS_REFERENCE_PATTERN = Pattern.compile("\\b([A-Z][a-zA-Z0-9]*(?:\\.[A-Z][a-zA-Z0-9]*)*)\\b");
@@ -40,13 +40,10 @@ public class ValidatorAgent extends BaseAgent {
                 List<String> appliedFixes = new ArrayList<>();
                 
                 for (GeneratedTest test : tests) {
-                    String task = "Validate and fix test code for compilation errors, missing imports, and code quality issues. " +
-                                 "Test: " + test.getTestName() + " in class " + test.getTestClassName();
-                    
                     String testInfo = buildTestValidationContext(test, context);
                     
-                    // Execute ReAct workflow for validation
-                    String validationResult = executeReActTask(task, testInfo).join();
+                    // Direct validation without ReAct for speed
+                    String validationResult = performDirectValidation(test, testInfo);
                     
                     // Parse validation results
                     ValidationResult testResult = parseValidationResult(test, validationResult, context);
@@ -129,19 +126,12 @@ public class ValidatorAgent extends BaseAgent {
     }
     
     private String performCodeAnalysis(@NotNull String parameters) {
-        String prompt = "Analyze the following test code for potential issues:\n\n" +
+        String prompt = "List compilation errors (if any):\n" +
                        parameters + "\n\n" +
-                       "Check for:\n" +
-                       "1. Syntax errors and compilation issues\n" +
-                       "2. Missing or incorrect imports\n" +
-                       "3. Invalid method signatures\n" +
-                       "4. Incorrect annotations\n" +
-                       "5. Missing dependencies\n" +
-                       "6. Code quality issues\n" +
-                       "7. Best practice violations\n\n" +
-                       "Provide a detailed analysis:";
+                       "Output: error list or 'No errors'.\n\n" +
+                       "Errors:";
         
-        return queryLLM(prompt, 1500);
+        return queryLLM(prompt, 200); // Reduced from 1500
     }
     
     private String performCodeValidation(@NotNull String parameters) {
@@ -197,18 +187,57 @@ public class ValidatorAgent extends BaseAgent {
     }
     
     private String generateCodeFixes(@NotNull String parameters) {
-        String prompt = "Based on the validation analysis, generate fixed code:\n\n" +
+        String prompt = "Fix ONLY compilation errors:\n" +
                        parameters + "\n\n" +
-                       "Provide fixes for the identified issues. Format the response as:\n" +
+                       "Format:\n" +
                        "ISSUES_FOUND:\n" +
-                       "[list of issues]\n" +
+                       "issue1\n" +
                        "FIXES_APPLIED:\n" +
-                       "[list of fixes]\n" +
+                       "fix1\n" +
                        "FIXED_CODE:\n" +
-                       "[complete fixed code]\n\n" +
-                       "Fixed Code:";
+                       "corrected code\n\n" +
+                       "Fix:";
         
-        return queryLLM(prompt, 2000);
+        return queryLLM(prompt, 800); // Reduced from 2000
+    }
+    
+    /**
+     * Perform direct validation without ReAct loop for faster response
+     */
+    private String performDirectValidation(@NotNull GeneratedTest test, @NotNull String testInfo) {
+        // First do quick code analysis
+        String testCode = test.getFullContent();
+        List<String> issues = new ArrayList<>();
+        
+        // Check imports
+        List<String> importIssues = validateImports(testCode);
+        issues.addAll(importIssues);
+        
+        // Check syntax
+        List<String> syntaxIssues = validateSyntaxStructure(testCode);
+        issues.addAll(syntaxIssues);
+        
+        // If no issues, return success
+        if (issues.isEmpty()) {
+            return "ISSUES_FOUND:\n" +
+                   "FIXES_APPLIED:\n" +
+                   "FIXED_CODE:\n" + testCode;
+        }
+        
+        // Ask LLM to fix issues
+        String prompt = "Fix these test issues:\n" +
+                       "Issues found:\n" + String.join("\n", issues) + "\n\n" +
+                       "Test code:\n" + testCode + "\n\n" +
+                       "Output format:\n" +
+                       "ISSUES_FOUND:\n" +
+                       "- list issues\n" +
+                       "FIXES_APPLIED:\n" +
+                       "- list fixes\n" +
+                       "FIXED_CODE:\n" +
+                       "corrected test code\n\n" +
+                       "Fix:";
+        
+        return queryLLM(prompt, 600);
     }
     
     private String extractTestCode(@NotNull String parameters) {
@@ -567,5 +596,46 @@ public class ValidatorAgent extends BaseAgent {
             AgentAction.ActionType.GENERATE,
             AgentAction.ActionType.COMPLETE
         );
+    }
+    
+    @NotNull
+    @Override
+    protected String buildActionPrompt(@NotNull AgentAction action) {
+        switch (action.getType()) {
+            case ANALYZE:
+                return analyzeTestRequirements(action.getParameters());
+                
+            case VALIDATE:
+                return "Validate test code:\n" +
+                       action.getParameters() + "\n\n" +
+                       "Check: syntax, imports, annotations, assertions, mocks.\n\n" +
+                       "Results:";
+                       
+            case GENERATE:
+                return generateTestCode(action.getParameters());
+                
+            default:
+                return action.getParameters();
+        }
+    }
+    
+    private String analyzeTestRequirements(@NotNull String parameters) {
+        return "Check syntax only:\n" +
+               parameters + "\n\n" +
+               "Output: 'Valid' or list errors.\n\n" +
+               "Result:";
+    }
+    
+    private String generateTestCode(@NotNull String parameters) {
+        return "Fix errors only:\n" +
+               parameters + "\n\n" +
+               "Format:\n" +
+               "ISSUES_FOUND:\n" +
+               "error1\n" +
+               "FIXES_APPLIED:\n" +
+               "fix1\n" +
+               "FIXED_CODE:\n" +
+               "corrected code\n\n" +
+               "Fixed:";
     }
 }

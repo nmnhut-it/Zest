@@ -14,7 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-public class CoordinatorAgent extends BaseAgent {
+public class CoordinatorAgent extends StreamingBaseAgent {
     
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -23,7 +23,7 @@ public class CoordinatorAgent extends BaseAgent {
     }
     
     /**
-     * Plan tests for the given request
+     * Plan tests for the given request with streaming support
      */
     @NotNull
     public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request) {
@@ -39,8 +39,8 @@ public class CoordinatorAgent extends BaseAgent {
                              "User description: " + request.getUserDescription() + ". " +
                              "Requested test type: " + request.getTestType().getDescription();
                 
-                // Execute ReAct workflow
-                String planningResult = executeReActTask(task, codeContext).join();
+                // Direct LLM call for faster planning (no ReAct loop)
+                String planningResult = generateDirectTestPlan(task, codeContext);
                 
                 // Parse the planning result into TestPlan
                 return parseTestPlan(planningResult, request);
@@ -56,7 +56,7 @@ public class CoordinatorAgent extends BaseAgent {
         StringBuilder context = new StringBuilder();
         
         try {
-            // Get code context using ClassAnalyzer
+            // ClassAnalyzer methods already handle ReadAction internally
             if (request.hasSelection()) {
                 String selectionContext = ClassAnalyzer.collectSelectionContext(
                     request.getTargetFile(),
@@ -66,21 +66,31 @@ public class CoordinatorAgent extends BaseAgent {
                 context.append("Selected Code Context:\n").append(selectionContext).append("\n\n");
             }
             
-            // If it's a Java file, get class information
-            if (request.getTargetFile() instanceof PsiJavaFile) {
-                PsiJavaFile javaFile = (PsiJavaFile) request.getTargetFile();
-                PsiClass[] classes = javaFile.getClasses();
-                
-                if (classes.length > 0) {
-                    PsiClass targetClass = classes[0];
-                    String classContext = ClassAnalyzer.collectClassContext(targetClass);
-                    context.append("Class Context:\n").append(classContext).append("\n\n");
+            // Get the target class first in a ReadAction
+            PsiClass targetClass = com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                (com.intellij.openapi.util.Computable<PsiClass>) () -> {
+                    if (request.getTargetFile() instanceof PsiJavaFile) {
+                        PsiJavaFile javaFile = (PsiJavaFile) request.getTargetFile();
+                        PsiClass[] classes = javaFile.getClasses();
+                        if (classes.length > 0) {
+                            return classes[0];
+                        }
+                    }
+                    return null;
                 }
+            );
+            
+            // Now call ClassAnalyzer outside the ReadAction (it has its own)
+            if (targetClass != null) {
+                String classContext = ClassAnalyzer.collectClassContext(targetClass);
+                context.append("Class Context:\n").append(classContext).append("\n\n");
             }
             
-            // Add file content summary
-            context.append("File: ").append(request.getTargetFile().getName()).append("\n");
-            context.append("Path: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
+            // Add file content summary in a separate ReadAction
+            com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(() -> {
+                context.append("File: ").append(request.getTargetFile().getName()).append("\n");
+                context.append("Path: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
+            });
             
         } catch (Exception e) {
             LOG.warn("[CoordinatorAgent] Failed to analyze target code", e);
@@ -126,17 +136,13 @@ public class CoordinatorAgent extends BaseAgent {
     }
     
     private String performCodeAnalysis(@NotNull String parameters) {
-        String prompt = "Analyze the following code for test planning purposes:\n\n" +
+        String prompt = "Analyze code for test planning:\n" +
                        parameters + "\n\n" +
-                       "Identify:\n" +
-                       "1. Methods that need testing\n" +
-                       "2. Edge cases to consider\n" +
-                       "3. Dependencies and mocking requirements\n" +
-                       "4. Complexity assessment\n" +
-                       "5. Recommended test types (unit vs integration)\n\n" +
+                       "List: method names, dependencies, complexity (simple/complex).\n" +
+                       "Do NOT generate test code.\n\n" +
                        "Analysis:";
         
-        return queryLLM(prompt, 1500);
+        return queryLLM(prompt, 500); // Reduced from 1500
     }
     
     private String performPatternSearch(@NotNull String parameters) {
@@ -163,29 +169,57 @@ public class CoordinatorAgent extends BaseAgent {
     }
     
     private String generateTestPlan(@NotNull String parameters) {
-        String prompt = "Based on the analysis, create a detailed test plan with specific test scenarios.\n\n" +
-                       "Context:\n" + parameters + "\n\n" +
-                       "Create a test plan that includes:\n" +
-                       "1. List of test scenarios (name, description, type, priority)\n" +
-                       "2. Dependencies that need to be mocked\n" +
-                       "3. Recommended test type (unit/integration/both)\n" +
-                       "4. Reasoning for the recommendations\n\n" +
-                       "Format the response as:\n" +
-                       "TARGET_METHOD: [method name]\n" +
-                       "TARGET_CLASS: [class name]\n" +
-                       "RECOMMENDED_TYPE: [UNIT_TESTS/INTEGRATION_TESTS/BOTH]\n" +
-                       "REASONING: [explanation]\n" +
-                       "DEPENDENCIES: [dependency1, dependency2, ...]\n" +
+        String prompt = "Create test plan (scenarios only, NO code).\n" +
+                       parameters + "\n\n" +
+                       "Output ONLY this format:\n" +
+                       "TARGET_METHOD: methodName\n" +
+                       "TARGET_CLASS: className\n" +
+                       "RECOMMENDED_TYPE: UNIT_TESTS or INTEGRATION_TESTS\n" +
+                       "REASONING: one line\n" +
+                       "DEPENDENCIES: dep1, dep2\n" +
                        "SCENARIOS:\n" +
-                       "- SCENARIO: [name] | TYPE: [UNIT/INTEGRATION/EDGE_CASE/ERROR_HANDLING] | PRIORITY: [HIGH/MEDIUM/LOW] | DESCRIPTION: [description] | EXPECTED: [expected outcome] | INPUTS: [input1, input2, ...]\n" +
-                       "\n" +
+                       "- SCENARIO: name | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: brief | EXPECTED: result | INPUTS: input1\n\n" +
+                       "Max 5 scenarios. NO test code.\n\n" +
                        "Test Plan:";
         
-        return queryLLM(prompt, 2000);
+        return queryLLM(prompt, 800); // Reduced from 2000
+    }
+    
+    /**
+     * Generate test plan directly without ReAct loop for faster response
+     */
+    private String generateDirectTestPlan(@NotNull String task, @NotNull String context) {
+        String prompt = "You are a test planning expert. Analyze the code and create a test plan.\n\n" +
+                       "Task: " + task + "\n\n" +
+                       "Code Context:\n" + context + "\n\n" +
+                       "Output ONLY this format (no extra text):\n" +
+                       "TARGET_METHOD: methodName\n" +
+                       "TARGET_CLASS: className\n" +
+                       "RECOMMENDED_TYPE: UNIT_TESTS\n" +
+                       "REASONING: one line reason\n" +
+                       "DEPENDENCIES: none\n" +
+                       "SCENARIOS:\n" +
+                       "- SCENARIO: Test happy path | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: Test normal case | EXPECTED: success | INPUTS: valid input\n" +
+                       "- SCENARIO: Test error case | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: Test error handling | EXPECTED: error handled | INPUTS: invalid input\n\n" +
+                       "Max 5 scenarios. Be concise.\n\n" +
+                       "Test Plan:";
+        
+        // Stream if consumer available, otherwise direct query
+        if (streamingConsumer != null) {
+            notifyStream("\n📋 Generating test plan...\n");
+            String result = queryLLM(prompt, 600);
+            notifyStream("\n✅ Test plan complete\n");
+            return result;
+        } else {
+            return queryLLM(prompt, 600);
+        }
     }
     
     private TestPlan parseTestPlan(@NotNull String planningResult, @NotNull TestGenerationRequest request) {
         try {
+            LOG.debug("[CoordinatorAgent] Parsing test plan from result: " + 
+                     (planningResult.length() > 200 ? planningResult.substring(0, 200) + "..." : planningResult));
+            
             String[] lines = planningResult.split("\n");
             
             String targetMethod = "unknown";
@@ -194,14 +228,19 @@ public class CoordinatorAgent extends BaseAgent {
             String reasoning = "";
             List<String> dependencies = new ArrayList<>();
             List<TestPlan.TestScenario> scenarios = new ArrayList<>();
+            boolean inScenariosSection = false;
             
             for (String line : lines) {
                 line = line.trim();
                 
+                if (line.isEmpty()) continue;
+                
                 if (line.startsWith("TARGET_METHOD:")) {
                     targetMethod = line.substring("TARGET_METHOD:".length()).trim();
+                    if (targetMethod.isEmpty()) targetMethod = "testMethod";
                 } else if (line.startsWith("TARGET_CLASS:")) {
                     targetClass = line.substring("TARGET_CLASS:".length()).trim();
+                    if (targetClass.isEmpty()) targetClass = request.getTargetFile().getName().replace(".java", "");
                 } else if (line.startsWith("RECOMMENDED_TYPE:")) {
                     String typeStr = line.substring("RECOMMENDED_TYPE:".length()).trim();
                     try {
@@ -213,22 +252,55 @@ public class CoordinatorAgent extends BaseAgent {
                     reasoning = line.substring("REASONING:".length()).trim();
                 } else if (line.startsWith("DEPENDENCIES:")) {
                     String depsStr = line.substring("DEPENDENCIES:".length()).trim();
-                    if (!depsStr.isEmpty()) {
+                    if (!depsStr.isEmpty() && !depsStr.equalsIgnoreCase("none")) {
                         dependencies = Arrays.asList(depsStr.split(",\\s*"));
                     }
-                } else if (line.startsWith("- SCENARIO:")) {
+                } else if (line.equals("SCENARIOS:") || line.startsWith("SCENARIOS:")) {
+                    inScenariosSection = true;
+                } else if (inScenariosSection && (line.startsWith("-") || line.startsWith("SCENARIO:"))) {
                     TestPlan.TestScenario scenario = parseScenario(line);
                     if (scenario != null) {
                         scenarios.add(scenario);
+                        LOG.debug("[CoordinatorAgent] Added scenario: " + scenario.getName());
+                    }
+                } else if (inScenariosSection && !line.startsWith("TARGET") && !line.contains(":")) {
+                    // Could be a simple scenario description without proper formatting
+                    if (line.length() > 3) {
+                        TestPlan.TestScenario scenario = parseScenario(line);
+                        if (scenario != null) {
+                            scenarios.add(scenario);
+                            LOG.debug("[CoordinatorAgent] Added simple scenario: " + scenario.getName());
+                        }
                     }
                 }
             }
             
-            // If no scenarios were parsed, create default ones
-            if (scenarios.isEmpty()) {
-                scenarios.add(createDefaultScenario(targetMethod, recommendedType));
+            // Extract target info from file if not properly parsed
+            if (targetClass.equals("unknown") || targetClass.isEmpty()) {
+                targetClass = request.getTargetFile().getName().replace(".java", "");
+                LOG.debug("[CoordinatorAgent] Using filename for targetClass: " + targetClass);
             }
             
+            if (targetMethod.equals("unknown") || targetMethod.isEmpty()) {
+                targetMethod = "test" + targetClass;
+                LOG.debug("[CoordinatorAgent] Generated targetMethod: " + targetMethod);
+            }
+            
+            // If no scenarios were parsed, create default ones
+            if (scenarios.isEmpty()) {
+                LOG.warn("[CoordinatorAgent] No scenarios parsed, creating defaults");
+                scenarios.add(createDefaultScenario(targetMethod, recommendedType));
+                scenarios.add(new TestPlan.TestScenario(
+                    "Test edge cases",
+                    "Test edge cases and boundary conditions",
+                    TestPlan.TestScenario.Type.EDGE_CASE,
+                    List.of("boundary values"),
+                    "Should handle edge cases correctly",
+                    TestPlan.TestScenario.Priority.MEDIUM
+                ));
+            }
+            
+            LOG.info("[CoordinatorAgent] Parsed test plan with " + scenarios.size() + " scenarios");
             return new TestPlan(targetMethod, targetClass, scenarios, dependencies, recommendedType, reasoning);
             
         } catch (Exception e) {
@@ -240,50 +312,101 @@ public class CoordinatorAgent extends BaseAgent {
     
     private TestPlan.TestScenario parseScenario(@NotNull String scenarioLine) {
         try {
-            // Parse format: - SCENARIO: [name] | TYPE: [type] | PRIORITY: [priority] | DESCRIPTION: [description] | EXPECTED: [expected] | INPUTS: [inputs]
-            String[] parts = scenarioLine.substring(2).split(" \\| ");
+            // More robust parsing - handle incomplete lines
+            String line = scenarioLine.trim();
+            if (line.startsWith("-")) {
+                line = line.substring(1).trim();
+            }
             
+            // Default values
             String name = "Test Scenario";
             TestPlan.TestScenario.Type type = TestPlan.TestScenario.Type.UNIT;
             TestPlan.TestScenario.Priority priority = TestPlan.TestScenario.Priority.MEDIUM;
-            String description = "Generated test scenario";
+            String description = "Test scenario";
             String expected = "Should pass";
-            List<String> inputs = new ArrayList<>();
+            List<String> inputs = Arrays.asList("default");
             
-            for (String part : parts) {
-                if (part.startsWith("SCENARIO:")) {
-                    name = part.substring("SCENARIO:".length()).trim();
-                } else if (part.startsWith("TYPE:")) {
-                    String typeStr = part.substring("TYPE:".length()).trim();
-                    try {
-                        type = TestPlan.TestScenario.Type.valueOf(typeStr);
-                    } catch (IllegalArgumentException e) {
-                        LOG.warn("Unknown scenario type: " + typeStr);
+            // First check if it's a simple scenario description without format
+            if (!line.contains("|") && !line.contains("SCENARIO:")) {
+                // Simple one-line scenario
+                name = line;
+                description = line;
+                LOG.debug("[CoordinatorAgent] Parsed simple scenario: " + name);
+                return new TestPlan.TestScenario(name, description, type, inputs, expected, priority);
+            }
+            
+            // Try to parse with | separator, but handle missing parts
+            if (line.contains("|")) {
+                String[] parts = line.split("\\|");
+                
+                for (String part : parts) {
+                    part = part.trim();
+                    if (part.contains("SCENARIO:") && part.length() > 9) {
+                        name = part.substring(part.indexOf("SCENARIO:") + 9).trim();
+                    } else if (part.contains("TYPE:") && part.length() > 5) {
+                        String typeStr = part.substring(part.indexOf("TYPE:") + 5).trim().toUpperCase();
+                        // Handle variations
+                        if (typeStr.contains("EDGE")) type = TestPlan.TestScenario.Type.EDGE_CASE;
+                        else if (typeStr.contains("ERROR")) type = TestPlan.TestScenario.Type.ERROR_HANDLING;
+                        else if (typeStr.contains("INTEGRATION")) type = TestPlan.TestScenario.Type.INTEGRATION;
+                        else if (typeStr.contains("UNIT")) type = TestPlan.TestScenario.Type.UNIT;
+                    } else if (part.contains("PRIORITY:") && part.length() > 9) {
+                        String priorityStr = part.substring(part.indexOf("PRIORITY:") + 9).trim().toUpperCase();
+                        if (priorityStr.contains("HIGH")) priority = TestPlan.TestScenario.Priority.HIGH;
+                        else if (priorityStr.contains("LOW")) priority = TestPlan.TestScenario.Priority.LOW;
+                        else priority = TestPlan.TestScenario.Priority.MEDIUM;
+                    } else if (part.contains("DESCRIPTION:") && part.length() > 12) {
+                        description = part.substring(part.indexOf("DESCRIPTION:") + 12).trim();
+                    } else if (part.contains("EXPECTED:") && part.length() > 9) {
+                        expected = part.substring(part.indexOf("EXPECTED:") + 9).trim();
+                    } else if (part.contains("INPUTS:") && part.length() > 7) {
+                        String inputsStr = part.substring(part.indexOf("INPUTS:") + 7).trim();
+                        if (!inputsStr.isEmpty()) {
+                            inputs = Arrays.asList(inputsStr.split(",\\s*"));
+                        }
                     }
-                } else if (part.startsWith("PRIORITY:")) {
-                    String priorityStr = part.substring("PRIORITY:".length()).trim();
-                    try {
-                        priority = TestPlan.TestScenario.Priority.valueOf(priorityStr);
-                    } catch (IllegalArgumentException e) {
-                        LOG.warn("Unknown priority: " + priorityStr);
-                    }
-                } else if (part.startsWith("DESCRIPTION:")) {
-                    description = part.substring("DESCRIPTION:".length()).trim();
-                } else if (part.startsWith("EXPECTED:")) {
-                    expected = part.substring("EXPECTED:".length()).trim();
-                } else if (part.startsWith("INPUTS:")) {
-                    String inputsStr = part.substring("INPUTS:".length()).trim();
-                    if (!inputsStr.isEmpty()) {
-                        inputs = Arrays.asList(inputsStr.split(",\\s*"));
+                }
+            } else {
+                // Try to parse without | separator
+                if (line.contains("SCENARIO:")) {
+                    int idx = line.indexOf("SCENARIO:") + 9;
+                    if (idx < line.length()) {
+                        // Extract until next keyword or end of line
+                        int nextKeyword = line.length();
+                        for (String keyword : Arrays.asList("TYPE:", "PRIORITY:", "DESCRIPTION:", "EXPECTED:", "INPUTS:")) {
+                            int kwIdx = line.indexOf(keyword, idx);
+                            if (kwIdx > 0 && kwIdx < nextKeyword) {
+                                nextKeyword = kwIdx;
+                            }
+                        }
+                        name = line.substring(idx, nextKeyword).trim();
                     }
                 }
             }
             
+            // If we only got a scenario name and nothing else, use it as description too
+            if (!name.equals("Test Scenario") && description.equals("Test scenario")) {
+                description = name;
+            }
+            
+            LOG.debug("[CoordinatorAgent] Parsed scenario: " + name + " (type=" + type + ", priority=" + priority + ")");
             return new TestPlan.TestScenario(name, description, type, inputs, expected, priority);
             
         } catch (Exception e) {
-            LOG.warn("[CoordinatorAgent] Failed to parse scenario: " + scenarioLine, e);
-            return null;
+            LOG.warn("[CoordinatorAgent] Failed to parse scenario, using default: " + scenarioLine, e);
+            // Try to extract at least a name from the line
+            String fallbackName = scenarioLine.replaceAll("[^a-zA-Z0-9 ]", "").trim();
+            if (fallbackName.isEmpty()) {
+                fallbackName = "Test Case";
+            }
+            return new TestPlan.TestScenario(
+                fallbackName,
+                "Test for " + fallbackName,
+                TestPlan.TestScenario.Type.UNIT,
+                List.of("standard input"),
+                "Should execute successfully",
+                TestPlan.TestScenario.Priority.MEDIUM
+            );
         }
     }
     
@@ -334,5 +457,33 @@ public class CoordinatorAgent extends BaseAgent {
             AgentAction.ActionType.GENERATE,
             AgentAction.ActionType.COMPLETE
         );
+    }
+    
+    @NotNull
+    @Override
+    protected String buildActionPrompt(@NotNull AgentAction action) {
+        switch (action.getType()) {
+            case ANALYZE:
+                return "List methods to test (names only):\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output: method names, dependencies. NO code.\n\n" +
+                       "Methods:";
+                       
+            case GENERATE:
+                return "Create test plan.\n" +
+                       action.getParameters() + "\n\n" +
+                       "Output format:\n" +
+                       "TARGET_METHOD: methodName\n" +
+                       "TARGET_CLASS: className\n" +
+                       "RECOMMENDED_TYPE: UNIT_TESTS or INTEGRATION_TESTS or BOTH\n" +
+                       "REASONING: brief explanation\n" +
+                       "DEPENDENCIES: dep1, dep2\n" +
+                       "SCENARIOS:\n" +
+                       "- SCENARIO: name | TYPE: UNIT/INTEGRATION/EDGE_CASE/ERROR_HANDLING | PRIORITY: HIGH/MEDIUM/LOW | DESCRIPTION: brief | EXPECTED: outcome | INPUTS: input1, input2\n\n" +
+                       "Test Plan:";
+                       
+            default:
+                return action.getParameters();
+        }
     }
 }

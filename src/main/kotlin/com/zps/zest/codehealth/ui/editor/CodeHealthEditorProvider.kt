@@ -18,7 +18,6 @@ class CodeHealthEditorProvider : FileEditorProvider, DumbAware {
     
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {
         return when (file) {
-            is CodeHealthIssueVirtualFile -> CodeHealthIssueEditor(project, file)
             is CodeHealthOverviewVirtualFile -> CodeHealthOverviewEditor(project, file)
             else -> throw IllegalArgumentException("Unsupported file type: ${file.javaClass}")
         }

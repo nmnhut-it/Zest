@@ -2,6 +2,7 @@ package com.zps.zest.testgen.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
@@ -28,22 +29,37 @@ class TestGenerationEditor(
     private val virtualFile: TestGenerationVirtualFile
 ) : UserDataHolderBase(), FileEditor {
     
+    companion object {
+        private val LOG = Logger.getInstance(TestGenerationEditor::class.java)
+    }
+    
     private val testGenService = project.getService(TestGenerationService::class.java)
-    private val component: JComponent
+    private val component: JPanel
     private var currentSession: TestGenerationSession? = null
     private val progressBar = JProgressBar()
     private val statusLabel = JBLabel("Ready to generate tests")
     
-    // UI Components
-    private lateinit var tabbedPane: JBTabbedPane
-    private lateinit var planTab: JComponent
-    private lateinit var testsTab: JComponent
-    private lateinit var validationTab: JComponent
-    private lateinit var progressTab: JComponent
+    // UI Components that need updating when data changes
+    private var tabbedPane: JBTabbedPane? = null
+    private var planTab: JComponent? = null
+    private var testsTab: JComponent? = null
+    private var validationTab: JComponent? = null
+    private var progressTab: JComponent? = null
+    
+    // Panels that need content updates
+    private var overviewPanel: JPanel? = null
+    private var sessionInfoPanel: JPanel? = null
+    private var planContentPanel: JPanel? = null
+    private var testsContentPanel: JPanel? = null
+    private var validationContentPanel: JPanel? = null
+    private var progressContentPanel: JPanel? = null private var codePreviewPanel: JPanel? = null
     
     init {
-        component = createEditorComponent()
+        component = JPanel(BorderLayout())
+        component.background = UIUtil.getPanelBackground()
+        setupUI()
         setupProgressListener()
+        updateDataDependentComponents()
     }
     
     override fun getComponent(): JComponent = component
@@ -72,24 +88,84 @@ class TestGenerationEditor(
     
     override fun getFile(): VirtualFile = virtualFile
     
-    private fun createEditorComponent(): JComponent {
-        val mainPanel = JPanel(BorderLayout())
-        mainPanel.background = UIUtil.getPanelBackground()
-        
+    private fun setupUI() {
         // Add toolbar at top
-        mainPanel.add(createToolbar(), BorderLayout.NORTH)
+        component.add(createToolbar(), BorderLayout.NORTH)
         
         // Add status bar at bottom
-        mainPanel.add(createStatusBar(), BorderLayout.SOUTH)
+        component.add(createStatusBar(), BorderLayout.SOUTH)
+        
+        // Create overview panel with code preview
+        val topPanel = JPanel(BorderLayout())
+        topPanel.background = UIUtil.getPanelBackground()
+        
+        // Create and store overview panel
+        overviewPanel = JPanel(GridBagLayout())
+        overviewPanel!!.background = UIUtil.getPanelBackground()
+        overviewPanel!!.border = EmptyBorder(15, 15, 10, 15)
+        topPanel.add(overviewPanel, BorderLayout.NORTH)
+        
+        // Create code preview panel
+        codePreviewPanel = JPanel(BorderLayout())
+        codePreviewPanel!!.background = UIUtil.getPanelBackground()
+        codePreviewPanel!!.border = EmptyBorder(10, 15, 10, 15)
+        topPanel.add(codePreviewPanel, BorderLayout.CENTER)
+        
+        // Create tabbed pane
+        tabbedPane = JBTabbedPane()
         
         // Add main content with tabs
-        val splitter = JBSplitter(true, 0.15f) // 15% top for status, 85% for tabs
-        splitter.firstComponent = createOverviewPanel()
-        splitter.secondComponent = createTabbedInterface()
+        val splitter = JBSplitter(true, 0.3f) // 30% top for overview+preview, 70% for tabs
+        splitter.firstComponent = JBScrollPane(topPanel)
+        splitter.secondComponent = tabbedPane
         
-        mainPanel.add(splitter, BorderLayout.CENTER)
+        component.add(splitter, BorderLayout.CENTER)
         
-        return mainPanel
+        // Setup tabs (empty initially)
+        setupTabs()
+    }
+    
+    private fun setupTabs() {
+        // Create content panels for tabs
+        planContentPanel = JPanel(BorderLayout())
+        planContentPanel!!.background = UIUtil.getPanelBackground()
+        planContentPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        testsContentPanel = JPanel(BorderLayout())
+        testsContentPanel!!.background = UIUtil.getPanelBackground()
+        testsContentPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        validationContentPanel = JPanel(BorderLayout())
+        validationContentPanel!!.background = UIUtil.getPanelBackground()
+        validationContentPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        progressContentPanel = JPanel(BorderLayout())
+        progressContentPanel!!.background = UIUtil.getPanelBackground()
+        progressContentPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        // Create scrollable tabs
+        planTab = JBScrollPane(planContentPanel)
+        testsTab = JBScrollPane(testsContentPanel)
+        validationTab = JBScrollPane(validationContentPanel)
+        progressTab = progressContentPanel
+        
+        tabbedPane!!.addTab("📋 Test Plan", planTab)
+        tabbedPane!!.addTab("🧪 Generated Tests", testsTab)
+        tabbedPane!!.addTab("✅ Validation", validationTab)
+        tabbedPane!!.addTab("📊 Progress", progressTab)
+    }
+    
+    private fun updateDataDependentComponents() {
+        SwingUtilities.invokeLater {
+            updateOverviewPanel()
+            updateCodePreviewPanel()
+            updateTestPlanTab()
+            updateGeneratedTestsTab()
+            updateValidationTab()
+            updateProgressTab()
+            component.revalidate()
+            component.repaint()
+        }
     }
     
     private fun createToolbar(): JComponent {
@@ -164,10 +240,8 @@ class TestGenerationEditor(
         return statusPanel
     }
     
-    private fun createOverviewPanel(): JComponent {
-        val panel = JPanel(GridBagLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 10, 15)
+    private fun updateOverviewPanel() {
+        overviewPanel?.removeAll()
         
         val gbc = GridBagConstraints()
         gbc.insets = JBUI.insets(5)
@@ -179,22 +253,41 @@ class TestGenerationEditor(
         gbc.gridwidth = 2
         val titleLabel = JBLabel("🧪 AI Test Generation")
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 18f)
-        panel.add(titleLabel, gbc)
+        overviewPanel!!.add(titleLabel, gbc)
+        
+        // Show selected code info
+        gbc.gridy = 1
+        gbc.gridwidth = 2
+        val fileInfoLabel = JBLabel("📄 File: ${virtualFile.targetFile.name}")
+        fileInfoLabel.font = fileInfoLabel.font.deriveFont(Font.BOLD, 14f)
+        overviewPanel!!.add(fileInfoLabel, gbc)
+        
+        // Show selection info
+        gbc.gridy = 2
+        val selectionInfo = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
+            val chars = virtualFile.selectionEnd - virtualFile.selectionStart
+            "🎯 Selection: ${chars} characters (lines ${getLineNumber(virtualFile.selectionStart)}-${getLineNumber(virtualFile.selectionEnd)})"
+        } else {
+            "📄 Entire file selected"
+        }
+        val selectionLabel = JBLabel(selectionInfo)
+        selectionLabel.foreground = UIUtil.getLabelForeground()
+        overviewPanel!!.add(selectionLabel, gbc)
         
         // Session info
         if (currentSession != null) {
-            gbc.gridy = 1
+            gbc.gridy = 3
             gbc.gridwidth = 1
-            panel.add(JBLabel("Session:"), gbc)
+            overviewPanel!!.add(JBLabel("Session:"), gbc)
             
             gbc.gridx = 1
             val sessionLabel = JBLabel(currentSession!!.sessionId.substring(0, 8) + "...")
             sessionLabel.foreground = UIUtil.getInactiveTextColor()
-            panel.add(sessionLabel, gbc)
+            overviewPanel!!.add(sessionLabel, gbc)
             
             gbc.gridx = 0
-            gbc.gridy = 2
-            panel.add(JBLabel("Status:"), gbc)
+            gbc.gridy = 4
+            overviewPanel!!.add(JBLabel("Status:"), gbc)
             
             gbc.gridx = 1
             val statusLabel = JBLabel(currentSession!!.status.description)
@@ -203,38 +296,81 @@ class TestGenerationEditor(
                 TestGenerationSession.Status.FAILED, TestGenerationSession.Status.CANCELLED -> Color(244, 67, 54)
                 else -> Color(255, 152, 0)
             }
-            panel.add(statusLabel, gbc)
+            overviewPanel!!.add(statusLabel, gbc)
         } else {
-            gbc.gridy = 1
+            gbc.gridy = 3
             gbc.gridwidth = 2
-            val infoLabel = JBLabel("Select code and click 'Generate Tests' to start")
-            infoLabel.foreground = UIUtil.getInactiveTextColor()
-            panel.add(infoLabel, gbc)
+            val readyLabel = JBLabel("✅ Ready to generate tests! Click 'Generate Tests' in the toolbar to start.")
+            readyLabel.font = readyLabel.font.deriveFont(Font.BOLD, 12f)
+            readyLabel.foreground = Color(76, 175, 80)
+            overviewPanel!!.add(readyLabel, gbc)
+            
+            // Add hint about what will be tested
+            gbc.gridy = 4
+            val hintLabel = JBLabel("💡 Tip: You'll be able to select which methods to test")
+            hintLabel.font = hintLabel.font.deriveFont(11f)
+            hintLabel.foreground = UIUtil.getInactiveTextColor()
+            overviewPanel!!.add(hintLabel, gbc)
+        }
+    }
+    
+    private fun getLineNumber(offset: Int): Int {
+        return try {
+            val document = virtualFile.targetFile.viewProvider.document
+            if (document != null) {
+                document.getLineNumber(offset) + 1
+            } else {
+                0
+            }
+        } catch (e: Exception) {
+            0
+        }
+    }
+    
+    private fun updateCodePreviewPanel() {
+        codePreviewPanel?.removeAll()
+        
+        // Add label
+        val previewLabel = JBLabel("🔍 Selected Code Preview:")
+        previewLabel.font = previewLabel.font.deriveFont(Font.BOLD, 12f)
+        codePreviewPanel!!.add(previewLabel, BorderLayout.NORTH)
+        
+        // Get selected code text
+        val selectedCode = try {
+            val text = virtualFile.targetFile.text
+            if (virtualFile.selectionStart != virtualFile.selectionEnd && 
+                virtualFile.selectionStart >= 0 && 
+                virtualFile.selectionEnd <= text.length) {
+                text.substring(virtualFile.selectionStart, virtualFile.selectionEnd)
+            } else {
+                // Show first 500 chars if entire file
+                if (text.length > 500) {
+                    text.substring(0, 500) + "\n...\n[Full file selected]"
+                } else {
+                    text
+                }
+            }
+        } catch (e: Exception) {
+            "Unable to preview selected code"
         }
         
-        return panel
+        // Create text area for code preview
+        val codeArea = JBTextArea(selectedCode)
+        codeArea.isEditable = false
+        codeArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
+        codeArea.background = if (UIUtil.isUnderDarcula()) Color(43, 43, 43) else Color(250, 250, 250)
+        codeArea.foreground = UIUtil.getLabelForeground()
+        codeArea.border = EmptyBorder(10, 10, 10, 10)
+        
+        val scrollPane = JBScrollPane(codeArea)
+        scrollPane.preferredSize = Dimension(600, 150)
+        scrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
+        
+        codePreviewPanel!!.add(scrollPane, BorderLayout.CENTER)
     }
     
-    private fun createTabbedInterface(): JComponent {
-        tabbedPane = JBTabbedPane()
-        
-        planTab = createTestPlanTab()
-        testsTab = createGeneratedTestsTab()
-        validationTab = createValidationTab()
-        progressTab = createProgressTab()
-        
-        tabbedPane.addTab("📋 Test Plan", planTab)
-        tabbedPane.addTab("🧪 Generated Tests", testsTab)
-        tabbedPane.addTab("✅ Validation", validationTab)
-        tabbedPane.addTab("📊 Progress", progressTab)
-        
-        return tabbedPane
-    }
-    
-    private fun createTestPlanTab(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
+    private fun updateTestPlanTab() {
+        planContentPanel?.removeAll()
         
         currentSession?.testPlan?.let { testPlan ->
             val content = JPanel()
@@ -275,21 +411,17 @@ class TestGenerationEditor(
             content.add(Box.createVerticalStrut(10))
             content.add(scenariosPanel)
             
-            panel.add(JBScrollPane(content), BorderLayout.CENTER)
+            planContentPanel!!.add(content, BorderLayout.NORTH)
         } ?: run {
             val placeholderLabel = JBLabel("Test plan will appear here after generation starts")
             placeholderLabel.horizontalAlignment = SwingConstants.CENTER
             placeholderLabel.foreground = UIUtil.getInactiveTextColor()
-            panel.add(placeholderLabel, BorderLayout.CENTER)
+            planContentPanel!!.add(placeholderLabel, BorderLayout.CENTER)
         }
-        
-        return panel
     }
     
-    private fun createGeneratedTestsTab(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
+    private fun updateGeneratedTestsTab() {
+        testsContentPanel?.removeAll()
         
         currentSession?.generatedTests?.let { tests ->
             if (tests.isNotEmpty()) {
@@ -303,27 +435,23 @@ class TestGenerationEditor(
                     content.add(Box.createVerticalStrut(15))
                 }
                 
-                panel.add(JBScrollPane(content), BorderLayout.CENTER)
+                testsContentPanel!!.add(content, BorderLayout.NORTH)
             } else {
                 val placeholderLabel = JBLabel("Generated tests will appear here")
                 placeholderLabel.horizontalAlignment = SwingConstants.CENTER
                 placeholderLabel.foreground = UIUtil.getInactiveTextColor()
-                panel.add(placeholderLabel, BorderLayout.CENTER)
+                testsContentPanel!!.add(placeholderLabel, BorderLayout.CENTER)
             }
         } ?: run {
             val placeholderLabel = JBLabel("Generated tests will appear here")
             placeholderLabel.horizontalAlignment = SwingConstants.CENTER
             placeholderLabel.foreground = UIUtil.getInactiveTextColor()
-            panel.add(placeholderLabel, BorderLayout.CENTER)
+            testsContentPanel!!.add(placeholderLabel, BorderLayout.CENTER)
         }
-        
-        return panel
     }
     
-    private fun createValidationTab(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
+    private fun updateValidationTab() {
+        validationContentPanel?.removeAll()
         
         currentSession?.validationResult?.let { validation ->
             val content = JPanel()
@@ -369,30 +497,25 @@ class TestGenerationEditor(
                 content.add(fixesCard)
             }
             
-            panel.add(JBScrollPane(content), BorderLayout.CENTER)
+            validationContentPanel!!.add(content, BorderLayout.NORTH)
         } ?: run {
             val placeholderLabel = JBLabel("Validation results will appear here")
             placeholderLabel.horizontalAlignment = SwingConstants.CENTER
             placeholderLabel.foreground = UIUtil.getInactiveTextColor()
-            panel.add(placeholderLabel, BorderLayout.CENTER)
+            validationContentPanel!!.add(placeholderLabel, BorderLayout.CENTER)
         }
-        
-        return panel
     }
     
-    private fun createProgressTab(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
+    private fun updateProgressTab() {
+        progressContentPanel?.removeAll()
         
         // This would contain detailed progress information
         val placeholderLabel = JBLabel("Detailed progress information will be shown here")
         placeholderLabel.horizontalAlignment = SwingConstants.CENTER
         placeholderLabel.foreground = UIUtil.getInactiveTextColor()
-        panel.add(placeholderLabel, BorderLayout.CENTER)
-        
-        return panel
+        progressContentPanel!!.add(placeholderLabel, BorderLayout.CENTER)
     }
+    
     
     private fun createInfoCard(title: String, content: String): JComponent {
         val card = JPanel(BorderLayout())
@@ -554,14 +677,26 @@ class TestGenerationEditor(
     }
     
     private fun startTestGeneration() {
-        val description = Messages.showInputDialog(
-            project,
-            "Describe what you want to test (optional):",
-            "Test Generation",
-            Messages.getQuestionIcon(),
-            "",
-            null
-        ) ?: return
+        // Extract methods from selected code
+        val methods = extractMethodsFromSelection()
+        
+        if (methods.isEmpty()) {
+            Messages.showWarningDialog(
+                project,
+                "No methods found in the selected code. Please select code containing methods to test.",
+                "No Methods Found"
+            )
+            return
+        }
+        
+        // Show method selection dialog
+        val selectedMethods = showMethodSelectionDialog(methods)
+        if (selectedMethods.isEmpty()) {
+            return // User cancelled
+        }
+        
+        // Generate description from selected methods
+        val description = "Generate tests for methods: ${selectedMethods.joinToString(", ")}"
         
         val request = TestGenerationRequest(
             virtualFile.targetFile,
@@ -569,14 +704,14 @@ class TestGenerationEditor(
             virtualFile.selectionEnd,
             description,
             TestGenerationRequest.TestType.AUTO_DETECT,
-            null
+            selectedMethods // Pass selected methods
         )
         
         testGenService.startTestGeneration(request).thenAccept { session ->
             SwingUtilities.invokeLater {
                 currentSession = session
                 testGenService.addProgressListener(session.sessionId, ::onProgress)
-                refreshUI()
+                updateDataDependentComponents()
             }
         }.exceptionally { throwable ->
             SwingUtilities.invokeLater {
@@ -587,6 +722,94 @@ class TestGenerationEditor(
                 )
             }
             null
+        }
+    }
+    
+    private fun extractMethodsFromSelection(): List<String> {
+        val methods = mutableListOf<String>()
+        
+        try {
+            val text = virtualFile.targetFile.text
+            val selectedText = if (virtualFile.selectionStart != virtualFile.selectionEnd && 
+                                 virtualFile.selectionStart >= 0 && 
+                                 virtualFile.selectionEnd <= text.length) {
+                text.substring(virtualFile.selectionStart, virtualFile.selectionEnd)
+            } else {
+                text
+            }
+            
+            // Simple method extraction - look for Java/Kotlin method patterns
+            // Java: public/private/protected [static] [final] returnType methodName(
+            val javaMethodPattern = """(public|private|protected|static|final|\s)+(\w+\s+)?(\w+)\s*\([^)]*\)""".toRegex()
+            javaMethodPattern.findAll(selectedText).forEach { match ->
+                val methodSignature = match.value.trim()
+                val methodName = methodSignature.substringBefore("(").substringAfterLast(" ")
+                if (methodName.isNotEmpty() && !methodName.matches("(if|for|while|switch|catch)".toRegex())) {
+                    methods.add(methodName)
+                }
+            }
+            
+            // Kotlin: fun methodName(
+            val kotlinMethodPattern = """fun\s+(\w+)\s*\([^)]*\)""".toRegex()
+            kotlinMethodPattern.findAll(selectedText).forEach { match ->
+                val methodName = match.value.substringAfter("fun").substringBefore("(").trim()
+                if (methodName.isNotEmpty()) {
+                    methods.add(methodName)
+                }
+            }
+            
+        } catch (e: Exception) {
+            LOG.warn("Failed to extract methods from selection", e)
+        }
+        
+        return methods.distinct()
+    }
+    
+    private fun showMethodSelectionDialog(methods: List<String>): List<String> {
+        val checkBoxes = methods.map { method -> 
+            JCheckBox(method, true) // Default to all selected
+        }
+        
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        
+        val instructionLabel = JBLabel("Select methods to generate tests for:")
+        instructionLabel.font = instructionLabel.font.deriveFont(Font.BOLD, 12f)
+        panel.add(instructionLabel)
+        panel.add(Box.createVerticalStrut(10))
+        
+        checkBoxes.forEach { checkBox ->
+            panel.add(checkBox)
+            panel.add(Box.createVerticalStrut(5))
+        }
+        
+        // Add select all/none buttons
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        val selectAllBtn = JButton("Select All")
+        selectAllBtn.addActionListener {
+            checkBoxes.forEach { it.isSelected = true }
+        }
+        val selectNoneBtn = JButton("Select None")
+        selectNoneBtn.addActionListener {
+            checkBoxes.forEach { it.isSelected = false }
+        }
+        buttonPanel.add(selectAllBtn)
+        buttonPanel.add(selectNoneBtn)
+        panel.add(buttonPanel)
+        
+        val result = Messages.showOkCancelDialog(
+            project,
+            panel,
+            "Select Methods to Test",
+            "Generate Tests",
+            "Cancel",
+            Messages.getQuestionIcon()
+        )
+        
+        return if (result == Messages.OK) {
+            checkBoxes.filter { it.isSelected }.map { it.text }
+        } else {
+            emptyList()
         }
     }
     
@@ -624,29 +847,14 @@ class TestGenerationEditor(
             val updatedSession = testGenService.getSession(session.sessionId)
             if (updatedSession != null) {
                 currentSession = updatedSession
-                refreshUI()
+                updateDataDependentComponents()
             }
         }
     }
     
     private fun refreshUI() {
-        SwingUtilities.invokeLater {
-            // Remove and re-create tabs with updated data
-            tabbedPane.removeAll()
-            
-            planTab = createTestPlanTab()
-            testsTab = createGeneratedTestsTab()
-            validationTab = createValidationTab()
-            progressTab = createProgressTab()
-            
-            tabbedPane.addTab("📋 Test Plan", planTab)
-            tabbedPane.addTab("🧪 Generated Tests", testsTab)
-            tabbedPane.addTab("✅ Validation", validationTab)
-            tabbedPane.addTab("📊 Progress", progressTab)
-            
-            component.revalidate()
-            component.repaint()
-        }
+        // Use the new update method instead of recreating everything
+        updateDataDependentComponents()
     }
     
     private fun showTestCode(test: GeneratedTest) {

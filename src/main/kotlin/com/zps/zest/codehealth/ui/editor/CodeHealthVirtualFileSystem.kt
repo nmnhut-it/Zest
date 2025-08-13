@@ -4,7 +4,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileListener
 import com.intellij.openapi.vfs.VirtualFileSystem
-import com.zps.zest.codehealth.CodeHealthAnalyzer
 
 /**
  * Virtual file system for Code Health issues and test plans
@@ -18,16 +17,6 @@ class CodeHealthVirtualFileSystem : VirtualFileSystem() {
         fun getInstance(): CodeHealthVirtualFileSystem {
             return com.intellij.openapi.application.ApplicationManager.getApplication()
                 .getService(CodeHealthVirtualFileSystem::class.java)
-        }
-        
-        /**
-         * Create a virtual file for a Code Health issue
-         */
-        fun createIssueFile(
-            issue: CodeHealthAnalyzer.HealthIssue,
-            methodFqn: String
-        ): CodeHealthIssueVirtualFile {
-            return CodeHealthIssueVirtualFile(issue, methodFqn)
         }
         
         /**

@@ -17,6 +17,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.codehealth.CodeHealthAnalyzer
 import com.zps.zest.codehealth.CodeHealthReportStorage
+import com.zps.zest.codehealth.ui.CodeHealthIssueDetailDialog
 import java.awt.*
 import java.beans.PropertyChangeListener
 import java.time.LocalDate
@@ -579,8 +580,9 @@ class CodeHealthOverviewEditor(
     }
     
     private fun openIssueInEditor(method: CodeHealthAnalyzer.MethodHealthResult, issue: CodeHealthAnalyzer.HealthIssue) {
-        val issueFile = CodeHealthVirtualFileSystem.createIssueFile(issue, method.fqn)
-        FileEditorManager.getInstance(project).openFile(issueFile, true)
+        // Use the new dialog instead of opening a separate editor
+        val dialog = CodeHealthIssueDetailDialog(project, method, issue)
+        dialog.show()
     }
     
     private fun loadRecentData() {

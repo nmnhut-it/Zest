@@ -195,7 +195,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         val confidence: Double = 1.0,  // LLM confidence in this issue
         val verified: Boolean = false,
         val verificationReason: String? = null,
-        val falsePositive: Boolean = false,
+        var falsePositive: Boolean = false,
         val codeSnippet: String? = null,  // Relevant code snippet
         val callerSnippets: List<CallerSnippet> = emptyList()  // How this method is called
     )

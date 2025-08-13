@@ -5,8 +5,14 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
+import com.zps.zest.langchain4j.ZestChatLanguageModel;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
+
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -19,34 +25,80 @@ public class ValidatorAgent extends StreamingBaseAgent {
     
     private static final Pattern IMPORT_PATTERN = Pattern.compile("import\\s+([\\w\\.\\*]+);");
     private static final Pattern CLASS_REFERENCE_PATTERN = Pattern.compile("\\b([A-Z][a-zA-Z0-9]*(?:\\.[A-Z][a-zA-Z0-9]*)*)\\b");
+    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile("```(?:java)?\\s*\\n(.*?)```", Pattern.DOTALL);
+    
+    private final ValidationAssistant assistant;
+    
+    /**
+     * Interface for the AI assistant that validates and fixes tests
+     */
+    interface ValidationAssistant {
+        @SystemMessage(
+            "You are a test validation assistant. " +
+            "Your job is to validate generated tests and fix compilation errors. " +
+            "When you find issues, provide fixes in this format:\n" +
+            "ISSUES_FOUND:\n" +
+            "- list issues\n" +
+            "FIXES_APPLIED:\n" +
+            "- list fixes\n" +
+            "FIXED_CODE:\n" +
+            "[corrected Java code]\n\n" +
+            "Output ONLY clean, compilable Java code in the FIXED_CODE section."
+        )
+        String validateAndFix(String testCode);
+        
+        @SystemMessage(
+            "Analyze the provided test code for compilation errors. " +
+            "Output ONLY a list of errors or 'No errors found'."
+        )
+        String analyzeErrors(String testCode);
+    }
     
     public ValidatorAgent(@NotNull Project project,
                          @NotNull ZestLangChain4jService langChainService,
                          @NotNull LLMService llmService) {
         super(project, langChainService, llmService, "ValidatorAgent");
+        
+        // Create AI assistant using AiServices
+        ChatLanguageModel model = new ZestChatLanguageModel(llmService);
+        this.assistant = AiServices.builder(ValidationAssistant.class)
+            .chatLanguageModel(model)
+            .chatMemory(MessageWindowChatMemory.withMaxMessages(5))
+            .build();
     }
     
     /**
-     * Validate and fix generated tests
+     * Validate and fix generated tests using AI Services
      */
     @NotNull
     public CompletableFuture<ValidationResult> validateTests(@NotNull List<GeneratedTest> tests, @NotNull TestContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.info("[ValidatorAgent] Validating " + tests.size() + " generated tests");
+                notifyStream("\n🔍 Validating generated tests...\n");
                 
                 List<ValidationResult.ValidationIssue> allIssues = new ArrayList<>();
                 List<GeneratedTest> fixedTests = new ArrayList<>();
                 List<String> appliedFixes = new ArrayList<>();
                 
                 for (GeneratedTest test : tests) {
-                    String testInfo = buildTestValidationContext(test, context);
+                    // Perform quick local validation first
+                    List<String> localIssues = performLocalValidation(test);
                     
-                    // Direct validation without ReAct for speed
-                    String validationResult = performDirectValidation(test, testInfo);
+                    if (localIssues.isEmpty()) {
+                        // No issues found locally
+                        fixedTests.add(test);
+                        continue;
+                    }
                     
-                    // Parse validation results
-                    ValidationResult testResult = parseValidationResult(test, validationResult, context);
+                    // Build test code for validation
+                    String testCode = test.getFullContent();
+                    
+                    // Use AI to validate and fix
+                    String validationResult = assistant.validateAndFix(testCode);
+                    
+                    // Parse and process results
+                    ValidationResult testResult = parseValidationResult(test, validationResult);
                     
                     allIssues.addAll(testResult.getIssues());
                     if (testResult.hasFixedTests()) {
@@ -57,9 +109,11 @@ public class ValidatorAgent extends StreamingBaseAgent {
                     }
                 }
                 
-                boolean successful = allIssues.stream().noneMatch(issue -> issue.getSeverity() == ValidationResult.ValidationIssue.Severity.ERROR);
+                boolean successful = allIssues.stream()
+                    .noneMatch(issue -> issue.getSeverity() == ValidationResult.ValidationIssue.Severity.ERROR);
                 
                 LOG.info("[ValidatorAgent] Validation completed. Issues: " + allIssues.size() + ", Fixed tests: " + fixedTests.size());
+                notifyStream("✅ Validation complete\n");
                 
                 return new ValidationResult(successful, allIssues, fixedTests, appliedFixes);
                 
@@ -70,186 +124,58 @@ public class ValidatorAgent extends StreamingBaseAgent {
         });
     }
     
-    private String buildTestValidationContext(@NotNull GeneratedTest test, @NotNull TestContext context) {
-        StringBuilder info = new StringBuilder();
-        
-        info.append("Test Validation Context:\n");
-        info.append("Test Class: ").append(test.getTestClassName()).append("\n");
-        info.append("Test Method: ").append(test.getTestName()).append("\n");
-        info.append("Package: ").append(test.getPackageName()).append("\n");
-        info.append("Framework: ").append(test.getFramework()).append("\n\n");
-        
-        info.append("Test Code to Validate:\n");
-        info.append(test.getFullContent()).append("\n\n");
-        
-        info.append("Available Dependencies:\n");
-        context.getDependencies().forEach((key, value) -> 
-            info.append("- ").append(key).append(" (").append(value).append(")\n"));
-        info.append("\n");
-        
-        return info.toString();
-    }
-    
-    @NotNull
-    @Override
-    protected AgentAction determineAction(@NotNull String reasoning, @NotNull String observation) {
-        String lowerReasoning = reasoning.toLowerCase();
-        
-        if (lowerReasoning.contains("analyze") || lowerReasoning.contains("check") || lowerReasoning.contains("examine")) {
-            return new AgentAction(AgentAction.ActionType.ANALYZE, "Analyze code for issues", reasoning);
-        } else if (lowerReasoning.contains("validate") || lowerReasoning.contains("verify") || lowerReasoning.contains("inspect")) {
-            return new AgentAction(AgentAction.ActionType.VALIDATE, "Validate code compilation and correctness", reasoning);
-        } else if (lowerReasoning.contains("fix") || lowerReasoning.contains("correct") || lowerReasoning.contains("repair")) {
-            return new AgentAction(AgentAction.ActionType.GENERATE, "Generate fixes for identified issues", reasoning);
-        } else if (lowerReasoning.contains("complete") || lowerReasoning.contains("done") || lowerReasoning.contains("finished")) {
-            return new AgentAction(AgentAction.ActionType.COMPLETE, "Validation completed", reasoning);
-        } else {
-            return new AgentAction(AgentAction.ActionType.ANALYZE, "Analyze current validation state", reasoning);
-        }
-    }
-    
-    @NotNull
-    @Override
-    protected String executeAction(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case ANALYZE:
-                return performCodeAnalysis(action.getParameters());
-            case VALIDATE:
-                return performCodeValidation(action.getParameters());
-            case GENERATE:
-                return generateCodeFixes(action.getParameters());
-            case COMPLETE:
-                return action.getParameters();
-            default:
-                return "Unknown action: " + action.getType();
-        }
-    }
-    
-    private String performCodeAnalysis(@NotNull String parameters) {
-        String prompt = "List compilation errors (if any):\n" +
-                       parameters + "\n\n" +
-                       "Output: error list or 'No errors'.\n\n" +
-                       "Errors:";
-        
-        return queryLLM(prompt, 200); // Reduced from 1500
-    }
-    
-    private String performCodeValidation(@NotNull String parameters) {
-        StringBuilder validation = new StringBuilder();
-        validation.append("Code Validation Results:\n\n");
-        
-        try {
-            // Extract test code from parameters
-            String testCode = extractTestCode(parameters);
-            
-            // Validate imports
-            List<String> importIssues = validateImports(testCode);
-            if (!importIssues.isEmpty()) {
-                validation.append("Import Issues:\n");
-                importIssues.forEach(issue -> validation.append("- ").append(issue).append("\n"));
-                validation.append("\n");
-            }
-            
-            // Validate class references
-            List<String> classIssues = validateClassReferences(testCode);
-            if (!classIssues.isEmpty()) {
-                validation.append("Class Reference Issues:\n");
-                classIssues.forEach(issue -> validation.append("- ").append(issue).append("\n"));
-                validation.append("\n");
-            }
-            
-            // Validate syntax structure
-            List<String> syntaxIssues = validateSyntaxStructure(testCode);
-            if (!syntaxIssues.isEmpty()) {
-                validation.append("Syntax Issues:\n");
-                syntaxIssues.forEach(issue -> validation.append("- ").append(issue).append("\n"));
-                validation.append("\n");
-            }
-            
-            // Validate test framework usage
-            List<String> frameworkIssues = validateTestFrameworkUsage(testCode);
-            if (!frameworkIssues.isEmpty()) {
-                validation.append("Test Framework Issues:\n");
-                frameworkIssues.forEach(issue -> validation.append("- ").append(issue).append("\n"));
-                validation.append("\n");
-            }
-            
-            if (importIssues.isEmpty() && classIssues.isEmpty() && syntaxIssues.isEmpty() && frameworkIssues.isEmpty()) {
-                validation.append("✅ No validation issues found - code appears to be correct!\n");
-            }
-            
-        } catch (Exception e) {
-            LOG.warn("[ValidatorAgent] Code validation failed", e);
-            validation.append("Validation failed: ").append(e.getMessage()).append("\n");
-        }
-        
-        return validation.toString();
-    }
-    
-    private String generateCodeFixes(@NotNull String parameters) {
-        String prompt = "Fix ONLY compilation errors:\n" +
-                       parameters + "\n\n" +
-                       "Format:\n" +
-                       "ISSUES_FOUND:\n" +
-                       "- list any issues found\n" +
-                       "FIXES_APPLIED:\n" +
-                       "- list fixes applied\n" +
-                       "FIXED_CODE:\n" +
-                       "Output ONLY the corrected Java code here. No comments about what was fixed.\n" +
-                       "The code should be clean and ready to compile.\n\n" +
-                       "Fix:";
-        
-        return queryLLM(prompt, 800); // Reduced from 2000
-    }
-    
     /**
-     * Perform direct validation without ReAct loop for faster response
+     * Perform local validation without LLM
      */
-    private String performDirectValidation(@NotNull GeneratedTest test, @NotNull String testInfo) {
-        // First do quick code analysis
-        String testCode = test.getFullContent();
+    private List<String> performLocalValidation(@NotNull GeneratedTest test) {
         List<String> issues = new ArrayList<>();
+        String testCode = test.getFullContent();
         
         // Check imports
         List<String> importIssues = validateImports(testCode);
         issues.addAll(importIssues);
         
-        // Check syntax
+        // Check syntax structure
         List<String> syntaxIssues = validateSyntaxStructure(testCode);
         issues.addAll(syntaxIssues);
         
-        // If no issues, return success
-        if (issues.isEmpty()) {
-            return "ISSUES_FOUND:\n" +
-                   "FIXES_APPLIED:\n" +
-                   "FIXED_CODE:\n" + testCode;
-        }
+        // Check test framework usage
+        List<String> frameworkIssues = validateTestFrameworkUsage(testCode);
+        issues.addAll(frameworkIssues);
         
-        // Ask LLM to fix issues
-        String prompt = "Fix these test issues:\n" +
-                       "Issues found:\n" + String.join("\n", issues) + "\n\n" +
-                       "Test code:\n" + testCode + "\n\n" +
-                       "Output format:\n" +
-                       "ISSUES_FOUND:\n" +
-                       "- list issues\n" +
-                       "FIXES_APPLIED:\n" +
-                       "- list fixes\n" +
-                       "FIXED_CODE:\n" +
-                       "corrected test code\n\n" +
-                       "Fix:";
-        
-        return queryLLM(prompt, 600);
+        return issues;
     }
     
-    private String extractTestCode(@NotNull String parameters) {
-        // Extract the actual test code from the parameters
-        if (parameters.contains("Test Code to Validate:")) {
-            int startIndex = parameters.indexOf("Test Code to Validate:") + "Test Code to Validate:".length();
-            int endIndex = parameters.indexOf("\n\nAvailable Dependencies:");
-            if (endIndex == -1) endIndex = parameters.length();
-            return parameters.substring(startIndex, endIndex).trim();
+    /**
+     * Strip markdown formatting from text
+     */
+    private String stripMarkdown(@NotNull String text) {
+        // Remove code blocks
+        text = text.replaceAll("```(?:java)?\\s*\\n", "");
+        text = text.replaceAll("\\n?```\\s*", "");
+        
+        // Remove backticks
+        text = text.replaceAll("^`+|`+$", "");
+        
+        // Remove bold/italic
+        text = text.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        text = text.replaceAll("__(.*?)__", "$1");
+        text = text.replaceAll("\\*(.*?)\\*", "$1");
+        text = text.replaceAll("_(.*?)_", "$1");
+        
+        return text.trim();
+    }
+    
+    /**
+     * Extract code from markdown code blocks
+     */
+    private String extractCodeFromMarkdown(@NotNull String text) {
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
         }
-        return parameters;
+        // If no code blocks, strip markdown and return
+        return stripMarkdown(text);
     }
     
     private List<String> validateImports(@NotNull String testCode) {
@@ -432,7 +358,7 @@ public class ValidatorAgent extends StreamingBaseAgent {
         return (int) text.chars().filter(c -> c == ch).count();
     }
     
-    private ValidationResult parseValidationResult(@NotNull GeneratedTest test, @NotNull String validationResult, @NotNull TestContext context) {
+    private ValidationResult parseValidationResult(@NotNull GeneratedTest test, @NotNull String validationResult) {
         try {
             List<ValidationResult.ValidationIssue> issues = new ArrayList<>();
             List<GeneratedTest> fixedTests = new ArrayList<>();
@@ -464,10 +390,7 @@ public class ValidatorAgent extends StreamingBaseAgent {
                             }
                             break;
                         case "CODE":
-                            // Only append actual code, skip comments about fixes
-                            if (!line.startsWith("//") || line.contains("@Test") || line.contains("@Before") || line.contains("@After")) {
-                                fixedCode.append(line).append("\n");
-                            }
+                            fixedCode.append(line).append("\n");
                             break;
                     }
                 }
@@ -475,7 +398,8 @@ public class ValidatorAgent extends StreamingBaseAgent {
             
             // If we have fixed code, create a new GeneratedTest with fixes
             if (fixedCode.length() > 0) {
-                GeneratedTest fixedTest = createFixedTest(test, fixedCode.toString());
+                String cleanedCode = extractCodeFromMarkdown(fixedCode.toString());
+                GeneratedTest fixedTest = createFixedTest(test, cleanedCode);
                 fixedTests.add(fixedTest);
             }
             
@@ -567,6 +491,9 @@ public class ValidatorAgent extends StreamingBaseAgent {
     }
     
     private String extractClassContentFromCode(@NotNull String code) {
+        // First strip any markdown
+        code = stripMarkdown(code);
+        
         // Remove package and import statements, keep only class content
         String[] lines = code.split("\n");
         StringBuilder classContent = new StringBuilder();
@@ -576,11 +503,6 @@ public class ValidatorAgent extends StreamingBaseAgent {
             if (line.trim().startsWith("package ") || line.trim().startsWith("import ")) {
                 continue;
             }
-            // Skip result comments or fix descriptions
-            if (line.contains("FIXED:") || line.contains("RESULT:") || 
-                line.contains("Fixed the following") || line.contains("The fix")) {
-                continue;
-            }
             if (line.trim().contains("class ") || inClassContent) {
                 inClassContent = true;
                 classContent.append(line).append("\n");
@@ -588,6 +510,21 @@ public class ValidatorAgent extends StreamingBaseAgent {
         }
         
         return classContent.toString().trim();
+    }
+    
+    // Simplified required overrides for StreamingBaseAgent
+    @NotNull
+    @Override
+    protected AgentAction determineAction(@NotNull String reasoning, @NotNull String observation) {
+        // Not used with AiServices pattern
+        return new AgentAction(AgentAction.ActionType.COMPLETE, "Validation completed", reasoning);
+    }
+    
+    @NotNull
+    @Override
+    protected String executeAction(@NotNull AgentAction action) {
+        // Not used with AiServices pattern
+        return action.getParameters();
     }
     
     @NotNull
@@ -610,41 +547,7 @@ public class ValidatorAgent extends StreamingBaseAgent {
     @NotNull
     @Override
     protected String buildActionPrompt(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case ANALYZE:
-                return analyzeTestRequirements(action.getParameters());
-                
-            case VALIDATE:
-                return "Validate test code:\n" +
-                       action.getParameters() + "\n\n" +
-                       "Check: syntax, imports, annotations, assertions, mocks.\n\n" +
-                       "Results:";
-                       
-            case GENERATE:
-                return generateTestCode(action.getParameters());
-                
-            default:
-                return action.getParameters();
-        }
-    }
-    
-    private String analyzeTestRequirements(@NotNull String parameters) {
-        return "Check syntax only:\n" +
-               parameters + "\n\n" +
-               "Output: 'Valid' or list errors.\n\n" +
-               "Result:";
-    }
-    
-    private String generateTestCode(@NotNull String parameters) {
-        return "Fix errors only:\n" +
-               parameters + "\n\n" +
-               "Format:\n" +
-               "ISSUES_FOUND:\n" +
-               "error1\n" +
-               "FIXES_APPLIED:\n" +
-               "fix1\n" +
-               "FIXED_CODE:\n" +
-               "corrected code\n\n" +
-               "Fixed:";
+        // Not used with AiServices pattern
+        return action.getParameters();
     }
 }

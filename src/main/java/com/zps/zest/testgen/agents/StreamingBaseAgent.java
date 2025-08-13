@@ -5,11 +5,14 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.langchain4j.util.StreamingLLMService;
+import com.zps.zest.testgen.ui.AgentDebugDialog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -49,9 +52,24 @@ public abstract class StreamingBaseAgent extends BaseAgent {
      */
     @NotNull
     public CompletableFuture<String> executeStreamingTask(@NotNull String task, @NotNull String context) {
+        return executeStreamingTask(task, context, null);
+    }
+    
+    /**
+     * Execute agent task with streaming support and session tracking.
+     */
+    @NotNull
+    public CompletableFuture<String> executeStreamingTask(@NotNull String task, @NotNull String context, @Nullable String sessionId) {
         return CompletableFuture.supplyAsync(() -> {
+            long startTime = System.currentTimeMillis();
+            
             try {
                 LOG.debug("[" + agentName + "] Starting streaming ReAct execution for task: " + task);
+                
+                // Record agent start
+                if (sessionId != null) {
+                    recordAgentExecution(sessionId, agentName, "START", task, "", 0);
+                }
                 
                 // Notify stream start
                 notifyStream("\n=== " + agentName + " Starting ===\n");
@@ -80,8 +98,23 @@ public abstract class StreamingBaseAgent extends BaseAgent {
                     
                     steps.add(new ReActStep(reasoning, action, observation));
                     
+                    // Record step execution
+                    if (sessionId != null) {
+                        recordAgentExecution(sessionId, agentName, 
+                            "STEP_" + (step + 1) + "_" + action.getType(),
+                            reasoning, observation, 
+                            System.currentTimeMillis() - startTime);
+                    }
+                    
                     if (action.getType() == AgentAction.ActionType.COMPLETE) {
                         notifyStream("\n✅ Task completed!\n");
+                        
+                        // Record completion
+                        if (sessionId != null) {
+                            recordAgentExecution(sessionId, agentName, "COMPLETE", 
+                                task, observation, System.currentTimeMillis() - startTime);
+                        }
+                        
                         return observation;
                     }
                     
@@ -89,11 +122,25 @@ public abstract class StreamingBaseAgent extends BaseAgent {
                 }
                 
                 notifyStream("\n⚠️ Reached maximum steps\n");
+                
+                // Record max steps reached
+                if (sessionId != null) {
+                    recordAgentExecution(sessionId, agentName, "MAX_STEPS", 
+                        task, currentObservation, System.currentTimeMillis() - startTime);
+                }
+                
                 return currentObservation;
                 
             } catch (Exception e) {
                 LOG.error("[" + agentName + "] Streaming execution failed", e);
                 notifyStream("\n❌ Error: " + e.getMessage() + "\n");
+                
+                // Record error
+                if (sessionId != null) {
+                    recordAgentExecution(sessionId, agentName, "ERROR", 
+                        task, e.getMessage(), System.currentTimeMillis() - startTime);
+                }
+                
                 return "Error: " + e.getMessage();
             }
         });
@@ -213,6 +260,27 @@ public abstract class StreamingBaseAgent extends BaseAgent {
             if (DEBUG_STREAMING) {
                 System.out.println("[DEBUG-STREAMING-" + agentName + "] WARNING: No consumer to notify!");
             }
+        }
+    }
+    
+    /**
+     * Record agent execution to debug dialog.
+     */
+    protected void recordAgentExecution(@NotNull String sessionId, 
+                                       @NotNull String agentName,
+                                       @NotNull String phase,
+                                       @NotNull String input,
+                                       @NotNull String output,
+                                       long duration) {
+        try {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("thread", Thread.currentThread().getName());
+            
+            AgentDebugDialog.Companion.recordAgentExecution(
+                sessionId, agentName, phase, input, output, duration, metadata
+            );
+        } catch (Exception e) {
+            LOG.warn("Failed to record agent execution", e);
         }
     }
     

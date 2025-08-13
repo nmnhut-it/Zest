@@ -341,6 +341,9 @@ public class TestMergerAgent extends StreamingBaseAgent {
     
     @NotNull
     private MergedTestClass parseMergedTestClass(@NotNull String content, @NotNull GeneratedTest template) {
+        // Clean markdown formatting first
+        content = cleanMarkdownFormatting(content);
+        
         // Extract package and imports
         String packageName = template.getPackageName();
         List<String> imports = new ArrayList<>();
@@ -362,6 +365,24 @@ public class TestMergerAgent extends StreamingBaseAgent {
             content,
             null
         );
+    }
+    
+    private String cleanMarkdownFormatting(@NotNull String text) {
+        // Remove markdown code blocks
+        text = text.replaceAll("```java\\s*\n", "");
+        text = text.replaceAll("```\\s*\n", "");
+        text = text.replaceAll("\n```\\s*", "");
+        text = text.replaceAll("```", "");
+        
+        // Remove any leading/trailing backticks
+        text = text.replaceAll("^`+", "");
+        text = text.replaceAll("`+$", "");
+        
+        // Remove markdown bold/italic markers
+        text = text.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        text = text.replaceAll("__(.*?)__", "$1");
+        
+        return text.trim();
     }
     
     @NotNull

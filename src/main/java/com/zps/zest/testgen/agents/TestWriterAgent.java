@@ -405,7 +405,9 @@ public class TestWriterAgent extends StreamingBaseAgent {
     private GeneratedTest parseGeneratedTest(@NotNull String testResult, @NotNull TestPlan.TestScenario scenario, 
                                            @NotNull TestPlan testPlan, @NotNull TestContext context) {
         try {
-            String[] lines = testResult.split("\n");
+            // Clean markdown formatting from the result first
+            String cleanedResult = cleanMarkdownFormatting(testResult);
+            String[] lines = cleanedResult.split("\n");
             
             String packageName = inferPackageName(testPlan.getTargetClass());
             String className = testPlan.getTargetClass() + "Test";
@@ -570,6 +572,24 @@ public class TestWriterAgent extends StreamingBaseAgent {
         code.append("}\n");
         
         return code.toString();
+    }
+    
+    private String cleanMarkdownFormatting(@NotNull String text) {
+        // Remove markdown code blocks
+        text = text.replaceAll("```java\\s*\n", "");
+        text = text.replaceAll("```\\s*\n", "");
+        text = text.replaceAll("\n```\\s*", "");
+        text = text.replaceAll("```", "");
+        
+        // Remove any leading/trailing backticks
+        text = text.replaceAll("^`+", "");
+        text = text.replaceAll("`+$", "");
+        
+        // Remove markdown bold/italic markers that might appear
+        text = text.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        text = text.replaceAll("__(.*?)__", "$1");
+        
+        return text.trim();
     }
     
     private String extractTestMethodName(@NotNull String testCode) {

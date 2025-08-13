@@ -219,8 +219,8 @@ public final class TestGenerationService {
                 tracker.startPhase(TestGenerationProgressTracker.PhaseType.CONTEXT_GATHERING);
                 tracker.updatePhaseProgress("Exploring codebase and gathering context...", 20);
                 
-                // Gather context FIRST before planning
-                TestContext context = contextAgent.gatherContext(session.getRequest(), null).join();
+                // Gather context FIRST before planning (pass sessionId for tracking)
+                TestContext context = contextAgent.gatherContext(session.getRequest(), null, session.getSessionId()).join();
                 session.setContext(context);
                 tracker.updatePhaseProgress("Context gathered: " + context.getContextItemCount() + " items", 100);
                 tracker.completePhase("Context gathering completed");
@@ -580,31 +580,24 @@ public final class TestGenerationService {
             List<String> writtenFiles = new ArrayList<>();
             
             try {
-                // Group tests by class name
-                Map<String, List<GeneratedTest>> testsByClass = new HashMap<>();
-                for (GeneratedTest test : session.getGeneratedTests()) {
-                    testsByClass.computeIfAbsent(test.getTestClassName(), k -> new ArrayList<>()).add(test);
-                }
+                // The tests are already merged by TestMergerAgent, just write them
+                List<GeneratedTest> testsToWrite = session.getGeneratedTests();
                 
-                // Write each test class (this is now safe to call from background thread)
-                for (Map.Entry<String, List<GeneratedTest>> entry : testsByClass.entrySet()) {
-                    String className = entry.getKey();
-                    List<GeneratedTest> classTests = entry.getValue();
+                // Write each test file (already merged by TestMergerAgent)
+                for (int i = 0; i < testsToWrite.size(); i++) {
+                    GeneratedTest test = testsToWrite.get(i);
                     
-                    // Combine all tests for this class
-                    GeneratedTest combinedTest = combineTestsIntoClass(classTests);
-                    
-                    // Write the combined test file - this method now handles threading properly
-                    String filePath = testWriterAgent.writeTestFile(combinedTest);
+                    // Write the test file - this method now handles threading properly
+                    String filePath = testWriterAgent.writeTestFile(test);
                     writtenFiles.add(filePath);
-                    LOG.info("Written test file: " + filePath + " with " + classTests.size() + " test methods");
+                    LOG.info("Written test file: " + filePath + " for class " + test.getTestClassName());
                     
                     // Notify progress (safe from any thread)
-                    notifyProgress(sessionId, "Written " + className + " with " + classTests.size() + " tests", 
-                                  (writtenFiles.size() * 100) / testsByClass.size());
+                    notifyProgress(sessionId, "Written " + test.getTestClassName(), 
+                                  ((i + 1) * 100) / testsToWrite.size());
                 }
                 
-                notifyProgress(sessionId, "All tests written to files: " + writtenFiles.size() + " files created", 100);
+                notifyProgress(sessionId, "All tests written to files: " + writtenFiles.size() + " file(s) created", 100);
                 return writtenFiles;
                 
             } catch (Exception e) {
@@ -614,81 +607,9 @@ public final class TestGenerationService {
         });
     }
     
-    /**
-     * Combine multiple test methods into a single test class
-     */
-    private GeneratedTest combineTestsIntoClass(@NotNull List<GeneratedTest> tests) {
-        if (tests.isEmpty()) {
-            throw new IllegalArgumentException("No tests to combine");
-        }
-        
-        GeneratedTest firstTest = tests.get(0);
-        
-        // Combine all imports (remove duplicates)
-        Set<String> allImports = new LinkedHashSet<>(firstTest.getImports());
-        for (GeneratedTest test : tests) {
-            allImports.addAll(test.getImports());
-        }
-        
-        // Extract setup code (fields and @BeforeEach) from first test
-        String firstTestContent = firstTest.getTestContent();
-        StringBuilder setupCode = new StringBuilder();
-        StringBuilder allTestMethods = new StringBuilder();
-        
-        // Parse first test for setup
-        String[] lines = firstTestContent.split("\n");
-        boolean inSetupSection = true;
-        boolean foundFirstTestMethod = false;
-        
-        for (String line : lines) {
-            if (line.contains("@Test")) {
-                foundFirstTestMethod = true;
-                inSetupSection = false;
-            }
-            
-            if (inSetupSection && !line.trim().isEmpty()) {
-                // This is setup code (fields, @BeforeEach, etc.)
-                setupCode.append(line).append("\n");
-            } else if (foundFirstTestMethod || line.contains("@Test")) {
-                // This is test method code
-                allTestMethods.append(line).append("\n");
-            }
-        }
-        
-        // Add all other test methods (skip setup from other tests)
-        for (int i = 1; i < tests.size(); i++) {
-            GeneratedTest test = tests.get(i);
-            String testContent = test.getTestContent();
-            String[] testLines = testContent.split("\n");
-            boolean inTestMethod = false;
-            
-            for (String line : testLines) {
-                if (line.contains("@Test")) {
-                    inTestMethod = true;
-                    allTestMethods.append("\n");  // Add spacing between methods
-                }
-                if (inTestMethod) {
-                    allTestMethods.append(line).append("\n");
-                }
-            }
-        }
-        
-        // Combine setup and all test methods
-        String combinedContent = setupCode.toString() + "\n" + allTestMethods.toString();
-        
-        // Create combined test
-        return new GeneratedTest(
-            "combined",  // This won't be used since we have multiple methods
-            firstTest.getTestClassName(),
-            combinedContent,
-            firstTest.getScenario(),  // Use first scenario as representative
-            firstTest.getFileName(),
-            firstTest.getPackageName(),
-            new ArrayList<>(allImports),
-            firstTest.getAnnotations(),
-            firstTest.getFramework()
-        );
-    }
+    // REMOVED: combineTestsIntoClass method - this is TestMergerAgent's job!
+    // The TestMergerAgent already handles merging tests for the same class.
+    // We should not duplicate this logic here.
     
     /**
      * Get statistics for all sessions

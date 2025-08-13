@@ -8,6 +8,7 @@ import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBSplitter
@@ -123,30 +124,18 @@ class TestGenerationEditor(
         // Add status bar at bottom
         component.add(createStatusBar(), BorderLayout.SOUTH)
         
-        // Create overview panel with code preview
+        // Create overview panel
         val topPanel = JPanel(BorderLayout(10, 5))
         topPanel.background = UIUtil.getPanelBackground()
-        topPanel.preferredSize = Dimension(800, 150)
+        topPanel.preferredSize = Dimension(800, 120)
         topPanel.minimumSize = Dimension(600, 100)
         
-        // Create horizontal splitter for overview and code preview
-        val horizontalSplitter = JBSplitter(false, 0.35f) // 35% overview, 65% code preview
-        
-        // Create and store overview panel (left side)
+        // Create and store overview panel
         overviewPanel = JPanel(GridBagLayout())
         overviewPanel!!.background = UIUtil.getPanelBackground()
         overviewPanel!!.border = EmptyBorder(10, 10, 10, 10)
-        overviewPanel!!.preferredSize = Dimension(300, 130)
-        horizontalSplitter.firstComponent = JBScrollPane(overviewPanel)
         
-        // Create code preview panel (right side)
-        codePreviewPanel = JPanel(BorderLayout())
-        codePreviewPanel!!.background = UIUtil.getPanelBackground()
-        codePreviewPanel!!.border = EmptyBorder(5, 5, 5, 5)
-        codePreviewPanel!!.preferredSize = Dimension(500, 130)
-        horizontalSplitter.secondComponent = codePreviewPanel
-        
-        topPanel.add(horizontalSplitter, BorderLayout.CENTER)
+        topPanel.add(JBScrollPane(overviewPanel), BorderLayout.CENTER)
         
         // Create tabbed pane
         tabbedPane = JBTabbedPane()
@@ -192,6 +181,7 @@ class TestGenerationEditor(
         streamingTab = JBScrollPane(streamingContentPanel)
         
         tabbedPane!!.addTab("📝 Raw AI Response", streamingTab)
+        tabbedPane!!.addTab("🔍 Code Under Test", createCodeUnderTestTab())
         tabbedPane!!.addTab("📋 Test Plan", planTab)
         tabbedPane!!.addTab("🧪 Generated Tests", testsTab)
         tabbedPane!!.addTab("✅ Validation", validationTab)
@@ -201,7 +191,6 @@ class TestGenerationEditor(
     private fun updateDataDependentComponents() {
         SwingUtilities.invokeLater {
             updateOverviewPanel()
-            updateCodePreviewPanel()
             updateStreamingTab()
             updateTestPlanTab()
             updateGeneratedTestsTab()
@@ -287,6 +276,19 @@ class TestGenerationEditor(
         })
         
         actionGroup.addSeparator()
+        
+        // Show agent debug history action
+        actionGroup.add(object : AnAction("🐛 Agent Debug History", "Show agent debug history", AllIcons.Actions.StartDebugger) {
+            override fun actionPerformed(e: AnActionEvent) {
+                showAgentDebugDialog()
+            }
+            
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = "🐛 Agent Debug History"
+                e.presentation.description = "Show debug history for all agents"
+                e.presentation.isEnabled = currentSession != null
+            }
+        })
         
         // Refresh action
         actionGroup.add(object : AnAction("🔄 Refresh View", "Refresh session data", AllIcons.Actions.Refresh) {
@@ -431,6 +433,12 @@ class TestGenerationEditor(
             hintLabel.font = hintLabel.font.deriveFont(11f)
             hintLabel.foreground = UIUtil.getInactiveTextColor()
             overviewPanel!!.add(hintLabel, gbc)
+            
+            // Add button to show agent debug
+            gbc.gridy = 5
+            val debugButton = JButton("🐛 View Agent History")
+            debugButton.addActionListener { showAgentDebugDialog() }
+            overviewPanel!!.add(debugButton, gbc)
         }
     }
     
@@ -445,6 +453,87 @@ class TestGenerationEditor(
         } catch (e: Exception) {
             0
         }
+    }
+    
+    private fun createCodeUnderTestTab(): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.background = UIUtil.getPanelBackground()
+        panel.border = EmptyBorder(10, 10, 10, 10)
+        
+        // Add info panel at top
+        val infoPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        infoPanel.background = UIUtil.getPanelBackground()
+        infoPanel.border = EmptyBorder(5, 10, 5, 10)
+        
+        val fileLabel = JBLabel("📄 File: ${virtualFile.targetFile.name}")
+        fileLabel.font = fileLabel.font.deriveFont(Font.BOLD, 12f)
+        infoPanel.add(fileLabel)
+        
+        val selectionInfo = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
+            val chars = virtualFile.selectionEnd - virtualFile.selectionStart
+            "🎯 Selection: $chars characters (lines ${getLineNumber(virtualFile.selectionStart)}-${getLineNumber(virtualFile.selectionEnd)})"
+        } else {
+            "📄 Entire file"
+        }
+        val selectionLabel = JBLabel(selectionInfo)
+        selectionLabel.foreground = UIUtil.getInactiveTextColor()
+        infoPanel.add(Box.createHorizontalStrut(20))
+        infoPanel.add(selectionLabel)
+        
+        panel.add(infoPanel, BorderLayout.NORTH)
+        
+        // Get selected code text
+        val selectedCode = try {
+            val text = virtualFile.targetFile.text
+            if (virtualFile.selectionStart != virtualFile.selectionEnd && 
+                virtualFile.selectionStart >= 0 && 
+                virtualFile.selectionEnd <= text.length) {
+                text.substring(virtualFile.selectionStart, virtualFile.selectionEnd)
+            } else {
+                text
+            }
+        } catch (e: Exception) {
+            "// Unable to preview selected code"
+        }
+        
+        // Create editor with syntax highlighting
+        val document = EditorFactory.getInstance().createDocument(selectedCode)
+        val editor = EditorFactory.getInstance().createEditor(
+            document, 
+            project, 
+            virtualFile.targetFile.fileType, 
+            true
+        ) as EditorEx
+        
+        // Configure editor to be read-only with proper highlighting
+        editor.settings.apply {
+            isLineNumbersShown = true
+            isWhitespacesShown = false
+            isIndentGuidesShown = true
+            isFoldingOutlineShown = true
+            additionalColumnsCount = 0
+            additionalLinesCount = 0
+            isCaretRowShown = false
+            isLineMarkerAreaShown = true
+        }
+        
+        editor.isViewer = true
+        editor.colorsScheme = EditorColorsManager.getInstance().globalScheme
+        
+        val editorComponent = editor.component
+        val scrollPane = JBScrollPane(editorComponent)
+        scrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
+        panel.add(scrollPane, BorderLayout.CENTER)
+        
+        // Store editor for cleanup
+        panel.putClientProperty("codeUnderTestEditor", editor)
+        
+        return panel
+    }
+    
+    private fun showAgentDebugDialog() {
+        val dialog = AgentDebugDialog(project, currentSession)
+        dialog.show()
     }
     
     private fun updateCodePreviewPanel() {
@@ -791,6 +880,7 @@ class TestGenerationEditor(
     fun appendStreamingText(text: String) {
         println("[DEBUG-UI] appendStreamingText called with text length: ${text.length}")
         println("[DEBUG-UI] streamingTextArea is null? ${streamingTextArea == null}")
+        
         SwingUtilities.invokeLater {
             println("[DEBUG-UI] Inside EDT - streamingTextArea is null? ${streamingTextArea == null}")
             streamingTextArea?.let { textArea ->
@@ -1142,12 +1232,25 @@ class TestGenerationEditor(
         }
         
         // Generate description based on selection
-        val description = "Generate tests for ${selectedMethods.size} selected method(s)"
+        val methodNames = selectedMethods.map { it.name }
+        val description = if (selectedMethods.size == 1) {
+            "Generate tests for method: ${methodNames.first()}"
+        } else {
+            "Generate tests for ${selectedMethods.size} methods: ${methodNames.joinToString(", ")}"
+        }
         
         // Store selected methods info in metadata (TestGenerationRequest expects Map<String, String>)
         val metadata = mutableMapOf<String, String>()
-        metadata["selectedMethods"] = selectedMethods.joinToString(",") { it.name }
+        metadata["selectedMethods"] = selectedMethods.joinToString(";") { method ->
+            // Store full method signature for better identification
+            val params = method.parameterList.parameters.joinToString(",") { it.type.presentableText }
+            "${method.containingClass?.name ?: "Unknown"}.${method.name}($params)"
+        }
         metadata["methodCount"] = selectedMethods.size.toString()
+        metadata["methodNames"] = methodNames.joinToString(",")
+        
+        // Add info about whether to test all methods together or separately
+        metadata["testStrategy"] = if (selectedMethods.size > 1) "multiple" else "single"
         
         val request = TestGenerationRequest(
             virtualFile.targetFile,

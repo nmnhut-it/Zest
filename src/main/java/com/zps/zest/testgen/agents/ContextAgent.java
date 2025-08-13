@@ -67,7 +67,8 @@ public class ContextAgent extends StreamingBaseAgent {
             "BE STRATEGIC: Don't call tools endlessly. Usually 3-7 tool calls are sufficient. " +
             "After each tool call, evaluate if you have enough information. " +
             "Focus on: 1) Target file content, 2) Test examples, 3) Key dependencies. " +
-            "STOP when you have gathered the essential context."
+            "STOP when you have gathered the essential context. " +
+            "Output clean text without markdown formatting."
         )
         String gatherContext(String task);
     }
@@ -79,6 +80,7 @@ public class ContextAgent extends StreamingBaseAgent {
         private final Project project;
         private final CodeExplorationToolRegistry toolRegistry;
         private final ReadFileTool readFileTool;
+        private String currentSessionId; // Track current session for recording
         
         public ContextGatheringTools(@NotNull Project project, @NotNull CodeExplorationToolRegistry toolRegistry) {
             this.project = project;
@@ -86,13 +88,25 @@ public class ContextAgent extends StreamingBaseAgent {
             this.readFileTool = new ReadFileTool(project);
         }
         
+        public void setSessionId(String sessionId) {
+            this.currentSessionId = sessionId;
+        }
+        
         @Tool("Read the contents of a file")
         public String readFile(String filePath) {
+            long startTime = System.currentTimeMillis();
             try {
                 JsonObject params = new JsonObject();
                 params.addProperty("filePath", filePath);
                 
                 CodeExplorationTool.ToolResult result = readFileTool.execute(params);
+                
+                // Record tool call
+                if (currentSessionId != null) {
+                    recordToolCall("readFile", filePath, result.getContent(), 
+                        System.currentTimeMillis() - startTime);
+                }
+                
                 if (result.isSuccess()) {
                     return result.getContent();
                 } else {
@@ -144,6 +158,7 @@ public class ContextAgent extends StreamingBaseAgent {
         
         @Tool("Search for code using semantic search")
         public String searchCode(String query) {
+            long startTime = System.currentTimeMillis();
             try {
                 CodeExplorationTool retrievalTool = toolRegistry.getTool("retrieve_context");
                 if (retrievalTool != null) {
@@ -153,6 +168,13 @@ public class ContextAgent extends StreamingBaseAgent {
                     params.addProperty("threshold", 0.6);
                     
                     CodeExplorationTool.ToolResult result = retrievalTool.execute(params);
+                    
+                    // Record tool call
+                    if (currentSessionId != null) {
+                        recordToolCall("searchCode", query, result.getContent(), 
+                            System.currentTimeMillis() - startTime);
+                    }
+                    
                     if (result.isSuccess()) {
                         return result.getContent();
                     }
@@ -160,6 +182,26 @@ public class ContextAgent extends StreamingBaseAgent {
                 return "No results found for: " + query;
             } catch (Exception e) {
                 return "Error searching code: " + e.getMessage();
+            }
+        }
+        
+        private void recordToolCall(String toolName, String input, String output, long duration) {
+            try {
+                if (currentSessionId != null) {
+                    Map<String, Object> metadata = new HashMap<>();
+                    metadata.put("tool", toolName);
+                    
+                    com.zps.zest.testgen.ui.AgentDebugDialog.Companion.recordAgentExecution(
+                        currentSessionId, "ContextAgent", 
+                        "TOOL_" + toolName.toUpperCase(),
+                        input, 
+                        output.length() > 500 ? output.substring(0, 500) + "..." : output,
+                        duration, 
+                        metadata
+                    );
+                }
+            } catch (Exception e) {
+                // Ignore errors in recording
             }
         }
     }
@@ -171,10 +213,35 @@ public class ContextAgent extends StreamingBaseAgent {
      */
     @NotNull
     public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request, @Nullable TestPlan testPlan) {
+        return gatherContext(request, testPlan, null);
+    }
+    
+    /**
+     * Gather comprehensive context for test generation using LangChain4j tools with session tracking
+     */
+    @NotNull
+    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request, 
+                                                        @Nullable TestPlan testPlan,
+                                                        @Nullable String sessionId) {
         return CompletableFuture.supplyAsync(() -> {
+            long startTime = System.currentTimeMillis();
+            
             try {
                 LOG.info("[ContextAgent] Gathering context for: " + request.getTargetFile().getName());
                 notifyStream("\n🔍 Gathering comprehensive context for test generation...\n");
+                
+                // Set session ID for tool tracking
+                contextTools.setSessionId(sessionId);
+                
+                // Record start
+                if (sessionId != null) {
+                    Map<String, Object> metadata = new HashMap<>();
+                    metadata.put("targetFile", request.getTargetFile().getName());
+                    com.zps.zest.testgen.ui.AgentDebugDialog.Companion.recordAgentExecution(
+                        sessionId, "ContextAgent", "START", 
+                        "Target: " + request.getTargetFile().getName(), "", 0, metadata
+                    );
+                }
                 
                 String targetInfo = "";
                 if (testPlan != null) {
@@ -196,13 +263,36 @@ public class ContextAgent extends StreamingBaseAgent {
                 // Use the LangChain4j AI assistant with tools
                 String contextGatheringResult = assistant.gatherContext(task);
                 
+                // Clean any markdown formatting from the result
+                contextGatheringResult = stripMarkdown(contextGatheringResult);
+                
                 notifyStream("\n✅ Context gathering complete\n");
+                
+                // Record completion
+                if (sessionId != null) {
+                    com.zps.zest.testgen.ui.AgentDebugDialog.Companion.recordAgentExecution(
+                        sessionId, "ContextAgent", "COMPLETE", 
+                        task, contextGatheringResult.length() > 500 ? 
+                            contextGatheringResult.substring(0, 500) + "..." : contextGatheringResult,
+                        System.currentTimeMillis() - startTime, new HashMap<>()
+                    );
+                }
                 
                 // Build the final TestContext from what was gathered
                 return buildTestContextFromGathering(request, testPlan, contextGatheringResult);
                 
             } catch (Exception e) {
                 LOG.error("[ContextAgent] Failed to gather context", e);
+                
+                // Record error
+                if (sessionId != null) {
+                    com.zps.zest.testgen.ui.AgentDebugDialog.Companion.recordAgentExecution(
+                        sessionId, "ContextAgent", "ERROR", 
+                        request.getTargetFile().getName(), e.getMessage(), 
+                        System.currentTimeMillis() - startTime, new HashMap<>()
+                    );
+                }
+                
                 throw new RuntimeException("Context gathering failed: " + e.getMessage());
             }
         });
@@ -228,141 +318,7 @@ public class ContextAgent extends StreamingBaseAgent {
         return context.toString();
     }
     
-    @NotNull
-    @Override
-    protected AgentAction determineAction(@NotNull String reasoning, @NotNull String observation) {
-        String lowerReasoning = reasoning.toLowerCase();
-        
-        if (lowerReasoning.contains("search") || lowerReasoning.contains("find") || lowerReasoning.contains("look for")) {
-            return new AgentAction(AgentAction.ActionType.SEARCH, "Search for related code and patterns", reasoning);
-        } else if (lowerReasoning.contains("analyze") || lowerReasoning.contains("examine") || lowerReasoning.contains("inspect")) {
-            return new AgentAction(AgentAction.ActionType.ANALYZE, "Analyze code dependencies and structure", reasoning);
-        } else if (lowerReasoning.contains("gather") || lowerReasoning.contains("collect") || lowerReasoning.contains("retrieve")) {
-            return new AgentAction(AgentAction.ActionType.GENERATE, "Gather context information", reasoning);
-        } else if (lowerReasoning.contains("complete") || lowerReasoning.contains("done") || lowerReasoning.contains("finished")) {
-            return new AgentAction(AgentAction.ActionType.COMPLETE, "Context gathering completed", reasoning);
-        } else {
-            return new AgentAction(AgentAction.ActionType.SEARCH, "Search for additional context", reasoning);
-        }
-    }
-    
-    @NotNull
-    @Override
-    protected String executeAction(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case SEARCH:
-                return performSearch(action.getParameters());
-            case ANALYZE:
-                return analyzeCodeStructure(action.getParameters());
-            case GENERATE:
-                return gatherAdditionalContext(action.getParameters());
-            case COMPLETE:
-                return action.getParameters();
-            default:
-                return "Unknown action: " + action.getType();
-        }
-    }
-    
-    private String performSearch(@NotNull String parameters) {
-        try {
-            // Use RAG to find related context
-            String searchQuery = extractSearchTerms(parameters);
-            
-            ZestLangChain4jService.RetrievalResult result = langChainService
-                .retrieveContext(searchQuery, 5, 0.6).join();
-            
-            if (result.isSuccess() && !result.getItems().isEmpty()) {
-                StringBuilder context = new StringBuilder();
-                context.append("Found ").append(result.getItems().size()).append(" relevant code pieces:\n\n");
-                
-                for (ZestLangChain4jService.ContextItem item : result.getItems()) {
-                    context.append("File: ").append(item.getFilePath()).append("\n");
-                    if (item.getLineNumber() != null) {
-                        context.append("Line: ").append(item.getLineNumber()).append("\n");
-                    }
-                    context.append("Content:\n").append(item.getContent()).append("\n");
-                    context.append("Relevance Score: ").append(String.format("%.2f", item.getScore())).append("\n\n");
-                }
-                
-                return context.toString();
-            } else {
-                return "No relevant context found for: " + searchQuery;
-            }
-            
-        } catch (Exception e) {
-            LOG.warn("[ContextAgent] Search failed", e);
-            return "Search failed: " + e.getMessage();
-        }
-    }
-    
-    // These methods are no longer needed as LangChain4j handles tool calling automatically
-    
-    private String analyzeCodeStructure(@NotNull String parameters) {
-        try {
-            StringBuilder analysis = new StringBuilder();
-            analysis.append("Code Structure Analysis:\n\n");
-            
-            // Search for existing test files
-            List<VirtualFile> testFiles = findExistingTestFiles();
-            if (!testFiles.isEmpty()) {
-                analysis.append("Existing Test Files Found:\n");
-                for (VirtualFile testFile : testFiles) {
-                    analysis.append("- ").append(testFile.getName()).append(" (").append(testFile.getPath()).append(")\n");
-                }
-                analysis.append("\n");
-            }
-            
-            // Analyze test patterns in existing files
-            String testPatterns = analyzeExistingTestPatterns(testFiles);
-            analysis.append(testPatterns);
-            
-            // Detect testing framework
-            String frameworkInfo = detectTestingFramework();
-            analysis.append("Testing Framework: ").append(frameworkInfo).append("\n\n");
-            
-            return analysis.toString();
-            
-        } catch (Exception e) {
-            LOG.warn("[ContextAgent] Code structure analysis failed", e);
-            return "Code structure analysis failed: " + e.getMessage();
-        }
-    }
-    
-    private String gatherAdditionalContext(@NotNull String parameters) {
-        StringBuilder context = new StringBuilder();
-        
-        try {
-            // Gather project-specific context
-            context.append("Project Context:\n");
-            context.append("Project Name: ").append(project.getName()).append("\n");
-            context.append("Base Path: ").append(project.getBasePath()).append("\n");
-            
-            // Check for common configuration files
-            String configInfo = analyzeProjectConfiguration();
-            context.append(configInfo);
-            
-            // Analyze dependencies from build files
-            String dependencyInfo = analyzeDependencies();
-            context.append(dependencyInfo);
-            
-        } catch (Exception e) {
-            LOG.warn("[ContextAgent] Additional context gathering failed", e);
-            context.append("Additional context gathering failed: ").append(e.getMessage()).append("\n");
-        }
-        
-        return context.toString();
-    }
-    
-    private String extractSearchTerms(@NotNull String parameters) {
-        // Use LLM to extract key search terms
-        String prompt = "Extract 3 search terms:\n" +
-                       parameters + "\n\n" +
-                       "Output: term1 term2 term3\n\n" +
-                       "Terms:";
-        
-        String response = queryLLM(prompt, 50); // Reduced from 200
-        return response.isEmpty() ? "test methods patterns" : response;
-    }
+    // Simplified helper methods for internal use
     
     private List<VirtualFile> findExistingTestFiles() {
         try {
@@ -562,6 +518,9 @@ public class ContextAgent extends StreamingBaseAgent {
     }
     
     private Map<String, String> extractFileContents(@NotNull String gatheringResult) {
+        // Strip any markdown first
+        gatheringResult = stripMarkdown(gatheringResult);
+        
         Map<String, String> contents = new HashMap<>();
         String[] lines = gatheringResult.split("\n");
         
@@ -700,47 +659,56 @@ public class ContextAgent extends StreamingBaseAgent {
         return metadata;
     }
     
+    /**
+     * Strip markdown formatting from text
+     */
+    private String stripMarkdown(@NotNull String text) {
+        // Remove code blocks
+        text = text.replaceAll("```(?:java|kotlin|javascript|typescript)?\\s*\\n", "");
+        text = text.replaceAll("\\n?```\\s*", "");
+        
+        // Remove backticks
+        text = text.replaceAll("`([^`]+)`", "$1");
+        
+        // Remove bold/italic
+        text = text.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        text = text.replaceAll("__(.*?)__", "$1");
+        
+        return text.trim();
+    }
+    
+    // Required overrides for StreamingBaseAgent (simplified since we use AiServices)
+    @NotNull
+    @Override
+    protected AgentAction determineAction(@NotNull String reasoning, @NotNull String observation) {
+        // Not used with AiServices pattern
+        return new AgentAction(AgentAction.ActionType.COMPLETE, "Context gathering completed", reasoning);
+    }
+    
+    @NotNull
+    @Override
+    protected String executeAction(@NotNull AgentAction action) {
+        // Not used with AiServices pattern
+        return action.getParameters();
+    }
+    
     @NotNull
     @Override
     protected String getAgentDescription() {
-        return "a context gathering agent that uses RAG and code analysis to collect comprehensive information for test generation";
+        return "a context gathering agent that uses tools to collect comprehensive information for test generation";
     }
     
     @NotNull
     @Override
     protected List<AgentAction.ActionType> getAvailableActions() {
-        return Arrays.asList(
-            AgentAction.ActionType.SEARCH,
-            AgentAction.ActionType.ANALYZE,
-            AgentAction.ActionType.GENERATE,
-            AgentAction.ActionType.COMPLETE
-        );
+        // Simplified - not used with AiServices
+        return Arrays.asList(AgentAction.ActionType.COMPLETE);
     }
     
     @NotNull
     @Override
     protected String buildActionPrompt(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case SEARCH:
-                return "Find existing test files (names only):\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output: file names. NO code.\n\n" +
-                       "Files:";
-                       
-            case ANALYZE:
-                return "Identify test framework:\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output: JUnit5/JUnit4/TestNG. One word only.\n\n" +
-                       "Framework:";
-                       
-            case GENERATE:
-                return "List project info:\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output: build system, test directory. NO code.\n\n" +
-                       "Info:";
-                       
-            default:
-                return action.getParameters();
-        }
+        // Not used with AiServices pattern
+        return action.getParameters();
     }
 }

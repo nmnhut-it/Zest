@@ -72,6 +72,12 @@ class MethodSelectionDialog(
             val noMethodsLabel = JBLabel("No testable methods found in this file")
             noMethodsLabel.foreground = Color.RED
             methodsPanel.add(noMethodsLabel)
+            
+            // Add hint about why methods might not be shown
+            val hintLabel = JBLabel("<html><small>Methods with @Test annotations or test methods are excluded</small></html>")
+            hintLabel.foreground = UIUtil.getContextHelpForeground()
+            methodsPanel.add(Box.createVerticalStrut(5))
+            methodsPanel.add(hintLabel)
         } else {
             // Group methods by class
             val methodsByClass = methods.groupBy { it.containingClass?.name ?: "Unknown" }
@@ -103,7 +109,12 @@ class MethodSelectionDialog(
         footerPanel.background = UIUtil.getPanelBackground()
         footerPanel.border = EmptyBorder(10, 15, 10, 15)
         
-        val statsLabel = JBLabel("${methods.size} methods found")
+        val totalMethods = methods.size
+        val publicMethods = methods.count { it.modifierList.hasModifierProperty(PsiModifier.PUBLIC) }
+        val privateMethods = methods.count { it.modifierList.hasModifierProperty(PsiModifier.PRIVATE) }
+        val protectedMethods = methods.count { it.modifierList.hasModifierProperty(PsiModifier.PROTECTED) }
+        
+        val statsLabel = JBLabel("Found $totalMethods methods (Public: $publicMethods, Protected: $protectedMethods, Private: $privateMethods)")
         statsLabel.foreground = UIUtil.getContextHelpForeground()
         footerPanel.add(statsLabel)
         
@@ -127,9 +138,13 @@ class MethodSelectionDialog(
         // Preselect if this method contains the selected element
         if (preselectedElement != null && isMethodContainsElement(method, preselectedElement)) {
             checkBox.isSelected = true
-        } else if (isTestableMethod(method)) {
-            // Auto-select public methods by default
-            checkBox.isSelected = method.modifierList.hasModifierProperty(PsiModifier.PUBLIC)
+        } else {
+            // Auto-select public non-getter/setter methods by default
+            val isSimpleAccessor = (method.name.startsWith("get") || 
+                                   method.name.startsWith("set") || 
+                                   method.name.startsWith("is")) &&
+                                  method.body?.statements?.size ?: 0 <= 1
+            checkBox.isSelected = method.modifierList.hasModifierProperty(PsiModifier.PUBLIC) && !isSimpleAccessor
         }
         
         checkBox.addActionListener {
@@ -191,27 +206,44 @@ class MethodSelectionDialog(
     private fun findMethods(psiFile: PsiFile): List<PsiMethod> {
         val methods = mutableListOf<PsiMethod>()
         
+        // Visit all classes and interfaces in the file
         psiFile.accept(object : PsiRecursiveElementVisitor() {
             override fun visitElement(element: PsiElement) {
-                if (element is PsiMethod && isTestableMethod(element)) {
-                    methods.add(element)
+                when (element) {
+                    is PsiClass -> {
+                        // Add all methods from this class
+                        element.methods.forEach { method ->
+                            if (isTestableMethod(method)) {
+                                methods.add(method)
+                            }
+                        }
+                    }
+                    is PsiMethod -> {
+                        // Also check standalone methods (shouldn't happen in Java but just in case)
+                        if (isTestableMethod(element) && !methods.contains(element)) {
+                            methods.add(element)
+                        }
+                    }
                 }
                 super.visitElement(element)
             }
         })
         
-        return methods
+        return methods.distinctBy { "${it.containingClass?.qualifiedName}.${it.name}${it.parameterList.text}" }
     }
     
     private fun isTestableMethod(method: PsiMethod): Boolean {
-        // Skip constructors, getters/setters, and already test methods
+        // Skip constructors and already test methods
+        // But include getters/setters/other methods as they might need testing too
         return !method.isConstructor &&
-               !method.name.startsWith("get") &&
-               !method.name.startsWith("set") &&
-               !method.name.startsWith("is") &&
                !method.name.startsWith("test") &&
+               !method.name.contains("Test") &&
                !method.modifierList.annotations.any { 
                    it.qualifiedName?.contains("Test") == true 
+               } &&
+               !method.modifierList.annotations.any {
+                   it.qualifiedName?.contains("Before") == true ||
+                   it.qualifiedName?.contains("After") == true
                }
     }
     

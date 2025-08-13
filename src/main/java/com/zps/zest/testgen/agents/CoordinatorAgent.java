@@ -52,6 +52,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                              "User description: " + request.getUserDescription() + ". " +
                              "Requested test type: " + request.getTestType().getDescription();
                 
+                // Add information about selected methods if available
+                String selectedMethods = request.getOption("selectedMethods");
+                if (selectedMethods != null && !selectedMethods.isEmpty()) {
+                    task += "\n\nIMPORTANT: Focus on testing these specific methods:\n" + 
+                           selectedMethods.replace(";", "\n- ") + "\n";
+                }
+                
                 // Direct LLM call for faster planning (no ReAct loop)
                 String planningResult = generateDirectTestPlan(task, codeContext);
                 
@@ -257,6 +264,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         String prompt = "You are a test planning expert. Analyze the code and create a test plan.\n\n" +
                        "Task: " + task + "\n\n" +
                        "Code Context:\n" + context + "\n\n" +
+                       "Note: If multiple methods are specified, create test scenarios for EACH method.\n\n" +
                        "Output ONLY this format (no extra text):\n" +
                        "TARGET_METHOD: methodName\n" +
                        "TARGET_CLASS: className\n" +

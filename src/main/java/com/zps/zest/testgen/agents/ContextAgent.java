@@ -1,5 +1,7 @@
 package com.zps.zest.testgen.agents;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -10,43 +12,194 @@ import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.ClassAnalyzer;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
+import com.zps.zest.langchain4j.ZestChatLanguageModel;
 import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.tools.CodeExplorationTool;
+import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
+import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
 import com.zps.zest.testgen.model.*;
 
-import org.jetbrains.annotations.NotNull;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
-public class  ContextAgent extends StreamingBaseAgent {
+public class ContextAgent extends StreamingBaseAgent {
+    private final CodeExplorationToolRegistry toolRegistry;
+    private final ContextGatheringTools contextTools;
+    private final ContextGatheringAssistant assistant;
     
     public ContextAgent(@NotNull Project project,
                        @NotNull ZestLangChain4jService langChainService,
                        @NotNull LLMService llmService) {
         super(project, langChainService, llmService, "ContextAgent");
+        this.toolRegistry = project.getService(CodeExplorationToolRegistry.class);
+        this.contextTools = new ContextGatheringTools(project, toolRegistry);
+        
+        // Create AI assistant with tools using LangChain4j pattern
+        // Use the existing ZestChatLanguageModel which properly implements ChatLanguageModel
+        ChatLanguageModel model = new ZestChatLanguageModel(llmService);
+        this.assistant = AiServices.builder(ContextGatheringAssistant.class)
+            .chatLanguageModel(model)  // Use chatLanguageModel instead of chatModel
+            .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+            .tools(contextTools)
+            // Note: maxToolExecutions may not be available in this version
+            .build();
     }
     
     /**
-     * Gather comprehensive context for test generation
+     * Interface for the AI assistant that can use tools
+     */
+    interface ContextGatheringAssistant {
+        @dev.langchain4j.service.SystemMessage(
+            "You are a context gathering assistant for test generation. " +
+            "Your job is to explore the codebase efficiently to gather relevant context. " +
+            "BE STRATEGIC: Don't call tools endlessly. Usually 3-7 tool calls are sufficient. " +
+            "After each tool call, evaluate if you have enough information. " +
+            "Focus on: 1) Target file content, 2) Test examples, 3) Key dependencies. " +
+            "STOP when you have gathered the essential context."
+        )
+        String gatherContext(String task);
+    }
+    
+    /**
+     * Tools class with @Tool annotated methods for LangChain4j
+     */
+    public static class ContextGatheringTools {
+        private final Project project;
+        private final CodeExplorationToolRegistry toolRegistry;
+        private final ReadFileTool readFileTool;
+        
+        public ContextGatheringTools(@NotNull Project project, @NotNull CodeExplorationToolRegistry toolRegistry) {
+            this.project = project;
+            this.toolRegistry = toolRegistry;
+            this.readFileTool = new ReadFileTool(project);
+        }
+        
+        @Tool("Read the contents of a file")
+        public String readFile(String filePath) {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("filePath", filePath);
+                
+                CodeExplorationTool.ToolResult result = readFileTool.execute(params);
+                if (result.isSuccess()) {
+                    return result.getContent();
+                } else {
+                    return "Error reading file: " + result.getContent();
+                }
+            } catch (Exception e) {
+                return "Failed to read file: " + e.getMessage();
+            }
+        }
+        
+        @Tool("List files in a directory")
+        public String listFiles(String directoryPath) {
+            try {
+                CodeExplorationTool listTool = toolRegistry.getTool("list_files");
+                if (listTool != null) {
+                    JsonObject params = new JsonObject();
+                    params.addProperty("directoryPath", directoryPath);
+                    params.addProperty("recursive", false);
+                    
+                    CodeExplorationTool.ToolResult result = listTool.execute(params);
+                    if (result.isSuccess()) {
+                        return result.getContent();
+                    }
+                }
+                return "Could not list files in " + directoryPath;
+            } catch (Exception e) {
+                return "Error listing files: " + e.getMessage();
+            }
+        }
+        
+        @Tool("Find files by name pattern")
+        public String findFiles(String fileName) {
+            try {
+                CodeExplorationTool findTool = toolRegistry.getTool("find_file");
+                if (findTool != null) {
+                    JsonObject params = new JsonObject();
+                    params.addProperty("fileName", fileName);
+                    
+                    CodeExplorationTool.ToolResult result = findTool.execute(params);
+                    if (result.isSuccess()) {
+                        return result.getContent();
+                    }
+                }
+                return "Could not find files matching: " + fileName;
+            } catch (Exception e) {
+                return "Error finding files: " + e.getMessage();
+            }
+        }
+        
+        @Tool("Search for code using semantic search")
+        public String searchCode(String query) {
+            try {
+                CodeExplorationTool retrievalTool = toolRegistry.getTool("retrieve_context");
+                if (retrievalTool != null) {
+                    JsonObject params = new JsonObject();
+                    params.addProperty("query", query);
+                    params.addProperty("max_results", 5);
+                    params.addProperty("threshold", 0.6);
+                    
+                    CodeExplorationTool.ToolResult result = retrievalTool.execute(params);
+                    if (result.isSuccess()) {
+                        return result.getContent();
+                    }
+                }
+                return "No results found for: " + query;
+            } catch (Exception e) {
+                return "Error searching code: " + e.getMessage();
+            }
+        }
+    }
+    
+    // No longer need the adapter since we use ZestChatLanguageModel
+    
+    /**
+     * Gather comprehensive context for test generation using LangChain4j tools
      */
     @NotNull
-    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request, @NotNull TestPlan testPlan) {
+    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request, @Nullable TestPlan testPlan) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.info("[ContextAgent] Gathering context for: " + request.getTargetFile().getName());
+                notifyStream("\n🔍 Gathering comprehensive context for test generation...\n");
                 
-                String task = "Gather comprehensive context for test generation. " +
-                             "Target class: " + testPlan.getTargetClass() + ". " +
-                             "Target method: " + testPlan.getTargetMethod() + ". " +
-                             "Dependencies: " + String.join(", ", testPlan.getDependencies()) + ".";
+                String targetInfo = "";
+                if (testPlan != null) {
+                    targetInfo = " for class " + testPlan.getTargetClass() + " method " + testPlan.getTargetMethod();
+                } else {
+                    targetInfo = " for file " + request.getTargetFile().getName();
+                }
                 
-                String initialContext = buildInitialContext(request, testPlan);
+                String task = "Gather context for generating tests" + targetInfo + ".\n\n" +
+                             "IMPORTANT INSTRUCTIONS:\n" +
+                             "1. Start by reading the target file: " + request.getTargetFile().getVirtualFile().getPath() + "\n" +
+                             "2. Find and read 2-3 related test files to understand testing patterns\n" +
+                             "3. Search for key dependencies or related code\n" +
+                             "4. STOP after gathering essential information (maximum 5-7 tool calls)\n" +
+                             "5. Return a summary of what you found\n\n" +
+                             "DO NOT call tools endlessly. Be selective and strategic.\n" +
+                             "After each tool call, evaluate if you have enough context.";
                 
-                // Execute ReAct workflow to gather context
-                String contextResult = executeReActTask(task, initialContext).join();
+                // Use the LangChain4j AI assistant with tools
+                String contextGatheringResult = assistant.gatherContext(task);
                 
-                // Build the final TestContext
-                return buildTestContext(request, testPlan, contextResult);
+                notifyStream("\n✅ Context gathering complete\n");
+                
+                // Build the final TestContext from what was gathered
+                return buildTestContextFromGathering(request, testPlan, contextGatheringResult);
                 
             } catch (Exception e) {
                 LOG.error("[ContextAgent] Failed to gather context", e);
@@ -98,7 +251,7 @@ public class  ContextAgent extends StreamingBaseAgent {
     protected String executeAction(@NotNull AgentAction action) {
         switch (action.getType()) {
             case SEARCH:
-                return performRAGSearch(action.getParameters());
+                return performSearch(action.getParameters());
             case ANALYZE:
                 return analyzeCodeStructure(action.getParameters());
             case GENERATE:
@@ -110,14 +263,13 @@ public class  ContextAgent extends StreamingBaseAgent {
         }
     }
     
-    private String performRAGSearch(@NotNull String parameters) {
+    private String performSearch(@NotNull String parameters) {
         try {
-            // Extract key terms from parameters for search
+            // Use RAG to find related context
             String searchQuery = extractSearchTerms(parameters);
             
-            // Use RAG to find related context
             ZestLangChain4jService.RetrievalResult result = langChainService
-                .retrieveContext(searchQuery, 8, 0.6).join();
+                .retrieveContext(searchQuery, 5, 0.6).join();
             
             if (result.isSuccess() && !result.getItems().isEmpty()) {
                 StringBuilder context = new StringBuilder();
@@ -138,10 +290,12 @@ public class  ContextAgent extends StreamingBaseAgent {
             }
             
         } catch (Exception e) {
-            LOG.warn("[ContextAgent] RAG search failed", e);
-            return "RAG search failed: " + e.getMessage();
+            LOG.warn("[ContextAgent] Search failed", e);
+            return "Search failed: " + e.getMessage();
         }
     }
+    
+    // These methods are no longer needed as LangChain4j handles tool calling automatically
     
     private String analyzeCodeStructure(@NotNull String parameters) {
         try {
@@ -341,30 +495,60 @@ public class  ContextAgent extends StreamingBaseAgent {
         return "Dependencies: Will be determined from build configuration\n\n";
     }
     
-    private TestContext buildTestContext(@NotNull TestGenerationRequest request, @NotNull TestPlan testPlan, @NotNull String contextResult) {
+    @NotNull
+    private TestContext buildTestContextFromGathering(@NotNull TestGenerationRequest request,
+                                                      @Nullable TestPlan testPlan,
+                                                      @NotNull String gatheringResult) {
         try {
-            // Extract context items from RAG results
-            List<ZestLangChain4jService.ContextItem> codeContext = extractCodeContext(contextResult);
+            // Parse the gathering result to extract what was found
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("targetFile", request.getTargetFile().getName());
+            metadata.put("hasSelection", request.hasSelection());
+            metadata.put("userDescription", request.getUserDescription());
+            if (testPlan != null) {
+                metadata.put("scenarioCount", testPlan.getScenarioCount());
+            }
+            metadata.put("gatheringResult", gatheringResult);
             
-            // Extract related files
-            List<String> relatedFiles = extractRelatedFiles(contextResult);
+            // Extract file contents from gathering result
+            Map<String, String> fileContents = extractFileContents(gatheringResult);
+            if (!fileContents.isEmpty()) {
+                metadata.put("gatheredFiles", fileContents);
+            }
             
-            // Extract dependencies
-            Map<String, String> dependencies = extractDependencies(contextResult, testPlan.getDependencies());
+            // Extract patterns from gathering result
+            List<String> testPatterns = extractTestPatterns(gatheringResult);
             
-            // Extract test patterns
-            List<String> testPatterns = extractTestPatterns(contextResult);
+            // Build dependency map from test plan or gathering result
+            Map<String, String> dependencies = new HashMap<>();
+            if (testPlan != null) {
+                for (String dep : testPlan.getDependencies()) {
+                    dependencies.put(dep, gatheringResult.contains(dep) ? "found" : "referenced");
+                }
+            }
             
-            // Extract framework info
-            String frameworkInfo = extractFrameworkInfo(contextResult);
+            // Extract related files from gathering
+            List<String> relatedFiles = extractRelatedFiles(gatheringResult);
+            if (!relatedFiles.contains(request.getTargetFile().getName())) {
+                relatedFiles.add(0, request.getTargetFile().getName());
+            }
             
-            // Build additional metadata
-            Map<String, Object> metadata = buildMetadata(request, testPlan, contextResult);
+            // Determine framework
+            String framework = detectFramework(gatheringResult);
             
-            return new TestContext(codeContext, relatedFiles, dependencies, testPatterns, frameworkInfo, metadata);
+            // Extract any RAG context items if mentioned
+            List<ZestLangChain4jService.ContextItem> contextItems = new ArrayList<>();
+            if (gatheringResult.contains("relevant code pieces")) {
+                // Parse RAG results if present
+                contextItems = parseRAGResults(gatheringResult);
+            }
+            
+            notifyStream("✅ Context building complete!\n");
+            
+            return new TestContext(contextItems, relatedFiles, dependencies, testPatterns, framework, metadata);
             
         } catch (Exception e) {
-            LOG.error("[ContextAgent] Failed to build test context", e);
+            LOG.error("[ContextAgent] Failed to build test context from gathering", e);
             // Return minimal context
             return new TestContext(
                 new ArrayList<>(),
@@ -377,26 +561,93 @@ public class  ContextAgent extends StreamingBaseAgent {
         }
     }
     
-    private List<ZestLangChain4jService.ContextItem> extractCodeContext(@NotNull String contextResult) {
-        // In a real implementation, this would parse the context result
-        // For now, return empty list - the actual context items come from RAG calls
-        return new ArrayList<>();
-    }
-    
-    private List<String> extractRelatedFiles(@NotNull String contextResult) {
-        List<String> files = new ArrayList<>();
-        String[] lines = contextResult.split("\n");
+    private Map<String, String> extractFileContents(@NotNull String gatheringResult) {
+        Map<String, String> contents = new HashMap<>();
+        String[] lines = gatheringResult.split("\n");
+        
+        String currentFile = null;
+        StringBuilder currentContent = new StringBuilder();
         
         for (String line : lines) {
-            if (line.contains("File:") && line.contains(".java")) {
-                String fileName = line.substring(line.indexOf("File:") + 5).trim();
-                if (!files.contains(fileName)) {
+            if (line.startsWith("File content of ") && line.contains(":")) {
+                // Save previous file if any
+                if (currentFile != null && currentContent.length() > 0) {
+                    contents.put(currentFile, currentContent.toString());
+                }
+                // Start new file
+                currentFile = line.substring("File content of ".length(), line.indexOf(":")).trim();
+                currentContent = new StringBuilder();
+            } else if (currentFile != null && !line.startsWith("Failed to read") && !line.startsWith("Files in") && !line.startsWith("Found files")) {
+                currentContent.append(line).append("\n");
+            }
+        }
+        
+        // Save last file if any
+        if (currentFile != null && currentContent.length() > 0) {
+            contents.put(currentFile, currentContent.toString());
+        }
+        
+        return contents;
+    }
+    
+    private List<String> extractTestPatterns(@NotNull String gatheringResult) {
+        List<String> patterns = new ArrayList<>();
+        
+        if (gatheringResult.contains("@Test")) patterns.add("JUnit @Test annotation");
+        if (gatheringResult.contains("@BeforeEach")) patterns.add("@BeforeEach setup");
+        if (gatheringResult.contains("@Mock")) patterns.add("Mockito mocks");
+        if (gatheringResult.contains("assertEquals")) patterns.add("JUnit assertions");
+        if (gatheringResult.contains("assertThat")) patterns.add("AssertJ assertions");
+        if (gatheringResult.contains("when(") && gatheringResult.contains("thenReturn")) patterns.add("Mockito stubbing");
+        
+        return patterns.stream().distinct().collect(Collectors.toList());
+    }
+    
+    private List<String> extractRelatedFiles(@NotNull String gatheringResult) {
+        List<String> files = new ArrayList<>();
+        String[] lines = gatheringResult.split("\n");
+        
+        for (String line : lines) {
+            if ((line.contains("File content of ") || line.contains("Files in ") || line.contains("Found files")) && line.contains(".java")) {
+                // Extract filename from various formats
+                String fileName = null;
+                if (line.contains("File content of ")) {
+                    fileName = line.substring("File content of ".length(), line.indexOf(":")).trim();
+                } else if (line.startsWith("- ") && line.endsWith(".java")) {
+                    fileName = line.substring(2).trim();
+                }
+                
+                if (fileName != null && !files.contains(fileName)) {
                     files.add(fileName);
                 }
             }
         }
         
         return files;
+    }
+    
+    private String detectFramework(@NotNull String gatheringResult) {
+        if (gatheringResult.contains("org.junit.jupiter") || gatheringResult.contains("JUnit 5")) {
+            return "JUnit 5";
+        } else if (gatheringResult.contains("org.junit.Test") || gatheringResult.contains("JUnit 4")) {
+            return "JUnit 4";
+        } else if (gatheringResult.contains("org.testng")) {
+            return "TestNG";
+        }
+        return "JUnit 5"; // Default
+    }
+    
+    private List<ZestLangChain4jService.ContextItem> parseRAGResults(@NotNull String gatheringResult) {
+        List<ZestLangChain4jService.ContextItem> items = new ArrayList<>();
+        // Simple parsing - in real implementation would be more sophisticated
+        // For now, return empty as the actual content is in the metadata
+        return items;
+    }
+    
+    private List<ZestLangChain4jService.ContextItem> extractCodeContext(@NotNull String contextResult) {
+        // In a real implementation, this would parse the context result
+        // For now, return empty list - the actual context items come from RAG calls
+        return new ArrayList<>();
     }
     
     private Map<String, String> extractDependencies(@NotNull String contextResult, @NotNull List<String> plannedDependencies) {
@@ -422,28 +673,6 @@ public class  ContextAgent extends StreamingBaseAgent {
         }
         
         return dependencies;
-    }
-    
-    private List<String> extractTestPatterns(@NotNull String contextResult) {
-        List<String> patterns = new ArrayList<>();
-        
-        if (contextResult.contains("@Test")) {
-            patterns.add("JUnit test methods");
-        }
-        if (contextResult.contains("@Before") || contextResult.contains("@BeforeEach")) {
-            patterns.add("Setup methods");
-        }
-        if (contextResult.contains("@After") || contextResult.contains("@AfterEach")) {
-            patterns.add("Cleanup methods");
-        }
-        if (contextResult.contains("@Mock") || contextResult.contains("mock(")) {
-            patterns.add("Mocking patterns");
-        }
-        if (contextResult.contains("assertEquals") || contextResult.contains("assertThat")) {
-            patterns.add("Assertion patterns");
-        }
-        
-        return patterns;
     }
     
     private String extractFrameworkInfo(@NotNull String contextResult) {

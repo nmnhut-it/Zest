@@ -7,6 +7,8 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
 
+import org.jetbrains.annotations.Nullable;
+
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -23,19 +25,30 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     }
     
     /**
-     * Plan tests for the given request with streaming support
+     * Plan tests for the given request (without context)
      */
     @NotNull
     public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request) {
+        return planTests(request, null);
+    }
+    
+    /**
+     * Plan tests for the given request with pre-gathered context
+     */
+    @NotNull
+    public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request, @Nullable TestContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.info("[CoordinatorAgent] Planning tests for: " + request.getTargetFile().getName());
+                if (context != null) {
+                    LOG.info("[CoordinatorAgent] Using pre-gathered context with " + context.getContextItemCount() + " items");
+                }
                 
-                // Analyze the target code
-                String codeContext = analyzeTargetCode(request);
+                // Build comprehensive code context
+                String codeContext = buildCodeContext(request, context);
                 
                 // Create planning task
-                String task = "Analyze the provided code and create a comprehensive test plan. " +
+                String task = "Analyze the provided code and context, then create a comprehensive test plan. " +
                              "User description: " + request.getUserDescription() + ". " +
                              "Requested test type: " + request.getTestType().getDescription();
                 
@@ -50,6 +63,58 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 throw new RuntimeException("Test planning failed: " + e.getMessage());
             }
         });
+    }
+    
+    private String buildCodeContext(@NotNull TestGenerationRequest request, @Nullable TestContext context) {
+        StringBuilder fullContext = new StringBuilder();
+        
+        // Add basic target code analysis
+        fullContext.append(analyzeTargetCode(request));
+        
+        // Add pre-gathered context if available
+        if (context != null) {
+            fullContext.append("\n\n=== PRE-GATHERED CONTEXT ===\n\n");
+            
+            // Add test patterns found
+            if (!context.getExistingTestPatterns().isEmpty()) {
+                fullContext.append("Existing Test Patterns:\n");
+                for (String pattern : context.getExistingTestPatterns()) {
+                    fullContext.append("- ").append(pattern).append("\n");
+                }
+                fullContext.append("\n");
+            }
+            
+            // Add relevant code snippets
+            if (!context.getCodeContext().isEmpty()) {
+                fullContext.append("Related Code Context:\n");
+                for (ZestLangChain4jService.ContextItem item : context.getCodeContext().subList(0, Math.min(3, context.getCodeContext().size()))) {
+                    fullContext.append("From ").append(item.getFilePath()).append(":\n");
+                    fullContext.append(item.getContent().substring(0, Math.min(500, item.getContent().length()))).append("\n\n");
+                }
+            }
+            
+            // Add any gathered file contents from metadata
+            java.util.Map<String, Object> metadata = context.getAdditionalMetadata();
+            if (metadata != null && metadata.containsKey("gatheredFiles")) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, String> files = (java.util.Map<String, String>) metadata.get("gatheredFiles");
+                if (!files.isEmpty()) {
+                    fullContext.append("\nGathered File Contents:\n");
+                    for (java.util.Map.Entry<String, String> entry : files.entrySet()) {
+                        fullContext.append("File: ").append(entry.getKey()).append("\n");
+                        String content = entry.getValue();
+                        if (content.length() > 1000) {
+                            content = content.substring(0, 1000) + "...";
+                        }
+                        fullContext.append(content).append("\n\n");
+                    }
+                }
+            }
+            
+            fullContext.append("Testing Framework: ").append(context.getFrameworkInfo()).append("\n");
+        }
+        
+        return fullContext.toString();
     }
     
     private String analyzeTargetCode(@NotNull TestGenerationRequest request) {

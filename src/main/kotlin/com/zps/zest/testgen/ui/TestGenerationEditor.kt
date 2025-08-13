@@ -21,7 +21,9 @@ import java.awt.datatransfer.StringSelection
 import java.util.concurrent.CompletableFuture
 import java.beans.PropertyChangeListener
 import javax.swing.*
+import javax.swing.JComboBox
 import javax.swing.border.EmptyBorder
+import java.awt.event.ActionListener
 import com.intellij.openapi.util.Key
 import com.intellij.ui.JBColor
 import com.intellij.openapi.editor.EditorFactory
@@ -29,6 +31,7 @@ import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.application.ApplicationManager
 
 /**
  * Test Generation Editor with tab-based interface for managing AI-powered test generation
@@ -213,7 +216,7 @@ class TestGenerationEditor(
         val actionGroup = DefaultActionGroup()
         
         // Generate tests action
-        actionGroup.add(object : AnAction("Generate Tests", "Start AI-powered test generation", AllIcons.Actions.Execute) {
+        actionGroup.add(object : AnAction("🚀 Generate Tests", "Start AI-powered test generation", AllIcons.Actions.Execute) {
             override fun actionPerformed(e: AnActionEvent) {
                 startTestGeneration()
             }
@@ -221,14 +224,14 @@ class TestGenerationEditor(
             override fun update(e: AnActionEvent) {
                 val presentation = e.presentation
                 presentation.isEnabled = currentSession?.status?.isActive != true
-                presentation.text = if (currentSession?.status?.isActive == true) "Generating..." else "Generate Tests"
+                presentation.text = if (currentSession?.status?.isActive == true) "⏳ Generating..." else "🚀 Generate Tests"
                 presentation.description = if (currentSession?.status?.isActive == true) 
-                    "Test generation in progress" else "Start AI-powered test generation"
+                    "Test generation in progress" else "Start AI-powered test generation - select methods first"
             }
         })
         
         // Cancel generation action
-        actionGroup.add(object : AnAction("Stop", "Stop test generation", AllIcons.Actions.Suspend) {
+        actionGroup.add(object : AnAction("⏹ Stop Generation", "Stop test generation", AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: AnActionEvent) {
                 cancelTestGeneration()
             }
@@ -237,7 +240,7 @@ class TestGenerationEditor(
                 val presentation = e.presentation
                 presentation.isEnabled = currentSession?.status?.isActive == true
                 presentation.isVisible = currentSession?.status?.isActive == true
-                presentation.text = "Stop Generation"
+                presentation.text = "⏹ Stop Generation"
                 presentation.description = "Cancel the current test generation process"
             }
         })
@@ -245,7 +248,7 @@ class TestGenerationEditor(
         actionGroup.addSeparator()
         
         // Write tests to files action
-        actionGroup.add(object : AnAction("Save All Tests", "Write all generated tests to files", AllIcons.Actions.MenuSaveall) {
+        actionGroup.add(object : AnAction("💾 Save All Tests", "Write all generated tests to files", AllIcons.Actions.MenuSaveall) {
             override fun actionPerformed(e: AnActionEvent) {
                 writeTestsToFiles()
             }
@@ -256,8 +259,8 @@ class TestGenerationEditor(
                 val isCompleted = currentSession?.status?.isCompleted == true
                 presentation.isEnabled = isCompleted && hasTests
                 presentation.text = if (hasTests) 
-                    "Save All (${currentSession?.generatedTests?.size ?: 0} tests)" 
-                else "Save All Tests"
+                    "💾 Save All (${currentSession?.generatedTests?.size ?: 0} tests)" 
+                else "💾 Save All Tests"
                 presentation.description = when {
                     !isCompleted -> "Complete test generation first"
                     !hasTests -> "No tests to save"
@@ -267,7 +270,7 @@ class TestGenerationEditor(
         })
         
         // Copy to clipboard action
-        actionGroup.add(object : AnAction("Copy Tests", "Copy all tests to clipboard", AllIcons.Actions.Copy) {
+        actionGroup.add(object : AnAction("📋 Copy to Clipboard", "Copy all tests to clipboard", AllIcons.Actions.Copy) {
             override fun actionPerformed(e: AnActionEvent) {
                 copyAllTestsToClipboard()
             }
@@ -276,7 +279,7 @@ class TestGenerationEditor(
                 val presentation = e.presentation
                 val hasTests = currentSession?.generatedTests?.isNotEmpty() == true
                 presentation.isEnabled = hasTests
-                presentation.text = "Copy to Clipboard"
+                presentation.text = "📋 Copy to Clipboard"
                 presentation.description = if (hasTests)
                     "Copy all generated test code to clipboard"
                 else "No tests to copy"
@@ -286,13 +289,13 @@ class TestGenerationEditor(
         actionGroup.addSeparator()
         
         // Refresh action
-        actionGroup.add(object : AnAction("Refresh", "Refresh session data", AllIcons.Actions.Refresh) {
+        actionGroup.add(object : AnAction("🔄 Refresh View", "Refresh session data", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
                 refreshSessionData()
             }
             
             override fun update(e: AnActionEvent) {
-                e.presentation.text = "Refresh View"
+                e.presentation.text = "🔄 Refresh View"
                 e.presentation.description = "Refresh the current session data and UI"
             }
         })
@@ -304,7 +307,35 @@ class TestGenerationEditor(
         )
         toolbar.targetComponent = component
         
-        return toolbar.component
+        // Create a custom panel with toolbar and prominent buttons
+        val toolbarPanel = JPanel(BorderLayout())
+        toolbarPanel.add(toolbar.component, BorderLayout.WEST)
+        
+        // Add custom prominent buttons panel
+        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
+        buttonsPanel.background = UIUtil.getPanelBackground()
+        
+        // Main generate button
+        val generateBtn = JButton("🚀 Generate Tests")
+        generateBtn.font = generateBtn.font.deriveFont(Font.BOLD, 13f)
+        generateBtn.preferredSize = Dimension(150, 30)
+        generateBtn.isEnabled = currentSession?.status?.isActive != true
+        generateBtn.addActionListener { startTestGeneration() }
+        generateBtn.toolTipText = "Select methods and start AI-powered test generation"
+        buttonsPanel.add(generateBtn)
+        
+        // Save button  
+        val saveBtn = JButton("💾 Save All")
+        saveBtn.font = saveBtn.font.deriveFont(12f)
+        saveBtn.preferredSize = Dimension(100, 30)
+        saveBtn.isEnabled = currentSession?.generatedTests?.isNotEmpty() == true
+        saveBtn.addActionListener { writeTestsToFiles() }
+        saveBtn.toolTipText = "Save all generated tests to files"
+        buttonsPanel.add(saveBtn)
+        
+        toolbarPanel.add(buttonsPanel, BorderLayout.CENTER)
+        
+        return toolbarPanel
     }
     
     private fun createStatusBar(): JComponent {
@@ -540,6 +571,10 @@ class TestGenerationEditor(
     private fun updateGeneratedTestsTab() {
         testsContentPanel?.removeAll()
         
+        // Clean up any existing editor
+        val oldEditor = testsContentPanel?.getClientProperty("testEditor") as? EditorEx
+        oldEditor?.let { EditorFactory.getInstance().releaseEditor(it) }
+        
         println("[DEBUG-UI] updateGeneratedTestsTab called")
         println("[DEBUG-UI] currentSession is null? ${currentSession == null}")
         println("[DEBUG-UI] generatedTests is null? ${currentSession?.generatedTests == null}")
@@ -547,17 +582,98 @@ class TestGenerationEditor(
         
         currentSession?.generatedTests?.let { tests ->
             if (tests.isNotEmpty()) {
-                val content = JPanel()
-                content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
-                content.background = UIUtil.getPanelBackground()
+                // Create a panel with class selector and code view
+                val mainPanel = JPanel(BorderLayout())
+                mainPanel.background = UIUtil.getPanelBackground()
                 
-                for ((index, test) in tests.withIndex()) {
-                    val testCard = createTestCard(index + 1, test)
-                    content.add(testCard)
-                    content.add(Box.createVerticalStrut(15))
+                // Top panel with class selector and actions
+                val topPanel = JPanel(BorderLayout())
+                topPanel.background = UIUtil.getPanelBackground()
+                topPanel.border = EmptyBorder(10, 10, 10, 10)
+                
+                // Class selector (if multiple test classes)
+                val classNames = tests.map { it.testClassName }.distinct()
+                var selectedTest = tests.first()
+                
+                if (classNames.size > 1) {
+                    val classCombo = JComboBox(classNames.toTypedArray())
+                    classCombo.addActionListener {
+                        val selectedClass = classCombo.selectedItem as String
+                        selectedTest = tests.find { it.testClassName == selectedClass } ?: tests.first()
+                        updateTestCodeView(selectedTest)
+                    }
+                    topPanel.add(JBLabel("Test Class: "), BorderLayout.WEST)
+                    topPanel.add(classCombo, BorderLayout.CENTER)
+                } else {
+                    val classLabel = JBLabel("🧪 Test Class: ${selectedTest.testClassName}")
+                    classLabel.font = classLabel.font.deriveFont(Font.BOLD, 13f)
+                    topPanel.add(classLabel, BorderLayout.WEST)
                 }
                 
-                testsContentPanel!!.add(content, BorderLayout.NORTH)
+                // Action buttons
+                val buttonsPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
+                buttonsPanel.background = UIUtil.getPanelBackground()
+                
+                val copyBtn = JButton("📋 Copy")
+                copyBtn.addActionListener {
+                    val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+                    val selection = StringSelection(selectedTest.fullContent)
+                    clipboard.setContents(selection, selection)
+                    Messages.showInfoMessage(project, "Test code copied to clipboard", "Copied")
+                }
+                buttonsPanel.add(copyBtn)
+                
+                val saveBtn = JButton("💾 Save to File")
+                saveBtn.addActionListener {
+                    saveTestToFile(selectedTest)
+                }
+                buttonsPanel.add(saveBtn)
+                
+                topPanel.add(buttonsPanel, BorderLayout.EAST)
+                mainPanel.add(topPanel, BorderLayout.NORTH)
+                
+                // Code editor with syntax highlighting
+                val document = EditorFactory.getInstance().createDocument(selectedTest.fullContent)
+                val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
+                val editor = EditorFactory.getInstance().createEditor(document, project, javaFileType, true) as EditorEx
+                
+                // Configure editor settings
+                editor.settings.apply {
+                    isLineNumbersShown = true
+                    isWhitespacesShown = false
+                    isIndentGuidesShown = true
+                    isFoldingOutlineShown = true
+                    additionalColumnsCount = 1
+                    additionalLinesCount = 1
+                    isCaretRowShown = false
+                    isLineMarkerAreaShown = true
+                }
+                
+                editor.isViewer = true
+                editor.colorsScheme = EditorColorsManager.getInstance().globalScheme
+                
+                val editorComponent = editor.component
+                val scrollPane = JBScrollPane(editorComponent)
+                scrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
+                
+                mainPanel.add(scrollPane, BorderLayout.CENTER)
+                
+                // Store editor reference for cleanup
+                testsContentPanel!!.putClientProperty("testEditor", editor)
+                
+                // Summary panel at bottom
+                val summaryPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+                summaryPanel.background = UIUtil.getPanelBackground()
+                summaryPanel.border = EmptyBorder(10, 10, 10, 10)
+                
+                val testCount = selectedTest.testContent.split("@Test").size - 1
+                val summaryLabel = JBLabel("📦 Package: ${selectedTest.packageName} | 🧪 ${testCount} test methods | 🔧 Framework: ${selectedTest.framework}")
+                summaryLabel.foreground = UIUtil.getContextHelpForeground()
+                summaryPanel.add(summaryLabel)
+                
+                mainPanel.add(summaryPanel, BorderLayout.SOUTH)
+                
+                testsContentPanel!!.add(mainPanel, BorderLayout.CENTER)
             } else {
                 val placeholderLabel = JBLabel("Generated tests will appear here")
                 placeholderLabel.horizontalAlignment = SwingConstants.CENTER
@@ -760,6 +876,37 @@ class TestGenerationEditor(
         card.add(leftPanel, BorderLayout.CENTER)
         
         return card
+    }
+    
+    private fun updateTestCodeView(test: GeneratedTest) {
+        // Update the editor with new test content
+        val editor = testsContentPanel?.getClientProperty("testEditor") as? EditorEx
+        editor?.let {
+            ApplicationManager.getApplication().runWriteAction {
+                it.document.setText(test.fullContent)
+            }
+        }
+    }
+    
+    private fun saveTestToFile(test: GeneratedTest) {
+        testGenService.writeTestsToFiles(currentSession!!.sessionId).thenAccept { files ->
+            SwingUtilities.invokeLater {
+                Messages.showInfoMessage(
+                    project,
+                    "Test saved to: ${files.firstOrNull() ?: "unknown"}",
+                    "Test Saved"
+                )
+            }
+        }.exceptionally { throwable ->
+            SwingUtilities.invokeLater {
+                Messages.showErrorDialog(
+                    project,
+                    "Failed to save test: ${throwable.message}",
+                    "Save Error"
+                )
+            }
+            null
+        }
     }
     
     private fun createTestCard(number: Int, test: GeneratedTest): JComponent {
@@ -969,12 +1116,38 @@ class TestGenerationEditor(
             }
         }
         
-        // Generate description based on selection
-        val description = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
-            "Generate tests for selected code"
+        // Show method selection dialog first
+        val selectedElement = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
+            // Find element at selection start
+            virtualFile.targetFile.findElementAt(virtualFile.selectionStart)
         } else {
-            "Generate tests for entire file"
+            null
         }
+        
+        val methodDialog = MethodSelectionDialog(project, virtualFile.targetFile, selectedElement)
+        if (!methodDialog.showAndGet()) {
+            // User cancelled
+            statusLabel.text = "Test generation cancelled"
+            return
+        }
+        
+        val selectedMethods = methodDialog.getSelectedMethods()
+        if (selectedMethods.isEmpty()) {
+            Messages.showWarningDialog(
+                project,
+                "No methods selected for test generation",
+                "No Methods Selected"
+            )
+            return
+        }
+        
+        // Generate description based on selection
+        val description = "Generate tests for ${selectedMethods.size} selected method(s)"
+        
+        // Store selected methods info in metadata (TestGenerationRequest expects Map<String, String>)
+        val metadata = mutableMapOf<String, String>()
+        metadata["selectedMethods"] = selectedMethods.joinToString(",") { it.name }
+        metadata["methodCount"] = selectedMethods.size.toString()
         
         val request = TestGenerationRequest(
             virtualFile.targetFile,
@@ -982,7 +1155,7 @@ class TestGenerationEditor(
             virtualFile.selectionEnd,
             description,
             TestGenerationRequest.TestType.AUTO_DETECT,
-            null
+            metadata
         )
         
         // Clear streaming text before starting

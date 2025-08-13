@@ -73,8 +73,11 @@ public class TestMergerAgent extends StreamingBaseAgent {
                     // Fix imports and organize
                     mergedClass = fixImportsAndOrganize(mergedClass, context);
                     
+                    // Apply final formatting
+                    mergedClass = formatTestClass(mergedClass);
+                    
                     mergedClasses.add(mergedClass);
-                    notifyStream("✅ Merged test class ready: " + className + "\n");
+                    notifyStream("✅ Merged and formatted test class ready: " + className + "\n");
                 }
                 
                 return new MergedTestResult(mergedClasses, true, "Successfully merged " + tests.size() + " tests");
@@ -249,7 +252,7 @@ public class TestMergerAgent extends StreamingBaseAgent {
     @NotNull
     private MergedTestClass fixImportsAndOrganize(@NotNull MergedTestClass testClass,
                                                   @NotNull TestContext context) {
-        String prompt = "Fix and organize imports for this test class:\n\n" +
+        String prompt = "Fix, organize and format this test class:\n\n" +
                        "Package: " + testClass.getPackageName() + "\n" +
                        "Current imports:\n" + String.join("\n", testClass.getImports()) + "\n\n" +
                        "Test code:\n" + testClass.getContent() + "\n\n" +
@@ -257,14 +260,19 @@ public class TestMergerAgent extends StreamingBaseAgent {
                        "1. Add any missing imports\n" +
                        "2. Remove unused imports\n" +
                        "3. Sort imports properly (java.*, javax.*, then others)\n" +
-                       "4. Fix any compilation issues\n\n" +
+                       "4. Fix any compilation issues\n" +
+                       "5. Format code with proper indentation (4 spaces)\n" +
+                       "6. Add proper spacing between methods\n" +
+                       "7. Format according to Java conventions\n" +
+                       "8. Ensure @Test annotations are on separate lines\n" +
+                       "9. Add blank lines between test methods\n\n" +
                        "Output format:\n" +
                        "IMPORTS:\n" +
                        "import statements\n" +
                        "FIXED_CODE:\n" +
-                       "fixed test class code\n";
+                       "properly formatted test class code\n";
         
-        notifyStream("🔧 Fixing imports and organizing code...\n");
+        notifyStream("🔧 Fixing imports, organizing and formatting code...\n");
         String result = queryLLM(prompt, 1500);
         
         // Parse the result
@@ -407,6 +415,66 @@ public class TestMergerAgent extends StreamingBaseAgent {
     @Override
     protected String buildActionPrompt(@NotNull AgentAction action) {
         return action.getParameters();
+    }
+    
+    /**
+     * Apply final formatting to the test class
+     */
+    @NotNull
+    private MergedTestClass formatTestClass(@NotNull MergedTestClass testClass) {
+        // Ensure proper formatting
+        String content = testClass.getContent();
+        
+        // Fix indentation
+        content = fixIndentation(content);
+        
+        // Add spacing between methods
+        content = addMethodSpacing(content);
+        
+        return new MergedTestClass(
+            testClass.getClassName(),
+            testClass.getPackageName(),
+            testClass.getImports(),
+            content,
+            testClass.getExistingFilePath()
+        );
+    }
+    
+    private String fixIndentation(String content) {
+        StringBuilder formatted = new StringBuilder();
+        String[] lines = content.split("\n");
+        int indentLevel = 0;
+        
+        for (String line : lines) {
+            String trimmed = line.trim();
+            
+            // Decrease indent for closing braces
+            if (trimmed.startsWith("}")) {
+                indentLevel--;
+            }
+            
+            // Add proper indentation
+            if (!trimmed.isEmpty()) {
+                formatted.append("    ".repeat(Math.max(0, indentLevel)));
+                formatted.append(trimmed).append("\n");
+            } else {
+                formatted.append("\n");
+            }
+            
+            // Increase indent for opening braces
+            if (trimmed.endsWith("{")) {
+                indentLevel++;
+            }
+        }
+        
+        return formatted.toString();
+    }
+    
+    private String addMethodSpacing(String content) {
+        // Add blank lines between test methods
+        return content.replaceAll("(}\\s*\\n)(\\s*@Test)", "$1\n$2")
+                     .replaceAll("(}\\s*\\n)(\\s*@BeforeEach)", "$1\n$2")
+                     .replaceAll("(}\\s*\\n)(\\s*@AfterEach)", "$1\n$2");
     }
     
     /**

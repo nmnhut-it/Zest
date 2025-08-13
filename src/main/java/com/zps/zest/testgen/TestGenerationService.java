@@ -213,13 +213,24 @@ public final class TestGenerationService {
                     }
                 }
                 
-                // Phase 1: Planning and Coordination
-                session.setStatus(TestGenerationSession.Status.PLANNING);
+                // Phase 1: Context Gathering (moved before planning)
+                session.setStatus(TestGenerationSession.Status.GATHERING_CONTEXT);
                 tracker.completePhase("Initialization complete");
-                tracker.startPhase(TestGenerationProgressTracker.PhaseType.PLANNING);
-                tracker.updatePhaseProgress("Analyzing code structure...", 20);
+                tracker.startPhase(TestGenerationProgressTracker.PhaseType.CONTEXT_GATHERING);
+                tracker.updatePhaseProgress("Exploring codebase and gathering context...", 20);
                 
-                TestPlan testPlan = coordinatorAgent.planTests(session.getRequest()).join();
+                // Gather context FIRST before planning
+                TestContext context = contextAgent.gatherContext(session.getRequest(), null).join();
+                session.setContext(context);
+                tracker.updatePhaseProgress("Context gathered: " + context.getContextItemCount() + " items", 100);
+                tracker.completePhase("Context gathering completed");
+                
+                // Phase 2: Planning and Coordination (using the gathered context)
+                session.setStatus(TestGenerationSession.Status.PLANNING);
+                tracker.startPhase(TestGenerationProgressTracker.PhaseType.PLANNING);
+                tracker.updatePhaseProgress("Planning test scenarios based on context...", 20);
+                
+                TestPlan testPlan = coordinatorAgent.planTests(session.getRequest(), context).join();
                 session.setTestPlan(testPlan);
                 
                 System.out.println("[DEBUG-SERVICE] Test plan created with " + testPlan.getScenarioCount() + " scenarios");
@@ -300,22 +311,13 @@ public final class TestGenerationService {
                     throw new RuntimeException("No test scenarios available for generation");
                 }
                 
-                // Phase 2: Context Gathering
-                session.setStatus(TestGenerationSession.Status.GATHERING_CONTEXT);
-                if (tracker != null) {
-                    tracker.startPhase(TestGenerationProgressTracker.PhaseType.CONTEXT_GATHERING);
-                    tracker.updatePhaseProgress("Gathering code context and dependencies...", 30);
+                // Get the context that was already gathered in Phase 1
+                TestContext context = session.getContext();
+                if (context == null) {
+                    throw new RuntimeException("Context not available for test generation");
                 }
                 
-                TestContext context = contextAgent.gatherContext(session.getRequest(), testPlan).join();
-                session.setContext(context);
-                
-                if (tracker != null) {
-                    tracker.updatePhaseProgress("Context gathered: " + context.getContextItemCount() + " items", 80);
-                    tracker.completePhase("Context gathering completed");
-                }
-                
-                // Phase 3: Test Generation
+                // Phase 3: Test Generation (using context)
                 session.setStatus(TestGenerationSession.Status.GENERATING);
                 if (tracker != null) {
                     tracker.startPhase(TestGenerationProgressTracker.PhaseType.TEST_GENERATION);

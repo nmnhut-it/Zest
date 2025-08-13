@@ -191,11 +191,12 @@ public class ValidatorAgent extends StreamingBaseAgent {
                        parameters + "\n\n" +
                        "Format:\n" +
                        "ISSUES_FOUND:\n" +
-                       "issue1\n" +
+                       "- list any issues found\n" +
                        "FIXES_APPLIED:\n" +
-                       "fix1\n" +
+                       "- list fixes applied\n" +
                        "FIXED_CODE:\n" +
-                       "corrected code\n\n" +
+                       "Output ONLY the corrected Java code here. No comments about what was fixed.\n" +
+                       "The code should be clean and ready to compile.\n\n" +
                        "Fix:";
         
         return queryLLM(prompt, 800); // Reduced from 2000
@@ -463,7 +464,10 @@ public class ValidatorAgent extends StreamingBaseAgent {
                             }
                             break;
                         case "CODE":
-                            fixedCode.append(line).append("\n");
+                            // Only append actual code, skip comments about fixes
+                            if (!line.startsWith("//") || line.contains("@Test") || line.contains("@Before") || line.contains("@After")) {
+                                fixedCode.append(line).append("\n");
+                            }
                             break;
                     }
                 }
@@ -570,6 +574,11 @@ public class ValidatorAgent extends StreamingBaseAgent {
         
         for (String line : lines) {
             if (line.trim().startsWith("package ") || line.trim().startsWith("import ")) {
+                continue;
+            }
+            // Skip result comments or fix descriptions
+            if (line.contains("FIXED:") || line.contains("RESULT:") || 
+                line.contains("Fixed the following") || line.contains("The fix")) {
                 continue;
             }
             if (line.trim().contains("class ") || inClassContent) {

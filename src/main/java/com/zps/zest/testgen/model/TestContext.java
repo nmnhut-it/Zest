@@ -2,6 +2,7 @@ package com.zps.zest.testgen.model;
 
 import com.zps.zest.langchain4j.ZestLangChain4jService.ContextItem;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,18 +16,36 @@ public class TestContext {
     private final String frameworkInfo;
     private final Map<String, Object> additionalMetadata;
     
+    // NEW: Store the actual implementation code
+    private final String targetClassCode;
+    private final String targetMethodCode;
+    
     public TestContext(@NotNull List<ContextItem> codeContext,
                       @NotNull List<String> relatedFiles,
                       @NotNull Map<String, String> dependencies,
                       @NotNull List<String> existingTestPatterns,
                       @NotNull String frameworkInfo,
                       @NotNull Map<String, Object> additionalMetadata) {
+        this(codeContext, relatedFiles, dependencies, existingTestPatterns, 
+             frameworkInfo, additionalMetadata, null, null);
+    }
+    
+    public TestContext(@NotNull List<ContextItem> codeContext,
+                      @NotNull List<String> relatedFiles,
+                      @NotNull Map<String, String> dependencies,
+                      @NotNull List<String> existingTestPatterns,
+                      @NotNull String frameworkInfo,
+                      @NotNull Map<String, Object> additionalMetadata,
+                      @Nullable String targetClassCode,
+                      @Nullable String targetMethodCode) {
         this.codeContext = new ArrayList<>(codeContext);
         this.relatedFiles = new ArrayList<>(relatedFiles);
         this.dependencies = Map.copyOf(dependencies);
         this.existingTestPatterns = new ArrayList<>(existingTestPatterns);
         this.frameworkInfo = frameworkInfo;
         this.additionalMetadata = Map.copyOf(additionalMetadata);
+        this.targetClassCode = targetClassCode;
+        this.targetMethodCode = targetMethodCode;
     }
     
     @NotNull
@@ -59,6 +78,16 @@ public class TestContext {
         return Map.copyOf(additionalMetadata);
     }
     
+    @Nullable
+    public String getTargetClassCode() {
+        return targetClassCode;
+    }
+    
+    @Nullable
+    public String getTargetMethodCode() {
+        return targetMethodCode;
+    }
+    
     public boolean hasTestFramework() {
         return !frameworkInfo.isEmpty();
     }
@@ -79,6 +108,8 @@ public class TestContext {
                ", dependencies=" + dependencies.size() +
                ", existingPatterns=" + existingTestPatterns.size() +
                ", hasFramework=" + hasTestFramework() +
+               ", hasTargetClassCode=" + (targetClassCode != null) +
+               ", hasTargetMethodCode=" + (targetMethodCode != null) +
                '}';
     }
 }

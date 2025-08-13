@@ -8,7 +8,6 @@ import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBSplitter
@@ -19,20 +18,17 @@ import com.zps.zest.testgen.TestGenerationService
 import com.zps.zest.testgen.model.*
 import java.awt.*
 import java.awt.datatransfer.StringSelection
-import java.util.concurrent.CompletableFuture
 import java.beans.PropertyChangeListener
 import javax.swing.*
 import javax.swing.JComboBox
 import javax.swing.border.EmptyBorder
-import java.awt.event.ActionListener
 import com.intellij.openapi.util.Key
-import com.intellij.ui.JBColor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 
 /**
  * Test Generation Editor with tab-based interface for managing AI-powered test generation
@@ -535,72 +531,7 @@ class TestGenerationEditor(
         val dialog = AgentDebugDialog(project, currentSession)
         dialog.show()
     }
-    
-    private fun updateCodePreviewPanel() {
-        codePreviewPanel?.removeAll()
-        
-        // Clean up any existing editor
-        val oldEditor = codePreviewPanel?.getClientProperty("editor") as? EditorEx
-        oldEditor?.let { EditorFactory.getInstance().releaseEditor(it) }
-        
-        // Add label
-        val previewLabel = JBLabel("🔍 Selected Code Preview:")
-        previewLabel.font = previewLabel.font.deriveFont(Font.BOLD, 12f)
-        codePreviewPanel!!.add(previewLabel, BorderLayout.NORTH)
-        
-        // Get selected code text
-        val selectedCode = try {
-            val text = virtualFile.targetFile.text
-            if (virtualFile.selectionStart != virtualFile.selectionEnd && 
-                virtualFile.selectionStart >= 0 && 
-                virtualFile.selectionEnd <= text.length) {
-                text.substring(virtualFile.selectionStart, virtualFile.selectionEnd)
-            } else {
-                // Show first 500 chars if entire file
-                if (text.length > 500) {
-                    text.substring(0, 500) + "\n// ... [Full file selected]"
-                } else {
-                    text
-                }
-            }
-        } catch (e: Exception) {
-            "// Unable to preview selected code"
-        }
-        
-        // Create editor with syntax highlighting
-        val document = EditorFactory.getInstance().createDocument(selectedCode)
-        val editor = EditorFactory.getInstance().createEditor(document, project, virtualFile.targetFile.fileType, true) as EditorEx
-        
-        // Configure editor to be compact and read-only
-        editor.settings.apply {
-            isLineNumbersShown = true
-            isWhitespacesShown = false
-            isIndentGuidesShown = true
-            isFoldingOutlineShown = true
-            additionalColumnsCount = 0
-            additionalLinesCount = 0
-            isCaretRowShown = false
-            isLineMarkerAreaShown = false
-        }
-        
-        editor.isViewer = true
-        editor.colorsScheme = EditorColorsManager.getInstance().globalScheme
-        
-        val editorComponent = editor.component
-        // Ensure the editor component has proper size
-        editorComponent.preferredSize = Dimension(450, 100)
-        editorComponent.minimumSize = Dimension(300, 80)
-        
-        // Wrap in scroll pane for better display
-        val scrollPane = JBScrollPane(editorComponent)
-        scrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
-        
-        codePreviewPanel!!.add(scrollPane, BorderLayout.CENTER)
-        
-        // Store editor reference for cleanup
-        codePreviewPanel!!.putClientProperty("editor", editor)
-    }
-    
+
     private fun updateTestPlanTab() {
         planContentPanel?.removeAll()
         
@@ -979,69 +910,29 @@ class TestGenerationEditor(
     }
     
     private fun saveTestToFile(test: GeneratedTest) {
-        testGenService.writeTestsToFiles(currentSession!!.sessionId).thenAccept { files ->
-            SwingUtilities.invokeLater {
-                Messages.showInfoMessage(
-                    project,
-                    "Test saved to: ${files.firstOrNull() ?: "unknown"}",
-                    "Test Saved"
-                )
+        // Perform file write operations in write-safe context
+        ApplicationManager.getApplication().invokeLater({
+            testGenService.writeTestsToFiles(currentSession!!.sessionId).thenAccept { files ->
+                SwingUtilities.invokeLater {
+                    Messages.showInfoMessage(
+                        project,
+                        "Test saved to: ${files.firstOrNull() ?: "unknown"}",
+                        "Test Saved"
+                    )
+                }
+            }.exceptionally { throwable ->
+                SwingUtilities.invokeLater {
+                    Messages.showErrorDialog(
+                        project,
+                        "Failed to save test: ${throwable.message}",
+                        "Save Error"
+                    )
+                }
+                null
             }
-        }.exceptionally { throwable ->
-            SwingUtilities.invokeLater {
-                Messages.showErrorDialog(
-                    project,
-                    "Failed to save test: ${throwable.message}",
-                    "Save Error"
-                )
-            }
-            null
-        }
+        }, ModalityState.defaultModalityState())
     }
-    
-    private fun createTestCard(number: Int, test: GeneratedTest): JComponent {
-        val card = JPanel(BorderLayout())
-        card.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-        card.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(getTypeColor(test.scenario.type), 3, 0, 0, 0),
-            EmptyBorder(12, 15, 12, 15)
-        )
-        
-        val leftPanel = JPanel()
-        leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
-        leftPanel.background = card.background
-        
-        val nameLabel = JBLabel("$number. ${test.testName}")
-        nameLabel.font = Font(Font.MONOSPACED, Font.BOLD, 12)
-        leftPanel.add(nameLabel)
-        
-        val classLabel = JBLabel("${test.testClassName} (${test.framework})")
-        classLabel.font = classLabel.font.deriveFont(10f)
-        classLabel.foreground = UIUtil.getInactiveTextColor()
-        leftPanel.add(classLabel)
-        
-        val contentPreview = test.testContent.take(100) + if (test.testContent.length > 100) "..." else ""
-        val previewLabel = JBLabel(contentPreview)
-        previewLabel.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
-        leftPanel.add(previewLabel)
-        
-        card.add(leftPanel, BorderLayout.WEST)
-        
-        // Action buttons
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        buttonPanel.background = card.background
-        
-        val viewButton = JButton("View Code")
-        viewButton.addActionListener {
-            showTestCode(test)
-        }
-        buttonPanel.add(viewButton)
-        
-        card.add(buttonPanel, BorderLayout.EAST)
-        
-        return card
-    }
-    
+
     private fun createIssueCard(issue: ValidationResult.ValidationIssue): JComponent {
         val card = JPanel(BorderLayout())
         card.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
@@ -1139,7 +1030,8 @@ class TestGenerationEditor(
         tabbedPane?.selectedIndex = 1 // Test Plan tab
         
         // Show selection dialog after a short delay to let UI update
-        SwingUtilities.invokeLater {
+        // Use ApplicationManager.getApplication().invokeLater for proper modality handling
+        ApplicationManager.getApplication().invokeLater({
             val dialog = TestScenarioSelectionDialog(project, testPlan)
             if (dialog.showAndGet()) {
                 val selectedScenarios = dialog.getSelectedScenarios()
@@ -1171,7 +1063,7 @@ class TestGenerationEditor(
                     shownSelectionDialogs.remove(session.sessionId)
                 }
             }
-        }
+        }, ModalityState.any())
     }
     
     private fun updateTestPlanWithSelection(selectedScenarios: List<TestPlan.TestScenario>) {
@@ -1206,116 +1098,119 @@ class TestGenerationEditor(
             }
         }
         
-        // Show method selection dialog first
-        val selectedElement = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
-            // Find element at selection start
-            virtualFile.targetFile.findElementAt(virtualFile.selectionStart)
-        } else {
-            null
-        }
-        
-        val methodDialog = MethodSelectionDialog(project, virtualFile.targetFile, selectedElement)
-        if (!methodDialog.showAndGet()) {
-            // User cancelled
-            statusLabel.text = "Test generation cancelled"
-            return
-        }
-        
-        val selectedMethods = methodDialog.getSelectedMethods()
-        if (selectedMethods.isEmpty()) {
-            Messages.showWarningDialog(
-                project,
-                "No methods selected for test generation",
-                "No Methods Selected"
-            )
-            return
-        }
-        
-        // Generate description based on selection
-        val methodNames = selectedMethods.map { it.name }
-        val description = if (selectedMethods.size == 1) {
-            "Generate tests for method: ${methodNames.first()}"
-        } else {
-            "Generate tests for ${selectedMethods.size} methods: ${methodNames.joinToString(", ")}"
-        }
-        
-        // Store selected methods info in metadata (TestGenerationRequest expects Map<String, String>)
-        val metadata = mutableMapOf<String, String>()
-        metadata["selectedMethods"] = selectedMethods.joinToString(";") { method ->
-            // Store full method signature for better identification
-            val params = method.parameterList.parameters.joinToString(",") { it.type.presentableText }
-            "${method.containingClass?.name ?: "Unknown"}.${method.name}($params)"
-        }
-        metadata["methodCount"] = selectedMethods.size.toString()
-        metadata["methodNames"] = methodNames.joinToString(",")
-        
-        // Add info about whether to test all methods together or separately
-        metadata["testStrategy"] = if (selectedMethods.size > 1) "multiple" else "single"
-        
-        val request = TestGenerationRequest(
-            virtualFile.targetFile,
-            virtualFile.selectionStart,
-            virtualFile.selectionEnd,
-            description,
-            TestGenerationRequest.TestType.AUTO_DETECT,
-            metadata
-        )
-        
-        // Clear streaming text before starting
-        clearStreamingText()
-        setStreamingStatus("🔄 Starting AI agents...")
-        
-        // Define streaming consumer BEFORE starting generation
-        val streamingConsumer: java.util.function.Consumer<String> = java.util.function.Consumer { text ->
-            println("[DEBUG-UI] Streaming consumer called!")
-            println("[DEBUG-UI] Text length received: ${text.length}")
-            println("[DEBUG-UI] First 100 chars: ${text.take(100)}")
-            LOG.info("Streaming text received: ${text.take(100)}") // Debug log
-            // First append the text to the streaming area
-            appendStreamingText(text)
-            // Then parse it for UI updates (need to pass session once we have it)
-        }
-        
-        // Start generation with streaming consumer already set
-        testGenService.startTestGeneration(request, streamingConsumer).thenAccept { session ->
-            SwingUtilities.invokeLater {
-                currentSession = session
-                testGenService.addProgressListener(session.sessionId, ::onProgress)
-                
-                // Update the streaming consumer to include session for parsing
-                testGenService.setStreamingConsumer(session.sessionId) { text ->
-                    println("[DEBUG-UI] Streaming consumer called!")
-                    println("[DEBUG-UI] Text length received: ${text.length}")
-                    println("[DEBUG-UI] First 100 chars: ${text.take(100)}")
-                    LOG.info("Streaming text received: ${text.take(100)}") // Debug log
-                    // First append the text to the streaming area
-                    appendStreamingText(text)
-                    // Then parse it for UI updates
-                    parseStreamingOutputForUI(text, session)
-                }
-                
-                // Switch to streaming tab to show progress
-                tabbedPane?.selectedIndex = 0 // Raw AI Response tab
-                
-                // Clear any previous dialog shown flags
-                val dialogShownKey = "dialog_shown_${session.sessionId}"
-                putUserData(dialogShownKey, false)
-                
-                // Force immediate UI update
-                updateDataDependentComponents()
-                component.revalidate()
-                component.repaint()
+        // Wrap dialog showing in proper modality context
+        ApplicationManager.getApplication().invokeLater({
+            // Show method selection dialog first
+            val selectedElement = if (virtualFile.selectionStart != virtualFile.selectionEnd) {
+                // Find element at selection start
+                virtualFile.targetFile.findElementAt(virtualFile.selectionStart)
+            } else {
+                null
             }
-        }.exceptionally { throwable ->
-            SwingUtilities.invokeLater {
-                Messages.showErrorDialog(
+            
+            val methodDialog = MethodSelectionDialog(project, virtualFile.targetFile, selectedElement)
+            if (!methodDialog.showAndGet()) {
+                // User cancelled
+                statusLabel.text = "Test generation cancelled"
+                return@invokeLater
+            }
+            
+            val selectedMethods = methodDialog.getSelectedMethods()
+            if (selectedMethods.isEmpty()) {
+                Messages.showWarningDialog(
                     project,
-                    "Failed to start test generation: ${throwable.message}",
-                    "Test Generation Error"
+                    "No methods selected for test generation",
+                    "No Methods Selected"
                 )
+                return@invokeLater
             }
-            null
-        }
+            
+            // Generate description based on selection
+            val methodNames = selectedMethods.map { it.name }
+            val description = if (selectedMethods.size == 1) {
+                "Generate tests for method: ${methodNames.first()}"
+            } else {
+                "Generate tests for ${selectedMethods.size} methods: ${methodNames.joinToString(", ")}"
+            }
+            
+            // Store selected methods info in metadata (TestGenerationRequest expects Map<String, String>)
+            val metadata = mutableMapOf<String, String>()
+            metadata["selectedMethods"] = selectedMethods.joinToString(";") { method ->
+                // Store full method signature for better identification
+                val params = method.parameterList.parameters.joinToString(",") { it.type.presentableText }
+                "${method.containingClass?.name ?: "Unknown"}.${method.name}($params)"
+            }
+            metadata["methodCount"] = selectedMethods.size.toString()
+            metadata["methodNames"] = methodNames.joinToString(",")
+            
+            // Add info about whether to test all methods together or separately
+            metadata["testStrategy"] = if (selectedMethods.size > 1) "multiple" else "single"
+            
+            val request = TestGenerationRequest(
+                virtualFile.targetFile,
+                virtualFile.selectionStart,
+                virtualFile.selectionEnd,
+                description,
+                TestGenerationRequest.TestType.AUTO_DETECT,
+                metadata
+            )
+            
+            // Clear streaming text before starting
+            clearStreamingText()
+            setStreamingStatus("🔄 Starting AI agents...")
+            
+            // Define streaming consumer BEFORE starting generation
+            val streamingConsumer: java.util.function.Consumer<String> = java.util.function.Consumer { text ->
+                println("[DEBUG-UI] Streaming consumer called!")
+                println("[DEBUG-UI] Text length received: ${text.length}")
+                println("[DEBUG-UI] First 100 chars: ${text.take(100)}")
+                LOG.info("Streaming text received: ${text.take(100)}") // Debug log
+                // First append the text to the streaming area
+                appendStreamingText(text)
+                // Then parse it for UI updates (need to pass session once we have it)
+            }
+            
+            // Start generation with streaming consumer already set
+            testGenService.startTestGeneration(request, streamingConsumer).thenAccept { session ->
+                SwingUtilities.invokeLater {
+                    currentSession = session
+                    testGenService.addProgressListener(session.sessionId, ::onProgress)
+                    
+                    // Update the streaming consumer to include session for parsing
+                    testGenService.setStreamingConsumer(session.sessionId) { text ->
+                        println("[DEBUG-UI] Streaming consumer called!")
+                        println("[DEBUG-UI] Text length received: ${text.length}")
+                        println("[DEBUG-UI] First 100 chars: ${text.take(100)}")
+                        LOG.info("Streaming text received: ${text.take(100)}") // Debug log
+                        // First append the text to the streaming area
+                        appendStreamingText(text)
+                        // Then parse it for UI updates
+                        parseStreamingOutputForUI(text, session)
+                    }
+                    
+                    // Switch to streaming tab to show progress
+                    tabbedPane?.selectedIndex = 0 // Raw AI Response tab
+                    
+                    // Clear any previous dialog shown flags
+                    val dialogShownKey = "dialog_shown_${session.sessionId}"
+                    putUserData(dialogShownKey, false)
+                    
+                    // Force immediate UI update
+                    updateDataDependentComponents()
+                    component.revalidate()
+                    component.repaint()
+                }
+            }.exceptionally { throwable ->
+                SwingUtilities.invokeLater {
+                    Messages.showErrorDialog(
+                        project,
+                        "Failed to start test generation: ${throwable.message}",
+                        "Test Generation Error"
+                    )
+                }
+                null
+            }
+        }, ModalityState.defaultModalityState())
     }
     
     
@@ -1329,22 +1224,25 @@ class TestGenerationEditor(
     
     private fun writeTestsToFiles() {
         currentSession?.let { session ->
-            testGenService.writeTestsToFiles(session.sessionId).thenAccept { writtenFiles ->
-                SwingUtilities.invokeLater {
-                    val message = "Successfully wrote ${writtenFiles.size} test files:\n" + 
-                                 writtenFiles.joinToString("\n") { "• $it" }
-                    Messages.showInfoMessage(project, message, "Tests Written")
+            // Perform file write operations in write-safe context
+            ApplicationManager.getApplication().invokeLater({
+                testGenService.writeTestsToFiles(session.sessionId).thenAccept { writtenFiles ->
+                    SwingUtilities.invokeLater {
+                        val message = "Successfully wrote ${writtenFiles.size} test files:\n" + 
+                                     writtenFiles.joinToString("\n") { "• $it" }
+                        Messages.showInfoMessage(project, message, "Tests Written")
+                    }
+                }.exceptionally { throwable ->
+                    SwingUtilities.invokeLater {
+                        Messages.showErrorDialog(
+                            project,
+                            "Failed to write test files: ${throwable.message}",
+                            "Write Error"
+                        )
+                    }
+                    null
                 }
-            }.exceptionally { throwable ->
-                SwingUtilities.invokeLater {
-                    Messages.showErrorDialog(
-                        project,
-                        "Failed to write test files: ${throwable.message}",
-                        "Write Error"
-                    )
-                }
-                null
-            }
+            }, ModalityState.defaultModalityState())
         }
     }
     

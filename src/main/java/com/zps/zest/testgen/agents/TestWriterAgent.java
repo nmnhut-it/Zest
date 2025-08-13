@@ -190,33 +190,114 @@ public class TestWriterAgent extends StreamingBaseAgent {
         info.append("Priority: ").append(scenario.getPriority().getDisplayName()).append("\n");
         info.append("Expected Inputs: ").append(String.join(", ", scenario.getInputs())).append("\n\n");
         
-        // Add existing test patterns
+        // CRITICAL: Add the FULL implementation of the class/method being tested
+        info.append("=== IMPLEMENTATION CODE TO TEST ===\n");
+        if (context.getTargetClassCode() != null && !context.getTargetClassCode().isEmpty()) {
+            info.append("Full Target Class Implementation:\n");
+            info.append("```java\n");
+            info.append(context.getTargetClassCode());
+            info.append("\n```\n\n");
+        } else {
+            // Fallback: try to find the target class in code context
+            boolean foundTargetClass = false;
+            for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                if (item.getFilePath().contains(testPlan.getTargetClass().replace(".", "/") + ".java") ||
+                    item.getContent().contains("class " + getSimpleClassName(testPlan.getTargetClass()))) {
+                    info.append("Target Class Implementation from ").append(item.getFilePath()).append(":\n");
+                    info.append("```java\n");
+                    info.append(item.getContent());
+                    info.append("\n```\n\n");
+                    foundTargetClass = true;
+                    break;
+                }
+            }
+            
+            if (!foundTargetClass) {
+                info.append("WARNING: Could not find full implementation of target class!\n");
+                info.append("Available context items:\n");
+                for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                    info.append("- ").append(item.getFilePath()).append(" (").append(item.getContent().length()).append(" chars)\n");
+                }
+                info.append("\n");
+            }
+        }
+        
+        // Add method-specific implementation if available
+        if (context.getTargetMethodCode() != null && !context.getTargetMethodCode().isEmpty()) {
+            info.append("Target Method Implementation:\n");
+            info.append("```java\n");
+            info.append(context.getTargetMethodCode());
+            info.append("\n```\n\n");
+        }
+        
+        // Add relevant dependencies with their implementations
+        if (!context.getDependencies().isEmpty()) {
+            info.append("=== DEPENDENCIES ===\n");
+            context.getDependencies().forEach((key, value) -> {
+                info.append("- ").append(key).append(" (").append(value).append(")\n");
+                
+                // Try to find dependency implementation in context
+                for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                    if (item.getContent().contains("class " + key) || 
+                        item.getContent().contains("interface " + key)) {
+                        info.append("  Implementation:\n```java\n");
+                        info.append(item.getContent());
+                        info.append("\n```\n");
+                        break;
+                    }
+                }
+            });
+            info.append("\n");
+        }
+        
+        // Add existing test patterns with full examples
         if (!context.getExistingTestPatterns().isEmpty()) {
-            info.append("Existing Test Patterns to Follow:\n");
+            info.append("=== EXISTING TEST PATTERNS TO FOLLOW ===\n");
             for (String pattern : context.getExistingTestPatterns()) {
-                info.append("- ").append(pattern).append("\n");
+                info.append("Pattern: ").append(pattern).append("\n");
+            }
+            
+            // Add actual test examples if available
+            for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                if (item.getFilePath().contains("Test.java") || item.getFilePath().contains("test/")) {
+                    info.append("\nExample Test from ").append(item.getFilePath()).append(":\n");
+                    info.append("```java\n");
+                    info.append(item.getContent());
+                    info.append("\n```\n");
+                    break; // Just show one example to avoid too much context
+                }
             }
             info.append("\n");
         }
         
-        // Add relevant dependencies
-        if (!context.getDependencies().isEmpty()) {
-            info.append("Dependencies to Consider:\n");
-            context.getDependencies().forEach((key, value) -> 
-                info.append("- ").append(key).append(" (").append(value).append(")\n"));
-            info.append("\n");
-        }
-        
-        // Add code context samples
+        // Add other relevant code context (related classes, utilities, etc.)
         if (!context.getCodeContext().isEmpty()) {
-            info.append("Relevant Code Context:\n");
-            for (ZestLangChain4jService.ContextItem item : context.getCodeContext().subList(0, Math.min(3, context.getCodeContext().size()))) {
+            info.append("=== OTHER RELEVANT CODE ===\n");
+            int contextCount = 0;
+            for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                // Skip if already included above
+                if (item.getFilePath().contains(testPlan.getTargetClass().replace(".", "/")) ||
+                    item.getFilePath().contains("Test.java")) {
+                    continue;
+                }
+                
                 info.append("From ").append(item.getFilePath()).append(":\n");
-                info.append(item.getContent().substring(0, Math.min(300, item.getContent().length()))).append("...\n\n");
+                info.append("```java\n");
+                // Include full content for important context, not just 300 chars
+                info.append(item.getContent());
+                info.append("\n```\n\n");
+                
+                contextCount++;
+                if (contextCount >= 3) break; // Limit to avoid too much context
             }
         }
         
         return info.toString();
+    }
+    
+    private String getSimpleClassName(String fullClassName) {
+        int lastDot = fullClassName.lastIndexOf('.');
+        return lastDot >= 0 ? fullClassName.substring(lastDot + 1) : fullClassName;
     }
     
     @NotNull
@@ -322,7 +403,13 @@ public class TestWriterAgent extends StreamingBaseAgent {
         String methodName = scenarioToMethodName(scenario.getName());
         
         String prompt = "Generate a complete test for: " + scenario.getName() + "\n\n" +
-                       "Context:\n" + contextInfo + "\n\n" +
+                       "IMPORTANT: Read the FULL IMPLEMENTATION CODE provided below to understand what needs to be tested.\n\n" +
+                       "Context (INCLUDING FULL SOURCE CODE):\n" + contextInfo + "\n\n" +
+                       "Based on the ACTUAL IMPLEMENTATION above, generate a test that:\n" +
+                       "1. Tests the REAL behavior of the code (not imagined behavior)\n" +
+                       "2. Covers the specific scenario: " + scenario.getDescription() + "\n" +
+                       "3. Uses proper assertions based on what the method actually does\n" +
+                       "4. Handles any edge cases visible in the implementation\n\n" +
                        "Output this format EXACTLY:\n" +
                        "PACKAGE: " + inferPackageName(testPlan.getTargetClass()) + "\n" +
                        "CLASS_NAME: " + className + "\n" +
@@ -347,7 +434,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                      "    void setUp() {\n" +
                      "        MockitoAnnotations.openMocks(this);\n" +
                      "        target = new " + testPlan.getTargetClass() + "();\n" +
-                     "        // TODO: Initialize target with mocks\n" +
+                     "        // Initialize target with mocks based on the constructor in the implementation\n" +
                      "    }\n";
         } else {
             prompt += "NONE\n";
@@ -357,27 +444,30 @@ public class TestWriterAgent extends StreamingBaseAgent {
                  "    @Test\n" +
                  "    void " + methodName + "() {\n" +
                  "        // " + scenario.getDescription() + "\n" +
+                 "        // Test the ACTUAL behavior from the implementation above\n" +
+                 "        \n" +
                  "        // Given\n" +
-                 "        // TODO: Setup test data\n" +
+                 "        // Setup based on what the method actually needs\n" +
                  "        \n" +
                  "        // When\n" +
-                 "        // TODO: Execute method\n" +
+                 "        // Call the actual method with appropriate parameters\n" +
                  "        \n" +
                  "        // Then\n" +
-                 "        // TODO: Assert results\n" +
-                 "        assertNotNull(\"Test implemented\");\n" +
+                 "        // Assert based on what the method actually returns/does\n" +
                  "    }\n\n" +
-                 "Generate proper test with Given-When-Then structure. Max 20 lines. Be concise.\n\n" +
+                 "Generate a REAL test based on the ACTUAL implementation provided. " +
+                 "Do not make assumptions - test what the code ACTUALLY does. " +
+                 "Use Given-When-Then structure. Max 30 lines. Be specific and thorough.\n\n" +
                  "Test:";
         
         // Stream the generation
         if (streamingConsumer != null) {
-            notifyStream("\n📝 Writing test with setup...\n");
-            String result = queryLLM(prompt, 700);
+            notifyStream("\n📝 Writing test based on actual implementation...\n");
+            String result = queryLLM(prompt, 1000); // Increased token limit for better tests
             notifyStream("\n✅ Test written\n");
             return result;
         } else {
-            return queryLLM(prompt, 700);
+            return queryLLM(prompt, 1000);
         }
     }
     

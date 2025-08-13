@@ -298,6 +298,62 @@ public class ContextAgent extends StreamingBaseAgent {
                 metadata.put("gatheredFiles", fileContents);
             }
             
+            // CRITICAL: Extract the target class and method implementations
+            String targetClassCode = null;
+            String targetMethodCode = null;
+            
+            // First, try to get the target file content directly
+            String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
+            for (Map.Entry<String, String> entry : fileContents.entrySet()) {
+                if (entry.getKey().endsWith(request.getTargetFile().getName()) || 
+                    targetFilePath.endsWith(entry.getKey())) {
+                    targetClassCode = entry.getValue();
+                    break;
+                }
+            }
+            
+            // If not found in gathered files, read it directly
+            if (targetClassCode == null || targetClassCode.isEmpty()) {
+                try {
+                    targetClassCode = readFileTool.execute(
+                        createFilePathParams(targetFilePath)
+                    ).getContent();
+                } catch (Exception e) {
+                    LOG.warn("Could not read target file directly: " + e.getMessage());
+                }
+            }
+            
+            // Extract the specific method implementation if we have a test plan
+            if (testPlan != null && targetClassCode != null) {
+                targetMethodCode = extractMethodImplementation(
+                    targetClassCode, 
+                    testPlan.getTargetMethod()
+                );
+            }
+            
+            // Convert file contents to ContextItems for better structure
+            List<ZestLangChain4jService.ContextItem> contextItems = new ArrayList<>();
+            
+            // Add target class as primary context item
+            if (targetClassCode != null) {
+                contextItems.add(new ZestLangChain4jService.ContextItem(
+                    targetFilePath,
+                    targetClassCode,
+                    1.0f // Maximum relevance
+                ));
+            }
+            
+            // Add other gathered files as context items
+            for (Map.Entry<String, String> entry : fileContents.entrySet()) {
+                if (!entry.getKey().equals(targetFilePath)) {
+                    contextItems.add(new ZestLangChain4jService.ContextItem(
+                        entry.getKey(),
+                        entry.getValue(),
+                        0.8f // High relevance for gathered files
+                    ));
+                }
+            }
+            
             // Extract patterns from gathering result
             List<String> testPatterns = extractTestPatterns(gatheringResult);
             
@@ -318,16 +374,23 @@ public class ContextAgent extends StreamingBaseAgent {
             // Determine framework
             String framework = detectFramework(gatheringResult);
             
-            // Extract any RAG context items if mentioned
-            List<ZestLangChain4jService.ContextItem> contextItems = new ArrayList<>();
-            if (gatheringResult.contains("relevant code pieces")) {
-                // Parse RAG results if present
-                contextItems = parseRAGResults(gatheringResult);
-            }
-            
             notifyStream("✅ Context building complete!\n");
+            notifyStream("  - Target class code: " + (targetClassCode != null ? targetClassCode.length() + " chars" : "not found") + "\n");
+            notifyStream("  - Target method code: " + (targetMethodCode != null ? targetMethodCode.length() + " chars" : "not extracted") + "\n");
+            notifyStream("  - Context items: " + contextItems.size() + "\n");
+            notifyStream("  - Test patterns: " + testPatterns.size() + "\n");
             
-            return new TestContext(contextItems, relatedFiles, dependencies, testPatterns, framework, metadata);
+            // Use the new constructor with target code
+            return new TestContext(
+                contextItems, 
+                relatedFiles, 
+                dependencies, 
+                testPatterns, 
+                framework, 
+                metadata,
+                targetClassCode,
+                targetMethodCode
+            );
             
         } catch (Exception e) {
             LOG.error("[ContextAgent] Failed to build test context from gathering", e);
@@ -338,8 +401,57 @@ public class ContextAgent extends StreamingBaseAgent {
                 Map.of(),
                 new ArrayList<>(),
                 "JUnit 5",
-                Map.of("error", e.getMessage())
+                Map.of("error", e.getMessage()),
+                null,
+                null
             );
+        }
+    }
+    
+    private JsonObject createFilePathParams(String filePath) {
+        JsonObject params = new JsonObject();
+        params.addProperty("filePath", filePath);
+        return params;
+    }
+    
+    private String extractMethodImplementation(String classCode, String methodName) {
+        // Simple method extraction - finds method by name and extracts its body
+        // This is a simplified version - a real implementation would use PSI
+        try {
+            String[] lines = classCode.split("\n");
+            StringBuilder methodCode = new StringBuilder();
+            boolean inMethod = false;
+            int braceCount = 0;
+            
+            for (String line : lines) {
+                if (!inMethod && line.contains(methodName) && 
+                    (line.contains("public") || line.contains("private") || 
+                     line.contains("protected") || !line.contains("="))) {
+                    // Found method declaration
+                    inMethod = true;
+                    methodCode.append(line).append("\n");
+                    if (line.contains("{")) {
+                        braceCount++;
+                    }
+                } else if (inMethod) {
+                    methodCode.append(line).append("\n");
+                    // Count braces to find method end
+                    for (char c : line.toCharArray()) {
+                        if (c == '{') braceCount++;
+                        else if (c == '}') {
+                            braceCount--;
+                            if (braceCount == 0) {
+                                return methodCode.toString();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return methodCode.length() > 0 ? methodCode.toString() : null;
+        } catch (Exception e) {
+            LOG.warn("Failed to extract method implementation: " + e.getMessage());
+            return null;
         }
     }
     

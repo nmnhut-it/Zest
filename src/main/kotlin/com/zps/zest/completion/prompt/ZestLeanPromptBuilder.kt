@@ -372,52 +372,55 @@ class ZestLeanPromptBuilder(private val project: Project) {
      */
     private fun buildRelatedClassesSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
         println("ZestLeanPromptBuilder: Building related classes section")
-        println("  Used classes: ${context.usedClasses.size} - ${context.usedClasses.take(5).joinToString(", ")}")
-        println("  Related class contents available: ${context.relatedClassContents.size}")
         
-        // If we have used classes but no content loaded, we need to load them
-        if (context.usedClasses.isEmpty()) {
-            println("  No used classes found, returning empty string")
+        // Use ranked classes if available, otherwise fall back to used classes
+        val classesToUse = if (context.rankedClasses.isNotEmpty()) {
+            println("  Using ${context.rankedClasses.size} ranked classes")
+            context.rankedClasses
+        } else {
+            println("  No ranked classes, using ${context.usedClasses.size} used classes")
+            context.usedClasses.toList()
+        }
+        
+        if (classesToUse.isEmpty()) {
+            println("  No classes found, returning empty string")
             return ""
         }
 
         val sb = StringBuilder()
         sb.append("Classes used in the current method:\n\n")
         
-        // For each used class, either use loaded content or try to load it
-        val classesToShow = mutableListOf<Pair<String, String>>()
+        // For each class, either use loaded content or try to load it
+        val classesToShow = mutableListOf<Triple<String, String, Double>>()
         
-        // First, add all classes that have content already loaded
-        context.relatedClassContents.forEach { (className, content) ->
-            classesToShow.add(className to content)
-        }
-        
-        // Then, for used classes without content, try to load them synchronously
-        val missingClasses = context.usedClasses - context.relatedClassContents.keys
-        if (missingClasses.isNotEmpty()) {
-            println("  Missing content for ${missingClasses.size} used classes, attempting to load...")
-            missingClasses.forEach { className ->
+        // Process classes in ranked order
+        classesToUse.forEach { className ->
+            val content = context.relatedClassContents[className]
+            val score = context.relevanceScores[className] ?: 0.0
+            
+            if (content != null) {
+                classesToShow.add(Triple(className, content, score))
+            } else {
+                // Try to load missing content
                 val classContent = loadClassStructure(className)
                 if (classContent.isNotEmpty()) {
-                    classesToShow.add(className to classContent)
+                    classesToShow.add(Triple(className, classContent, score))
                 }
             }
         }
         
-        // Sort and limit to most relevant classes
-        val relevantClasses = classesToShow
-            .sortedBy { (className, _) -> 
-                // Prioritize classes that are directly used
-                if (className in context.calledMethods) 0 else 1
-            }
-            .take(5) // Limit to 5 most relevant classes
+        // Classes are already ranked by relevance, just take what we have
+        val relevantClasses = classesToShow.take(5) // Limit to 5 most relevant classes
         
         println("  Including ${relevantClasses.size} relevant classes in prompt")
         
-        relevantClasses.forEachIndexed { index, (className, classContent) ->
-            println("  Adding class: $className (content length: ${classContent.length})")
-            sb.append("### ${index + 1}. Class: `$className`\n")
-            sb.append("```java\n")
+        relevantClasses.forEachIndexed { index, (className, classContent, score) ->
+            println("  Adding class: $className (score: ${String.format("%.2f", score)}, content length: ${classContent.length})")
+            sb.append("### ${index + 1}. Class: `$className`")
+            if (score > 0) {
+                sb.append(" (relevance: ${String.format("%.2f", score)})")
+            }
+            sb.append("\n```java\n")
             sb.append(classContent)
             sb.append("\n```\n\n")
         }

@@ -38,6 +38,13 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public int maxRagContextSize = 1000;              // Max size for RAG context in chars
     public int embeddingCacheSize = 100;              // Number of files to cache embeddings for
     
+    // Relevance Scoring Settings
+    public double relevanceThreshold = 0.3;           // Minimum relevance score for inclusion
+    public int maxRelevantClasses = 5;                // Maximum number of relevant classes to include
+    public double bm25Weight = 0.3;                   // Weight for BM25 scoring in hybrid approach
+    public double semanticWeight = 0.7;               // Weight for semantic scoring in hybrid approach
+    public boolean enableRelevanceCache = true;       // Enable caching of relevance scores
+    
     // Default system prompts as static constants
     public static final String DEFAULT_SYSTEM_PROMPT = "You are a concise technical assistant. Keep responses brief and to the point.\n" +
             "\n" +

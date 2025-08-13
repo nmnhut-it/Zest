@@ -13,6 +13,10 @@ import com.zps.zest.completion.rag.InlineCompletionRAG
 import com.zps.zest.completion.ast.ASTPatternMatcher
 import com.zps.zest.langchain4j.ASTChunker
 import com.zps.zest.chunking.ChunkingOptions
+import com.zps.zest.relevance.ContextRelevanceService
+import com.zps.zest.relevance.QueryContext
+import com.zps.zest.scoring.QueryIntent
+import com.zps.zest.scoring.QueryIntentDetector
 
 /**
  * Lean context collector that uses PSI (Program Structure Interface) for accurate Java code analysis
@@ -40,6 +44,8 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
     private val ragService = InlineCompletionRAG(project)
     private val patternMatcher = ASTPatternMatcher()
     private val chunker = ASTChunker()
+    private val relevanceService = ContextRelevanceService(project)
+    private val intentDetector = QueryIntentDetector()
 
     data class LeanContext(
         val fileName: String,
@@ -62,7 +68,10 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         // RAG retrieved chunks
         val ragChunks: List<InlineCompletionRAG.RetrievedChunk> = emptyList(),
         // AST pattern matches
-        val astPatternMatches: List<ASTPatternMatcher.PatternMatch> = emptyList()
+        val astPatternMatches: List<ASTPatternMatcher.PatternMatch> = emptyList(),
+        // Relevance-ranked content
+        val rankedClasses: List<String> = emptyList(),
+        val relevanceScores: Map<String, Double> = emptyMap()
     )
 
     enum class CursorContextType {
@@ -218,7 +227,7 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         
         if (cachedAnalysis != null) {
             // We have cached analysis! Use it immediately
-            val enhancedContext = immediateContext.copy(
+            var enhancedContext = immediateContext.copy(
                 calledMethods = cachedAnalysis.calledMethods,
                 usedClasses = cachedAnalysis.usedClasses,
                 relatedClassContents = cachedAnalysis.relatedClassContents,
@@ -226,6 +235,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                 ragChunks = immediateContext.ragChunks,
                 astPatternMatches = immediateContext.astPatternMatches // Keep original for now
             )
+            
+            // Apply relevance ranking to filter and sort classes
+            enhancedContext = applyRelevanceRanking(enhancedContext)
             
             // Re-process with all dependency information
             val finalContext = ApplicationManager.getApplication().runReadAction<LeanContext> {
@@ -299,6 +311,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                                     ragChunks = latestContext.ragChunks,
                                     astPatternMatches = latestContext.astPatternMatches
                                 )
+                                
+                                // Apply relevance ranking to filter and sort classes
+                                latestContext = applyRelevanceRanking(latestContext)
                                 
                                 // Send progressive updates
                                 ApplicationManager.getApplication().invokeLater {
@@ -933,6 +948,83 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             println("Failed to find AST pattern matches: ${e.message}")
             emptyList()
         }
+    }
+    
+    /**
+     * Apply relevance ranking to collected classes and methods
+     */
+    private fun applyRelevanceRanking(
+        context: LeanContext,
+        query: String? = null
+    ): LeanContext {
+        if (context.usedClasses.isEmpty() && context.relatedClassContents.isEmpty()) {
+            return context
+        }
+        
+        // Build query context for relevance scoring
+        val effectiveQuery = query ?: extractQueryFromContext(
+            context.fullContent,
+            context.cursorOffset,
+            context.contextType
+        )
+        
+        val queryIntent = intentDetector.detectIntent(effectiveQuery)
+        val queryContext = QueryContext(
+            query = effectiveQuery,
+            cursorOffset = context.cursorOffset,
+            fileName = context.fileName,
+            language = context.language,
+            contextType = context.contextType.name,
+            intent = queryIntent
+        )
+        
+        // Rank the used classes
+        val rankedClassNames = mutableListOf<Pair<String, Double>>()
+        val relevanceScores = mutableMapOf<String, Double>()
+        
+        // Calculate relevance scores for each class
+        context.usedClasses.forEach { className ->
+            val content = context.relatedClassContents[className] ?: className
+            val metadata = mapOf(
+                "className" to className,
+                "hasContent" to (content != className),
+                "isUsedClass" to true
+            )
+            
+            // Use the relevance service to calculate score with hybrid approach
+            val scoringStrategy = com.zps.zest.scoring.HybridScorer.forCodeCompletion()
+            val score = scoringStrategy.calculateScore(
+                effectiveQuery,
+                content,
+                metadata
+            )
+            
+            rankedClassNames.add(className to score)
+            relevanceScores[className] = score
+        }
+        
+        // Sort by relevance score
+        rankedClassNames.sortByDescending { it.second }
+        
+        // Filter out low-relevance classes based on configuration
+        val config = ConfigurationManager.getInstance(project)
+        val threshold = config.relevanceThreshold
+        val maxClasses = config.maxRelevantClasses
+        
+        val topRankedClasses = rankedClassNames
+            .filter { it.second >= threshold }
+            .take(maxClasses)
+            .map { it.first }
+        
+        // Filter related class contents to only include top-ranked
+        val filteredClassContents = context.relatedClassContents
+            .filterKeys { it in topRankedClasses }
+        
+        return context.copy(
+            rankedClasses = topRankedClasses,
+            relevanceScores = relevanceScores,
+            relatedClassContents = filteredClassContents
+        )
     }
     
     /**

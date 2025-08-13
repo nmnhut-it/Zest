@@ -87,6 +87,7 @@
         
         <!-- Zest Chat Editor Provider -->
         <fileEditorProvider implementation="com.zps.zest.browser.editor.ZestChatEditorProvider"/>
+        <fileEditorProvider implementation="com.zps.zest.testgen.ui.TestGenerationEditorProvider"/>
         
 
         <!-- LangChain4j Services for agentic retrieval and AI task management -->
@@ -214,6 +215,16 @@
             <!-- Removed from ToolsMenu - available in ZestGroup -->
         </action>
         
+        <!-- Test Generation Action -->
+        <action id="Zest.GenerateTests"
+                class="com.zps.zest.testgen.actions.GenerateTestsAction"
+                text="Generate Tests"
+                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
+                description="Generate unit and integration tests using AI">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.CreateRulesFile"/>
+            <keyboard-shortcut first-keystroke="ctrl alt T" keymap="$default"/>
+        </action>
+        
         <!-- Code Health Group -->
         <group id="Zest.CodeHealth" text="Code Health Review" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
@@ -295,11 +306,6 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
-        <!-- Zest Test Generation Menu -->
-        <group id="Zest.TestGeneration" text="🧪 Zest Test Generation" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="Zest.ShowUpdateInfo"/>
-
-        </group>
         
         <!-- Zest Debug Menu (only in Tools menu) -->
         <group id="Zest.DebugMenu" text="Zest Debug" popup="true">

@@ -48,13 +48,8 @@ class TestGenerationVirtualFileSystem : VirtualFileSystem() {
         val virtualFile = TestGenerationVirtualFile(targetFile, selectionStart, selectionEnd, sessionId)
         files[virtualFile.path] = virtualFile
         
-        // Notify VFS listeners
-        VirtualFileManager.getInstance().notifyPropertyChanged(
-            virtualFile,
-            VirtualFile.PROP_NAME,
-            null,
-            virtualFile.name
-        )
+        // No need to notify about property changes for a newly created file
+        // The file system will handle notifications when the file is opened
         
         return virtualFile
     }

@@ -8,6 +8,7 @@ import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.UserDataHolderBase
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.*
 import com.intellij.util.ui.JBUI
@@ -68,6 +69,8 @@ class TestGenerationEditor(
     }
     
     override fun setState(state: FileEditorState) {}
+    
+    override fun getFile(): VirtualFile = virtualFile
     
     private fun createEditorComponent(): JComponent {
         val mainPanel = JPanel(BorderLayout())

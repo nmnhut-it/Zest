@@ -1,5 +1,6 @@
 package com.zps.zest.actions
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -13,6 +14,11 @@ import java.nio.file.Paths
  * Action to create a default zest_rules.md file if it doesn't exist
  */
 class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_rules.md file to define custom LLM rules", null) {
+    
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        // Run update() on background thread to avoid EDT blocking
+        return ActionUpdateThread.BGT
+    }
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

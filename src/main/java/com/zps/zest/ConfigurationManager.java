@@ -390,6 +390,66 @@ public class ConfigurationManager {
     public void setEmbeddingCacheSize(int size) {
         globalSettings.embeddingCacheSize = size;
     }
+    
+    /**
+     * Gets the relevance threshold for filtering context
+     * @return The minimum relevance score (0.0 to 1.0)
+     */
+    public double getRelevanceThreshold() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for relevanceThreshold");
+            return 0.3;
+        }
+        return globalSettings.relevanceThreshold;
+    }
+    
+    /**
+     * Gets the maximum number of relevant classes to include
+     * @return The maximum number of classes
+     */
+    public int getMaxRelevantClasses() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for maxRelevantClasses");
+            return 5;
+        }
+        return globalSettings.maxRelevantClasses;
+    }
+    
+    /**
+     * Gets the BM25 weight for hybrid scoring
+     * @return The BM25 weight (0.0 to 1.0)
+     */
+    public double getBm25Weight() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for bm25Weight");
+            return 0.3;
+        }
+        return globalSettings.bm25Weight;
+    }
+    
+    /**
+     * Gets the semantic weight for hybrid scoring
+     * @return The semantic weight (0.0 to 1.0)
+     */
+    public double getSemanticWeight() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for semanticWeight");
+            return 0.7;
+        }
+        return globalSettings.semanticWeight;
+    }
+    
+    /**
+     * Checks if relevance caching is enabled
+     * @return true if relevance caching is enabled
+     */
+    public boolean isRelevanceCacheEnabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for enableRelevanceCache");
+            return true;
+        }
+        return globalSettings.enableRelevanceCache;
+    }
 
     /**
      * @deprecated Use IntelliJ settings directly

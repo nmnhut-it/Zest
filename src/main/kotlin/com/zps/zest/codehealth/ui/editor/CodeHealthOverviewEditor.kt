@@ -33,12 +33,21 @@ class CodeHealthOverviewEditor(
 ) : UserDataHolderBase(), FileEditor {
     
     private val storage = CodeHealthReportStorage.getInstance(project)
-    private val component: JComponent
+    private val component: JPanel
     private var currentData: List<CodeHealthAnalyzer.MethodHealthResult>? = null
     
+    // UI components that need updating when data changes
+    private var summaryPanel: JPanel? = null
+    private var criticalIssuesPanel: JPanel? = null
+    private var fileHealthPanel: JPanel? = null
+    private var tabbedPane: JBTabbedPane? = null
+    
     init {
-        component = createEditorComponent()
+        component = JPanel(BorderLayout())
+        component.background = UIUtil.getPanelBackground()
+        setupUI()
         loadRecentData()
+        updateDataDependentComponents()
     }
     
     override fun getComponent(): JComponent = component
@@ -62,6 +71,8 @@ class CodeHealthOverviewEditor(
     override fun setState(state: FileEditorState) {
         // No-op for overview editor
     }
+    
+    override fun getFile(): com.intellij.openapi.vfs.VirtualFile = virtualFile
     
     private fun createEditorComponent(): JComponent {
         val mainPanel = JPanel(BorderLayout())
@@ -112,6 +123,143 @@ class CodeHealthOverviewEditor(
         toolbar.targetComponent = component
         
         return toolbar.component
+    }
+    
+    private fun setupUI() {
+        // Add toolbar at top
+        component.add(createToolbar(), BorderLayout.NORTH)
+        
+        // Create and store summary panel
+        summaryPanel = JPanel(GridBagLayout())
+        summaryPanel!!.background = UIUtil.getPanelBackground()
+        summaryPanel!!.border = EmptyBorder(20, 20, 20, 20)
+        
+        // Create tabbed pane
+        tabbedPane = JBTabbedPane()
+        
+        // Add dashboard content
+        val splitter = JBSplitter(true, 0.25f)
+        splitter.firstComponent = summaryPanel
+        splitter.secondComponent = tabbedPane
+        
+        component.add(splitter, BorderLayout.CENTER)
+        
+        // Setup tabs (empty initially)
+        setupTabs()
+    }
+    
+    private fun setupTabs() {
+        criticalIssuesPanel = JPanel()
+        criticalIssuesPanel!!.layout = BoxLayout(criticalIssuesPanel, BoxLayout.Y_AXIS)
+        criticalIssuesPanel!!.background = UIUtil.getPanelBackground()
+        criticalIssuesPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        fileHealthPanel = JPanel()
+        fileHealthPanel!!.layout = BoxLayout(fileHealthPanel, BoxLayout.Y_AXIS)
+        fileHealthPanel!!.background = UIUtil.getPanelBackground()
+        fileHealthPanel!!.border = EmptyBorder(15, 15, 15, 15)
+        
+        tabbedPane!!.addTab("🚨 Critical Issues", JBScrollPane(criticalIssuesPanel))
+        tabbedPane!!.addTab("📊 Health Trends", createHealthTrendsPanel())
+        tabbedPane!!.addTab("📂 By File", JBScrollPane(fileHealthPanel))
+        tabbedPane!!.addTab("👥 By Author", createAuthorHealthPanel())
+        tabbedPane!!.addTab("🔄 Recent Changes", createRecentChangesPanel())
+    }
+    
+    private fun updateDataDependentComponents() {
+        SwingUtilities.invokeLater {
+            updateSummaryPanel()
+            updateCriticalIssuesPanel()
+            updateFileHealthPanel()
+            component.revalidate()
+            component.repaint()
+        }
+    }
+    
+    private fun updateSummaryPanel() {
+        summaryPanel?.removeAll()
+        
+        val gbc = GridBagConstraints()
+        gbc.insets = JBUI.insets(10)
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        
+        // Title
+        gbc.gridx = 0
+        gbc.gridy = 0
+        gbc.gridwidth = 4
+        gbc.weightx = 1.0
+        val titleLabel = JBLabel("🛡️ Code Health Dashboard")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 24f)
+        summaryPanel!!.add(titleLabel, gbc)
+        
+        // Summary metrics
+        gbc.gridy = 1
+        gbc.gridwidth = 1
+        gbc.weightx = 0.25
+        
+        val summaryData = calculateSummaryMetrics()
+        
+        // Overall health score
+        gbc.gridx = 0
+        summaryPanel!!.add(createMetricCard(
+            "🏆 Overall Health", 
+            "${summaryData.overallScore}/100",
+            getScoreColor(summaryData.overallScore)
+        ), gbc)
+        
+        // Methods analyzed
+        gbc.gridx = 1
+        summaryPanel!!.add(createMetricCard(
+            "🔍 Methods Analyzed", 
+            summaryData.methodsAnalyzed.toString(),
+            UIUtil.getLabelForeground()
+        ), gbc)
+        
+        // Issues found
+        gbc.gridx = 2
+        summaryPanel!!.add(createMetricCard(
+            "🎯 Issues Found", 
+            summaryData.issuesFound.toString(),
+            if (summaryData.issuesFound > 0) Color(255, 152, 0) else Color(76, 175, 80)
+        ), gbc)
+        
+        // Critical issues
+        gbc.gridx = 3
+        summaryPanel!!.add(createMetricCard(
+            "🚨 Critical Issues", 
+            summaryData.criticalIssues.toString(),
+            if (summaryData.criticalIssues > 0) Color(244, 67, 54) else Color(76, 175, 80)
+        ), gbc)
+    }
+    
+    private fun updateCriticalIssuesPanel() {
+        criticalIssuesPanel?.removeAll()
+        
+        val criticalIssues = getCriticalIssues()
+        
+        if (criticalIssues.isEmpty()) {
+            val noIssuesLabel = JBLabel("✨ No critical issues found - your code is in great shape!")
+            noIssuesLabel.font = noIssuesLabel.font.deriveFont(16f)
+            criticalIssuesPanel!!.add(noIssuesLabel)
+        } else {
+            criticalIssues.forEach { (method, issues) ->
+                val issueCard = createIssueCard(method, issues)
+                criticalIssuesPanel!!.add(issueCard)
+                criticalIssuesPanel!!.add(Box.createVerticalStrut(10))
+            }
+        }
+    }
+    
+    private fun updateFileHealthPanel() {
+        fileHealthPanel?.removeAll()
+        
+        val fileHealthData = getFileHealthData()
+        
+        fileHealthData.forEach { (fileName, healthScore, issueCount) ->
+            val fileCard = createFileHealthCard(fileName, healthScore, issueCount)
+            fileHealthPanel!!.add(fileCard)
+            fileHealthPanel!!.add(Box.createVerticalStrut(8))
+        }
     }
     
     private fun createSummaryPanel(): JComponent {
@@ -436,23 +584,29 @@ class CodeHealthOverviewEditor(
     }
     
     private fun loadRecentData() {
-        // Try to load the most recent data
-        val today = LocalDate.now()
-        currentData = storage.getReportForDate(today) 
-            ?: storage.getReportForDate(today.minusDays(1))
-            ?: storage.getReportForDate(today.minusDays(2))
+        // First check for Git-triggered report (has priority)
+        currentData = storage.getGitTriggeredReport()
         
-        // If we have data, refresh the UI
-        if (currentData != null) {
-            SwingUtilities.invokeLater {
-                component.revalidate()
-                component.repaint()
+        // If no Git-triggered report, try to load the most recent daily data
+        if (currentData == null) {
+            // Get the most recent report date from storage
+            val mostRecentDate = storage.getMostRecentReportDate()
+            if (mostRecentDate != null) {
+                currentData = storage.getReportForDate(mostRecentDate)
+            } else {
+                // Fallback: try last 7 days
+                val today = LocalDate.now()
+                for (i in 0..6) {
+                    currentData = storage.getReportForDate(today.minusDays(i.toLong()))
+                    if (currentData != null) break
+                }
             }
         }
     }
     
     private fun refreshData() {
         loadRecentData()
+        updateDataDependentComponents()
         Messages.showInfoMessage(project, "Code Health data refreshed", "Data Refreshed")
     }
     

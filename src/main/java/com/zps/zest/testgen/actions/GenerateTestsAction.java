@@ -1,5 +1,6 @@
 package com.zps.zest.testgen.actions;
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -21,10 +22,7 @@ import java.util.UUID;
  */
 public class GenerateTestsAction extends AnAction {
     
-    public GenerateTestsAction() {
-        super("Generate Tests", "Generate unit and integration tests using AI", null);
-    }
-    
+
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
@@ -75,5 +73,10 @@ public class GenerateTestsAction extends AnAction {
         
         e.getPresentation().setEnabled(enabled);
         e.getPresentation().setVisible(enabled);
+    }
+
+    @Override
+    public @NotNull ActionUpdateThread getActionUpdateThread() {
+        return ActionUpdateThread.BGT;
     }
 }

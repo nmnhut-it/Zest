@@ -7,7 +7,8 @@
       "Bash(find:*)",
       "Bash(rm:*)",
       "Bash(export:*)",
-      "WebFetch(domain:docs.langchain4j.dev)"
+      "WebFetch(domain:docs.langchain4j.dev)",
+      "WebSearch"
     ],
     "deny": []
   }

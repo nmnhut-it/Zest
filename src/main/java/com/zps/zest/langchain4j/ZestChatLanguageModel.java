@@ -1,259 +1,211 @@
 package com.zps.zest.langchain4j;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.util.LLMService;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.ModelProvider;
+import dev.langchain4j.model.chat.Capability;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ChatRequestParameters;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.output.Response;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
- * Wrapper around ZestLLMService to provide LangChain4j ChatLanguageModel interface
- * for query transformers and other advanced RAG features.
- * Now supports tool calling for LangChain4j agents.
+ * Wrapper that uses LangChain4j's OpenAI model for better compatibility
+ * with OpenAI-compatible APIs.
+ * This provides better tool calling support and compatibility with various
+ * OpenAI-compatible services like Ollama, LM Studio, etc.
  */
-public class ZestChatLanguageModel implements ChatLanguageModel {
+public class ZestChatLanguageModel implements ChatModel {
     
-    private final LLMService llmService;
-    private final Gson gson = new Gson();
+    private static final Logger LOG = Logger.getInstance(ZestChatLanguageModel.class);
+    private final ChatModel delegateModel;
+    private final LLMService llmService; // Keep for backward compatibility if needed
     
+    /**
+     * Execute code with plugin classloader to avoid Jackson conflicts
+     * Uses AccessController to handle security permissions
+     */
+    private <T> T executeWithPluginClassLoader(java.util.function.Supplier<T> action) {
+        // In plugin context, we might not have permission to change context classloader
+        // Try with permissions, fall back to direct execution if not allowed
+        try {
+            return java.security.AccessController.doPrivileged(
+                (java.security.PrivilegedAction<T>) () -> {
+                    Thread currentThread = Thread.currentThread();
+                    ClassLoader originalClassLoader = currentThread.getContextClassLoader();
+                    ClassLoader pluginClassLoader = this.getClass().getClassLoader();
+
+                    try {
+                        currentThread.setContextClassLoader(pluginClassLoader);
+                        return action.get();
+                    } finally {
+                        currentThread.setContextClassLoader(originalClassLoader);
+                    }
+                }
+            );
+        } catch (SecurityException e) {
+            // If we don't have permission to change classloader, just execute directly
+            // The model creation might still work if Jackson is properly isolated
+            LOG.warn("Cannot change context classloader in plugin context, executing directly", e);
+            return action.get();
+        }
+    }
+
+    /**
+     * Execute code with plugin classloader (void version)
+     * Uses AccessController to handle security permissions
+     */
+    private void executeWithPluginClassLoader(Runnable action) {
+        try {
+            java.security.AccessController.doPrivileged(
+                (java.security.PrivilegedAction<Void>) () -> {
+                    Thread currentThread = Thread.currentThread();
+                    ClassLoader originalClassLoader = currentThread.getContextClassLoader();
+                    ClassLoader pluginClassLoader = this.getClass().getClassLoader();
+
+                    try {
+                        currentThread.setContextClassLoader(pluginClassLoader);
+                        action.run();
+                        return null;
+                    } finally {
+                        currentThread.setContextClassLoader(originalClassLoader);
+                    }
+                }
+            );
+        } catch (SecurityException e) {
+            // If we don't have permission to change classloader, just execute directly
+            LOG.warn("Cannot change context classloader in plugin context, executing directly", e);
+            action.run();
+        }
+    }
+
     public ZestChatLanguageModel(LLMService llmService) {
         this.llmService = llmService;
+        this.delegateModel = createOpenAiModel(llmService);
     }
-    
+
+    /**
+     * Alternative constructor that accepts a project to get configuration
+     */
+    public ZestChatLanguageModel(@NotNull Project project) {
+        this.llmService = project.getService(LLMService.class);
+        this.delegateModel = createOpenAiModel(project);
+    }
+
+    private ChatModel createOpenAiModel(LLMService llmService) {
+        // Get configuration from the LLMService's project
+        Project project = llmService.getProject();
+        return createOpenAiModel(project);
+    }
+
+    private ChatModel createOpenAiModel(@NotNull Project project) {
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+
+        // Get API configuration
+        String apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+        if (apiUrl.contains("chat.zingplay"))
+            apiUrl = "https://chat.zingplay.com/api";
+        if (apiUrl.contains("talk.zingplay"))
+            apiUrl = "https://talk.zingplay.com/api";
+        if (apiUrl.contains("openwebui.zingplay"))
+            apiUrl = "https://openwebui.zingplay.com/api";
+        String apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
+        String modelName = "local-model"; // Use code model setting
+
+        // Default values if not configured
+        if (apiUrl == null || apiUrl.isEmpty()) {
+            apiUrl = "http://localhost:11434"; // Default Ollama URL
+        }
+        if (apiKey == null || apiKey.isEmpty()) {
+            apiKey = "dummy-key"; // Many local services don't need a real key
+        }
+        if (modelName == null || modelName.isEmpty()) {
+            modelName = "llama3.2"; // Default model
+        }
+
+        // Ensure the URL ends with /v1 for OpenAI compatibility
+        if (!apiUrl.endsWith("/v1") && !apiUrl.contains("/v1/")) {
+            if (!apiUrl.endsWith("/")) {
+                apiUrl += "/";
+            }
+            apiUrl += "v1";
+        }
+
+        LOG.info("Creating OpenAI model with URL: " + apiUrl + ", Model: " + modelName);
+
+        final String finalApiUrl = apiUrl;
+        final String finalApiKey = apiKey;
+        final String finalModelName = modelName;
+
+        // Use plugin classloader to avoid Jackson ServiceLoader conflicts
+        return executeWithPluginClassLoader(() ->
+            OpenAiChatModel.builder()
+                .baseUrl(finalApiUrl)
+                .apiKey(finalApiKey)
+                .modelName(finalModelName)
+                .temperature(0.7)
+                .logRequests(true)
+                .logResponses(true)
+                .timeout(Duration.ofSeconds(120))
+                .build()
+        );
+    }
+
     @Override
-    public Response<AiMessage> generate(List<ChatMessage> messages) {
-        // Delegate to the tool-supporting version with empty tool list
-        return generate(messages, new ArrayList<>());
+    public ChatResponse chat(ChatRequest chatRequest) {
+        return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
     }
-    
+
     @Override
-    public Response<AiMessage> generate(List<ChatMessage> messages, List<ToolSpecification> toolSpecifications) {
-        try {
-            // Build prompt with tool specifications if provided
-            String prompt = buildPromptWithTools(messages, toolSpecifications);
-                
-            // Use existing LLMService for query
-            LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(prompt)
-                .withModel("local-model")
-                .withTimeout(30000);
-                
-            String response = llmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
-            
-            if (response != null) {
-                // Parse response for tool calls
-                return parseResponseForTools(response, toolSpecifications);
-            } else {
-                return Response.from(AiMessage.from("Unable to process request"));
-            }
-            
-        } catch (Exception e) {
-            return Response.from(AiMessage.from("Error: " + e.getMessage()));
-        }
+    public ChatResponse doChat(ChatRequest chatRequest) {
+        return executeWithPluginClassLoader(() -> delegateModel.doChat(chatRequest));
     }
-    
-    private String buildPromptWithTools(List<ChatMessage> messages, List<ToolSpecification> toolSpecifications) {
-        StringBuilder prompt = new StringBuilder();
-        
-        // Add tool specifications to the prompt if provided
-        if (!toolSpecifications.isEmpty()) {
-            prompt.append("You are an AI assistant with access to tools/functions.\n\n");
-            prompt.append("Available tools:\n");
-            prompt.append("```\n");
-            for (ToolSpecification tool : toolSpecifications) {
-                prompt.append("- ").append(tool.name()).append(": ").append(tool.description()).append("\n");
-                if (tool.parameters() != null) {
-                    // Convert parameters to readable format
-                    String paramsJson = tool.parameters().toString();
-                    if (!paramsJson.isEmpty() && !paramsJson.equals("{}")) {
-                        prompt.append("  Parameters: ").append(paramsJson).append("\n");
-                    }
-                }
-            }
-            prompt.append("```\n\n");
-            
-            prompt.append("IMPORTANT INSTRUCTIONS FOR TOOL USE:\n");
-            prompt.append("1. When you need to use a tool, respond with ONLY this format:\n");
-            prompt.append("   TOOL_CALL: {\"tool\": \"<tool_name>\", \"arguments\": {<arguments>}}\n");
-            prompt.append("2. CRITICAL: Do NOT include ANY text before or after TOOL_CALL\n");
-            prompt.append("3. Wrong: \"I'll read the file. TOOL_CALL: {...}\"\n");
-            prompt.append("4. Right: \"TOOL_CALL: {...}\"\n");
-            prompt.append("5. After receiving tool results, you can either:\n");
-            prompt.append("   - Call another tool (using TOOL_CALL: format only)\n");
-            prompt.append("   - Provide your final answer (regular text, no TOOL_CALL)\n");
-            prompt.append("6. Make one tool call per response\n");
-            prompt.append("7. Tool calls and text responses must be separate\n");
-            prompt.append("\n");
-        }
-        
-        // Add messages
-        for (ChatMessage message : messages) {
-            if (message instanceof SystemMessage) {
-                prompt.append("System: ").append(message.text()).append("\n");
-            } else if (message instanceof UserMessage) {
-                prompt.append("User: ").append(message.text()).append("\n");
-            } else if (message instanceof AiMessage) {
-                AiMessage aiMsg = (AiMessage) message;
-                if (aiMsg.hasToolExecutionRequests()) {
-                    // Show the tool calls that were made
-                    prompt.append("Assistant called tools: ");
-                    for (ToolExecutionRequest req : aiMsg.toolExecutionRequests()) {
-                        prompt.append(req.name()).append(" with ").append(req.arguments()).append("\n");
-                    }
-                } else {
-                    prompt.append("Assistant: ").append(message.text()).append("\n");
-                }
-            } else if (message instanceof dev.langchain4j.data.message.ToolExecutionResultMessage) {
-                dev.langchain4j.data.message.ToolExecutionResultMessage toolResult = 
-                    (dev.langchain4j.data.message.ToolExecutionResultMessage) message;
-                prompt.append("Tool Result:\n```\n").append(toolResult.text()).append("\n```\n");
-                prompt.append("Based on this result, you can either call another tool or provide your final answer.\n");
-            } else {
-                prompt.append(message.type().name()).append(": ").append(message.text()).append("\n");
-            }
-        }
-        
-        prompt.append("Assistant: ");
-        return prompt.toString();
+
+    @Override
+    public ChatRequestParameters defaultRequestParameters() {
+        return executeWithPluginClassLoader(() -> delegateModel.defaultRequestParameters());
     }
-    
-    private Response<AiMessage> parseResponseForTools(String response, List<ToolSpecification> toolSpecifications) {
-        // First check for our TOOL_CALL marker
-        if (!toolSpecifications.isEmpty() && response.contains("TOOL_CALL:")) {
-            try {
-                // Extract the tool call JSON after the marker
-                int markerIndex = response.indexOf("TOOL_CALL:");
-                if (markerIndex >= 0) {
-                    // Check if there's explanatory text before the tool call
-                    String beforeMarker = response.substring(0, markerIndex).trim();
-                    boolean hasPreamble = !beforeMarker.isEmpty() && 
-                        !beforeMarker.toLowerCase().matches(".*(i'll|i will|let me|going to|need to).*");
-                    
-                    // If there's substantial text before the tool call, we might want to show it
-                    // But for now, we prioritize the tool call to ensure it gets executed
-                    
-                    String afterMarker = response.substring(markerIndex + "TOOL_CALL:".length()).trim();
-                    
-                    // Find the JSON object
-                    int jsonStart = afterMarker.indexOf("{");
-                    int jsonEnd = findMatchingBrace(afterMarker, jsonStart);
-                    
-                    if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                        String jsonStr = afterMarker.substring(jsonStart, jsonEnd + 1);
-                        JsonObject json = JsonParser.parseString(jsonStr).getAsJsonObject();
-                        
-                        String toolName = json.get("tool").getAsString();
-                        JsonObject arguments = json.has("arguments") && !json.get("arguments").isJsonNull() 
-                            ? json.getAsJsonObject("arguments") 
-                            : new JsonObject();
-                        
-                        // Validate tool exists
-                        boolean validTool = toolSpecifications.stream()
-                            .anyMatch(spec -> spec.name().equals(toolName));
-                        
-                        if (validTool) {
-                            // Create tool execution request
-                            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
-                                .name(toolName)
-                                .arguments(arguments.toString())
-                                .build();
-                            
-                            // Return AI message with tool execution request
-                            // Note: We ignore any text before/after the tool call to ensure execution
-                            return Response.from(AiMessage.from(toolRequest));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                // Log but don't fail - treat as regular response
-                System.err.println("Failed to parse tool call: " + e.getMessage());
-            }
-        }
-        
-        // Fallback: Check for raw JSON format (for backward compatibility)
-        if (!toolSpecifications.isEmpty() && response.contains("\"tool\"") && response.contains("{")) {
-            try {
-                // Try to extract JSON even without marker
-                int jsonStart = response.indexOf("{");
-                int jsonEnd = findMatchingBrace(response, jsonStart);
-                
-                if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                    String jsonStr = response.substring(jsonStart, jsonEnd + 1);
-                    JsonObject json = JsonParser.parseString(jsonStr).getAsJsonObject();
-                    
-                    if (json.has("tool")) {
-                        String toolName = json.get("tool").getAsString();
-                        JsonObject arguments = json.has("arguments") && !json.get("arguments").isJsonNull()
-                            ? json.getAsJsonObject("arguments")
-                            : new JsonObject();
-                        
-                        // Verify this is actually a tool we know about
-                        boolean validTool = toolSpecifications.stream()
-                            .anyMatch(spec -> spec.name().equals(toolName));
-                        
-                        if (validTool) {
-                            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
-                                .name(toolName)
-                                .arguments(arguments.toString())
-                                .build();
-                            
-                            return Response.from(AiMessage.from(toolRequest));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                // Silent fallback to regular response
-            }
-        }
-        
-        // Regular text response - no tool call detected
-        return Response.from(AiMessage.from(response));
+
+    @Override
+    public List<ChatModelListener> listeners() {
+        return executeWithPluginClassLoader(() -> delegateModel.listeners());
     }
-    
-    private int findMatchingBrace(String str, int startIndex) {
-        if (startIndex < 0 || startIndex >= str.length()) {
-            return -1;
-        }
-        
-        int braceCount = 0;
-        boolean inString = false;
-        char prevChar = '\0';
-        
-        for (int i = startIndex; i < str.length(); i++) {
-            char c = str.charAt(i);
-            
-            // Handle string literals
-            if (c == '"' && prevChar != '\\') {
-                inString = !inString;
-            }
-            
-            if (!inString) {
-                if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        return i;
-                    }
-                }
-            }
-            
-            prevChar = c;
-        }
-        
-        return -1;
+
+    @Override
+    public ModelProvider provider() {
+        return executeWithPluginClassLoader(() -> delegateModel.provider());
+    }
+
+    @Override
+    public String chat(String userMessage) {
+        return executeWithPluginClassLoader(() -> delegateModel.chat(userMessage));
+    }
+
+    @Override
+    public ChatResponse chat(ChatMessage... messages) {
+        return executeWithPluginClassLoader(() -> delegateModel.chat(messages));
+    }
+
+    @Override
+    public ChatResponse chat(List<ChatMessage> messages) {
+        return executeWithPluginClassLoader(() -> delegateModel.chat(messages));
+    }
+
+    @Override
+    public Set<Capability> supportedCapabilities() {
+        return executeWithPluginClassLoader(() -> delegateModel.supportedCapabilities());
     }
 }

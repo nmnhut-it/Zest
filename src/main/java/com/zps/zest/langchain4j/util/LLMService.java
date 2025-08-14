@@ -114,6 +114,13 @@ public final class LLMService implements Disposable {
     }
     
     /**
+     * Get the project associated with this service
+     */
+    public Project getProject() {
+        return project;
+    }
+    
+    /**
      * Enable or disable optimized HTTP client (new)
      */
     public void setUseOptimizedClient(boolean useOptimizedClient) {

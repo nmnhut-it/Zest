@@ -15,6 +15,8 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import dev.langchain4j.rag.content.Content;
@@ -196,7 +198,12 @@ public final class ZestLangChain4jService {
             // InMemoryEmbeddingStore doesn't have a direct size() method
             // We can estimate by doing a broad search
             Embedding dummyEmbedding = embeddingModel.embed("test").content();
-            List<EmbeddingMatch<TextSegment>> all = embeddingStore.findRelevant(dummyEmbedding, 10000, 0.0);
+            var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
+                .queryEmbedding(dummyEmbedding)
+                .maxResults(10000)
+                .minScore(0.0)
+                .build();
+            List<EmbeddingMatch<TextSegment>> all = embeddingStore.search(request).matches();
             return all.size();
         } catch (Exception e) {
             LOG.debug("Could not get indexed chunk count: " + e.getMessage());
@@ -388,13 +395,13 @@ public final class ZestLangChain4jService {
             
             // Get a sample of recent chunks to keep (by doing a broad search)
             Embedding dummyEmbedding = embeddingModel.embed("cleanup").content();
-            List<EmbeddingMatch<TextSegment>> allChunks = embeddingStore.findRelevant(dummyEmbedding, currentSize, 0.0);
+            EmbeddingSearchResult<TextSegment> allChunks = embeddingStore.search(EmbeddingSearchRequest.builder().queryEmbedding(dummyEmbedding).build() );
             
             // Filter to keep only recent chunks (last 7 days)
             long sevenDaysAgo = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(7);
             List<EmbeddingMatch<TextSegment>> recentChunks = new ArrayList<>();
             
-            for (EmbeddingMatch<TextSegment> match : allChunks) {
+            for (EmbeddingMatch<TextSegment> match : allChunks.matches()) {
                 String chunkId = getChunkId(match.embedded());
                 Long timestamp = chunkTimestamps.get(chunkId);
                 
@@ -1006,7 +1013,7 @@ public final class ZestLangChain4jService {
     /**
      * Create a ChatLanguageModel for query transformers using our existing LLMService
      */
-    private dev.langchain4j.model.chat.ChatLanguageModel createChatLanguageModel() {
+    private dev.langchain4j.model.chat.ChatModel createChatLanguageModel() {
         return new ZestChatLanguageModel(llmService);
     }
     
@@ -1096,9 +1103,12 @@ public final class ZestLangChain4jService {
     private List<EmbeddingMatch<TextSegment>> performInitialRetrieval(String query, int candidateCount, double threshold) {
         // Get all chunks from vector store
         Embedding queryEmbedding = embeddingModel.embed(query).content();
-        List<EmbeddingMatch<TextSegment>> allMatches = embeddingStore.findRelevant(
-            queryEmbedding, 10000, 0.0  // Get all chunks, no threshold initially
-        );
+        var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
+            .queryEmbedding(queryEmbedding)
+            .maxResults(10000)  // Get all chunks, no threshold initially
+            .minScore(0.0)
+            .build();
+        List<EmbeddingMatch<TextSegment>> allMatches = embeddingStore.search(request).matches();
         
         // Extract keywords from query
         Set<String> keywords = extractKeywords(query);

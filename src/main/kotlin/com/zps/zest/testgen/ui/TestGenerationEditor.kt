@@ -1295,67 +1295,7 @@ class TestGenerationEditor(
         // Use the new update method instead of recreating everything
         updateDataDependentComponents()
     }
-    
-    private fun showTestCode(test: GeneratedTest) {
-        val dialog = JDialog()
-        dialog.title = "Generated Test: ${test.testName}"
-        dialog.setSize(900, 700)
-        dialog.setLocationRelativeTo(component)
-        
-        // Create editor with syntax highlighting
-        val document = EditorFactory.getInstance().createDocument(test.fullContent)
-        val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
-        val editor = EditorFactory.getInstance().createEditor(document, project, javaFileType, false) as EditorEx
-        
-        // Configure editor settings
-        editor.settings.apply {
-            isLineNumbersShown = true
-            isWhitespacesShown = false
-            isIndentGuidesShown = true
-            isFoldingOutlineShown = true
-            additionalColumnsCount = 1
-            additionalLinesCount = 1
-            isCaretRowShown = true
-        }
-        
-        // Set color scheme
-        editor.colorsScheme = EditorColorsManager.getInstance().globalScheme
-        
-        val editorPanel = JPanel(BorderLayout())
-        editorPanel.add(editor.component, BorderLayout.CENTER)
-        
-        // Add button panel
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        buttonPanel.background = UIUtil.getPanelBackground()
-        
-        val copyButton = JButton("Copy to Clipboard")
-        copyButton.addActionListener {
-            val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-            val selection = StringSelection(test.fullContent)
-            clipboard.setContents(selection, selection)
-            Messages.showInfoMessage(project, "Test code copied to clipboard", "Copied")
-        }
-        buttonPanel.add(copyButton)
-        
-        val closeButton = JButton("Close")
-        closeButton.addActionListener {
-            EditorFactory.getInstance().releaseEditor(editor)
-            dialog.dispose()
-        }
-        buttonPanel.add(closeButton)
-        
-        dialog.add(editorPanel, BorderLayout.CENTER)
-        dialog.add(buttonPanel, BorderLayout.SOUTH)
-        
-        dialog.addWindowListener(object : java.awt.event.WindowAdapter() {
-            override fun windowClosing(e: java.awt.event.WindowEvent) {
-                EditorFactory.getInstance().releaseEditor(editor)
-            }
-        })
-        
-        dialog.isVisible = true
-    }
-    
+
     private fun parseStreamingOutputForUI(text: String, session: TestGenerationSession) {
         // Parse streaming output and progressively update UI tabs
         try {

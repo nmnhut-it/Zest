@@ -11,7 +11,7 @@ import com.zps.zest.testgen.model.*;
 
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 
 import org.jetbrains.annotations.NotNull;
@@ -60,9 +60,9 @@ public class ValidatorAgent extends StreamingBaseAgent {
         super(project, langChainService, llmService, "ValidatorAgent");
         
         // Create AI assistant using AiServices
-        ChatLanguageModel model = new ZestChatLanguageModel(llmService);
+        ChatModel model = new ZestChatLanguageModel(llmService);
         this.assistant = AiServices.builder(ValidationAssistant.class)
-            .chatLanguageModel(model)
+                .chatModel(model)
             .chatMemory(MessageWindowChatMemory.withMaxMessages(5))
             .build();
     }

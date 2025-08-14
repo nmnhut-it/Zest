@@ -142,9 +142,12 @@ public class AdvancedRAGService {
     private List<ScoredMatch> performEnhancedHybridSearch(QueryAnalysis queryAnalysis, int maxCandidates) {
         // Get semantic matches
         Embedding queryEmbedding = embeddingModel.embed(queryAnalysis.originalQuery).content();
-        List<EmbeddingMatch<TextSegment>> semanticMatches = embeddingStore.findRelevant(
-            queryEmbedding, maxCandidates, 0.1 // Low threshold to get many candidates
-        );
+        var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
+            .queryEmbedding(queryEmbedding)
+            .maxResults(maxCandidates)
+            .minScore(0.1) // Low threshold to get many candidates
+            .build();
+        List<EmbeddingMatch<TextSegment>> semanticMatches = embeddingStore.search(request).matches();
         
         // Score with BM25 + Semantic hybrid approach
         List<ScoredMatch> hybridScored = new ArrayList<>();

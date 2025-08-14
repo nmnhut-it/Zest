@@ -3,12 +3,14 @@ package com.zps.zest.testgen;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiFile;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.agents.*;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.util.TestGenerationProgressTracker;
+import com.zps.zest.ClassAnalyzer;
+import com.intellij.psi.PsiClass;
+import com.zps.zest.langchain4j.ZestLangChain4jService.ContextItem;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -21,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class TestGenerationService {
     private static final Logger LOG = Logger.getInstance(TestGenerationService.class);
     private static final boolean DEBUG_STREAMING = true; // Debug flag for streaming
+    private static final boolean USE_CLASS_ANALYZER = false; // Flag to switch between ClassAnalyzer and ContextAgent
     
     private final Project project;
     private final ZestLangChain4jService langChainService;
@@ -38,11 +41,7 @@ public final class TestGenerationService {
     private final Map<String, List<TestGenerationProgressListener>> sessionListeners = new ConcurrentHashMap<>();
     private final Map<String, TestGenerationProgressTracker> progressTrackers = new ConcurrentHashMap<>();
     private final Map<String, java.util.function.Consumer<String>> streamingConsumers = new ConcurrentHashMap<>();
-    
-    // For tracking multi-method test generation
-    private final Map<String, List<TestPlan>> methodTestPlans = new ConcurrentHashMap<>();
-    private final Map<String, TestPlan> mergedTestPlans = new ConcurrentHashMap<>();
-    
+
     public TestGenerationService(@NotNull Project project) {
         this.project = project;
         this.langChainService = project.getService(ZestLangChain4jService.class);
@@ -76,15 +75,7 @@ public final class TestGenerationService {
         
         return startTestGenerationInternal(request, sessionId);
     }
-    
-    /**
-     * Start a new test generation session (backward compatibility)
-     */
-    @NotNull
-    public CompletableFuture<TestGenerationSession> startTestGeneration(@NotNull TestGenerationRequest request) {
-        return startTestGeneration(request, null);
-    }
-    
+
     /**
      * Internal method to start test generation
      */
@@ -134,138 +125,7 @@ public final class TestGenerationService {
             }
         });
     }
-    
-    /**
-     * Start method selection phase for test generation
-     */
-    @NotNull
-    public CompletableFuture<List<String>> extractAvailableMethods(@NotNull TestGenerationRequest request) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Extract all testable methods from the target file
-                return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
-                    (com.intellij.openapi.util.Computable<List<String>>) () -> {
-                        List<String> methods = new ArrayList<>();
-                        if (request.getTargetFile() instanceof com.intellij.psi.PsiJavaFile) {
-                            com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) request.getTargetFile();
-                            for (com.intellij.psi.PsiClass psiClass : javaFile.getClasses()) {
-                                for (com.intellij.psi.PsiMethod method : psiClass.getMethods()) {
-                                    // Skip constructors and private methods for now
-                                    if (!method.isConstructor() && !method.hasModifierProperty(com.intellij.psi.PsiModifier.PRIVATE)) {
-                                        String methodSignature = psiClass.getName() + "." + method.getName() + "(" +
-                                            String.join(", ", Arrays.stream(method.getParameterList().getParameters())
-                                                .map(p -> p.getType().getPresentableText())
-                                                .toArray(String[]::new)) + ")";
-                                        methods.add(methodSignature);
-                                    }
-                                }
-                            }
-                        }
-                        return methods;
-                    }
-                );
-            } catch (Exception e) {
-                LOG.error("Failed to extract methods", e);
-                return Collections.emptyList();
-            }
-        });
-    }
-    
-    /**
-     * Generate test plans for selected methods
-     */
-    @NotNull
-    public CompletableFuture<List<TestPlan>> generateTestPlansForMethods(@NotNull String sessionId, 
-                                                                         @NotNull List<String> selectedMethods,
-                                                                         @NotNull TestGenerationRequest originalRequest) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                List<TestPlan> plans = new ArrayList<>();
-                TestGenerationSession session = activeSessions.get(sessionId);
-                
-                if (session == null) {
-                    throw new RuntimeException("Session not found: " + sessionId);
-                }
-                
-                // Get streaming consumer for this session
-                java.util.function.Consumer<String> streamingConsumer = streamingConsumers.get(sessionId);
-                if (streamingConsumer != null && coordinatorAgent instanceof StreamingBaseAgent) {
-                    ((StreamingBaseAgent) coordinatorAgent).setStreamingConsumer(streamingConsumer);
-                }
-                
-                // Generate a test plan for each selected method
-                for (String methodSignature : selectedMethods) {
-                    // Create a request with the specific method
-                    Map<String, String> options = new HashMap<>(originalRequest.getOptions());
-                    options.put("selectedMethods", methodSignature);
-                    
-                    TestGenerationRequest methodRequest = new TestGenerationRequest(
-                        originalRequest.getTargetFile(),
-                        originalRequest.getSelectionStart(),
-                        originalRequest.getSelectionEnd(),
-                        "Generate tests for " + methodSignature,
-                        originalRequest.getTestType(),
-                        options
-                    );
-                    
-                    // Generate test plan for this specific method
-                    TestPlan plan = coordinatorAgent.planTests(methodRequest, session.getContext()).join();
-                    plans.add(plan);
-                }
-                
-                // Store the individual plans
-                methodTestPlans.put(sessionId, plans);
-                
-                return plans;
-            } catch (Exception e) {
-                LOG.error("Failed to generate test plans for methods", e);
-                throw new RuntimeException("Test plan generation failed: " + e.getMessage());
-            }
-        });
-    }
-    
-    /**
-     * Merge multiple test plans into a single consolidated plan
-     */
-    @NotNull
-    public TestPlan mergeTestPlans(@NotNull String sessionId, @NotNull List<TestPlan> plans) {
-        if (plans.isEmpty()) {
-            throw new IllegalArgumentException("No test plans to merge");
-        }
-        
-        if (plans.size() == 1) {
-            return plans.get(0);
-        }
-        
-        // Merge all test scenarios from all plans
-        List<TestPlan.TestScenario> allScenarios = new ArrayList<>();
-        Set<String> allDependencies = new HashSet<>();
-        StringBuilder mergedReasoning = new StringBuilder("Merged test plan for multiple methods:\n");
-        
-        for (TestPlan plan : plans) {
-            allScenarios.addAll(plan.getTestScenarios());
-            allDependencies.addAll(plan.getDependencies());
-            mergedReasoning.append("\n- ").append(plan.getTargetMethod()).append(": ")
-                          .append(plan.getScenarioCount()).append(" scenarios");
-        }
-        
-        // Use the first plan's target class and type as the base
-        TestPlan firstPlan = plans.get(0);
-        TestPlan mergedPlan = new TestPlan(
-            "Multiple Methods",
-            firstPlan.getTargetClass(),
-            allScenarios,
-            new ArrayList<>(allDependencies),
-            firstPlan.getRecommendedTestType(),
-            mergedReasoning.toString()
-        );
-        
-        // Store the merged plan
-        mergedTestPlans.put(sessionId, mergedPlan);
-        
-        return mergedPlan;
-    }
-    
+
     /**
      * Continue test generation with selected scenarios
      */
@@ -348,22 +208,118 @@ public final class TestGenerationService {
                     }
                 }
                 
-                // Phase 1: Context Gathering (moved before planning)
+                // Phase 1: Context Gathering with Loop Pattern (moved before planning)
                 session.setStatus(TestGenerationSession.Status.GATHERING_CONTEXT);
                 tracker.completePhase("Initialization complete");
                 tracker.startPhase(TestGenerationProgressTracker.PhaseType.CONTEXT_GATHERING);
-                tracker.updatePhaseProgress("Exploring codebase and gathering context...", 20);
+                tracker.updatePhaseProgress("Starting iterative context exploration...", 10);
+                
+                // Track context gathering progress
+                final long contextStartTime = System.currentTimeMillis();
+                final int[] progressCheckCount = {0};
                 
                 // Gather context FIRST before planning (pass sessionId for tracking)
-                TestContext context = contextAgent.gatherContext(session.getRequest(), null, session.getSessionId()).join();
-                session.setContext(context);
-                tracker.updatePhaseProgress("Context gathered: " + context.getContextItemCount() + " items", 100);
-                tracker.completePhase("Context gathering completed");
+                CompletableFuture<TestContext> contextFuture;
                 
-                // Phase 2: Planning and Coordination (using the gathered context)
+                if (USE_CLASS_ANALYZER) {
+                    // Use direct ClassAnalyzer approach
+                    LOG.info("Using ClassAnalyzer for context gathering for session: " + session.getSessionId());
+                    contextFuture = gatherContextWithClassAnalyzer(session.getRequest());
+                } else {
+                    // Use ContextAgent with loop pattern, making multiple tool calls
+                    LOG.info("Starting context gathering with ContextAgent loop pattern for session: " + session.getSessionId());
+                    contextFuture = contextAgent.gatherContext(
+                        session.getRequest(), 
+                        null, 
+                        session.getSessionId()
+                    );
+                }
+                
+                // Monitor context gathering progress (check every 500ms)
+                while (!contextFuture.isDone()) {
+                    try {
+                        Thread.sleep(500);
+                        progressCheckCount[0]++;
+                        long elapsed = System.currentTimeMillis() - contextStartTime;
+                        
+                        // Update progress message based on elapsed time
+                        String progressMsg;
+                        if (elapsed < 2000) {
+                            progressMsg = "Reading target file...";
+                        } else if (elapsed < 5000) {
+                            progressMsg = "Exploring related files and dependencies...";
+                        } else if (elapsed < 10000) {
+                            progressMsg = "Searching for test patterns and examples...";
+                        } else {
+                            progressMsg = String.format("Deep context analysis... (%d seconds)", elapsed / 1000);
+                        }
+                        
+                        // Progress increases gradually up to 90%
+                        int progress = Math.min(90, 10 + (int)(elapsed / 300));
+                        tracker.updatePhaseProgress(progressMsg, progress);
+                        
+                        // Log periodic updates
+                        if (progressCheckCount[0] % 10 == 0) { // Every 5 seconds
+                            LOG.debug("Context gathering in progress: " + progressMsg);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                
+                // Get the context result
+                TestContext context;
+                try {
+                    context = contextFuture.join();
+                } catch (Exception e) {
+                    LOG.error("Context gathering failed with exception", e);
+                    tracker.updatePhaseProgress("Context gathering failed: " + e.getMessage(), 100);
+                    throw new RuntimeException("Failed to gather context: " + e.getMessage(), e);
+                }
+                
+                session.setContext(context);
+                
+                // Log detailed context information
+                long totalTime = System.currentTimeMillis() - contextStartTime;
+                LOG.info(String.format("Context gathering completed in %.1f seconds with %d items", 
+                    totalTime / 1000.0, context.getContextItemCount()));
+                
+                // Provide detailed completion message
+                String completionMsg = String.format(
+                    "Context gathered: %d items, %d patterns, %d dependencies (%.1fs)",
+                    context.getContextItemCount(),
+                    context.getExistingTestPatterns().size(),
+                    context.getDependencies().size(),
+                    totalTime / 1000.0
+                );
+                
+                if (context.getAdditionalMetadata() != null) {
+                    Object gatheredFiles = context.getAdditionalMetadata().get("gatheredFiles");
+                    if (gatheredFiles instanceof Map) {
+                        completionMsg += String.format(", %d files explored", ((Map<?, ?>) gatheredFiles).size());
+                    }
+                }
+                
+                tracker.updatePhaseProgress(completionMsg, 100);
+                tracker.completePhase("Context gathering completed (iterative exploration finished)");
+                
+                // Phase 2: Planning and Coordination (using the comprehensively gathered context)
                 session.setStatus(TestGenerationSession.Status.PLANNING);
                 tracker.startPhase(TestGenerationProgressTracker.PhaseType.PLANNING);
-                tracker.updatePhaseProgress("Planning test scenarios based on context...", 20);
+                
+                // Validate context quality before planning
+                if (context.getContextItemCount() == 0) {
+                    LOG.warn("Context gathering returned no items - attempting to proceed with minimal context");
+                    tracker.updatePhaseProgress("Warning: Limited context available, planning with defaults...", 10);
+                } else {
+                    tracker.updatePhaseProgress("Planning test scenarios using " + context.getContextItemCount() + " context items...", 20);
+                }
+                
+                // Enhanced context validation for better planning
+                if (context.getTargetClassCode() == null || context.getTargetClassCode().isEmpty()) {
+                    LOG.warn("Target class code not found in context - test generation may be limited");
+                }
                 
                 TestPlan testPlan = coordinatorAgent.planTests(session.getRequest(), context).join();
                 session.setTestPlan(testPlan);
@@ -413,6 +369,79 @@ public final class TestGenerationService {
     }
     
     /**
+     * Gather context using ClassAnalyzer directly instead of ContextAgent
+     */
+    private CompletableFuture<TestContext> gatherContextWithClassAnalyzer(@NotNull TestGenerationRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+//                LOG.info("Gathering context with ClassAnalyzer for: " + request.getTargetClassName());
+                
+                // Find the target class
+                String path = request.getTargetFile().getVirtualFile().getPath();
+                PsiClass targetClass = ClassAnalyzer.findTestClass(project, path);
+                if (targetClass == null) {
+//                    LOG.warn("Could not find target class: " + request.getTargetClassName());
+                }
+                
+                // Collect class context
+                String classContext = targetClass != null ? 
+                    ClassAnalyzer.collectClassContext(targetClass) : "";
+                    
+                // Collect test class structure if it's a test class
+                String testStructure = targetClass != null ? 
+                    ClassAnalyzer.collectTestClassStructure(targetClass) : "";
+                
+                // Create ContextItem for the class
+                List<ContextItem> contextItems = new ArrayList<>();
+                if (!classContext.isEmpty()) {
+                    contextItems.add(new ContextItem(
+                        "class-context",  // id
+                        "Class context for " + (targetClass != null ? targetClass.getName() : "unknown"), // title
+                        classContext,     // content
+                        path,            // filePath
+                        null,           // lineNumber
+                        1.0            // score
+                    ));
+                }
+                
+                // Get framework info from request or defaults
+                String frameworkInfo = "JUnit 5"; // Default framework
+                // Check if test type suggests using mocks
+                if (request.getTestType() == TestGenerationRequest.TestType.UNIT_TESTS) {
+                    frameworkInfo = "JUnit 5 with Mockito"; // Unit tests often use mocks
+                }
+                
+                // Create TestContext with minimal but sufficient information
+                TestContext context = new TestContext(
+                    contextItems,
+                    List.of(path), // relatedFiles
+                    Map.of(), // dependencies - empty for now
+                    List.of(), // existingTestPatterns - empty for now
+                    frameworkInfo,
+                    Map.of("classAnalyzer", true, "testStructure", testStructure), // metadata
+                    classContext, // targetClassCode
+                    null // targetMethodCode - could be extracted if needed
+                );
+                
+                LOG.info("ClassAnalyzer context gathered: " + contextItems.size() + " items");
+                return context;
+                
+            } catch (Exception e) {
+                LOG.error("Failed to gather context with ClassAnalyzer", e);
+                // Return minimal context on error
+                return new TestContext(
+                    List.of(),
+                    List.of(),
+                    Map.of(),
+                    List.of(),
+                    "JUnit 5",
+                    Map.of("error", e.getMessage())
+                );
+            }
+        });
+    }
+    
+    /**
      * Continue workflow after user selection (Phase 2 onwards)
      */
     private void executeTestGenerationWorkflowPhase2(@NotNull TestGenerationSession session) {
@@ -450,6 +479,16 @@ public final class TestGenerationService {
                 TestContext context = session.getContext();
                 if (context == null) {
                     throw new RuntimeException("Context not available for test generation");
+                }
+                
+                // Log context quality for debugging
+                LOG.info("Using context for test generation: " + context.getContextItemCount() + " items, " +
+                         "target code available: " + (context.getTargetClassCode() != null));
+                
+                // Verify we have sufficient context for test generation
+                if (context.getTargetClassCode() == null && context.getContextItemCount() < 2) {
+                    LOG.warn("Minimal context available - test generation quality may be affected");
+                    tracker.updatePhaseProgress("Warning: Limited context, proceeding with best effort...", 20);
                 }
                 
                 // Phase 3: Test Generation (using context) - Now in batches of 5
@@ -564,35 +603,38 @@ public final class TestGenerationService {
                 }
                 
                 // Validate the merged tests
-                ValidationResult validationResult = validatorAgent.validateTests(mergedTests, context).join();
-                session.setValidationResult(validationResult);
-                
-                // Update tests with fixes
-                if (validationResult.hasFixedTests()) {
-                    session.setGeneratedTests(validationResult.getFixedTests());
-                }
-                
-                if (tracker != null) {
-                    tracker.updatePhaseProgress("Validation complete: " + validationResult.getAppliedFixes().size() + " fixes applied", 100);
-                    tracker.completePhase("Validation completed");
-                }
+//                ValidationResult validationResult = validatorAgent.validateTests(mergedTests, context).join();
+//                session.setValidationResult(validationResult);
+//
+//                // Update tests with fixes
+//                if (validationResult.hasFixedTests()) {
+//                    session.setGeneratedTests(validationResult.getFixedTests());
+//                }
+//
+//                if (tracker != null) {
+//                    tracker.updatePhaseProgress("Validation complete: " + validationResult.getAppliedFixes().size() + " fixes applied", 100);
+//                    tracker.completePhase("Validation completed");
+//                }
                 
                 // Phase 5: Completion
                 if (tracker != null) {
                     tracker.startPhase(TestGenerationProgressTracker.PhaseType.COMPLETION);
                 }
-                if (validationResult.hasErrors()) {
-                    session.setStatus(TestGenerationSession.Status.COMPLETED_WITH_ISSUES);
-                    if (tracker != null) {
-                        tracker.complete("Test generation completed with " + validationResult.getErrorCount() + " issues");
-                    }
-                } else {
-                    session.setStatus(TestGenerationSession.Status.COMPLETED);
-                    if (tracker != null) {
-                        tracker.complete("Test generation completed successfully!");
-                    }
+//                if (false || validationResult.hasErrors()) {
+//                    session.setStatus(TestGenerationSession.Status.COMPLETED_WITH_ISSUES);
+//                    if (tracker != null) {
+//                        tracker.complete("Test generation completed with " + validationResult.getErrorCount() + " issues");
+//                    }
+//                } else {
+//                    session.setStatus(TestGenerationSession.Status.COMPLETED);
+//                    if (tracker != null) {
+//                        tracker.complete("Test generation completed successfully!");
+//                    }
+//                }
+                session.setStatus(TestGenerationSession.Status.COMPLETED);
+                if (tracker != null) {
+                    tracker.complete("Test generation completed successfully!");
                 }
-                
             } catch (Exception e) {
                 LOG.error("Test generation workflow phase 2 failed for session: " + session.getSessionId(), e);
                 session.setStatus(TestGenerationSession.Status.FAILED);

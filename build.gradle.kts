@@ -79,6 +79,9 @@ dependencies {
 
     // Java Diff Utils for gdiff functionality
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
+
+    // Gson for JSON serialization (used by custom LangChain4j codec)
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 intellijPlatform {

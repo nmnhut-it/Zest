@@ -1,77 +1,51 @@
 package com.zps.zest.langchain4j.json;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import dev.langchain4j.spi.json.JsonCodec;
-import dev.langchain4j.spi.json.JsonCodecFactory;
+import com.google.gson.*;
+import com.google.gson.reflect.TypeToken;
+import dev.langchain4j.internal.Json;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.Type;
-import java.util.logging.Logger;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
- * Custom JSON Codec implementation for Zest plugin.
- * This codec is designed to work within IntelliJ plugin environment
- * and avoid conflicts with other Jackson configurations.
+ * Custom JSON Codec implementation using Gson for IntelliJ plugin environment.
+ * This avoids Jackson conflicts and uses Gson which is often bundled with IntelliJ.
  */
-public class ZestJsonCodec implements JsonCodecFactory {
+public class ZestJsonCodec implements Json.JsonCodec {
     
-    private static final Logger LOGGER = Logger.getLogger(ZestJsonCodec.class.getName());
-    
-    private final ObjectMapper objectMapper;
+    private final Gson gson;
     
     public ZestJsonCodec() {
-        this.objectMapper = createCustomObjectMapper();
-    }
-    
-    private ObjectMapper createCustomObjectMapper() {
-        return JsonMapper.builder()
-                // Configure basic features
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .configure(SerializationFeature.INDENT_OUTPUT, false)
-                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-                .configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+        this.gson = new GsonBuilder()
+                // Configure Gson for better compatibility
+                .serializeNulls()
+                .setPrettyPrinting()
+                .disableHtmlEscaping()
                 
-                // Include non-null values only
-                .serializationInclusion(JsonInclude.Include.NON_NULL)
+                // Add custom type adapters for common Java 8 time types
+                .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
+                .registerTypeAdapter(LocalDate.class, new LocalDateAdapter())
                 
-                // Add modules for better type support
-                .addModule(new JavaTimeModule())
-                .addModule(new Jdk8Module())
-                .addModule(new ParameterNamesModule())
-                .addModule(createCustomModule())
-                
-                // Build the mapper
-                .build();
-    }
-    
-    private SimpleModule createCustomModule() {
-        SimpleModule module = new SimpleModule("ZestJsonModule");
-        
-        // Add any custom serializers/deserializers here if needed
-        // For example, if you need special handling for certain IntelliJ types
-        
-        return module;
+                // Create the Gson instance
+                .create();
     }
     
     @Override
-    public <T> T fromJson(String json, Class<T> clazz) {
+    public String toJson(Object o) {
+        if (o == null) {
+            return null;
+        }
+        return gson.toJson(o);
+    }
+    
+    @Override
+    public <T> T fromJson(String json, Class<T> type) {
         if (json == null || json.isEmpty()) {
             return null;
         }
-        
-        try {
-            return objectMapper.readValue(json, clazz);
-        } catch (JsonProcessingException e) {
-            LOGGER.severe("Failed to deserialize JSON to " + clazz.getName() + ": " + e.getMessage());
-            throw new RuntimeException("Failed to deserialize JSON", e);
-        }
+        return gson.fromJson(json, type);
     }
     
     @Override
@@ -79,95 +53,38 @@ public class ZestJsonCodec implements JsonCodecFactory {
         if (json == null || json.isEmpty()) {
             return null;
         }
+        return gson.fromJson(json, type);
+    }
+    
+    // Custom adapter for LocalDateTime
+    private static class LocalDateTimeAdapter implements JsonSerializer<LocalDateTime>, JsonDeserializer<LocalDateTime> {
+        private static final DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
         
-        try {
-            JavaType javaType = objectMapper.constructType(type);
-            return objectMapper.readValue(json, javaType);
-        } catch (JsonProcessingException e) {
-            LOGGER.severe("Failed to deserialize JSON to " + type.getTypeName() + ": " + e.getMessage());
-            throw new RuntimeException("Failed to deserialize JSON", e);
+        @Override
+        public JsonElement serialize(LocalDateTime src, Type typeOfSrc, JsonSerializationContext context) {
+            return new JsonPrimitive(formatter.format(src));
+        }
+        
+        @Override
+        public LocalDateTime deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) 
+                throws JsonParseException {
+            return LocalDateTime.parse(json.getAsString(), formatter);
         }
     }
     
-    @Override
-    public <T> T fromJson(InputStream inputStream, Class<T> clazz) {
-        if (inputStream == null) {
-            return null;
+    // Custom adapter for LocalDate
+    private static class LocalDateAdapter implements JsonSerializer<LocalDate>, JsonDeserializer<LocalDate> {
+        private static final DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE;
+        
+        @Override
+        public JsonElement serialize(LocalDate src, Type typeOfSrc, JsonSerializationContext context) {
+            return new JsonPrimitive(formatter.format(src));
         }
         
-        try {
-            return objectMapper.readValue(inputStream, clazz);
-        } catch (IOException e) {
-            LOGGER.severe("Failed to deserialize InputStream to " + clazz.getName() + ": " + e.getMessage());
-            throw new RuntimeException("Failed to deserialize InputStream", e);
-        }
-    }
-    
-    @Override
-    public <T> T fromJson(InputStream inputStream, Type type) {
-        if (inputStream == null) {
-            return null;
-        }
-        
-        try {
-            JavaType javaType = objectMapper.constructType(type);
-            return objectMapper.readValue(inputStream, javaType);
-        } catch (IOException e) {
-            LOGGER.severe("Failed to deserialize InputStream to " + type.getTypeName() + ": " + e.getMessage());
-            throw new RuntimeException("Failed to deserialize InputStream", e);
-        }
-    }
-    
-    @Override
-    public String toJson(Object object) {
-        if (object == null) {
-            return null;
-        }
-        
-        try {
-            return objectMapper.writeValueAsString(object);
-        } catch (JsonProcessingException e) {
-            LOGGER.severe("Failed to serialize object of type " + object.getClass().getName() + ": " + e.getMessage());
-            throw new RuntimeException("Failed to serialize object", e);
-        }
-    }
-    
-    @Override
-    public InputStream toInputStream(Object object, Type type) {
-        if (object == null) {
-            return null;
-        }
-        
-        try {
-            byte[] bytes = objectMapper.writeValueAsBytes(object);
-            return new ByteArrayInputStream(bytes);
-        } catch (JsonProcessingException e) {
-            LOGGER.severe("Failed to serialize object to InputStream: " + e.getMessage());
-            throw new RuntimeException("Failed to serialize object to InputStream", e);
-        }
-    }
-    
-    /**
-     * Get the underlying ObjectMapper for advanced use cases.
-     * Use with caution as direct modifications might affect the codec behavior.
-     */
-    public ObjectMapper getObjectMapper() {
-        return objectMapper;
-    }
-    
-    /**
-     * Utility method to pretty print JSON
-     */
-    public String toPrettyJson(Object object) {
-        if (object == null) {
-            return null;
-        }
-        
-        try {
-            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
-        } catch (JsonProcessingException e) {
-            LOGGER.severe("Failed to serialize object to pretty JSON: " + e.getMessage());
-            throw new RuntimeException("Failed to serialize object to pretty JSON", e);
+        @Override
+        public LocalDate deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) 
+                throws JsonParseException {
+            return LocalDate.parse(json.getAsString(), formatter);
         }
     }
 }

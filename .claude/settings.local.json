@@ -6,7 +6,8 @@
       "Bash(./gradlew:*)",
       "Bash(find:*)",
       "Bash(rm:*)",
-      "Bash(export:*)"
+      "Bash(export:*)",
+      "WebFetch(domain:docs.langchain4j.dev)"
     ],
     "deny": []
   }

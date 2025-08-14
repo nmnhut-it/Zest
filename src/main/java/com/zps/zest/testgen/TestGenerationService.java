@@ -39,6 +39,10 @@ public final class TestGenerationService {
     private final Map<String, TestGenerationProgressTracker> progressTrackers = new ConcurrentHashMap<>();
     private final Map<String, java.util.function.Consumer<String>> streamingConsumers = new ConcurrentHashMap<>();
     
+    // For tracking multi-method test generation
+    private final Map<String, List<TestPlan>> methodTestPlans = new ConcurrentHashMap<>();
+    private final Map<String, TestPlan> mergedTestPlans = new ConcurrentHashMap<>();
+    
     public TestGenerationService(@NotNull Project project) {
         this.project = project;
         this.langChainService = project.getService(ZestLangChain4jService.class);
@@ -132,6 +136,137 @@ public final class TestGenerationService {
     }
     
     /**
+     * Start method selection phase for test generation
+     */
+    @NotNull
+    public CompletableFuture<List<String>> extractAvailableMethods(@NotNull TestGenerationRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Extract all testable methods from the target file
+                return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                    (com.intellij.openapi.util.Computable<List<String>>) () -> {
+                        List<String> methods = new ArrayList<>();
+                        if (request.getTargetFile() instanceof com.intellij.psi.PsiJavaFile) {
+                            com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) request.getTargetFile();
+                            for (com.intellij.psi.PsiClass psiClass : javaFile.getClasses()) {
+                                for (com.intellij.psi.PsiMethod method : psiClass.getMethods()) {
+                                    // Skip constructors and private methods for now
+                                    if (!method.isConstructor() && !method.hasModifierProperty(com.intellij.psi.PsiModifier.PRIVATE)) {
+                                        String methodSignature = psiClass.getName() + "." + method.getName() + "(" +
+                                            String.join(", ", Arrays.stream(method.getParameterList().getParameters())
+                                                .map(p -> p.getType().getPresentableText())
+                                                .toArray(String[]::new)) + ")";
+                                        methods.add(methodSignature);
+                                    }
+                                }
+                            }
+                        }
+                        return methods;
+                    }
+                );
+            } catch (Exception e) {
+                LOG.error("Failed to extract methods", e);
+                return Collections.emptyList();
+            }
+        });
+    }
+    
+    /**
+     * Generate test plans for selected methods
+     */
+    @NotNull
+    public CompletableFuture<List<TestPlan>> generateTestPlansForMethods(@NotNull String sessionId, 
+                                                                         @NotNull List<String> selectedMethods,
+                                                                         @NotNull TestGenerationRequest originalRequest) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                List<TestPlan> plans = new ArrayList<>();
+                TestGenerationSession session = activeSessions.get(sessionId);
+                
+                if (session == null) {
+                    throw new RuntimeException("Session not found: " + sessionId);
+                }
+                
+                // Get streaming consumer for this session
+                java.util.function.Consumer<String> streamingConsumer = streamingConsumers.get(sessionId);
+                if (streamingConsumer != null && coordinatorAgent instanceof StreamingBaseAgent) {
+                    ((StreamingBaseAgent) coordinatorAgent).setStreamingConsumer(streamingConsumer);
+                }
+                
+                // Generate a test plan for each selected method
+                for (String methodSignature : selectedMethods) {
+                    // Create a request with the specific method
+                    Map<String, String> options = new HashMap<>(originalRequest.getOptions());
+                    options.put("selectedMethods", methodSignature);
+                    
+                    TestGenerationRequest methodRequest = new TestGenerationRequest(
+                        originalRequest.getTargetFile(),
+                        originalRequest.getSelectionStart(),
+                        originalRequest.getSelectionEnd(),
+                        "Generate tests for " + methodSignature,
+                        originalRequest.getTestType(),
+                        options
+                    );
+                    
+                    // Generate test plan for this specific method
+                    TestPlan plan = coordinatorAgent.planTests(methodRequest, session.getContext()).join();
+                    plans.add(plan);
+                }
+                
+                // Store the individual plans
+                methodTestPlans.put(sessionId, plans);
+                
+                return plans;
+            } catch (Exception e) {
+                LOG.error("Failed to generate test plans for methods", e);
+                throw new RuntimeException("Test plan generation failed: " + e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Merge multiple test plans into a single consolidated plan
+     */
+    @NotNull
+    public TestPlan mergeTestPlans(@NotNull String sessionId, @NotNull List<TestPlan> plans) {
+        if (plans.isEmpty()) {
+            throw new IllegalArgumentException("No test plans to merge");
+        }
+        
+        if (plans.size() == 1) {
+            return plans.get(0);
+        }
+        
+        // Merge all test scenarios from all plans
+        List<TestPlan.TestScenario> allScenarios = new ArrayList<>();
+        Set<String> allDependencies = new HashSet<>();
+        StringBuilder mergedReasoning = new StringBuilder("Merged test plan for multiple methods:\n");
+        
+        for (TestPlan plan : plans) {
+            allScenarios.addAll(plan.getTestScenarios());
+            allDependencies.addAll(plan.getDependencies());
+            mergedReasoning.append("\n- ").append(plan.getTargetMethod()).append(": ")
+                          .append(plan.getScenarioCount()).append(" scenarios");
+        }
+        
+        // Use the first plan's target class and type as the base
+        TestPlan firstPlan = plans.get(0);
+        TestPlan mergedPlan = new TestPlan(
+            "Multiple Methods",
+            firstPlan.getTargetClass(),
+            allScenarios,
+            new ArrayList<>(allDependencies),
+            firstPlan.getRecommendedTestType(),
+            mergedReasoning.toString()
+        );
+        
+        // Store the merged plan
+        mergedTestPlans.put(sessionId, mergedPlan);
+        
+        return mergedPlan;
+    }
+    
+    /**
      * Continue test generation with selected scenarios
      */
     public void continueWithSelectedScenarios(@NotNull String sessionId, @NotNull List<TestPlan.TestScenario> selectedScenarios) {
@@ -173,7 +308,7 @@ public final class TestGenerationService {
             try {
                 // Get streaming consumer for this session
                 java.util.function.Consumer<String> streamingConsumer = streamingConsumers.get(session.getSessionId());
-                
+
                 if (DEBUG_STREAMING) {
                     System.out.println("[DEBUG-STREAMING] executeTestGenerationWorkflow - Session: " + session.getSessionId());
                     System.out.println("[DEBUG-STREAMING] streamingConsumer found? " + (streamingConsumer != null));
@@ -317,27 +452,63 @@ public final class TestGenerationService {
                     throw new RuntimeException("Context not available for test generation");
                 }
                 
-                // Phase 3: Test Generation (using context)
+                // Phase 3: Test Generation (using context) - Now in batches of 5
                 session.setStatus(TestGenerationSession.Status.GENERATING);
                 if (tracker != null) {
                     tracker.startPhase(TestGenerationProgressTracker.PhaseType.TEST_GENERATION);
-                    tracker.updatePhaseProgress("Generating test code...", 25);
+                    tracker.updatePhaseProgress("Generating test code in batches...", 25);
                 }
                 
-                List<GeneratedTest> generatedTests = testWriterAgent.generateTests(testPlan, context).join();
-                session.setGeneratedTests(generatedTests);
+                List<GeneratedTest> allGeneratedTests = new ArrayList<>();
+                List<TestPlan.TestScenario> scenarios = testPlan.getTestScenarios();
                 
-                if (generatedTests.isEmpty()) {
+                // Generate tests in batches of 5
+                int batchSize = 5;
+                for (int i = 0; i < scenarios.size(); i += batchSize) {
+                    int endIndex = Math.min(i + batchSize, scenarios.size());
+                    List<TestPlan.TestScenario> batch = scenarios.subList(i, endIndex);
+                    
+                    // Create a test plan for this batch
+                    TestPlan batchPlan = new TestPlan(
+                        testPlan.getTargetMethod(),
+                        testPlan.getTargetClass(),
+                        batch,
+                        testPlan.getDependencies(),
+                        testPlan.getRecommendedTestType(),
+                        "Batch " + ((i/batchSize) + 1) + " of " + ((scenarios.size() + batchSize - 1) / batchSize)
+                    );
+                    
+                    if (tracker != null) {
+                        tracker.updatePhaseProgress("Generating batch " + ((i/batchSize) + 1) + " (" + batch.size() + " tests)...", 
+                                                   25 + (50 * i / scenarios.size()));
+                    }
+                    
+                    List<GeneratedTest> batchTests = testWriterAgent.generateTests(batchPlan, context).join();
+                    allGeneratedTests.addAll(batchTests);
+                    
+                    // Small delay between batches to avoid overwhelming the system
+                    if (endIndex < scenarios.size()) {
+                        try {
+                            Thread.sleep(1000); // 1 second delay between batches
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+                
+                session.setGeneratedTests(allGeneratedTests);
+                
+                if (allGeneratedTests.isEmpty()) {
                     throw new RuntimeException("No tests could be generated");
                 }
                 
                 if (tracker != null) {
-                    tracker.updatePhaseProgress("Generated " + generatedTests.size() + " tests", 100);
+                    tracker.updatePhaseProgress("Generated " + allGeneratedTests.size() + " tests", 100);
                     tracker.completePhase("Test generation completed");
                 }
                 
                 // Force a progress update to trigger UI refresh
-                notifyProgress(session.getSessionId(), "Generated " + generatedTests.size() + " tests", 65);
+                notifyProgress(session.getSessionId(), "Generated " + allGeneratedTests.size() + " tests", 65);
                 
                 // Phase 4: Merge and organize tests
                 LOG.info("Phase 4: Merging and organizing tests");
@@ -353,7 +524,7 @@ public final class TestGenerationService {
                     testMergerAgent.setStreamingConsumer(streamingConsumer);
                 }
                 
-                TestMergerAgent.MergedTestResult mergedResult = testMergerAgent.mergeTests(generatedTests, context).join();
+                TestMergerAgent.MergedTestResult mergedResult = testMergerAgent.mergeTests(allGeneratedTests, context).join();
                 
                 if (!mergedResult.isSuccess()) {
                     throw new RuntimeException("Test merging failed: " + mergedResult.getMessage());
@@ -366,7 +537,7 @@ public final class TestGenerationService {
                         "merged",
                         mergedClass.getClassName(),
                         mergedClass.getContent(),
-                        generatedTests.get(0).getScenario(), // Use first scenario as representative
+                        allGeneratedTests.get(0).getScenario(), // Use first scenario as representative
                         mergedClass.getClassName() + ".java",
                         mergedClass.getPackageName(),
                         mergedClass.getImports(),

@@ -17,6 +17,7 @@ import dev.langchain4j.model.output.Response;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -48,7 +49,6 @@ public class ZestChatLanguageModel implements ChatLanguageModel {
             // Use existing LLMService for query
             LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(prompt)
                 .withModel("local-model")
-                .withMaxTokens(4000)
                 .withTimeout(30000);
                 
             String response = llmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
@@ -70,18 +70,33 @@ public class ZestChatLanguageModel implements ChatLanguageModel {
         
         // Add tool specifications to the prompt if provided
         if (!toolSpecifications.isEmpty()) {
-            prompt.append("You have access to the following tools:\n\n");
+            prompt.append("You are an AI assistant with access to tools/functions.\n\n");
+            prompt.append("Available tools:\n");
+            prompt.append("```\n");
             for (ToolSpecification tool : toolSpecifications) {
-                prompt.append("Tool: ").append(tool.name()).append("\n");
-                prompt.append("Description: ").append(tool.description()).append("\n");
+                prompt.append("- ").append(tool.name()).append(": ").append(tool.description()).append("\n");
                 if (tool.parameters() != null) {
-                    prompt.append("Parameters: ").append(tool.parameters().toString()).append("\n");
+                    // Convert parameters to readable format
+                    String paramsJson = tool.parameters().toString();
+                    if (!paramsJson.isEmpty() && !paramsJson.equals("{}")) {
+                        prompt.append("  Parameters: ").append(paramsJson).append("\n");
+                    }
                 }
-                prompt.append("\n");
             }
-            prompt.append("To use a tool, respond with a JSON object in this format:\n");
-            prompt.append("{\"tool\": \"tool_name\", \"arguments\": {\"param1\": \"value1\"}}\n");
-            prompt.append("\nConversation:\n\n");
+            prompt.append("```\n\n");
+            
+            prompt.append("IMPORTANT INSTRUCTIONS FOR TOOL USE:\n");
+            prompt.append("1. When you need to use a tool, respond with ONLY this format:\n");
+            prompt.append("   TOOL_CALL: {\"tool\": \"<tool_name>\", \"arguments\": {<arguments>}}\n");
+            prompt.append("2. CRITICAL: Do NOT include ANY text before or after TOOL_CALL\n");
+            prompt.append("3. Wrong: \"I'll read the file. TOOL_CALL: {...}\"\n");
+            prompt.append("4. Right: \"TOOL_CALL: {...}\"\n");
+            prompt.append("5. After receiving tool results, you can either:\n");
+            prompt.append("   - Call another tool (using TOOL_CALL: format only)\n");
+            prompt.append("   - Provide your final answer (regular text, no TOOL_CALL)\n");
+            prompt.append("6. Make one tool call per response\n");
+            prompt.append("7. Tool calls and text responses must be separate\n");
+            prompt.append("\n");
         }
         
         // Add messages
@@ -91,7 +106,21 @@ public class ZestChatLanguageModel implements ChatLanguageModel {
             } else if (message instanceof UserMessage) {
                 prompt.append("User: ").append(message.text()).append("\n");
             } else if (message instanceof AiMessage) {
-                prompt.append("Assistant: ").append(message.text()).append("\n");
+                AiMessage aiMsg = (AiMessage) message;
+                if (aiMsg.hasToolExecutionRequests()) {
+                    // Show the tool calls that were made
+                    prompt.append("Assistant called tools: ");
+                    for (ToolExecutionRequest req : aiMsg.toolExecutionRequests()) {
+                        prompt.append(req.name()).append(" with ").append(req.arguments()).append("\n");
+                    }
+                } else {
+                    prompt.append("Assistant: ").append(message.text()).append("\n");
+                }
+            } else if (message instanceof dev.langchain4j.data.message.ToolExecutionResultMessage) {
+                dev.langchain4j.data.message.ToolExecutionResultMessage toolResult = 
+                    (dev.langchain4j.data.message.ToolExecutionResultMessage) message;
+                prompt.append("Tool Result:\n```\n").append(toolResult.text()).append("\n```\n");
+                prompt.append("Based on this result, you can either call another tool or provide your final answer.\n");
             } else {
                 prompt.append(message.type().name()).append(": ").append(message.text()).append("\n");
             }
@@ -102,36 +131,129 @@ public class ZestChatLanguageModel implements ChatLanguageModel {
     }
     
     private Response<AiMessage> parseResponseForTools(String response, List<ToolSpecification> toolSpecifications) {
-        // Check if response contains a tool call
-        if (!toolSpecifications.isEmpty() && response.contains("\"tool\"") && response.contains("\"arguments\"")) {
+        // First check for our TOOL_CALL marker
+        if (!toolSpecifications.isEmpty() && response.contains("TOOL_CALL:")) {
             try {
-                // Extract JSON from response
-                int jsonStart = response.indexOf("{");
-                int jsonEnd = response.lastIndexOf("}") + 1;
-                
-                if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                    String jsonStr = response.substring(jsonStart, jsonEnd);
-                    JsonObject json = JsonParser.parseString(jsonStr).getAsJsonObject();
+                // Extract the tool call JSON after the marker
+                int markerIndex = response.indexOf("TOOL_CALL:");
+                if (markerIndex >= 0) {
+                    // Check if there's explanatory text before the tool call
+                    String beforeMarker = response.substring(0, markerIndex).trim();
+                    boolean hasPreamble = !beforeMarker.isEmpty() && 
+                        !beforeMarker.toLowerCase().matches(".*(i'll|i will|let me|going to|need to).*");
                     
-                    String toolName = json.get("tool").getAsString();
-                    JsonObject arguments = json.getAsJsonObject("arguments");
+                    // If there's substantial text before the tool call, we might want to show it
+                    // But for now, we prioritize the tool call to ensure it gets executed
                     
-                    // Create tool execution request
-                    ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
-                        .name(toolName)
-                        .arguments(arguments.toString())
-                        .build();
+                    String afterMarker = response.substring(markerIndex + "TOOL_CALL:".length()).trim();
                     
-                    // Return AI message with tool execution request
-                    AiMessage aiMessage = AiMessage.from(toolRequest);
-                    return Response.from(aiMessage);
+                    // Find the JSON object
+                    int jsonStart = afterMarker.indexOf("{");
+                    int jsonEnd = findMatchingBrace(afterMarker, jsonStart);
+                    
+                    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                        String jsonStr = afterMarker.substring(jsonStart, jsonEnd + 1);
+                        JsonObject json = JsonParser.parseString(jsonStr).getAsJsonObject();
+                        
+                        String toolName = json.get("tool").getAsString();
+                        JsonObject arguments = json.has("arguments") && !json.get("arguments").isJsonNull() 
+                            ? json.getAsJsonObject("arguments") 
+                            : new JsonObject();
+                        
+                        // Validate tool exists
+                        boolean validTool = toolSpecifications.stream()
+                            .anyMatch(spec -> spec.name().equals(toolName));
+                        
+                        if (validTool) {
+                            // Create tool execution request
+                            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
+                                .name(toolName)
+                                .arguments(arguments.toString())
+                                .build();
+                            
+                            // Return AI message with tool execution request
+                            // Note: We ignore any text before/after the tool call to ensure execution
+                            return Response.from(AiMessage.from(toolRequest));
+                        }
+                    }
                 }
             } catch (Exception e) {
-                // If parsing fails, treat as regular response
+                // Log but don't fail - treat as regular response
+                System.err.println("Failed to parse tool call: " + e.getMessage());
             }
         }
         
-        // Regular text response
+        // Fallback: Check for raw JSON format (for backward compatibility)
+        if (!toolSpecifications.isEmpty() && response.contains("\"tool\"") && response.contains("{")) {
+            try {
+                // Try to extract JSON even without marker
+                int jsonStart = response.indexOf("{");
+                int jsonEnd = findMatchingBrace(response, jsonStart);
+                
+                if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                    String jsonStr = response.substring(jsonStart, jsonEnd + 1);
+                    JsonObject json = JsonParser.parseString(jsonStr).getAsJsonObject();
+                    
+                    if (json.has("tool")) {
+                        String toolName = json.get("tool").getAsString();
+                        JsonObject arguments = json.has("arguments") && !json.get("arguments").isJsonNull()
+                            ? json.getAsJsonObject("arguments")
+                            : new JsonObject();
+                        
+                        // Verify this is actually a tool we know about
+                        boolean validTool = toolSpecifications.stream()
+                            .anyMatch(spec -> spec.name().equals(toolName));
+                        
+                        if (validTool) {
+                            ToolExecutionRequest toolRequest = ToolExecutionRequest.builder()
+                                .name(toolName)
+                                .arguments(arguments.toString())
+                                .build();
+                            
+                            return Response.from(AiMessage.from(toolRequest));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Silent fallback to regular response
+            }
+        }
+        
+        // Regular text response - no tool call detected
         return Response.from(AiMessage.from(response));
+    }
+    
+    private int findMatchingBrace(String str, int startIndex) {
+        if (startIndex < 0 || startIndex >= str.length()) {
+            return -1;
+        }
+        
+        int braceCount = 0;
+        boolean inString = false;
+        char prevChar = '\0';
+        
+        for (int i = startIndex; i < str.length(); i++) {
+            char c = str.charAt(i);
+            
+            // Handle string literals
+            if (c == '"' && prevChar != '\\') {
+                inString = !inString;
+            }
+            
+            if (!inString) {
+                if (c == '{') {
+                    braceCount++;
+                } else if (c == '}') {
+                    braceCount--;
+                    if (braceCount == 0) {
+                        return i;
+                    }
+                }
+            }
+            
+            prevChar = c;
+        }
+        
+        return -1;
     }
 }

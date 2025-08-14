@@ -2,7 +2,6 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -431,13 +430,7 @@ public class TestMergerAgent extends StreamingBaseAgent {
             AgentAction.ActionType.COMPLETE
         );
     }
-    
-    @NotNull
-    @Override
-    protected String buildActionPrompt(@NotNull AgentAction action) {
-        return action.getParameters();
-    }
-    
+
     /**
      * Apply final formatting to the test class
      */

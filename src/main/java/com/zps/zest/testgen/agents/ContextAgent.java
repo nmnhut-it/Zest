@@ -37,11 +37,15 @@ public class ContextAgent extends StreamingBaseAgent {
         // Create AI assistant with tools using LangChain4j pattern
         // Use the existing ZestChatLanguageModel which properly implements ChatLanguageModel
         ChatLanguageModel model = new ZestChatLanguageModel(llmService);
+        
+        // Build the assistant with proper configuration for multiple tool calls
+        // Note: LangChain4j 0.35.0 doesn't support maxToolExecutions, but the AI will
+        // naturally continue calling tools until it determines it has enough context
+        // or hits our manual limit in the tools themselves
         this.assistant = AiServices.builder(ContextGatheringAssistant.class)
-            .chatLanguageModel(model)  // Use chatLanguageModel instead of chatModel
-            .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+            .chatLanguageModel(model)
+            .chatMemory(MessageWindowChatMemory.withMaxMessages(15)) // Increased for more context
             .tools(contextTools)
-            // Note: maxToolExecutions may not be available in this version
             .build();
     }
     
@@ -51,12 +55,23 @@ public class ContextAgent extends StreamingBaseAgent {
     interface ContextGatheringAssistant {
         @dev.langchain4j.service.SystemMessage(
             "You are a context gathering assistant for test generation. " +
-            "Your job is to explore the codebase efficiently to gather relevant context. " +
-            "BE STRATEGIC: Don't call tools endlessly. Usually 3-7 tool calls are sufficient. " +
-            "After each tool call, evaluate if you have enough information. " +
-            "Focus on: 1) Target file content, 2) Test examples, 3) Key dependencies. " +
-            "STOP when you have gathered the essential context. " +
-            "Output clean text without markdown formatting."
+            "You work in an iterative loop pattern - call tools multiple times to gather comprehensive information. " +
+            
+            "LOOP STRATEGY: " +
+            "1. Start by reading the target file to understand its structure " +
+            "2. Search for related test files to understand testing patterns " +
+            "3. Find dependencies and related classes that the target uses " +
+            "4. Look for similar code or functionality for testing inspiration " +
+            "5. Continue exploring until you have sufficient context for test generation " +
+            
+            "DECISION CRITERIA - Stop when you have: " +
+            "- Read the target file completely " +
+            "- Found existing test patterns in the codebase " +
+            "- Identified key dependencies and their usage " +
+            "- Located related classes that provide testing examples " +
+            "- Reached the tool call limit (15 calls) " +
+            
+            "Each tool call should build upon previous findings. Be methodical and thorough."
         )
         String gatherContext(String task);
     }
@@ -69,6 +84,10 @@ public class ContextAgent extends StreamingBaseAgent {
         private final CodeExplorationToolRegistry toolRegistry;
         private final ReadFileTool readFileTool;
         private String currentSessionId; // Track current session for recording
+        private int toolCallCount = 0; // Track number of tool calls
+        private static final int MAX_TOOL_CALLS = 15; // Maximum allowed tool calls
+        private Set<String> readFiles = new HashSet<>(); // Track files that have been read
+        private Set<String> exploredPatterns = new HashSet<>(); // Track what patterns we've explored
         
         public ContextGatheringTools(@NotNull Project project, @NotNull CodeExplorationToolRegistry toolRegistry) {
             this.project = project;
@@ -76,12 +95,41 @@ public class ContextAgent extends StreamingBaseAgent {
             this.readFileTool = new ReadFileTool(project);
         }
         
+        public void resetToolCallCount() {
+            this.toolCallCount = 0;
+            this.readFiles.clear();
+            this.exploredPatterns.clear();
+        }
+        
         public void setSessionId(String sessionId) {
             this.currentSessionId = sessionId;
         }
         
-        @Tool("Read the contents of a file")
+        /**
+         * Provides progress status to help the AI agent make better loop decisions
+         */
+        private String getProgressStatus() {
+            int remainingCalls = MAX_TOOL_CALLS - toolCallCount;
+            return String.format(
+                "LOOP PROGRESS: Tool calls used: %d/%d | Files read: %d | Patterns explored: %s | Remaining calls: %d",
+                toolCallCount, MAX_TOOL_CALLS, readFiles.size(), 
+                exploredPatterns.isEmpty() ? "none" : String.join(", ", exploredPatterns),
+                remainingCalls
+            );
+        }
+        
+        @Tool("Read the complete contents of a file. Use this to read source code, test files, or any file in the project.")
         public String readFile(String filePath) {
+            toolCallCount++;
+            if (toolCallCount > MAX_TOOL_CALLS) {
+                return "Error: Maximum tool call limit (" + MAX_TOOL_CALLS + ") reached. Please summarize findings.";
+            }
+            
+            // Check if already read
+            if (readFiles.contains(filePath)) {
+                return "Note: File " + filePath + " was already read. " + getProgressStatus();
+            }
+            
             long startTime = System.currentTimeMillis();
             try {
                 JsonObject params = new JsonObject();
@@ -96,17 +144,35 @@ public class ContextAgent extends StreamingBaseAgent {
                 }
                 
                 if (result.isSuccess()) {
-                    return result.getContent();
+                    readFiles.add(filePath);
+                    String content = result.getContent();
+                    
+                    // Track what patterns we found
+                    if (filePath.contains("Test") || filePath.contains("test")) {
+                        exploredPatterns.add("test_patterns");
+                    }
+                    if (content.contains("@Test") || content.contains("@BeforeEach")) {
+                        exploredPatterns.add("junit_annotations");
+                    }
+                    
+                    return content + "\n\n" + getProgressStatus();
                 } else {
-                    return "Error reading file: " + result.getContent();
+                    return "Error reading file: " + result.getContent() + "\n\n" + getProgressStatus();
                 }
             } catch (Exception e) {
                 return "Failed to read file: " + e.getMessage();
             }
         }
         
-        @Tool("List files in a directory")
+        @Tool("List all files in a directory. Useful for exploring project structure and finding related files.")
         public String listFiles(String directoryPath) {
+            toolCallCount++;
+            if (toolCallCount > MAX_TOOL_CALLS) {
+                return "Error: Maximum tool call limit (" + MAX_TOOL_CALLS + ") reached. Please summarize findings.";
+            }
+            
+            exploredPatterns.add("directory_structure");
+            
             try {
                 CodeExplorationTool listTool = toolRegistry.getTool("list_files");
                 if (listTool != null) {
@@ -116,17 +182,27 @@ public class ContextAgent extends StreamingBaseAgent {
                     
                     CodeExplorationTool.ToolResult result = listTool.execute(params);
                     if (result.isSuccess()) {
-                        return result.getContent();
+                        return result.getContent() + "\n\n" + getProgressStatus();
                     }
                 }
-                return "Could not list files in " + directoryPath;
+                return "Could not list files in " + directoryPath + "\n\n" + getProgressStatus();
             } catch (Exception e) {
                 return "Error listing files: " + e.getMessage();
             }
         }
         
-        @Tool("Find files by name pattern")
+        @Tool("Find files by name pattern. Use this to locate test files, dependencies, or specific classes.")
         public String findFiles(String fileName) {
+            toolCallCount++;
+            if (toolCallCount > MAX_TOOL_CALLS) {
+                return "Error: Maximum tool call limit (" + MAX_TOOL_CALLS + ") reached. Please summarize findings.";
+            }
+            
+            if (fileName.contains("Test") || fileName.contains("test")) {
+                exploredPatterns.add("test_discovery");
+            }
+            exploredPatterns.add("file_discovery");
+            
             try {
                 CodeExplorationTool findTool = toolRegistry.getTool("find_file");
                 if (findTool != null) {
@@ -135,17 +211,24 @@ public class ContextAgent extends StreamingBaseAgent {
                     
                     CodeExplorationTool.ToolResult result = findTool.execute(params);
                     if (result.isSuccess()) {
-                        return result.getContent();
+                        return result.getContent() + "\n\n" + getProgressStatus();
                     }
                 }
-                return "Could not find files matching: " + fileName;
+                return "Could not find files matching: " + fileName + "\n\n" + getProgressStatus();
             } catch (Exception e) {
                 return "Error finding files: " + e.getMessage();
             }
         }
         
-        @Tool("Search for code using semantic search")
+        @Tool("Search for code patterns or concepts using semantic search. Use this to find similar code, test patterns, or related functionality.")
         public String searchCode(String query) {
+            toolCallCount++;
+            if (toolCallCount > MAX_TOOL_CALLS) {
+                return "Error: Maximum tool call limit (" + MAX_TOOL_CALLS + ") reached. Please summarize findings.";
+            }
+            
+            exploredPatterns.add("semantic_search_" + query.toLowerCase().replaceAll("\\s+", "_"));
+            
             long startTime = System.currentTimeMillis();
             try {
                 CodeExplorationTool retrievalTool = toolRegistry.getTool("retrieve_context");
@@ -164,10 +247,10 @@ public class ContextAgent extends StreamingBaseAgent {
                     }
                     
                     if (result.isSuccess()) {
-                        return result.getContent();
+                        return result.getContent() + "\n\n" + getProgressStatus();
                     }
                 }
-                return "No results found for: " + query;
+                return "No results found for: " + query + "\n\n" + getProgressStatus();
             } catch (Exception e) {
                 return "Error searching code: " + e.getMessage();
             }
@@ -198,7 +281,7 @@ public class ContextAgent extends StreamingBaseAgent {
      * Gather comprehensive context for test generation using LangChain4j tools with session tracking
      */
     @NotNull
-    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request, 
+    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request,
                                                         @Nullable TestPlan testPlan,
                                                         @Nullable String sessionId) {
         return CompletableFuture.supplyAsync(() -> {
@@ -208,8 +291,9 @@ public class ContextAgent extends StreamingBaseAgent {
                 LOG.info("[ContextAgent] Gathering context for: " + request.getTargetFile().getName());
                 notifyStream("\n🔍 Gathering comprehensive context for test generation...\n");
                 
-                // Set session ID for tool tracking
+                // Set session ID for tool tracking and reset counter
                 contextTools.setSessionId(sessionId);
+                contextTools.resetToolCallCount();
                 
                 // Record start
                 if (sessionId != null) {
@@ -228,15 +312,14 @@ public class ContextAgent extends StreamingBaseAgent {
                     targetInfo = " for file " + request.getTargetFile().getName();
                 }
                 
-                String task = "Gather context for generating tests" + targetInfo + ".\n\n" +
-                             "IMPORTANT INSTRUCTIONS:\n" +
-                             "1. Start by reading the target file: " + request.getTargetFile().getVirtualFile().getPath() + "\n" +
-                             "2. Find and read 2-3 related test files to understand testing patterns\n" +
-                             "3. Search for key dependencies or related code\n" +
-                             "4. STOP after gathering essential information (maximum 5-7 tool calls)\n" +
-                             "5. Return a summary of what you found\n\n" +
-                             "DO NOT call tools endlessly. Be selective and strategic.\n" +
-                             "After each tool call, evaluate if you have enough context.";
+                // Use advice-based approach
+                Map<String, String> advice = AgentAdviceConfig.ContextGatheringAdvice.getContextAdvice();
+                Map<String, Object> contextMap = new HashMap<>();
+                contextMap.put("target_file", request.getTargetFile().getVirtualFile().getPath());
+                contextMap.put("target_info", targetInfo);
+                
+                String baseTask = "Gather context for generating tests" + targetInfo;
+                String task = AgentAdviceConfig.buildDynamicPrompt(baseTask, advice, contextMap);
                 
                 // Use the LangChain4j AI assistant with tools
                 String contextGatheringResult = assistant.gatherContext(task);
@@ -315,6 +398,7 @@ public class ContextAgent extends StreamingBaseAgent {
             // If not found in gathered files, read it directly
             if (targetClassCode == null || targetClassCode.isEmpty()) {
                 try {
+                    ReadFileTool readFileTool = new ReadFileTool(project);
                     targetClassCode = readFileTool.execute(
                         createFilePathParams(targetFilePath)
                     ).getContent();
@@ -337,9 +421,12 @@ public class ContextAgent extends StreamingBaseAgent {
             // Add target class as primary context item
             if (targetClassCode != null) {
                 contextItems.add(new ZestLangChain4jService.ContextItem(
-                    targetFilePath,
-                    targetClassCode,
-                    1.0f // Maximum relevance
+                    "target-" + targetFilePath.hashCode(), // id
+                    targetFilePath, // title
+                    targetClassCode, // content
+                    targetFilePath, // filePath
+                    null, // lineNumber
+                    1.0 // Maximum relevance
                 ));
             }
             
@@ -347,9 +434,12 @@ public class ContextAgent extends StreamingBaseAgent {
             for (Map.Entry<String, String> entry : fileContents.entrySet()) {
                 if (!entry.getKey().equals(targetFilePath)) {
                     contextItems.add(new ZestLangChain4jService.ContextItem(
-                        entry.getKey(),
-                        entry.getValue(),
-                        0.8f // High relevance for gathered files
+                        "context-" + entry.getKey().hashCode(), // id
+                        entry.getKey(), // title
+                        entry.getValue(), // content
+                        entry.getKey(), // filePath
+                        null, // lineNumber
+                        0.8 // High relevance for gathered files
                     ));
                 }
             }
@@ -586,11 +676,5 @@ public class ContextAgent extends StreamingBaseAgent {
         // Simplified - not used with AiServices
         return Arrays.asList(AgentAction.ActionType.COMPLETE);
     }
-    
-    @NotNull
-    @Override
-    protected String buildActionPrompt(@NotNull AgentAction action) {
-        // Not used with AiServices pattern
-        return action.getParameters();
-    }
+
 }

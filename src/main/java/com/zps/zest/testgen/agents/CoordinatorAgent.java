@@ -13,7 +13,9 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class CoordinatorAgent extends StreamingBaseAgent {
@@ -82,43 +84,69 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         if (context != null) {
             fullContext.append("\n\n=== PRE-GATHERED CONTEXT ===\n\n");
             
+            // CRITICAL: Add FULL target class code if available
+            if (context.getTargetClassCode() != null) {
+                fullContext.append("=== TARGET CLASS IMPLEMENTATION ===\n");
+                fullContext.append(context.getTargetClassCode());
+                fullContext.append("\n\n");
+            }
+            
+            // Add target method code if available
+            if (context.getTargetMethodCode() != null) {
+                fullContext.append("=== TARGET METHOD IMPLEMENTATION ===\n");
+                fullContext.append(context.getTargetMethodCode());
+                fullContext.append("\n\n");
+            }
+            
             // Add test patterns found
             if (!context.getExistingTestPatterns().isEmpty()) {
-                fullContext.append("Existing Test Patterns:\n");
+                fullContext.append("=== EXISTING TEST PATTERNS ===\n");
                 for (String pattern : context.getExistingTestPatterns()) {
                     fullContext.append("- ").append(pattern).append("\n");
                 }
                 fullContext.append("\n");
             }
             
-            // Add relevant code snippets
+            // Add ALL relevant code snippets (no truncation for important context)
             if (!context.getCodeContext().isEmpty()) {
-                fullContext.append("Related Code Context:\n");
-                for (ZestLangChain4jService.ContextItem item : context.getCodeContext().subList(0, Math.min(3, context.getCodeContext().size()))) {
-                    fullContext.append("From ").append(item.getFilePath()).append(":\n");
-                    fullContext.append(item.getContent().substring(0, Math.min(500, item.getContent().length()))).append("\n\n");
+                fullContext.append("=== RELATED CODE CONTEXT ===\n");
+                for (ZestLangChain4jService.ContextItem item : context.getCodeContext()) {
+                    fullContext.append("\n--- From ").append(item.getFilePath()).append(" ---\n");
+                    // Include FULL content for high relevance items
+                    if (item.getScore() >= 0.8) {
+                        fullContext.append(item.getContent()).append("\n");
+                    } else {
+                        // Only truncate low-relevance items
+                        String content = item.getContent();
+                        if (content.length() > 2000) {
+                            content = content.substring(0, 2000) + "\n... [truncated]";
+                        }
+                        fullContext.append(content).append("\n");
+                    }
                 }
             }
             
-            // Add any gathered file contents from metadata
+            // Add any gathered file contents from metadata (with less aggressive truncation)
             java.util.Map<String, Object> metadata = context.getAdditionalMetadata();
             if (metadata != null && metadata.containsKey("gatheredFiles")) {
                 @SuppressWarnings("unchecked")
                 java.util.Map<String, String> files = (java.util.Map<String, String>) metadata.get("gatheredFiles");
                 if (!files.isEmpty()) {
-                    fullContext.append("\nGathered File Contents:\n");
+                    fullContext.append("\n=== GATHERED FILE CONTENTS ===\n");
                     for (java.util.Map.Entry<String, String> entry : files.entrySet()) {
-                        fullContext.append("File: ").append(entry.getKey()).append("\n");
+                        fullContext.append("\n--- File: ").append(entry.getKey()).append(" ---\n");
                         String content = entry.getValue();
-                        if (content.length() > 1000) {
-                            content = content.substring(0, 1000) + "...";
+                        // Less aggressive truncation - 5000 chars instead of 1000
+                        if (content.length() > 5000) {
+                            content = content.substring(0, 5000) + "\n... [truncated]";
                         }
-                        fullContext.append(content).append("\n\n");
+                        fullContext.append(content).append("\n");
                     }
                 }
             }
             
-            fullContext.append("Testing Framework: ").append(context.getFrameworkInfo()).append("\n");
+            fullContext.append("\n=== TESTING FRAMEWORK ===\n");
+            fullContext.append(context.getFrameworkInfo()).append("\n");
         }
         
         return fullContext.toString();
@@ -208,13 +236,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     }
     
     private String performCodeAnalysis(@NotNull String parameters) {
-        String prompt = "Analyze code for test planning:\n" +
-                       parameters + "\n\n" +
-                       "List: method names, dependencies, complexity (simple/complex).\n" +
-                       "Do NOT generate test code.\n\n" +
-                       "Analysis:";
+        Map<String, Object> context = new HashMap<>();
+        context.put("code", parameters);
         
-        return queryLLM(prompt, 500); // Reduced from 1500
+        String baseTask = "Analyze the code structure to understand what needs to be tested";
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(
+            baseTask,
+            Map.of("approach", AgentAdviceConfig.GeneralAdvice.CODE_ANALYSIS),
+            context
+        );
+        
+        return queryLLM(prompt, 500);
     }
     
     private String performPatternSearch(@NotNull String parameters) {
@@ -241,41 +273,49 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     }
     
     private String generateTestPlan(@NotNull String parameters) {
-        String prompt = "Create test plan (scenarios only, NO code).\n" +
-                       parameters + "\n\n" +
-                       "Output ONLY this format:\n" +
-                       "TARGET_METHOD: methodName\n" +
-                       "TARGET_CLASS: className\n" +
-                       "RECOMMENDED_TYPE: UNIT_TESTS or INTEGRATION_TESTS\n" +
-                       "REASONING: one line\n" +
-                       "DEPENDENCIES: dep1, dep2\n" +
-                       "SCENARIOS:\n" +
-                       "- SCENARIO: name | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: brief | EXPECTED: result | INPUTS: input1\n\n" +
-                       "Max 5 scenarios. NO test code.\n\n" +
-                       "Test Plan:";
+        Map<String, Object> context = new HashMap<>();
+        context.put("analysis", parameters);
         
-        return queryLLM(prompt, 800); // Reduced from 2000
+        Map<String, String> advice = AgentAdviceConfig.CoordinatorAdvice.getPlanningAdvice("AUTO_DETECT");
+        String baseTask = "Create a test plan with scenarios based on the analysis";
+        
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(baseTask, advice, context);
+        
+        // Add format for parsing (minimal)
+        prompt += "\nOutput Format:\n" +
+                 "TARGET_METHOD: <method>\n" +
+                 "TARGET_CLASS: <class>\n" +
+                 "RECOMMENDED_TYPE: <type>\n" +
+                 "REASONING: <reason>\n" +
+                 "DEPENDENCIES: <deps>\n" +
+                 "SCENARIOS:\n" +
+                 "- SCENARIO: <name> | TYPE: <type> | PRIORITY: <priority> | DESCRIPTION: <desc> | EXPECTED: <result> | INPUTS: <inputs>\n";
+        
+        return queryLLM(prompt, 800);
     }
     
     /**
      * Generate test plan directly without ReAct loop for faster response
      */
     private String generateDirectTestPlan(@NotNull String task, @NotNull String context) {
-        String prompt = "You are a test planning expert. Analyze the code and create a test plan.\n\n" +
-                       "Task: " + task + "\n\n" +
-                       "Code Context:\n" + context + "\n\n" +
-                       "Note: If multiple methods are specified, create test scenarios for EACH method.\n\n" +
-                       "Output ONLY this format (no extra text):\n" +
-                       "TARGET_METHOD: methodName\n" +
-                       "TARGET_CLASS: className\n" +
-                       "RECOMMENDED_TYPE: UNIT_TESTS\n" +
-                       "REASONING: one line reason\n" +
-                       "DEPENDENCIES: none\n" +
-                       "SCENARIOS:\n" +
-                       "- SCENARIO: Test happy path | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: Test normal case | EXPECTED: success | INPUTS: valid input\n" +
-                       "- SCENARIO: Test error case | TYPE: UNIT | PRIORITY: HIGH | DESCRIPTION: Test error handling | EXPECTED: error handled | INPUTS: invalid input\n\n" +
-                       "Max 5 scenarios. Be concise.\n\n" +
-                       "Test Plan:";
+        // Use advice-based approach
+        Map<String, String> advice = AgentAdviceConfig.CoordinatorAdvice.getPlanningAdvice("AUTO_DETECT");
+        Map<String, Object> contextMap = new HashMap<>();
+        contextMap.put("task", task);
+        contextMap.put("code_context", context);
+        
+        String baseTask = "Analyze the code and create a comprehensive test plan";
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(baseTask, advice, contextMap);
+        
+        // Add minimal format guidance for parsing
+        prompt += "\n\nOutput Format (for parsing):\n" +
+                 "TARGET_METHOD: <methodName>\n" +
+                 "TARGET_CLASS: <className>\n" +
+                 "RECOMMENDED_TYPE: <UNIT_TESTS or INTEGRATION_TESTS>\n" +
+                 "REASONING: <brief reasoning>\n" +
+                 "DEPENDENCIES: <comma-separated list or 'none'>\n" +
+                 "SCENARIOS:\n" +
+                 "- SCENARIO: <name> | TYPE: <type> | PRIORITY: <priority> | DESCRIPTION: <desc> | EXPECTED: <result> | INPUTS: <inputs>\n";
         
         // Stream if consumer available, otherwise direct query
         if (streamingConsumer != null) {
@@ -531,32 +571,5 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             AgentAction.ActionType.COMPLETE
         );
     }
-    
-    @NotNull
-    @Override
-    protected String buildActionPrompt(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case ANALYZE:
-                return "List methods to test (names only):\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output: method names, dependencies. NO code.\n\n" +
-                       "Methods:";
-                       
-            case GENERATE:
-                return "Create test plan.\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output format:\n" +
-                       "TARGET_METHOD: methodName\n" +
-                       "TARGET_CLASS: className\n" +
-                       "RECOMMENDED_TYPE: UNIT_TESTS or INTEGRATION_TESTS or BOTH\n" +
-                       "REASONING: brief explanation\n" +
-                       "DEPENDENCIES: dep1, dep2\n" +
-                       "SCENARIOS:\n" +
-                       "- SCENARIO: name | TYPE: UNIT/INTEGRATION/EDGE_CASE/ERROR_HANDLING | PRIORITY: HIGH/MEDIUM/LOW | DESCRIPTION: brief | EXPECTED: outcome | INPUTS: input1, input2\n\n" +
-                       "Test Plan:";
-                       
-            default:
-                return action.getParameters();
-        }
-    }
+
 }

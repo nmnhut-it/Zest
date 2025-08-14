@@ -1,18 +1,12 @@
 package com.zps.zest.testgen.agents;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.langchain4j.util.StreamingLLMService;
-import com.zps.zest.testgen.ui.AgentDebugDialog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -46,196 +40,7 @@ public abstract class StreamingBaseAgent extends BaseAgent {
             System.out.println("[DEBUG-STREAMING-" + agentName + "] Consumer set, is null? " + (consumer == null));
         }
     }
-    
-    /**
-     * Execute agent task with streaming support.
-     */
-    @NotNull
-    public CompletableFuture<String> executeStreamingTask(@NotNull String task, @NotNull String context) {
-        return executeStreamingTask(task, context, null);
-    }
-    
-    /**
-     * Execute agent task with streaming support and session tracking.
-     */
-    @NotNull
-    public CompletableFuture<String> executeStreamingTask(@NotNull String task, @NotNull String context, @Nullable String sessionId) {
-        return CompletableFuture.supplyAsync(() -> {
-            long startTime = System.currentTimeMillis();
-            
-            try {
-                LOG.debug("[" + agentName + "] Starting streaming ReAct execution for task: " + task);
-                
-                // Record agent start
-                if (sessionId != null) {
-                    recordAgentExecution(sessionId, agentName, "START", task, "", 0);
-                }
-                
-                // Notify stream start
-                notifyStream("\n=== " + agentName + " Starting ===\n");
-                notifyStream("Task: " + task + "\n\n");
-                
-                List<ReActStep> steps = new ArrayList<>();
-                String currentObservation = context;
-                int maxSteps = 2; // Reduced to prevent long responses
-                
-                for (int step = 0; step < maxSteps; step++) {
-                    notifyStream("\n--- Step " + (step + 1) + " ---\n");
-                    
-                    // Reasoning with streaming
-                    notifyStream("🤔 Reasoning: ");
-                    String reasoning = performStreamingReasoning(task, currentObservation, steps);
-                    notifyStream("\n");
-                    
-                    // Action determination
-                    AgentAction action = determineAction(reasoning, currentObservation);
-                    notifyStream("🎯 Action: " + action.getType() + "\n");
-                    
-                    // Execute action with streaming
-                    notifyStream("👁 Observation: ");
-                    String observation = executeStreamingAction(action);
-                    notifyStream("\n");
-                    
-                    steps.add(new ReActStep(reasoning, action, observation));
-                    
-                    // Record step execution
-                    if (sessionId != null) {
-                        recordAgentExecution(sessionId, agentName, 
-                            "STEP_" + (step + 1) + "_" + action.getType(),
-                            reasoning, observation, 
-                            System.currentTimeMillis() - startTime);
-                    }
-                    
-                    if (action.getType() == AgentAction.ActionType.COMPLETE) {
-                        notifyStream("\n✅ Task completed!\n");
-                        
-                        // Record completion
-                        if (sessionId != null) {
-                            recordAgentExecution(sessionId, agentName, "COMPLETE", 
-                                task, observation, System.currentTimeMillis() - startTime);
-                        }
-                        
-                        return observation;
-                    }
-                    
-                    currentObservation = observation;
-                }
-                
-                notifyStream("\n⚠️ Reached maximum steps\n");
-                
-                // Record max steps reached
-                if (sessionId != null) {
-                    recordAgentExecution(sessionId, agentName, "MAX_STEPS", 
-                        task, currentObservation, System.currentTimeMillis() - startTime);
-                }
-                
-                return currentObservation;
-                
-            } catch (Exception e) {
-                LOG.error("[" + agentName + "] Streaming execution failed", e);
-                notifyStream("\n❌ Error: " + e.getMessage() + "\n");
-                
-                // Record error
-                if (sessionId != null) {
-                    recordAgentExecution(sessionId, agentName, "ERROR", 
-                        task, e.getMessage(), System.currentTimeMillis() - startTime);
-                }
-                
-                return "Error: " + e.getMessage();
-            }
-        });
-    }
-    
-    /**
-     * Perform reasoning with streaming.
-     */
-    @NotNull
-    protected String performStreamingReasoning(@NotNull String task, 
-                                              @NotNull String observation, 
-                                              @NotNull List<ReActStep> previousSteps) {
-        String prompt = buildReasoningPrompt(task, observation, previousSteps);
-        
-        StringBuilder reasoning = new StringBuilder();
-        
-        try {
-            // Use streaming service
-            CompletableFuture<String> future = streamingService.streamQuery(
-                prompt,
-                "local-model",
-                chunk -> {
-                    reasoning.append(chunk);
-                    notifyStream(chunk);
-                }
-            );
-            
-            // Wait for completion
-            String result = future.join();
-            return result.trim();
-            
-        } catch (Exception e) {
-            LOG.error("[" + agentName + "] Streaming reasoning failed", e);
-            return "Unable to reason about the current situation.";
-        }
-    }
-    
-    /**
-     * Execute action with streaming.
-     */
-    @NotNull
-    protected String executeStreamingAction(@NotNull AgentAction action) {
-        // For actions that involve LLM queries, use streaming
-        if (requiresLLMQuery(action)) {
-            return executeStreamingLLMAction(action);
-        } else {
-            // For non-LLM actions, execute normally
-            String result = executeAction(action);
-            notifyStream(result.substring(0, Math.min(200, result.length())));
-            if (result.length() > 200) {
-                notifyStream("...[truncated]");
-            }
-            return result;
-        }
-    }
-    
-    /**
-     * Execute LLM-based action with streaming.
-     */
-    protected String executeStreamingLLMAction(@NotNull AgentAction action) {
-        String prompt = buildActionPrompt(action);
-        StringBuilder result = new StringBuilder();
-        
-        try {
-            CompletableFuture<String> future = streamingService.streamQuery(
-                prompt,
-                "local-model",
-                chunk -> {
-                    result.append(chunk);
-                    notifyStream(chunk);
-                }
-            );
-            
-            return future.join();
-            
-        } catch (Exception e) {
-            LOG.error("[" + agentName + "] Streaming action failed", e);
-            return "Action failed: " + e.getMessage();
-        }
-    }
-    
-    /**
-     * Check if action requires LLM query.
-     */
-    protected boolean requiresLLMQuery(@NotNull AgentAction action) {
-        return action.getType() == AgentAction.ActionType.GENERATE ||
-               action.getType() == AgentAction.ActionType.ANALYZE ||
-               action.getType() == AgentAction.ActionType.VALIDATE;
-    }
-    
-    /**
-     * Build prompt for action execution.
-     */
-    protected abstract String buildActionPrompt(@NotNull AgentAction action);
-    
+
     /**
      * Notify streaming consumer.
      */
@@ -262,28 +67,7 @@ public abstract class StreamingBaseAgent extends BaseAgent {
             }
         }
     }
-    
-    /**
-     * Record agent execution to debug dialog.
-     */
-    protected void recordAgentExecution(@NotNull String sessionId, 
-                                       @NotNull String agentName,
-                                       @NotNull String phase,
-                                       @NotNull String input,
-                                       @NotNull String output,
-                                       long duration) {
-        try {
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("thread", Thread.currentThread().getName());
-            
-            AgentDebugDialog.Companion.recordAgentExecution(
-                sessionId, agentName, phase, input, output, duration, metadata
-            );
-        } catch (Exception e) {
-            LOG.warn("Failed to record agent execution", e);
-        }
-    }
-    
+
     /**
      * Query LLM with streaming (for backward compatibility).
      */

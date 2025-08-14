@@ -7,9 +7,7 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 public abstract class BaseAgent {
     protected static final Logger LOG = Logger.getInstance(BaseAgent.class);
@@ -28,65 +26,7 @@ public abstract class BaseAgent {
         this.llmService = llmService;
         this.agentName = agentName;
     }
-    
-    /**
-     * Execute agent task using ReAct pattern (Reasoning, Action, Observation)
-     */
-    @NotNull
-    protected CompletableFuture<String> executeReActTask(@NotNull String task, @NotNull String context) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                LOG.debug("[" + agentName + "] Starting ReAct execution for task: " + task);
-                
-                List<ReActStep> steps = new ArrayList<>();
-                String currentObservation = context;
-                int maxSteps = 2; // Reduced to prevent long responses
-                
-                for (int step = 0; step < maxSteps; step++) {
-                    // Reasoning: Let the agent think about what to do next
-                    String reasoning = performReasoning(task, currentObservation, steps);
-                    LOG.debug("[" + agentName + "] Reasoning (step " + (step + 1) + "): " + reasoning);
-                    
-                    // Action: Determine what action to take
-                    AgentAction action = determineAction(reasoning, currentObservation);
-                    LOG.debug("[" + agentName + "] Action (step " + (step + 1) + "): " + action.getType());
-                    
-                    // Observation: Execute the action and observe results
-                    String observation = executeAction(action);
-                    LOG.debug("[" + agentName + "] Observation (step " + (step + 1) + "): " + observation.substring(0, Math.min(100, observation.length())) + "...");
-                    
-                    steps.add(new ReActStep(reasoning, action, observation));
-                    
-                    // Check if we're done
-                    if (action.getType() == AgentAction.ActionType.COMPLETE) {
-                        return observation;
-                    }
-                    
-                    currentObservation = observation;
-                }
-                
-                LOG.warn("[" + agentName + "] Reached maximum steps, returning current observation");
-                return currentObservation;
-                
-            } catch (Exception e) {
-                LOG.error("[" + agentName + "] ReAct execution failed", e);
-                return "Error: " + e.getMessage();
-            }
-        });
-    }
-    
-    /**
-     * Perform reasoning step - let the agent think about the current situation
-     */
-    @NotNull
-    protected String performReasoning(@NotNull String task, @NotNull String observation, @NotNull List<ReActStep> previousSteps) {
-        String prompt = buildReasoningPrompt(task, observation, previousSteps);
-        
-        // Use queryLLM method which can be overridden for streaming
-        String reasoning = queryLLM(prompt, 200); // Reduced from 1000 for shorter responses
-        return reasoning != null && !reasoning.isEmpty() ? reasoning.trim() : "Unable to reason about the current situation.";
-    }
-    
+
     /**
      * Determine what action to take based on reasoning
      */

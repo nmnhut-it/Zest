@@ -1,16 +1,12 @@
 package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.PsiDocumentManager;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
@@ -26,7 +22,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class TestWriterAgent extends StreamingBaseAgent {
@@ -336,12 +334,17 @@ public class TestWriterAgent extends StreamingBaseAgent {
     }
     
     private String analyzeTestRequirements(@NotNull String parameters) {
-        String prompt = "What to test (one line):\n" +
-                       parameters + "\n\n" +
-                       "Output: main behavior only.\n\n" +
-                       "Behavior:";
+        Map<String, Object> context = new HashMap<>();
+        context.put("input", parameters);
         
-        return queryLLM(prompt, 100); // Reduced from 1000
+        String baseTask = "Analyze the test requirements and identify the main behavior to test";
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(
+            baseTask, 
+            Map.of("focus", AgentAdviceConfig.GeneralAdvice.CODE_ANALYSIS),
+            context
+        );
+        
+        return queryLLM(prompt, 100);
     }
     
     private String searchTestExamples(@NotNull String parameters) {
@@ -373,19 +376,24 @@ public class TestWriterAgent extends StreamingBaseAgent {
     }
     
     private String generateTestCode(@NotNull String parameters) {
-        String prompt = "Generate ONE test method:\n" +
-                       parameters + "\n\n" +
-                       "Keep it simple. Max 20 lines.\n\n" +
-                       "Format:\n" +
-                       "PACKAGE: packageName\n" +
-                       "CLASS_NAME: TestClassName\n" +
-                       "IMPORTS:\n" +
-                       "import lines (max 5)\n" +
-                       "TEST_CODE:\n" +
-                       "test method only\n\n" +
-                       "Test:";
+        Map<String, Object> context = new HashMap<>();
+        context.put("requirements", parameters);
         
-        return queryLLM(prompt, 1000); // Reduced from 3000
+        Map<String, String> advice = new HashMap<>();
+        advice.put("quality", AgentAdviceConfig.GeneralAdvice.QUALITY_FOCUS);
+        advice.put("format", AgentAdviceConfig.GeneralAdvice.OUTPUT_FORMAT);
+        
+        String baseTask = "Generate a test method based on the requirements";
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(baseTask, advice, context);
+        
+        // Add minimal format guidance for parsing
+        prompt += "\nOutput Format:\n" +
+                 "PACKAGE: <package>\n" +
+                 "CLASS_NAME: <class>\n" +
+                 "IMPORTS:\n<imports>\n" +
+                 "TEST_CODE:\n<test method>\n";
+        
+        return queryLLM(prompt, 1000);
     }
     
     /**
@@ -395,79 +403,43 @@ public class TestWriterAgent extends StreamingBaseAgent {
                                      @NotNull TestPlan testPlan,
                                      @NotNull TestContext context,
                                      @NotNull String contextInfo) {
-        // Determine if we need setup based on dependencies
-        boolean needsSetup = !testPlan.getDependencies().isEmpty() || 
-                            scenario.getType() == TestPlan.TestScenario.Type.INTEGRATION;
+        // Get advice based on framework and test type
+        Map<String, String> advice = AgentAdviceConfig.TestWriterAdvice.getTestGenerationAdvice(context.getFrameworkInfo());
         
-        String className = testPlan.getTargetClass() + "Test";
-        String methodName = scenarioToMethodName(scenario.getName());
+        // Build context map for dynamic prompt
+        Map<String, Object> promptContext = new HashMap<>();
+        promptContext.put("scenario", scenario.getName());
+        promptContext.put("scenario_description", scenario.getDescription());
+        promptContext.put("target_class", testPlan.getTargetClass());
+        promptContext.put("target_method", testPlan.getTargetMethod());
+        promptContext.put("test_type", scenario.getType().getDisplayName());
+        promptContext.put("framework", context.getFrameworkInfo());
+        promptContext.put("has_dependencies", !testPlan.getDependencies().isEmpty());
         
-        String prompt = "Generate a complete test for: " + scenario.getName() + "\n\n" +
-                       "IMPORTANT: Read the FULL IMPLEMENTATION CODE provided below to understand what needs to be tested.\n\n" +
-                       "Context (INCLUDING FULL SOURCE CODE):\n" + contextInfo + "\n\n" +
-                       "Based on the ACTUAL IMPLEMENTATION above, generate a test that:\n" +
-                       "1. Tests the REAL behavior of the code (not imagined behavior)\n" +
-                       "2. Covers the specific scenario: " + scenario.getDescription() + "\n" +
-                       "3. Uses proper assertions based on what the method actually does\n" +
-                       "4. Handles any edge cases visible in the implementation\n\n" +
-                       "Output this format EXACTLY:\n" +
-                       "PACKAGE: " + inferPackageName(testPlan.getTargetClass()) + "\n" +
-                       "CLASS_NAME: " + className + "\n" +
-                       "IMPORTS:\n" +
-                       "import org.junit.jupiter.api.Test\n" +
-                       "import org.junit.jupiter.api.BeforeEach\n" +
-                       "import static org.junit.jupiter.api.Assertions.*\n";
+        // Build the main task
+        String baseTask = "Generate a test for the scenario: " + scenario.getName() + "\n" +
+                         "The full implementation code and context is provided below.\n\n" +
+                         contextInfo;
         
-        if (!testPlan.getDependencies().isEmpty()) {
-            prompt += "import org.mockito.Mock\n" +
-                     "import org.mockito.MockitoAnnotations\n" +
-                     "import static org.mockito.Mockito.*\n";
-        }
+        // Use dynamic prompt builder
+        String prompt = AgentAdviceConfig.buildDynamicPrompt(baseTask, advice, promptContext);
         
-        prompt += "TEST_SETUP:\n";
-        if (needsSetup) {
-            prompt += "    private " + testPlan.getTargetClass() + " target;\n";
-            for (String dep : testPlan.getDependencies()) {
-                prompt += "    @Mock\n    private " + dep + " mock" + dep + ";\n";
-            }
-            prompt += "\n    @BeforeEach\n" +
-                     "    void setUp() {\n" +
-                     "        MockitoAnnotations.openMocks(this);\n" +
-                     "        target = new " + testPlan.getTargetClass() + "();\n" +
-                     "        // Initialize target with mocks based on the constructor in the implementation\n" +
-                     "    }\n";
-        } else {
-            prompt += "NONE\n";
-        }
-        
-        prompt += "TEST_CODE:\n" +
-                 "    @Test\n" +
-                 "    void " + methodName + "() {\n" +
-                 "        // " + scenario.getDescription() + "\n" +
-                 "        // Test the ACTUAL behavior from the implementation above\n" +
-                 "        \n" +
-                 "        // Given\n" +
-                 "        // Setup based on what the method actually needs\n" +
-                 "        \n" +
-                 "        // When\n" +
-                 "        // Call the actual method with appropriate parameters\n" +
-                 "        \n" +
-                 "        // Then\n" +
-                 "        // Assert based on what the method actually returns/does\n" +
-                 "    }\n\n" +
-                 "Generate a REAL test based on the ACTUAL implementation provided. " +
-                 "Do not make assumptions - test what the code ACTUALLY does. " +
-                 "Use Given-When-Then structure. Max 30 lines. Be specific and thorough.\n\n" +
-                 "Test:";
+        // Add output format guidance (still needed for parsing)
+        prompt += "\nOutput Format:\n" +
+                 "PACKAGE: <package name>\n" +
+                 "CLASS_NAME: <test class name>\n" +
+                 "IMPORTS:\n<import statements>\n" +
+                 "TEST_SETUP:\n<setup code if needed, or NONE>\n" +
+                 "TEST_CODE:\n<the test method>\n";
         
         // Stream the generation
         if (streamingConsumer != null) {
-            notifyStream("\n📝 Writing test based on actual implementation...\n");
-            String result = queryLLM(prompt, 1000); // Increased token limit for better tests
-            notifyStream("\n✅ Test written\n");
+            notifyStream("\n📝 Generating test using advice-based approach...\n");
+            String result = queryLLM(prompt, 128_000);
+            notifyStream("\n✅ Test generated\n");
             return result;
         } else {
-            return queryLLM(prompt, 1000);
+            return queryLLM(prompt, 128_000);
         }
     }
     
@@ -786,25 +758,5 @@ public class TestWriterAgent extends StreamingBaseAgent {
             AgentAction.ActionType.COMPLETE
         );
     }
-    
-    @NotNull
-    @Override
-    protected String buildActionPrompt(@NotNull AgentAction action) {
-        switch (action.getType()) {
-            case ANALYZE:
-                return analyzeTestRequirements(action.getParameters());
-                
-            case SEARCH:
-                return "Find test pattern (one example):\n" +
-                       action.getParameters() + "\n\n" +
-                       "Output: ONE example. Max 10 lines.\n\n" +
-                       "Example:";
-                       
-            case GENERATE:
-                return generateTestCode(action.getParameters());
-                
-            default:
-                return action.getParameters();
-        }
-    }
+
 }

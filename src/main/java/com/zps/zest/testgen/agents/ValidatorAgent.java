@@ -543,11 +543,5 @@ public class ValidatorAgent extends StreamingBaseAgent {
             AgentAction.ActionType.COMPLETE
         );
     }
-    
-    @NotNull
-    @Override
-    protected String buildActionPrompt(@NotNull AgentAction action) {
-        // Not used with AiServices pattern
-        return action.getParameters();
-    }
+
 }

@@ -140,7 +140,12 @@ class StateMachineTestGenerationEditor(
                 logEvent("⚠ User input required: ${event.prompt}")
                 
                 if (event.inputType == "scenario_selection") {
-                    showScenarioSelectionDialog(event.data as TestPlan)
+                    // Use test plan tab directly instead of dialog
+                    val testPlan = event.data as TestPlan
+                    testPlanDisplayPanel.setTestPlanForSelection(testPlan)
+                    // Switch to test plan tab
+                    tabbedPane.selectedIndex = 1
+                    logEvent("Please select scenarios in the Test Plan tab")
                 }
             }
         }
@@ -328,6 +333,16 @@ class StateMachineTestGenerationEditor(
         testPlanDisplayPanel = TestPlanDisplayPanel(project)
         testPlanDisplayPanel.setSelectionListener { selectedIds ->
             LOG.info("Selected scenarios: ${selectedIds.size}")
+        }
+        // Set up callback for selection confirmation
+        testPlanDisplayPanel.setConfirmSelectionCallback { selectedScenarios ->
+            currentSessionId?.let { sessionId ->
+                if (testGenService.setUserSelection(sessionId, selectedScenarios)) {
+                    logEvent("User confirmed selection of ${selectedScenarios.size} scenarios - continuing generation")
+                } else {
+                    logEvent("Failed to set user selection")
+                }
+            }
         }
         tabbedPane.addTab("Test Plan", testPlanDisplayPanel)
         
@@ -548,19 +563,6 @@ class StateMachineTestGenerationEditor(
         }
     }
     
-    private fun showScenarioSelectionDialog(testPlan: com.zps.zest.testgen.model.TestPlan) {
-        val dialog = ScenarioSelectionDialog(project, testPlan)
-        if (dialog.showAndGet()) {
-            val selectedScenarios = dialog.getSelectedScenarios()
-            currentSessionId?.let { sessionId ->
-                if (testGenService.setUserSelection(sessionId, selectedScenarios)) {
-                    logEvent("User selected ${selectedScenarios.size} scenarios - auto-flow will continue")
-                } else {
-                    logEvent("Failed to set user selection")
-                }
-            }
-        }
-    }
     
     private fun logEvent(message: String) {
         val timestamp = java.time.LocalTime.now().toString().substring(0, 8)
@@ -584,43 +586,3 @@ class StateMachineTestGenerationEditor(
     override fun getFile(): VirtualFile = virtualFile
 }
 
-/**
- * Simple scenario selection dialog
- */
-private class ScenarioSelectionDialog(
-    project: Project,
-    private val testPlan: TestPlan
-) : com.intellij.openapi.ui.DialogWrapper(project) {
-    
-    private val checkBoxes = mutableListOf<JCheckBox>()
-    
-    init {
-        title = "Select Test Scenarios"
-        init()
-    }
-    
-    override fun createCenterPanel(): JComponent {
-        val panel = JPanel()
-        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
-        panel.border = EmptyBorder(10, 10, 10, 10)
-        
-        val header = JBLabel("<html><h3>Select scenarios to generate:</h3></html>")
-        panel.add(header)
-        panel.add(Box.createVerticalStrut(10))
-        
-        testPlan.testScenarios.forEach { scenario ->
-            val checkBox = JCheckBox(scenario.name, true)
-            checkBox.toolTipText = scenario.description
-            checkBoxes.add(checkBox)
-            panel.add(checkBox)
-        }
-        
-        return JBScrollPane(panel)
-    }
-    
-    fun getSelectedScenarios(): List<TestPlan.TestScenario> {
-        return checkBoxes.mapIndexedNotNull { index, checkBox ->
-            if (checkBox.isSelected) testPlan.testScenarios[index] else null
-        }
-    }
-}

@@ -165,6 +165,7 @@ public class ZestChatLanguageModel implements ChatModel {
 //            apiUrl += "v1";
 //        }
         apiUrl = "https://api.openai.com/v1";
+        apiKey = "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";
         LOG.info("Creating OpenAI model with URL: " + apiUrl + ", Model: " + modelName);
 
         final String finalApiUrl = apiUrl;

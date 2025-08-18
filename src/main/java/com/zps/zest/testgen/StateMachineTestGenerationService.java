@@ -193,6 +193,10 @@ public final class StateMachineTestGenerationService {
         // Set the selection in session data
         stateMachine.setSessionData("selectedScenarios", selectedScenarios);
         
+        // Re-enable auto-flow after user selection
+        stateMachine.enableAutoFlow();
+        LOG.info("Auto-flow re-enabled after user selection");
+        
         // Continue execution which will process the selection
         return continueExecution(sessionId);
     }

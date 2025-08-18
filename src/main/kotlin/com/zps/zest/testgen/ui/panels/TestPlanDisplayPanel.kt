@@ -27,6 +27,17 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     private val summaryLabel = JBLabel("")
     private var selectionListener: ((Set<String>) -> Unit)? = null
     
+    // Selection mode fields
+    private var isSelectionMode = false
+    private var originalTestPlan: com.zps.zest.testgen.model.TestPlan? = null
+    private val scenarioIdToTestScenario = mutableMapOf<String, com.zps.zest.testgen.model.TestPlan.TestScenario>()
+    private var confirmSelectionCallback: ((List<com.zps.zest.testgen.model.TestPlan.TestScenario>) -> Unit)? = null
+    
+    // Confirmation UI components
+    private lateinit var confirmationPanel: JPanel
+    private lateinit var selectionStatusLabel: JBLabel
+    private lateinit var confirmButton: JButton
+    
     init {
         setupUI()
     }
@@ -71,6 +82,79 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         scrollPane.border = BorderFactory.createEmptyBorder()
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
         add(scrollPane, BorderLayout.CENTER)
+        
+        // Confirmation panel (initially hidden)
+        setupConfirmationPanel()
+    }
+    
+    /**
+     * Setup confirmation panel for selection mode
+     */
+    private fun setupConfirmationPanel() {
+        confirmationPanel = JPanel(BorderLayout())
+        confirmationPanel.background = UIUtil.getPanelBackground()
+        confirmationPanel.border = EmptyBorder(10, 15, 10, 15)
+        confirmationPanel.isVisible = false
+        
+        // Left side: Selection status
+        selectionStatusLabel = JBLabel("No scenarios selected")
+        selectionStatusLabel.foreground = UIUtil.getContextHelpForeground()
+        confirmationPanel.add(selectionStatusLabel, BorderLayout.WEST)
+        
+        // Right side: Confirm button
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
+        buttonPanel.isOpaque = false
+        
+        confirmButton = JButton("Confirm Selection")
+        confirmButton.isEnabled = false
+        confirmButton.addActionListener { confirmSelection() }
+        buttonPanel.add(confirmButton)
+        
+        val cancelButton = JButton("Cancel")
+        cancelButton.addActionListener { exitSelectionMode() }
+        buttonPanel.add(cancelButton)
+        
+        confirmationPanel.add(buttonPanel, BorderLayout.EAST)
+        add(confirmationPanel, BorderLayout.SOUTH)
+    }
+    
+    /**
+     * Set test plan for scenario selection mode
+     */
+    fun setTestPlanForSelection(testPlan: com.zps.zest.testgen.model.TestPlan) {
+        SwingUtilities.invokeLater {
+            isSelectionMode = true
+            originalTestPlan = testPlan
+            scenarioIdToTestScenario.clear()
+            
+            // Convert to display data and populate mapping
+            val displayData = TestPlanDisplayData.fromTestPlan(testPlan)
+            testPlan.testScenarios.forEachIndexed { index, scenario ->
+                val scenarioId = "scenario_${scenario.name.hashCode()}"
+                scenarioIdToTestScenario[scenarioId] = scenario
+            }
+            
+            // Update the display
+            updateTestPlan(displayData)
+            
+            // Show confirmation panel and update header
+            confirmationPanel.isVisible = true
+            headerLabel.text = "📋 Select Test Scenarios: ${testPlan.targetClass}"
+            summaryLabel.text = "Please select which scenarios to generate from ${testPlan.scenarioCount} available"
+            
+            // Update selection status
+            updateSelectionStatus()
+            
+            revalidate()
+            repaint()
+        }
+    }
+    
+    /**
+     * Set callback for when selection is confirmed
+     */
+    fun setConfirmSelectionCallback(callback: (List<com.zps.zest.testgen.model.TestPlan.TestScenario>) -> Unit) {
+        confirmSelectionCallback = callback
     }
     
     /**
@@ -201,6 +285,70 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     private fun notifySelectionChange() {
         selectionListener?.invoke(getSelectedScenarioIds())
+        
+        // Update selection status if in selection mode
+        if (isSelectionMode) {
+            updateSelectionStatus()
+        }
+    }
+    
+    /**
+     * Update selection status display
+     */
+    private fun updateSelectionStatus() {
+        val selectedCount = getSelectedScenarioIds().size
+        val totalCount = scenarioCheckboxes.size
+        
+        selectionStatusLabel.text = when (selectedCount) {
+            0 -> "No scenarios selected"
+            totalCount -> "All $totalCount scenarios selected"
+            else -> "$selectedCount of $totalCount scenarios selected"
+        }
+        
+        confirmButton.isEnabled = selectedCount > 0
+    }
+    
+    /**
+     * Confirm the current selection
+     */
+    private fun confirmSelection() {
+        if (!isSelectionMode || originalTestPlan == null) return
+        
+        val selectedIds = getSelectedScenarioIds()
+        val selectedScenarios = selectedIds.mapNotNull { id ->
+            scenarioIdToTestScenario[id]
+        }
+        
+        if (selectedScenarios.isNotEmpty()) {
+            confirmSelectionCallback?.invoke(selectedScenarios)
+            exitSelectionMode()
+        }
+    }
+    
+    /**
+     * Exit selection mode and return to display mode
+     */
+    private fun exitSelectionMode() {
+        isSelectionMode = false
+        originalTestPlan = null
+        scenarioIdToTestScenario.clear()
+        confirmSelectionCallback = null
+        
+        // Hide confirmation panel
+        confirmationPanel.isVisible = false
+        
+        // Update header back to normal
+        currentPlan?.let { plan ->
+            headerLabel.text = "📋 Test Plan: ${plan.targetClass}"
+            summaryLabel.text = buildString {
+                append("Methods: ${plan.targetMethods.joinToString(", ")}")
+                append(" | Type: ${plan.recommendedTestType}")
+                append(" | ${plan.totalScenarios} scenario(s)")
+            }
+        }
+        
+        revalidate()
+        repaint()
     }
     
     /**
@@ -208,6 +356,11 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     fun clear() {
         SwingUtilities.invokeLater {
+            // Exit selection mode if active
+            if (isSelectionMode) {
+                exitSelectionMode()
+            }
+            
             currentPlan = null
             scenarioCheckboxes.clear()
             scenariosPanel.removeAll()

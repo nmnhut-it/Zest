@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CodeHealthReportStorage">
+    <option name="reports">
+      <map>
+        <entry key="2025-08-06">
+          <value>
+            <SerializableHealthReport>
+              <option name="date" value="2025-08-06" />
+              <option name="results">
+                <list>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testing.AgentBasedTestWritingAction.showError" />
+                    <option name="healthScore" value="60" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="Calling e.printStackTrace() is unsafe and uncontrolled, potentially exposing sensitive data in production logs or UI." />
+                          <option name="impact" value="Security risk and poor logging practice; may expose internal application structure or data in uncontrolled environments." />
+                          <option name="issueCategory" value="Error Handling" />
+                          <option name="severity" value="5" />
+                          <option name="suggestedFix" value="Remove e.printStackTrace() and rely solely on the logger (LOG.error) which properly captures stack traces." />
+                          <option name="title" value="Exception stack trace printed directly to console" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Error handling method with potential logging and UI issues" />
+                  </SerializableMethodResult>
+                </list>
+              </option>
+            </SerializableHealthReport>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

@@ -6,7 +6,9 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.TitledSeparator;
 import com.intellij.ui.components.*;
+import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.validation.CommitTemplateValidator;
 import com.zps.zest.git.CommitTemplateExamples;
@@ -23,7 +25,7 @@ import java.awt.event.ItemEvent;
  */
 public class ZestSettingsConfigurable implements Configurable {
     private final Project project;
-    private ConfigurationManager config;
+    private final ConfigurationManager config;
     
     // API Settings
     private JBTextField apiUrlField;
@@ -39,6 +41,18 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox mcpEnabledCheckbox;
     private JBTextField mcpServerUriField;
     
+    // Inline Completion Settings
+    private JBCheckBox inlineCompletionCheckbox;
+    private JBCheckBox autoTriggerCheckbox;
+    private JBCheckBox backgroundContextCheckbox;
+    private JBCheckBox continuousCompletionCheckbox;
+    
+    // Inline Completion RAG/AST Settings
+    private JBCheckBox inlineRagEnabledCheckbox;
+    private JBCheckBox astPatternMatchingCheckbox;
+    private JSpinner maxRagContextSizeSpinner;
+    private JSpinner embeddingCacheSizeSpinner;
+    
     // Context Settings
     private JBRadioButton contextInjectionRadio;
     private JBRadioButton projectIndexRadio;
@@ -53,8 +67,9 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBTextArea codeSystemPromptArea;
     private JBTextArea commitPromptTemplateArea;
     
-    // UI State
-    private boolean isModified = false;
+    // Project Configuration
+    private JBTextArea projectRulesArea;
+    private JBTextArea customPromptsArea;
     
     public ZestSettingsConfigurable(Project project) {
         this.project = project;
@@ -72,272 +87,288 @@ public class ZestSettingsConfigurable implements Configurable {
     public JComponent createComponent() {
         JPanel mainPanel = new JPanel(new BorderLayout());
         
-        // Create tabbed pane for different setting categories
-        JBTabbedPane tabbedPane = new JBTabbedPane();
-        
-        // Add tabs
-        tabbedPane.addTab("API & Models", createApiSettingsPanel());
+        // Create tabbed pane with compact layout
+        JBTabbedPane tabbedPane = new JBTabbedPane(JTabbedPane.TOP);
+        tabbedPane.addTab("General", createGeneralPanel());
+        tabbedPane.addTab("Models", createModelsPanel());
         tabbedPane.addTab("Features", createFeaturesPanel());
-        tabbedPane.addTab("System Prompts", createPromptsPanel());
-        tabbedPane.addTab("Commit Template", createCommitTemplatePanel());
+        tabbedPane.addTab("Prompts", createPromptsPanel());
+        tabbedPane.addTab("Project", createProjectPanel());
         
         mainPanel.add(tabbedPane, BorderLayout.CENTER);
-        
-        // Add save hint at bottom
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        bottomPanel.add(new JBLabel("Changes will be saved to project's zest-plugin.properties file"));
-        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+        mainPanel.setPreferredSize(new Dimension(800, 600));
         
         return mainPanel;
     }
     
-    private JPanel createApiSettingsPanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = JBUI.insets(5);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+    private JPanel createGeneralPanel() {
+        FormBuilder builder = FormBuilder.createFormBuilder();
+        // API Configuration
+        builder.addComponent(new TitledSeparator("API Configuration"));
         
-        int row = 0;
-        
-        // API URL Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        panel.add(new TitledSeparator("API Configuration"), gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
-        panel.add(new JBLabel("API URL:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         apiUrlField = new JBTextField(config.getApiUrl());
-        panel.add(apiUrlField, gbc);
+        apiUrlField.setColumns(40); // Limit width
+        builder.addLabeledComponent("API URL:", apiUrlField);
         
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        panel.add(new JBLabel("Auth Token:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         authTokenField = new JBTextField(config.getAuthTokenNoPrompt());
-        panel.add(authTokenField, gbc);
+        authTokenField.setColumns(30); // Limit width
+        builder.addLabeledComponent("Auth Token:", authTokenField);
         
-        // Model Configuration Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        panel.add(new TitledSeparator("Model Configuration"), gbc);
+        // Context Settings
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("Context Mode"));
         
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
-        panel.add(new JBLabel("Test Model:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
-        testModelField = new JBTextField(config.getTestModel());
-        panel.add(testModelField, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        panel.add(new JBLabel("Code Model:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
-        codeModelField = new JBTextField(config.getCodeModel());
-        panel.add(codeModelField, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
-        panel.add(new JBLabel("Max Iterations:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
-        maxIterationsSpinner = new JSpinner(new SpinnerNumberModel(config.getMaxIterations(), 1, 10, 1));
-        panel.add(maxIterationsSpinner, gbc);
-        
-        // Add vertical glue to push content to top
-        gbc.gridx = 0; gbc.gridy = row; gbc.weighty = 1.0;
-        panel.add(Box.createVerticalGlue(), gbc);
-        
-        return wrapInScrollPane(panel);
-    }
-    
-    private JPanel createFeaturesPanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = JBUI.insets(5);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        
-        int row = 0;
-        
-        // RAG Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        panel.add(new TitledSeparator("RAG (Retrieval-Augmented Generation)"), gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        ragEnabledCheckbox = new JBCheckBox("Enable RAG", config.isRagEnabled());
-        panel.add(ragEnabledCheckbox, gbc);
-        
-        // MCP Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        panel.add(new TitledSeparator("MCP (Model Context Protocol)"), gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        mcpEnabledCheckbox = new JBCheckBox("Enable MCP", config.isMcpEnabled());
-        panel.add(mcpEnabledCheckbox, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
-        panel.add(new JBLabel("MCP Server URI:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
-        mcpServerUriField = new JBTextField(config.getMcpServerUri());
-        mcpServerUriField.setEnabled(config.isMcpEnabled());
-        panel.add(mcpServerUriField, gbc);
-        
-        // Enable/disable MCP URI field based on checkbox
-        mcpEnabledCheckbox.addItemListener(e -> {
-            mcpServerUriField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
-        });
-        
-        // Context Settings Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2; gbc.weightx = 0;
-        panel.add(new TitledSeparator("Context Settings"), gbc);
-        
-        // Radio buttons for mutual exclusion
         ButtonGroup contextGroup = new ButtonGroup();
+        JPanel contextPanel = new JPanel(new GridLayout(2, 1, 0, 5));
         
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        contextInjectionRadio = new JBRadioButton("Context Injection (includes file contents in prompts)", 
+        contextInjectionRadio = new JBRadioButton("Context injection (includes file contents in prompts)", 
                                                   config.isContextInjectionEnabled());
         contextGroup.add(contextInjectionRadio);
-        panel.add(contextInjectionRadio, gbc);
+        contextPanel.add(contextInjectionRadio);
         
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        projectIndexRadio = new JBRadioButton("Project Index (uses knowledge base)", 
+        projectIndexRadio = new JBRadioButton("Project index (uses knowledge base)", 
                                               config.isProjectIndexEnabled());
         contextGroup.add(projectIndexRadio);
-        panel.add(projectIndexRadio, gbc);
+        contextPanel.add(projectIndexRadio);
         
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
-        panel.add(new JBLabel("Knowledge ID:"), gbc);
+        // Add "None" state handling
+        if (!config.isContextInjectionEnabled() && !config.isProjectIndexEnabled()) {
+            contextGroup.clearSelection();
+        }
         
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
+        builder.addComponent(contextPanel);
+        
         knowledgeIdField = new JBTextField(config.getKnowledgeId() != null ? config.getKnowledgeId() : "");
+        knowledgeIdField.setColumns(30); // Limit width
         knowledgeIdField.setEnabled(config.isProjectIndexEnabled());
-        panel.add(knowledgeIdField, gbc);
+        builder.addLabeledComponent("Knowledge ID:", knowledgeIdField);
         
-        // Enable/disable knowledge ID field based on radio selection
+        // Enable knowledge ID field only when project index is selected
         projectIndexRadio.addItemListener(e -> {
             knowledgeIdField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
         });
         
-        // Add index project button
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
-        JButton indexButton = new JButton("Index Project Now");
-        indexButton.setEnabled(config.isProjectIndexEnabled());
-        indexButton.addActionListener(e -> indexProject());
-        panel.add(indexButton, gbc);
+        // Documentation Search
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("Documentation Search"));
         
-        projectIndexRadio.addItemListener(e -> {
-            indexButton.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
-        });
-        
-        // Documentation Search Section
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2; gbc.weightx = 0;
-        panel.add(new TitledSeparator("Documentation Search"), gbc);
-        
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
         docsSearchEnabledCheckbox = new JBCheckBox("Enable documentation search", config.isDocsSearchEnabled());
-        panel.add(docsSearchEnabledCheckbox, gbc);
+        builder.addComponent(docsSearchEnabledCheckbox);
         
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 1;
-        panel.add(new JBLabel("Docs Path:"), gbc);
-        
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         docsPathField = new JBTextField(config.getDocsPath());
+        docsPathField.setColumns(30); // Limit width
         docsPathField.setEnabled(config.isDocsSearchEnabled());
-        panel.add(docsPathField, gbc);
+        builder.addLabeledComponent("Docs folder:", docsPathField);
         
-        // Enable/disable docs path field based on checkbox
         docsSearchEnabledCheckbox.addItemListener(e -> {
             docsPathField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
         });
         
-        // Add description
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        JBLabel docsDescription = new JBLabel("<html><i>Search markdown documentation files using natural language queries</i></html>");
-        docsDescription.setFont(docsDescription.getFont().deriveFont(Font.ITALIC));
-        panel.add(docsDescription, gbc);
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(builder.getPanel(), BorderLayout.NORTH);
+        panel.setBorder(JBUI.Borders.empty(10));
+        return wrapInScrollPane(panel);
+    }
+    
+    private JPanel createModelsPanel() {
+        FormBuilder builder = FormBuilder.createFormBuilder();
         
-        // Add vertical glue
-        gbc.gridx = 0; gbc.gridy = row; gbc.weighty = 1.0;
-        panel.add(Box.createVerticalGlue(), gbc);
+        // Model Configuration
+        builder.addComponent(new TitledSeparator("Model Configuration"));
         
+        testModelField = new JBTextField(config.getTestModel());
+        testModelField.setColumns(30); // Limit width
+        builder.addLabeledComponent("Test Model:", testModelField);
+        builder.addComponentToRightColumn(createDescriptionLabel("Model used for generating unit tests"));
+        
+        codeModelField = new JBTextField(config.getCodeModel());
+        codeModelField.setColumns(30); // Limit width
+        builder.addLabeledComponent("Code Model:", codeModelField);
+        builder.addComponentToRightColumn(createDescriptionLabel("Model used for code generation and analysis"));
+        
+        maxIterationsSpinner = new JSpinner(new SpinnerNumberModel(config.getMaxIterations(), 1, 10, 1));
+        JPanel spinnerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        spinnerPanel.add(maxIterationsSpinner);
+        spinnerPanel.add(Box.createHorizontalStrut(10));
+        spinnerPanel.add(createDescriptionLabel("Maximum number of refinement iterations"));
+        builder.addLabeledComponent("Max Iterations:", spinnerPanel);
+        
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(builder.getPanel(), BorderLayout.NORTH);
+        panel.setBorder(JBUI.Borders.empty(10));
+        return wrapInScrollPane(panel);
+    }
+    
+    private JPanel createFeaturesPanel() {
+        FormBuilder builder = FormBuilder.createFormBuilder();
+        
+        // Inline Completion
+        builder.addComponent(new TitledSeparator("Inline Completion"));
+        
+        inlineCompletionCheckbox = new JBCheckBox("Enable inline completion", config.isInlineCompletionEnabled());
+        builder.addComponent(inlineCompletionCheckbox);
+        
+        autoTriggerCheckbox = new JBCheckBox("Auto-trigger completion", config.isAutoTriggerEnabled());
+        autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(autoTriggerCheckbox);
+        
+        continuousCompletionCheckbox = new JBCheckBox("Continuous completion (auto-trigger after acceptance)", config.isContinuousCompletionEnabled());
+        continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(continuousCompletionCheckbox);
+        
+        backgroundContextCheckbox = new JBCheckBox("Collect context in background", config.isBackgroundContextEnabled());
+        builder.addComponent(backgroundContextCheckbox);
+        
+        // Inline Completion RAG/AST Settings
+        builder.addSeparator();
+        builder.addComponent(new JLabel("Advanced Inline Completion:"));
+        
+        inlineRagEnabledCheckbox = new JBCheckBox("Enable RAG for inline completion", config.isInlineCompletionRagEnabled());
+        inlineRagEnabledCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(inlineRagEnabledCheckbox);
+        
+        astPatternMatchingCheckbox = new JBCheckBox("Enable AST pattern matching", config.isAstPatternMatchingEnabled());
+        astPatternMatchingCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        builder.addComponent(astPatternMatchingCheckbox);
+        
+        maxRagContextSizeSpinner = new JSpinner(new SpinnerNumberModel(
+            config.getMaxRagContextSize(), 100, 5000, 100));
+        maxRagContextSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        JPanel ragSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        ragSizePanel.add(new JLabel("Max RAG context size:"));
+        ragSizePanel.add(maxRagContextSizeSpinner);
+        ragSizePanel.add(new JLabel("characters"));
+        builder.addComponent(ragSizePanel);
+        
+        embeddingCacheSizeSpinner = new JSpinner(new SpinnerNumberModel(
+            config.getEmbeddingCacheSize(), 10, 500, 10));
+        embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        JPanel cachePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        cachePanel.add(new JLabel("Embedding cache size:"));
+        cachePanel.add(embeddingCacheSizeSpinner);
+        cachePanel.add(new JLabel("files"));
+        builder.addComponent(cachePanel);
+        
+        inlineCompletionCheckbox.addItemListener(e -> {
+            boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
+            autoTriggerCheckbox.setEnabled(enabled);
+            continuousCompletionCheckbox.setEnabled(enabled);
+            inlineRagEnabledCheckbox.setEnabled(enabled);
+            astPatternMatchingCheckbox.setEnabled(enabled);
+            maxRagContextSizeSpinner.setEnabled(enabled && inlineRagEnabledCheckbox.isSelected());
+            embeddingCacheSizeSpinner.setEnabled(enabled && inlineRagEnabledCheckbox.isSelected());
+        });
+        
+        inlineRagEnabledCheckbox.addItemListener(e -> {
+            boolean ragEnabled = e.getStateChange() == ItemEvent.SELECTED;
+            maxRagContextSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
+            embeddingCacheSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
+        });
+        
+        // RAG Settings
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("RAG (Retrieval-Augmented Generation)"));
+        
+        ragEnabledCheckbox = new JBCheckBox("Enable RAG", config.isRagEnabled());
+        builder.addComponent(ragEnabledCheckbox);
+        
+        // MCP Settings
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("MCP (Model Context Protocol)"));
+        
+        mcpEnabledCheckbox = new JBCheckBox("Enable MCP", config.isMcpEnabled());
+        builder.addComponent(mcpEnabledCheckbox);
+        
+        mcpServerUriField = new JBTextField(config.getMcpServerUri());
+        mcpServerUriField.setColumns(30); // Limit width
+        mcpServerUriField.setEnabled(config.isMcpEnabled());
+        builder.addLabeledComponent("MCP Server URI:", mcpServerUriField);
+        
+        mcpEnabledCheckbox.addItemListener(e -> {
+            mcpServerUriField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
+        });
+        
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(builder.getPanel(), BorderLayout.NORTH);
+        panel.setBorder(JBUI.Borders.empty(10));
         return wrapInScrollPane(panel);
     }
     
     private JPanel createPromptsPanel() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = JBUI.insets(5);
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weightx = 1.0;
+        JPanel panel = new JPanel(new BorderLayout());
         
-        int row = 0;
+        // Create inner tabbed pane for different prompts
+        JBTabbedPane promptTabs = new JBTabbedPane(JTabbedPane.TOP);
         
-        // System Prompt
-        gbc.gridx = 0; gbc.gridy = row++; gbc.weighty = 0;
-        panel.add(new TitledSeparator("System Prompt (General Assistant)"), gbc);
+        // System Prompt Tab
+        systemPromptArea = createPromptTextArea();
+        systemPromptArea.setText(config.getSystemPrompt());
+        promptTabs.addTab("System", createPromptPanel(
+            systemPromptArea,
+            "General assistant prompt",
+            () -> systemPromptArea.setText(ConfigurationManager.DEFAULT_SYSTEM_PROMPT)
+        ));
         
-        gbc.gridx = 0; gbc.gridy = row++; gbc.weighty = 0.5;
-        systemPromptArea = new JBTextArea(config.getSystemPrompt());
-        systemPromptArea.setRows(10);
-        systemPromptArea.setLineWrap(true);
-        systemPromptArea.setWrapStyleWord(true);
-        systemPromptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        panel.add(new JBScrollPane(systemPromptArea), gbc);
+        // Code Prompt Tab
+        codeSystemPromptArea = createPromptTextArea();
+        codeSystemPromptArea.setText(config.getCodeSystemPrompt());
+        promptTabs.addTab("Code", createPromptPanel(
+            codeSystemPromptArea,
+            "Programming assistant prompt",
+            () -> codeSystemPromptArea.setText(ConfigurationManager.DEFAULT_CODE_SYSTEM_PROMPT)
+        ));
         
-        // Code System Prompt
-        gbc.gridx = 0; gbc.gridy = row++; gbc.weighty = 0;
-        panel.add(new TitledSeparator("Code System Prompt (Programming Assistant)"), gbc);
+        // Commit Template Tab
+        commitPromptTemplateArea = createPromptTextArea();
+        commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
+        promptTabs.addTab("Commit", createCommitTemplatePanel());
         
-        gbc.gridx = 0; gbc.gridy = row++; gbc.weighty = 0.5;
-        codeSystemPromptArea = new JBTextArea(config.getCodeSystemPrompt());
-        codeSystemPromptArea.setRows(10);
-        codeSystemPromptArea.setLineWrap(true);
-        codeSystemPromptArea.setWrapStyleWord(true);
-        codeSystemPromptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        panel.add(new JBScrollPane(codeSystemPromptArea), gbc);
+        panel.add(promptTabs, BorderLayout.CENTER);
+        return panel;
+    }
+    
+    private JPanel createPromptPanel(JTextArea textArea, String description, Runnable resetAction) {
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.setBorder(JBUI.Borders.empty(10));
         
-        // Reset buttons
-        gbc.gridx = 0; gbc.gridy = row++; gbc.weighty = 0;
+        // Description
+        JLabel descLabel = new JLabel(description);
+        descLabel.setForeground(UIUtil.getContextHelpForeground());
+        panel.add(descLabel, BorderLayout.NORTH);
+        
+        // Text area with scroll
+        JBScrollPane scrollPane = new JBScrollPane(textArea);
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Reset button
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton resetButton = new JButton("Reset to Default");
+        resetButton.addActionListener(e -> resetAction.run());
+        buttonPanel.add(resetButton);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
         
-        JButton resetSystemPromptBtn = new JButton("Reset System Prompt");
-        resetSystemPromptBtn.addActionListener(e -> {
-            systemPromptArea.setText(ConfigurationManager.DEFAULT_SYSTEM_PROMPT);
-        });
-        buttonPanel.add(resetSystemPromptBtn);
-        
-        JButton resetCodePromptBtn = new JButton("Reset Code Prompt");
-        resetCodePromptBtn.addActionListener(e -> {
-            codeSystemPromptArea.setText(ConfigurationManager.DEFAULT_CODE_SYSTEM_PROMPT);
-        });
-        buttonPanel.add(resetCodePromptBtn);
-        
-        panel.add(buttonPanel, gbc);
-        
-        return panel; // Already has scroll panes for text areas
+        return panel;
     }
     
     private JPanel createCommitTemplatePanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
         panel.setBorder(JBUI.Borders.empty(10));
         
         // Instructions
         JPanel topPanel = new JPanel(new BorderLayout());
         JBLabel instructions = new JBLabel(
-            "<html><b>Git Commit Message Template</b><br>" +
-            "Required placeholders: <code>{FILES_LIST}</code>, <code>{DIFFS}</code><br>" +
-            "Optional: <code>{PROJECT_NAME}</code>, <code>{BRANCH_NAME}</code>, <code>{DATE}</code>, <code>{USER_NAME}</code></html>"
+            "<html>Required: <code>{FILES_LIST}</code>, <code>{DIFFS}</code><br>" +
+            "Optional: <code>{PROJECT_NAME}</code>, <code>{BRANCH_NAME}</code>, etc.</html>"
         );
+        instructions.setForeground(UIUtil.getContextHelpForeground());
         topPanel.add(instructions, BorderLayout.NORTH);
         
         // Template selector
         JPanel selectorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        selectorPanel.add(new JBLabel("Load template:"));
+        selectorPanel.add(new JLabel("Examples:"));
         
         JComboBox<CommitTemplateExamples.TemplateExample> templateSelector = new JComboBox<>();
-        templateSelector.addItem(new CommitTemplateExamples.TemplateExample("Current", config.getCommitPromptTemplate()));
+        templateSelector.addItem(new CommitTemplateExamples.TemplateExample("Current", ""));
         for (CommitTemplateExamples.TemplateExample example : CommitTemplateExamples.getAllTemplates()) {
             templateSelector.addItem(example);
         }
@@ -354,11 +385,6 @@ public class ZestSettingsConfigurable implements Configurable {
         panel.add(topPanel, BorderLayout.NORTH);
         
         // Template editor
-        commitPromptTemplateArea = new JBTextArea(config.getCommitPromptTemplate());
-        commitPromptTemplateArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        commitPromptTemplateArea.setLineWrap(true);
-        commitPromptTemplateArea.setWrapStyleWord(true);
-        
         JBScrollPane scrollPane = new JBScrollPane(commitPromptTemplateArea);
         panel.add(scrollPane, BorderLayout.CENTER);
         
@@ -369,11 +395,16 @@ public class ZestSettingsConfigurable implements Configurable {
         validateBtn.addActionListener(e -> validateCommitTemplate());
         buttonPanel.add(validateBtn);
         
-        JButton resetBtn = new JButton("Reset to Default");
+        JButton resetBtn = new JButton("Reset");
         resetBtn.addActionListener(e -> {
             commitPromptTemplateArea.setText(ConfigurationManager.DEFAULT_COMMIT_PROMPT_TEMPLATE);
         });
         buttonPanel.add(resetBtn);
+        
+        JButton migrateBtn = new JButton("Update All Prompts");
+        migrateBtn.setToolTipText("Update all prompts to latest concise versions");
+        migrateBtn.addActionListener(e -> migrateAllPrompts());
+        buttonPanel.add(migrateBtn);
         
         JButton previewBtn = new JButton("Preview");
         previewBtn.addActionListener(e -> previewCommitTemplate());
@@ -388,9 +419,26 @@ public class ZestSettingsConfigurable implements Configurable {
         return panel;
     }
     
+    private JBTextArea createPromptTextArea() {
+        JBTextArea textArea = new JBTextArea();
+        textArea.setRows(15);
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        return textArea;
+    }
+    
+    private JLabel createDescriptionLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setForeground(UIUtil.getContextHelpForeground());
+        label.setFont(label.getFont().deriveFont(Font.ITALIC));
+        return label;
+    }
+    
     private JPanel wrapInScrollPane(JPanel panel) {
         JBScrollPane scrollPane = new JBScrollPane(panel);
         scrollPane.setBorder(null);
+        scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         JPanel wrapper = new JPanel(new BorderLayout());
         wrapper.add(scrollPane, BorderLayout.CENTER);
         return wrapper;
@@ -403,6 +451,14 @@ public class ZestSettingsConfigurable implements Configurable {
                !testModelField.getText().equals(config.getTestModel()) ||
                !codeModelField.getText().equals(config.getCodeModel()) ||
                !maxIterationsSpinner.getValue().equals(config.getMaxIterations()) ||
+               inlineCompletionCheckbox.isSelected() != config.isInlineCompletionEnabled() ||
+               autoTriggerCheckbox.isSelected() != config.isAutoTriggerEnabled() ||
+               backgroundContextCheckbox.isSelected() != config.isBackgroundContextEnabled() ||
+               continuousCompletionCheckbox.isSelected() != config.isContinuousCompletionEnabled() ||
+               inlineRagEnabledCheckbox.isSelected() != config.isInlineCompletionRagEnabled() ||
+               astPatternMatchingCheckbox.isSelected() != config.isAstPatternMatchingEnabled() ||
+               !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
+               !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
                ragEnabledCheckbox.isSelected() != config.isRagEnabled() ||
                mcpEnabledCheckbox.isSelected() != config.isMcpEnabled() ||
                !mcpServerUriField.getText().equals(config.getMcpServerUri()) ||
@@ -413,7 +469,8 @@ public class ZestSettingsConfigurable implements Configurable {
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
                !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate()) ||
                !docsPathField.getText().equals(config.getDocsPath()) ||
-               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled();
+               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled() ||
+               isProjectConfigurationModified();
     }
     
     @Override
@@ -436,6 +493,14 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setTestModel(testModelField.getText().trim());
         config.setCodeModel(codeModelField.getText().trim());
         config.setMaxIterations((Integer) maxIterationsSpinner.getValue());
+        config.setInlineCompletionEnabled(inlineCompletionCheckbox.isSelected());
+        config.setAutoTriggerEnabled(autoTriggerCheckbox.isSelected());
+        config.setBackgroundContextEnabled(backgroundContextCheckbox.isSelected());
+        config.setContinuousCompletionEnabled(continuousCompletionCheckbox.isSelected());
+        config.setInlineCompletionRagEnabled(inlineRagEnabledCheckbox.isSelected());
+        config.setAstPatternMatchingEnabled(astPatternMatchingCheckbox.isSelected());
+        config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
+        config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
         config.setRagEnabled(ragEnabledCheckbox.isSelected());
         config.setMcpEnabled(mcpEnabledCheckbox.isSelected());
         config.setMcpServerUri(mcpServerUriField.getText().trim());
@@ -445,6 +510,10 @@ public class ZestSettingsConfigurable implements Configurable {
             config.setContextInjectionEnabled(true);
         } else if (projectIndexRadio.isSelected()) {
             config.setProjectIndexEnabled(true);
+        } else {
+            // Neither selected - disable both
+            config.setContextInjectionEnabled(false);
+            config.setProjectIndexEnabled(false);
         }
         
         String knowledgeId = knowledgeIdField.getText().trim();
@@ -456,11 +525,11 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setDocsPath(docsPathField.getText().trim());
         config.setDocsSearchEnabled(docsSearchEnabledCheckbox.isSelected());
         
-        // Save to file
-        config.saveConfig();
+        // Save project configuration
+        saveProjectConfiguration();
         
         Messages.showInfoMessage(project, 
-            "Settings saved successfully to zest-plugin.properties", 
+            "Settings saved successfully", 
             "Settings Saved");
     }
     
@@ -471,20 +540,62 @@ public class ZestSettingsConfigurable implements Configurable {
         testModelField.setText(config.getTestModel());
         codeModelField.setText(config.getCodeModel());
         maxIterationsSpinner.setValue(config.getMaxIterations());
+        
+        inlineCompletionCheckbox.setSelected(config.isInlineCompletionEnabled());
+        autoTriggerCheckbox.setSelected(config.isAutoTriggerEnabled());
+        autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        backgroundContextCheckbox.setSelected(config.isBackgroundContextEnabled());
+        continuousCompletionCheckbox.setSelected(config.isContinuousCompletionEnabled());
+        continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        
+        inlineRagEnabledCheckbox.setSelected(config.isInlineCompletionRagEnabled());
+        inlineRagEnabledCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        astPatternMatchingCheckbox.setSelected(config.isAstPatternMatchingEnabled());
+        astPatternMatchingCheckbox.setEnabled(config.isInlineCompletionEnabled());
+        maxRagContextSizeSpinner.setValue(config.getMaxRagContextSize());
+        maxRagContextSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        embeddingCacheSizeSpinner.setValue(config.getEmbeddingCacheSize());
+        embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
+        
         ragEnabledCheckbox.setSelected(config.isRagEnabled());
         mcpEnabledCheckbox.setSelected(config.isMcpEnabled());
         mcpServerUriField.setText(config.getMcpServerUri());
         mcpServerUriField.setEnabled(config.isMcpEnabled());
+        
+        // Reset context mode
         contextInjectionRadio.setSelected(config.isContextInjectionEnabled());
         projectIndexRadio.setSelected(config.isProjectIndexEnabled());
         knowledgeIdField.setText(config.getKnowledgeId() != null ? config.getKnowledgeId() : "");
         knowledgeIdField.setEnabled(config.isProjectIndexEnabled());
+        
         systemPromptArea.setText(config.getSystemPrompt());
         codeSystemPromptArea.setText(config.getCodeSystemPrompt());
         commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
+        
         docsPathField.setText(config.getDocsPath());
-        docsPathField.setEnabled(config.isDocsSearchEnabled());
         docsSearchEnabledCheckbox.setSelected(config.isDocsSearchEnabled());
+        docsPathField.setEnabled(config.isDocsSearchEnabled());
+        
+        // Reset project configuration
+        resetProjectConfiguration();
+    }
+    
+    private void resetProjectConfiguration() {
+        // Reset project rules
+        String rulesContent = config.readZestConfigFile("rules.md");
+        if (rulesContent != null) {
+            projectRulesArea.setText(rulesContent);
+        } else {
+            projectRulesArea.setText(getDefaultRulesContent());
+        }
+        
+        // Reset custom prompts
+        String promptsContent = config.readZestConfigFile("custom_prompts.md");
+        if (promptsContent != null) {
+            customPromptsArea.setText(promptsContent);
+        } else {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        }
     }
     
     private void validateCommitTemplate() {
@@ -528,7 +639,7 @@ public class ZestSettingsConfigurable implements Configurable {
             .replace("{DATE}", "2024-01-15")
             .replace("{USER_NAME}", System.getProperty("user.name", "developer"));
         
-        // Show preview in a custom dialog
+        // Show preview in a dialog
         JTextArea previewArea = new JTextArea(preview);
         previewArea.setEditable(false);
         previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
@@ -537,7 +648,6 @@ public class ZestSettingsConfigurable implements Configurable {
         JScrollPane scrollPane = new JScrollPane(previewArea);
         scrollPane.setPreferredSize(new Dimension(700, 500));
         
-        // Create a custom dialog to show the preview
         DialogWrapper previewDialog = new DialogWrapper(project, false) {
             {
                 setTitle("Commit Template Preview");
@@ -565,12 +675,11 @@ public class ZestSettingsConfigurable implements Configurable {
             "Required Placeholders:\n" +
             "• {FILES_LIST} - List of changed files with their status\n" +
             "• {DIFFS} - The actual code changes\n\n" +
-            "Optional Placeholders (if implemented):\n" +
+            "Optional Placeholders:\n" +
             "• {PROJECT_NAME} - Current project name\n" +
             "• {BRANCH_NAME} - Current git branch\n" +
             "• {DATE} - Current date\n" +
-            "• {USER_NAME} - System username\n" +
-            "• {FILES_COUNT} - Number of changed files\n\n" +
+            "• {USER_NAME} - System username\n\n" +
             "Tips:\n" +
             "• Be specific about the format you want\n" +
             "• Include examples in your template\n" +
@@ -580,12 +689,258 @@ public class ZestSettingsConfigurable implements Configurable {
         Messages.showInfoMessage(project, helpText, "Commit Template Help");
     }
     
-    private void indexProject() {
-        // This would trigger the project indexing
-        // For now, just show a message
-        Messages.showInfoMessage(project, 
-            "Project indexing would start here.\n" +
-            "This feature requires the RAG system to be properly configured.", 
-            "Index Project");
+    private void migrateAllPrompts() {
+        int result = Messages.showYesNoDialog(
+            project,
+            "This will update all prompts to the latest concise versions.\n" +
+            "Your current prompts will be replaced.\n\n" +
+            "Do you want to continue?",
+            "Update Prompts",
+            Messages.getQuestionIcon()
+        );
+        
+        if (result == Messages.YES) {
+            // Update all prompts to latest defaults
+            systemPromptArea.setText(ConfigurationManager.DEFAULT_SYSTEM_PROMPT);
+            codeSystemPromptArea.setText(ConfigurationManager.DEFAULT_CODE_SYSTEM_PROMPT);
+            commitPromptTemplateArea.setText(ConfigurationManager.DEFAULT_COMMIT_PROMPT_TEMPLATE);
+            
+            Messages.showInfoMessage(
+                project,
+                "All prompts have been updated to the latest concise versions.\n" +
+                "Click Apply to save the changes.",
+                "Prompts Updated"
+            );
+        }
+    }
+    
+    private JPanel createProjectPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        
+        // Create tabbed pane for project configuration
+        JBTabbedPane projectTabs = new JBTabbedPane(JTabbedPane.TOP);
+        
+        // Project Rules Tab
+        projectRulesArea = createPromptTextArea();
+        String rulesContent = config.readZestConfigFile("rules.md");
+        if (rulesContent != null) {
+            projectRulesArea.setText(rulesContent);
+        } else {
+            projectRulesArea.setText(getDefaultRulesContent());
+        }
+        projectTabs.addTab("Rules", createProjectRulesPanel());
+        
+        // Custom Prompts Tab
+        customPromptsArea = createPromptTextArea();
+        String promptsContent = config.readZestConfigFile("custom_prompts.md");
+        if (promptsContent != null) {
+            customPromptsArea.setText(promptsContent);
+        } else {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        }
+        projectTabs.addTab("Custom Prompts", createCustomPromptsPanel());
+        
+        panel.add(projectTabs, BorderLayout.CENTER);
+        return panel;
+    }
+    
+    private JPanel createProjectRulesPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(JBUI.Borders.empty(10));
+        
+        // Header
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        JLabel headerLabel = new JLabel("Project-specific rules for AI assistance");
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(headerLabel, BorderLayout.NORTH);
+        
+        JLabel descLabel = new JLabel("<html>Define coding standards, domain knowledge, and project-specific requirements.<br>" +
+            "These rules will be included in all AI prompts for this project.</html>");
+        descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        descLabel.setForeground(UIUtil.getContextHelpForeground());
+        descLabel.setBorder(JBUI.Borders.emptyTop(5));
+        headerPanel.add(descLabel, BorderLayout.CENTER);
+        
+        panel.add(headerPanel, BorderLayout.NORTH);
+        
+        // Text area with scroll
+        JBScrollPane scrollPane = new JBScrollPane(projectRulesArea);
+        scrollPane.setPreferredSize(new Dimension(700, 400));
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Buttons panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        JButton resetBtn = new JButton("Reset to Default");
+        resetBtn.addActionListener(e -> {
+            projectRulesArea.setText(getDefaultRulesContent());
+        });
+        buttonPanel.add(resetBtn);
+        
+        JButton saveBtn = new JButton("Save Rules");
+        saveBtn.addActionListener(e -> {
+            saveProjectRules();
+        });
+        buttonPanel.add(saveBtn);
+        
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private JPanel createCustomPromptsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(JBUI.Borders.empty(10));
+        
+        // Header
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        JLabel headerLabel = new JLabel("Custom prompts for block rewrite");
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(headerLabel, BorderLayout.NORTH);
+        
+        JLabel descLabel = new JLabel("<html>Define custom prompts accessible via Shift+1-9 in block rewrite dialog.<br>" +
+            "Format: ## Shift+1: Title followed by the prompt description.</html>");
+        descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        descLabel.setForeground(UIUtil.getContextHelpForeground());
+        descLabel.setBorder(JBUI.Borders.emptyTop(5));
+        headerPanel.add(descLabel, BorderLayout.CENTER);
+        
+        panel.add(headerPanel, BorderLayout.NORTH);
+        
+        // Text area with scroll
+        JBScrollPane scrollPane = new JBScrollPane(customPromptsArea);
+        scrollPane.setPreferredSize(new Dimension(700, 400));
+        panel.add(scrollPane, BorderLayout.CENTER);
+        
+        // Buttons panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        JButton resetBtn = new JButton("Reset to Default");
+        resetBtn.addActionListener(e -> {
+            customPromptsArea.setText(getDefaultCustomPromptsContent());
+        });
+        buttonPanel.add(resetBtn);
+        
+        JButton saveBtn = new JButton("Save Prompts");
+        saveBtn.addActionListener(e -> {
+            saveCustomPrompts();
+        });
+        buttonPanel.add(saveBtn);
+        
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private boolean isProjectConfigurationModified() {
+        // Check if project rules are modified
+        String currentRules = config.readZestConfigFile("rules.md");
+        if (currentRules == null) currentRules = getDefaultRulesContent();
+        boolean rulesModified = !projectRulesArea.getText().equals(currentRules);
+        
+        // Check if custom prompts are modified
+        String currentPrompts = config.readZestConfigFile("custom_prompts.md");
+        if (currentPrompts == null) currentPrompts = getDefaultCustomPromptsContent();
+        boolean promptsModified = !customPromptsArea.getText().equals(currentPrompts);
+        
+        return rulesModified || promptsModified;
+    }
+    
+    private void saveProjectConfiguration() {
+        try {
+            config.ensureZestFolderExists();
+            
+            // Save project rules
+            config.writeZestConfigFile("rules.md", projectRulesArea.getText());
+            
+            // Save custom prompts
+            config.writeZestConfigFile("custom_prompts.md", customPromptsArea.getText());
+            
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving project configuration: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private void saveProjectRules() {
+        try {
+            config.ensureZestFolderExists();
+            boolean success = config.writeZestConfigFile("rules.md", projectRulesArea.getText());
+            if (success) {
+                Messages.showInfoMessage(project, 
+                    "Project rules saved successfully to .zest/rules.md", 
+                    "Rules Saved");
+            } else {
+                Messages.showErrorDialog(project, 
+                    "Failed to save project rules", 
+                    "Save Error");
+            }
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving project rules: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private void saveCustomPrompts() {
+        try {
+            config.ensureZestFolderExists();
+            boolean success = config.writeZestConfigFile("custom_prompts.md", customPromptsArea.getText());
+            if (success) {
+                Messages.showInfoMessage(project, 
+                    "Custom prompts saved successfully to .zest/custom_prompts.md", 
+                    "Prompts Saved");
+            } else {
+                Messages.showErrorDialog(project, 
+                    "Failed to save custom prompts", 
+                    "Save Error");
+            }
+        } catch (Exception e) {
+            Messages.showErrorDialog(project, 
+                "Error saving custom prompts: " + e.getMessage(), 
+                "Save Error");
+        }
+    }
+    
+    private String getDefaultRulesContent() {
+        return "# Zest Custom Rules\n\n" +
+            "Define your custom LLM rules below. These rules will be included at the top of all prompts sent to the LLM.\n" +
+            "You can use this to:\n" +
+            "- Define coding standards specific to your project\n" +
+            "- Add domain-specific knowledge\n" +
+            "- Set preferred coding patterns\n" +
+            "- Include project-specific requirements\n\n" +
+            "## Example Rules:\n\n" +
+            "<!-- \n" +
+            "- Always use camelCase for variable names\n" +
+            "- Prefer const over let for immutable values\n" +
+            "- Include JSDoc comments for all public methods\n" +
+            "- Follow the project's error handling patterns\n" +
+            "-->\n\n" +
+            "## Your Rules:\n\n";
+    }
+    
+    private String getDefaultCustomPromptsContent() {
+        return "# Custom Prompts for Zest\n\n" +
+            "Define your own prompts for quick access using Shift+1 through Shift+9.\n\n" +
+            "## Shift+1: Add Comments\n" +
+            "Add detailed comments explaining the logic\n\n" +
+            "## Shift+2: Optimize Performance\n" +
+            "Optimize this code for better performance\n\n" +
+            "## Shift+3: Add Error Handling\n" +
+            "Add comprehensive error handling\n\n" +
+            "## Shift+4: Add Unit Tests\n" +
+            "Generate unit tests for this method\n\n" +
+            "## Shift+5: Make Thread Safe\n" +
+            "Make this code thread-safe\n\n" +
+            "## Shift+6: Follow Best Practices\n" +
+            "Refactor to follow coding best practices\n\n" +
+            "## Shift+7: Add Documentation\n" +
+            "Add comprehensive documentation\n\n" +
+            "## Shift+8: Simplify Logic\n" +
+            "Simplify and make more readable\n\n" +
+            "## Shift+9: Add Logging\n" +
+            "Add appropriate logging statements\n";
     }
 }

@@ -29,6 +29,7 @@ public class CodeContext {
     // Test generation context
     private String prompt;
     private String apiResponse;
+    private String lastLLMResponse; // Direct LLM response from LLMService
     private String testCode;
     private String testFilePath;
     private boolean useTestWrightModel = true;
@@ -37,6 +38,19 @@ public class CodeContext {
     private PsiClass existingTestClass;
     private String testClassStructure;
     private String testSubclassStructures;
+
+    // JavaScript/TypeScript specific fields
+    private String language;
+    private String structureType; // "function", "class", "module"
+    private String targetContent; // Content of the target structure
+    private int startOffset;
+    private int endOffset;
+    private String testFramework; // "Jest", "Mocha", "Jasmine", etc.
+    private String frameworkContext; // "React", "Vue.js", "Angular", etc.
+
+    // Single method test generation fields
+    private boolean singleMethodMode = false;
+    private com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext;
 
     // Legacy compatibility fields (deprecated but kept for backward compatibility)
     @Deprecated
@@ -89,6 +103,9 @@ public class CodeContext {
     public String getApiResponse() { return apiResponse; }
     public void setApiResponse(String apiResponse) { this.apiResponse = apiResponse; }
 
+    public String getLastLLMResponse() { return lastLLMResponse; }
+    public void setLastLLMResponse(String lastLLMResponse) { this.lastLLMResponse = lastLLMResponse; }
+
     public String getTestCode() { return testCode; }
     public void setTestCode(String testCode) { this.testCode = testCode; }
 
@@ -96,6 +113,7 @@ public class CodeContext {
     public void setTestFilePath(String testFilePath) { this.testFilePath = testFilePath; }
 
     public boolean isUsingTestWrightModel() { return useTestWrightModel; }
+    public boolean isTestWrightModel() { return useTestWrightModel; } // Alias for compatibility
     public void useTestWrightModel(boolean useTestWrightModel) { this.useTestWrightModel = useTestWrightModel; }
 
     public String getModel(ConfigurationManager config) {
@@ -112,12 +130,49 @@ public class CodeContext {
     public String getTestSubclassStructures() { return testSubclassStructures; }
     public void setTestSubclassStructures(String testSubclassStructures) { this.testSubclassStructures = testSubclassStructures; }
 
-    // Legacy compatibility methods (deprecated - use TestFrameworkUtils instead)
+    // JavaScript/TypeScript specific getters and setters
+    public String getLanguage() { return language; }
+    public void setLanguage(String language) { this.language = language; }
+
+    public String getStructureType() { return structureType; }
+    public void setStructureType(String structureType) { this.structureType = structureType; }
+
+    public String getTargetContent() { return targetContent; }
+    public void setTargetContent(String targetContent) { this.targetContent = targetContent; }
+
+    public int getStartOffset() { return startOffset; }
+    public void setStartOffset(int startOffset) { this.startOffset = startOffset; }
+
+    public int getEndOffset() { return endOffset; }
+    public void setEndOffset(int endOffset) { this.endOffset = endOffset; }
+
+    public String getTestFramework() { return testFramework; }
+    public void setTestFramework(String testFramework) { this.testFramework = testFramework; }
+
+    public String getFrameworkContext() { return frameworkContext; }
+    public void setFrameworkContext(String frameworkContext) { this.frameworkContext = frameworkContext; }
+
+    // Utility methods for JS/TS detection
+    public boolean isJavaScriptFile() {
+        if (psiFile != null && psiFile.getVirtualFile() != null) {
+            String fileName = psiFile.getVirtualFile().getName();
+            return fileName.endsWith(".js") || fileName.endsWith(".jsx") || 
+                   fileName.endsWith(".ts") || fileName.endsWith(".tsx");
+        }
+        return false;
+    }
+
+    public boolean isTypeScriptFile() {
+        if (psiFile != null && psiFile.getVirtualFile() != null) {
+            String fileName = psiFile.getVirtualFile().getName();
+            return fileName.endsWith(".ts") || fileName.endsWith(".tsx");
+        }
+        return false;
+    }
+
+    // Legacy compatibility methods (test framework removed)
     @Deprecated
     public String getJunitVersion() {
-        if (project != null) {
-            return TestFrameworkUtils.detectJUnitVersion(project);
-        }
         return junitVersion != null ? junitVersion : "JUnit 5";
     }
 
@@ -128,9 +183,6 @@ public class CodeContext {
 
     @Deprecated
     public boolean isMockitoPresent() {
-        if (project != null) {
-            return TestFrameworkUtils.isMockitoAvailable(project);
-        }
         return isMockitoPresent;
     }
 
@@ -139,55 +191,66 @@ public class CodeContext {
         this.isMockitoPresent = hasMockito;
     }
 
-    // Convenience methods that delegate to TestFrameworkUtils
+    // Convenience methods (test framework removed)
 
     /**
-     * Gets JUnit version using TestFrameworkUtils.
+     * Gets JUnit version (test framework removed).
      */
     public String detectJUnitVersion() {
-        return project != null ? TestFrameworkUtils.detectJUnitVersion(project) : "JUnit 5";
+        return "JUnit 5";
     }
 
     /**
-     * Checks if Mockito is available using TestFrameworkUtils.
+     * Checks if Mockito is available (test framework removed).
      */
     public boolean checkMockitoAvailable() {
-        return project != null ? TestFrameworkUtils.isMockitoAvailable(project) : false;
+        return false;
     }
 
     /**
-     * Gets framework summary using TestFrameworkUtils.
+     * Gets framework summary (test framework removed).
      */
     public String getFrameworksSummary() {
-        return project != null ? TestFrameworkUtils.getFrameworksSummary(project) : "No frameworks detected";
+        return "No frameworks detected";
     }
 
     /**
-     * Gets recommended assertion style using TestFrameworkUtils.
+     * Gets recommended assertion style (test framework removed).
      */
     public String getRecommendedAssertionStyle() {
-        return project != null ? TestFrameworkUtils.getRecommendedAssertionStyle(project) : "Standard Assertions";
+        return "Standard Assertions";
     }
 
     /**
-     * Gets build tool using TestFrameworkUtils.
+     * Gets build tool (test framework removed).
      */
     public String getBuildTool() {
-        return project != null ? TestFrameworkUtils.detectBuildTool(project) : "Unknown";
+        return "Unknown";
+    }
+
+    // Single method mode getters and setters
+    public boolean isSingleMethodMode() { return singleMethodMode; }
+    public void setSingleMethodMode(boolean singleMethodMode) { this.singleMethodMode = singleMethodMode; }
+
+    public com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext getTargetMethodContext() { 
+        return targetMethodContext; 
+    }
+    public void setTargetMethodContext(com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext) { 
+        this.targetMethodContext = targetMethodContext;
     }
 
     /**
-     * Gets complete framework information using TestFrameworkUtils.
+     * Gets complete framework information (test framework removed).
      */
     public String getCompleteFrameworkInfo() {
-        return project != null ? TestFrameworkUtils.getCompleteFrameworkInfo(project) : "Framework information not available";
+        return "Framework information not available";
     }
 
     /**
-     * Gets essential framework information using TestFrameworkUtils.
+     * Gets essential framework information (test framework removed).
      */
     public String getEssentialFrameworkInfo() {
-        return project != null ? TestFrameworkUtils.getEssentialFrameworkInfo(project) : "No framework info";
+        return "No framework info";
     }
 
     /**

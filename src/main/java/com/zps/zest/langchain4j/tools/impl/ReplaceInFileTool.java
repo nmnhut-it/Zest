@@ -2,9 +2,7 @@ package com.zps.zest.langchain4j.tools.impl;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.intellij.diff.DiffContentFactory;
-import com.intellij.diff.contents.DocumentContent;
-import com.intellij.diff.requests.SimpleDiffRequest;
+import com.zps.zest.completion.diff.FileDiffDialog;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -453,68 +451,84 @@ public class ReplaceInFileTool extends ThreadSafeCodeExplorationTool {
                 return ToolResult.error(error);
             }
 
-            // Create diff contents
-            DiffContentFactory diffFactory = DiffContentFactory.getInstance();
-            DocumentContent leftContent = diffFactory.create(origContent);
-            DocumentContent rightContent = diffFactory.create(modifiedContent);
-
-            // Create diff request with titles
-            String title = "Changes with LF normalization: " + vFile.getName() +
+            // Create title
+            String title = "Replace in File: " + vFile.getName() +
                     " (" + replacementCount + " replacements)" +
-                    (ignoreWhitespace ? " [Ignoring whitespace variations]" : "");
+                    (ignoreWhitespace ? " [Ignoring whitespace]" : "");
 
-            SimpleDiffRequest diffRequest = new SimpleDiffRequest(
-                    title, leftContent, rightContent, "Original", "After Replacements (with LF line endings)");
+            // Use a CompletableFuture to handle the dialog result
+            CompletableFuture<ToolResult> resultFuture = new CompletableFuture<>();
 
-            // Show diff dialog (non-blocking)
-            com.intellij.diff.DiffManager.getInstance().showDiff(project, diffRequest);
+            // Show improved diff dialog with prominent Accept/Reject buttons
+            FileDiffDialog.Companion.show(
+                project,
+                vFile,
+                origContent,
+                modifiedContent,
+                title,
+                new kotlin.jvm.functions.Function0<kotlin.Unit>() {
+                    @Override
+                    public kotlin.Unit invoke() {
+                        // onAccept callback
+                        LOG.info("User accepted replacements");
+                        
+                        // Execute write action
+                        WriteCommandAction.runWriteCommandAction(project, () -> {
+                            try {
+                                // Check if file is writable
+                                if (!vFile.isWritable()) {
+                                    resultFuture.complete(ToolResult.error("File is not writable: " + filePath));
+                                    return;
+                                }
 
-            // Ask for confirmation
-            String message = "Apply " + replacementCount + " replacements to " + filePath + "?\n" +
-                    "Note: Line endings will be normalized to LF (\\n)" +
-                    (ignoreWhitespace ? "\nNote: Whitespace variations were ignored in Java file" : "");
+                                // Update file content
+                                vFile.refresh(false, false);
+                                vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
 
-            int option = Messages.showYesNoDialog(project, message, "Confirm Changes",
-                    "Apply", "Cancel", Messages.getQuestionIcon());
+                                // Open file in editor
+                                ApplicationManager.getApplication().invokeLater(() -> {
+                                    FileEditorManager.getInstance(project).openFile(vFile, true);
+                                });
 
-            if (option != Messages.YES) {
-                return ToolResult.error("Changes were cancelled by user.");
-            }
+                                JsonObject metadata = createMetadata();
+                                metadata.addProperty("filePath", filePath.toString());
+                                metadata.addProperty("replacementCount", replacementCount);
+                                metadata.addProperty("ignoreWhitespace", ignoreWhitespace);
 
-            // Execute write action
-            AtomicReference<ToolResult> result = new AtomicReference<>();
-            WriteCommandAction.runWriteCommandAction(project, () -> {
-                try {
-                    // Check if file is writable
-                    if (!vFile.isWritable()) {
-                        result.set(ToolResult.error("File is not writable: " + filePath));
-                        return;
+                                resultFuture.complete(ToolResult.success("Successfully applied " + replacementCount + 
+                                    " replacements to " + vFile.getName(), metadata));
+
+                            } catch (Exception e) {
+                                String error = "Error updating file: " + e.getMessage();
+                                LOG.error(error, e);
+                                resultFuture.complete(ToolResult.error(error));
+                            }
+                        });
+                        return kotlin.Unit.INSTANCE;
                     }
+                },
+                new kotlin.jvm.functions.Function0<kotlin.Unit>() {
+                    @Override
+                    public kotlin.Unit invoke() {
+                        // onReject callback
+                        LOG.info("User rejected replacements");
+                        resultFuture.complete(ToolResult.error("Changes were cancelled by user."));
+                        return kotlin.Unit.INSTANCE;
+                    }
+                },
+                true  // showButtons = true
+            );
 
-                    // Update file content
-                    vFile.refresh(false, false);
-                    vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
-
-                    // Open file in editor
-                    ApplicationManager.getApplication().invokeLater(() -> {
-                        FileEditorManager.getInstance(project).openFile(vFile, true);
-                    });
-
-                    JsonObject metadata = createMetadata();
-                    metadata.addProperty("filePath", filePath.toString());
-                    metadata.addProperty("replacementCount", replacementCount);
-                    metadata.addProperty("ignoreWhitespace", ignoreWhitespace);
-
-                    result.set(ToolResult.success("Successfully applied " + replacementCount + " replacements to " + vFile.getName(), metadata));
-
-                } catch (Exception e) {
-                    String error = "Error updating file: " + e.getMessage();
-                    LOG.error(error, e);
-                    result.set(ToolResult.error(error));
-                }
-            });
-
-            return result.get() != null ? result.get() : ToolResult.error("Unknown error during write operation");
+            // Wait for the user's decision - this keeps the tool synchronous
+            try {
+                return resultFuture.get(5, TimeUnit.MINUTES); // 5 minute timeout for user decision
+            } catch (InterruptedException | ExecutionException e) {
+                String error = "Error waiting for user decision: " + e.getMessage();
+                LOG.error(error, e);
+                return ToolResult.error(error);
+            } catch (TimeoutException e) {
+                return ToolResult.error("Dialog timed out after 5 minutes. Operation cancelled.");
+            }
 
         } catch (Exception e) {
             String error = "Error showing diff dialog: " + e.getMessage();

@@ -4,24 +4,22 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
-import com.intellij.openapi.actionSystem.ActionPopupMenu;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.HybridIndexManager;
-import com.zps.zest.langchain4j.search.UnifiedSearchService;
-import com.zps.zest.rag.OpenWebUIRagAgent;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
+import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -34,7 +32,7 @@ import java.util.function.Function;
 /**
  * Panel containing the web browser and navigation controls.
  */
-public class WebBrowserPanel {
+public class WebBrowserPanel implements Disposable {
     private static final Logger LOG = Logger.getInstance(WebBrowserPanel.class);
     private BrowserMode agentMode;
 
@@ -90,8 +88,9 @@ public class WebBrowserPanel {
         this.project = project;
         this.mainPanel = new JPanel(new BorderLayout());
 
-        // Create browser manager
+        // Create browser manager and register it as a child disposable
         this.browserManager = new JCEFBrowserManager(project);
+        Disposer.register(this, browserManager);
 
         // Initialize browser modes
         initBrowserModes();
@@ -115,6 +114,23 @@ public class WebBrowserPanel {
             @Override
             public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                 setMode(currentMode);
+                
+                // Get project-specific proxy URL
+                String proxyUrl = ProjectProxyManager.getInstance().getProxyUrlForProject(project);
+                
+                // If no project-specific proxy, fall back to system property
+                if (proxyUrl == null || proxyUrl.isEmpty()) {
+                    proxyUrl = System.getProperty("zest.agent.proxy.url");
+                }
+                
+                // Enable automatic tool injection if proxy is available
+                if (proxyUrl != null && !proxyUrl.isEmpty()) {
+                    // Set the proxy URL for this project context
+                    System.setProperty("zest.agent.proxy.url", proxyUrl);
+                    
+                    browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(true);");
+                    LOG.info("Enabled automatic tool injection for project " + project.getName() + " with proxy: " + proxyUrl);
+                }
             }
         }, browserManager.getBrowser().getCefBrowser());
     }
@@ -140,15 +156,15 @@ public class WebBrowserPanel {
                 "Dev Mode",
                 AllIcons.Actions.Run_anything,
                 "It's like you have a developer behind your back",
-                p -> ConfigurationManager.getInstance(p).getOpenWebUISystemPrompt()
+                p -> ConfigurationManager.getInstance(p).getSystemPrompt()
         ));
 
         // Add Advice Mode
         browserModes.add(new BrowserMode(
                 "Advice Mode",
                 AllIcons.Actions.IntentionBulb,
-                "It's like you have boss behind your back",
-                p -> ConfigurationManager.getInstance(p).getBossPrompt()
+                "Provide concise strategic advice",
+                p -> "You are a strategic advisor. Provide concise, actionable advice focused on high-level decisions and best practices. Be direct and focus on what matters most."
         ));
 
         // Add Agent Mode
@@ -172,11 +188,11 @@ public class WebBrowserPanel {
         // Create navigation buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 
-        JButton refreshButton = new JButton(AllIcons.Actions.Refresh);
-        refreshButton.setToolTipText("Refresh");
-        refreshButton.addActionListener(e -> browserManager.refresh());
+        JButton backToChatButton = new JButton("💬 Chat");
+        backToChatButton.setToolTipText("Go to Chat Interface (Reload if already there)");
+        backToChatButton.addActionListener(e -> backToChat());
 
-        buttonPanel.add(refreshButton);
+        buttonPanel.add(backToChatButton);
 
         // Mode selection button
         JButton modeButton = new JButton("Mode");
@@ -195,17 +211,11 @@ public class WebBrowserPanel {
 
         buttonPanel.add(modeButton);
 
-        // Add Quick Commit button
-        JButton quickCommitBtn = new JButton("⚡ Quick Commit");
-        quickCommitBtn.setToolTipText("Quick Commit & Push (Ctrl+Shift+Z, C)");
-        quickCommitBtn.addActionListener(e -> triggerQuickCommitAndPush());
-        buttonPanel.add(quickCommitBtn);
-        
-        // Add Full Git Commit button
-        JButton fullCommitBtn = new JButton("📝 Git Commit");
-        fullCommitBtn.setToolTipText("Full Git Commit with File Selection");
-        fullCommitBtn.addActionListener(e -> triggerFullGitCommit());
-        buttonPanel.add(fullCommitBtn);
+        // Add Git UI button
+        JButton gitUIBtn = new JButton("🌿 Git UI");
+        gitUIBtn.setToolTipText("Open Git UI in Browser");
+        gitUIBtn.addActionListener(e -> openGitUI());
+        buttonPanel.add(gitUIBtn);
 
         // URL field - hidden but still functional
         JBTextField urlField = new JBTextField();
@@ -235,24 +245,75 @@ public class WebBrowserPanel {
     }
     
     /**
-     * Triggers the full git commit flow with file selection
+     * Opens the Git UI in the browser
      */
-    private void triggerFullGitCommit() {
-        // Call the existing git commit action for full flow
-        ActionManager am = ActionManager.getInstance();
-        AnAction gitAction = am.getAction("Zest.GitCommitMessageGeneratorAction");
-        if (gitAction != null) {
-            DataContext dataContext = DataManager.getInstance().getDataContext(mainPanel);
-            AnActionEvent event = AnActionEvent.createFromDataContext(
-                ActionPlaces.UNKNOWN, null, dataContext
-            );
-            gitAction.actionPerformed(event);
+    private void openGitUI() {
+        try {
+            // Load the Git UI HTML content and convert to data URL to avoid jar:file:// restrictions
+            java.io.InputStream is = getClass().getResourceAsStream("/html/git-ui.html");
+            if (is != null) {
+                String htmlContent = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Encode the HTML content as a data URL
+                String dataUrl = "data:text/html;charset=UTF-8;base64," + 
+                    java.util.Base64.getEncoder().encodeToString(htmlContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                
+                browserManager.loadURL(dataUrl);
+                LOG.info("Loading Git UI from data URL");
+            } else {
+                LOG.error("Git UI HTML resource not found");
+                // Fallback: Load directly from file if in development
+                java.io.File htmlFile = new java.io.File(project.getBasePath(), "src/main/resources/html/git-ui.html");
+                if (htmlFile.exists()) {
+                    String htmlContent = java.nio.file.Files.readString(htmlFile.toPath());
+                    String dataUrl = "data:text/html;charset=UTF-8;base64," + 
+                        java.util.Base64.getEncoder().encodeToString(htmlContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    browserManager.loadURL(dataUrl);
+                    LOG.info("Loading Git UI from file as data URL");
+                } else {
+                    LOG.error("Git UI HTML file not found at: " + htmlFile.getAbsolutePath());
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Error loading Git UI", e);
+        }
+    }
+    
+    /**
+     * Navigates back to the chat interface or reloads if already there
+     */
+    private void backToChat() {
+        // Get the default chat URL from configuration
+        String chatUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "");
+        
+        // Get current URL
+        String currentUrl = browserManager.getBrowser().getCefBrowser().getURL();
+        
+        // Check if we're already at the chat URL (handle trailing slashes)
+        boolean alreadyAtChat = false;
+        if (currentUrl != null) {
+            String normalizedCurrent = currentUrl.replaceAll("/$", "");
+            String normalizedChat = chatUrl.replaceAll("/$", "");
+            alreadyAtChat = normalizedCurrent.equals(normalizedChat) || 
+                           normalizedCurrent.equals(normalizedChat + "/") ||
+                           (normalizedCurrent + "/").equals(normalizedChat);
+        }
+        
+        if (alreadyAtChat) {
+            LOG.info("Already at chat URL, reloading: " + chatUrl);
+            browserManager.loadURL(chatUrl);
+        } else {
+            LOG.info("Navigating to chat URL: " + chatUrl);
+            browserManager.loadURL(chatUrl);
         }
     }
     /**
      * Sets the active browser mode.
      */
     private void setMode(BrowserMode mode) {
+        boolean wasAgentMode = currentMode != null && currentMode.getName().equals("Agent Mode");
+        boolean isAgentMode = mode.getName().equals("Agent Mode");
+        
         this.currentMode = mode;
         modeButton.setText(mode.getName());
         modeButton.setIcon(mode.getIcon());
@@ -267,7 +328,7 @@ public class WebBrowserPanel {
         }
         
         // If switching to Agent Mode, ensure project is indexed
-        if (mode.getName().equals("Agent Mode")) {
+        if (isAgentMode) {
             ensureProjectIndexed();
         }
         
@@ -275,6 +336,30 @@ public class WebBrowserPanel {
         String modeChangeScript = "window.dispatchEvent(new CustomEvent('zestModeChanged', { detail: { mode: '" + 
                                   StringEscapeUtils.escapeJavaScript(mode.getName()) + "' } }));";
         browserManager.executeJavaScript(modeChangeScript);
+        
+        // Handle tool injection based on mode
+        if (isAgentMode) {
+            // Enable tool injection for Agent Mode and reload page after a delay (only if not already in Agent Mode)
+            String reloadScript = 
+                "window.enableZestToolInjection && window.enableZestToolInjection(true);\n";
+            
+            // Only reload if we're switching TO Agent Mode from another mode
+            if (!wasAgentMode) {
+                reloadScript += 
+                    "// Reload page after tools are injected to ensure they're available\n" +
+                    "setTimeout(() => {\n" +
+                    "  console.log('[Agent Mode] Reloading page to activate tools...');\n" +
+                    "  window.location.reload();\n" +
+                    "}, 1000);"; // 1 second delay to allow tool injection to complete
+            }
+            
+            browserManager.executeJavaScript(reloadScript);
+            LOG.info("Enabled tool injection for Agent Mode" + (wasAgentMode ? " (no reload needed)" : " with delayed reload"));
+        } else {
+            // Disable tool injection for other modes
+            browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(false);");
+            LOG.info("Disabled tool injection for " + mode.getName());
+        }
     }
     
     /**
@@ -299,13 +384,7 @@ public class WebBrowserPanel {
 //            LOG.info("Project already indexed with knowledge ID: " + knowledgeId);
 //        }
         
-        // Also ensure local index for exploration tools
-        HybridIndexManager service = project.getService(HybridIndexManager.class);
-        if (service != null) {
-            if (!service.hasIndex()){
-                service.indexProject(false);
-            }
-        }
+        // Index management functionality has been removed
     }
 
     /**
@@ -385,5 +464,20 @@ public class WebBrowserPanel {
         JMenuItem modeItem = new JMenuItem(newMode.getName(), newMode.getIcon());
         modeItem.addActionListener(e -> setMode(newMode));
         modeMenu.add(modeItem);
+    }
+    
+    @Override
+    public void dispose() {
+        LOG.info("Disposing WebBrowserPanel");
+        
+        // Browser manager will be disposed automatically as it's registered as a child
+        // but we can do additional cleanup here if needed
+        
+        // Clear references
+        browserModes.clear();
+        currentMode = null;
+        agentMode = null;
+        
+        LOG.info("WebBrowserPanel disposed");
     }
 }

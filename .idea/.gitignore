@@ -4,5 +4,5 @@
 
 # But not this .gitignore file
 !.gitignore
-*
+
 # Ignore all files in this directory

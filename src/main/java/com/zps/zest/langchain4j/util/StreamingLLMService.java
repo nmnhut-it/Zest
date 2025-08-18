@@ -10,12 +10,17 @@ import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -36,12 +41,156 @@ public final class StreamingLLMService {
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 300_000; // Longer for streaming
     
+    // Logging configuration
+    private boolean loggingEnabled = true;
+    private String logDirectory = System.getProperty("user.home") + File.separator + "zest_llm_logs";
+    private static final DateTimeFormatter LOG_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS");
+    
     public StreamingLLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
         LOG.info("Initialized StreamingLLMService for project: " + project.getName());
+        
+        // Ensure log directory exists
+        ensureLogDirectoryExists();
     }
     
+    /**
+     * Enables or disables request/response logging.
+     */
+    public void setLoggingEnabled(boolean enabled) {
+        this.loggingEnabled = enabled;
+        LOG.info("LLM request/response logging " + (enabled ? "enabled" : "disabled"));
+    }
+    
+    /**
+     * Sets the directory for logging requests and responses.
+     */
+    public void setLogDirectory(@NotNull String directory) {
+        this.logDirectory = directory;
+        ensureLogDirectoryExists();
+        LOG.info("LLM log directory set to: " + directory);
+    }
+    
+    /**
+     * Gets the current log directory.
+     */
+    @NotNull
+    public String getLogDirectory() {
+        return logDirectory;
+    }
+    
+    /**
+     * Ensures the log directory exists.
+     */
+    private void ensureLogDirectoryExists() {
+        try {
+            File dir = new File(logDirectory);
+            if (!dir.exists()) {
+                if (dir.mkdirs()) {
+                    LOG.info("Created log directory: " + logDirectory);
+                } else {
+                    LOG.warn("Failed to create log directory: " + logDirectory);
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Error creating log directory", e);
+        }
+    }
+    
+    /**
+     * Logs request to file.
+     */
+    private void logRequest(String requestBody, String model) {
+        if (!loggingEnabled) return;
+        
+        try {
+            String timestamp = LocalDateTime.now().format(LOG_DATE_FORMAT);
+            String filename = String.format("request_%s_%s.json", model.replace("/", "_"), timestamp);
+            File logFile = new File(logDirectory, filename);
+            
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile))) {
+                // Write metadata
+                writer.write("// Request logged at: " + LocalDateTime.now());
+                writer.newLine();
+                writer.write("// Model: " + model);
+                writer.newLine();
+                writer.write("// API URL: " + config.getApiUrl());
+                writer.newLine();
+                writer.newLine();
+                
+                // Pretty print JSON
+                JsonObject json = JsonParser.parseString(requestBody).getAsJsonObject();
+                writer.write(new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(json));
+            }
+            
+            LOG.info("Logged request to: " + logFile.getAbsolutePath());
+        } catch (Exception e) {
+            LOG.error("Failed to log request", e);
+        }
+    }
+    
+    /**
+     * Logs response to file.
+     */
+    private void logResponse(String response, String model, long durationMs) {
+        if (!loggingEnabled) return;
+        
+        try {
+            String timestamp = LocalDateTime.now().format(LOG_DATE_FORMAT);
+            String filename = String.format("response_%s_%s.txt", model.replace("/", "_"), timestamp);
+            File logFile = new File(logDirectory, filename);
+            
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile))) {
+                // Write metadata
+                writer.write("// Response logged at: " + LocalDateTime.now());
+                writer.newLine();
+                writer.write("// Model: " + model);
+                writer.newLine();
+                writer.write("// Duration: " + durationMs + " ms");
+                writer.newLine();
+                writer.write("// Response length: " + response.length() + " characters");
+                writer.newLine();
+                writer.newLine();
+                
+                // Write response
+                writer.write(response);
+            }
+            
+            LOG.info("Logged response to: " + logFile.getAbsolutePath());
+        } catch (Exception e) {
+            LOG.error("Failed to log response", e);
+        }
+    }
+    
+    /**
+     * Logs error response to file.
+     */
+    private void logError(String error, String model, int responseCode) {
+        if (!loggingEnabled) return;
+        
+        try {
+            String timestamp = LocalDateTime.now().format(LOG_DATE_FORMAT);
+            String filename = String.format("error_%s_%s_code_%d.txt", model.replace("/", "_"), timestamp, responseCode);
+            File logFile = new File(logDirectory, filename);
+            
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(logFile))) {
+                writer.write("// Error logged at: " + LocalDateTime.now());
+                writer.newLine();
+                writer.write("// Model: " + model);
+                writer.newLine();
+                writer.write("// Response Code: " + responseCode);
+                writer.newLine();
+                writer.newLine();
+                writer.write(error);
+            }
+            
+            LOG.error("Logged error to: " + logFile.getAbsolutePath());
+        } catch (Exception e) {
+            LOG.error("Failed to log error", e);
+        }
+    }
+
     /**
      * Streams response from LLM, calling the consumer for each chunk.
      * 
@@ -100,6 +249,7 @@ public final class StreamingLLMService {
         
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        long startTime = System.currentTimeMillis();
         
         try {
             // Setup connection
@@ -107,17 +257,28 @@ public final class StreamingLLMService {
             
             // Prepare and send request
             String requestBody = createStreamingRequestBody(apiUrl, model, prompt);
+            
+            // Log the request
+            logRequest(requestBody, model);
+            
             sendRequest(connection, requestBody);
             
             // Check response
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 String error = readErrorResponse(connection);
+                logError(error, model, responseCode);
                 throw new IOException("API returned error code " + responseCode + ": " + error);
             }
             
             // Process streaming response
-            return processStreamingResponse(connection, apiUrl, chunkConsumer);
+            String response = processStreamingResponse(connection, apiUrl, chunkConsumer);
+            
+            // Log the response
+            long duration = System.currentTimeMillis() - startTime;
+            logResponse(response, model, duration);
+            
+            return response;
             
         } finally {
             connection.disconnect();
@@ -174,7 +335,7 @@ public final class StreamingLLMService {
             root.addProperty("prompt", prompt);
             
             JsonObject options = new JsonObject();
-            options.addProperty("num_predict", 32000);
+//            options.addProperty("num_predict", 32000);
             root.add("options", options);
         }
         
@@ -352,16 +513,22 @@ public final class StreamingLLMService {
         
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        long startTime = System.currentTimeMillis();
         
         try {
             setupConnection(connection, authToken);
             
             String requestBody = createStreamingRequestBody(apiUrl, model, prompt);
+            
+            // Log the request
+            logRequest(requestBody, model);
+            
             sendRequest(connection, requestBody);
             
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 String error = readErrorResponse(connection);
+                logError(error, model, responseCode);
                 throw new IOException("API returned error code " + responseCode + ": " + error);
             }
             
@@ -386,7 +553,17 @@ public final class StreamingLLMService {
                 }
             }
             
-            return fullResponse.toString();
+            String response = fullResponse.toString();
+            
+            // Log the response (mark as cancelled if applicable)
+            long duration = System.currentTimeMillis() - startTime;
+            if (cancelled.get()) {
+                logResponse("[CANCELLED] " + response, model, duration);
+            } else {
+                logResponse(response, model, duration);
+            }
+            
+            return response;
             
         } finally {
             connection.disconnect();

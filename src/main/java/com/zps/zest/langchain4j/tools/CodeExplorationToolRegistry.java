@@ -26,43 +26,24 @@ public final class CodeExplorationToolRegistry {
     
     /**
      * Registers default code exploration tools.
+     * Simplified to focus on essential tools that guide AI exploration.
      */
     private void registerDefaultTools() {
-        // Core search tools
-        register(new SearchCodeTool(project));
-        register(new FindByNameTool(project));
-//        register(new FindSimilarTool(project));
-        register(new FindRelationshipsTool(project));
-        
-        // File and content tools
+        // Essential file operations (only tools that still exist and work)
         register(new ReadFileTool(project));
         register(new ListFilesInDirectoryTool(project));
-        
-        // Structural analysis tools
-        register(new FindCallersTool(project));
-        register(new FindImplementationsTool(project));
-        register(new FindMethodsTool(project));
-        register(new GetClassInfoTool(project));
-        
-        // Navigation tools
-        register(new GetCurrentContextTool(project));
-        register(new FindUsagesTool(project));
-        
-        // File manipulation tools
         register(new CreateFileTool(project));
         register(new ReplaceInFileTool(project));
         
-        // Project structure tools
-        register(new GetProjectStructureTool(project));
+        // LangChain4j RAG and Agent tools
+        register(new RetrievalTool(project));
+        register(new TaskExecutionTool(project));
+        register(new WorkflowTool(project));
+        register(new ChatWithContextTool(project));
         
-        // Documentation search tool (if enabled)
-        ConfigurationManager config = ConfigurationManager.getInstance(project);
-        if (config.isDocsSearchEnabled()) {
-            register(new SearchDocsTool(project));
-            LOG.info("Registered documentation search tool");
-        }
+        // Other exploration tools have been removed with the cleanup
         
-        LOG.info("Registered " + tools.size() + " code exploration tools");
+        LOG.info("Registered " + tools.size() + " essential exploration tools (focusing on AI-guided exploration)");
     }
     
     /**
@@ -89,68 +70,30 @@ public final class CodeExplorationToolRegistry {
     
     /**
      * Gets tool names and descriptions for LLM context.
+     * Simplified for AI-guided exploration approach.
      */
     public String getToolsDescription() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Tools are organized by exploration phase:\n\n");
+        sb.append("Essential tools for AI-guided codebase exploration:\n\n");
         
-        // Group tools by category
-        Map<String, List<CodeExplorationTool>> toolsByCategory = new HashMap<>();
-        toolsByCategory.put("DISCOVERY", new ArrayList<>());
-        toolsByCategory.put("ANALYSIS", new ArrayList<>());
-        toolsByCategory.put("DETAIL", new ArrayList<>());
-        
-        // Categorize tools
         for (CodeExplorationTool tool : tools.values()) {
-            String category = categorizeToolType(tool.getName());
-            toolsByCategory.get(category).add(tool);
+            sb.append("- **").append(tool.getName()).append("**: ");
+            sb.append(tool.getDescription()).append("\n\n");
         }
         
-        // Output by category with strategy hints
-        sb.append("**DISCOVERY TOOLS** (start here for broad understanding):\n");
-        for (CodeExplorationTool tool : toolsByCategory.get("DISCOVERY")) {
-            sb.append("- **").append(tool.getName()).append("**: ");
-            sb.append(tool.getDescription()).append("\n");
-            sb.append("  Parameters: ").append(tool.getParameterSchema().toString()).append("\n");
-        }
-        
-        sb.append("\n**ANALYSIS TOOLS** (dive deeper into specific elements):\n");
-        for (CodeExplorationTool tool : toolsByCategory.get("ANALYSIS")) {
-            sb.append("- **").append(tool.getName()).append("**: ");
-            sb.append(tool.getDescription()).append("\n");
-            sb.append("  Parameters: ").append(tool.getParameterSchema()).append("\n");
-        }
-        
-        sb.append("\n**DETAIL TOOLS** (examine implementation specifics):\n");
-        for (CodeExplorationTool tool : toolsByCategory.get("DETAIL")) {
-            sb.append("- **").append(tool.getName()).append("**: ");
-            sb.append(tool.getDescription()).append("\n");
-            sb.append("  Parameters: ").append(tool.getParameterSchema()).append("\n");
-        }
+        sb.append("EXPLORATION STRATEGY:\n");
+        sb.append("1. Use retrieve_context to find relevant code using semantic search\n");
+        sb.append("2. Use execute_task to perform AI-assisted development tasks\n");
+        sb.append("3. Use execute_workflow for multi-step autonomous work\n");
+        sb.append("4. Use chat_with_context for conversational code assistance\n");
+        sb.append("5. Use list_files_in_directory to understand directory structures\n");
+        sb.append("6. Use read_file to examine specific files found during search\n");
+        sb.append("7. Use create_file and replace_in_file to implement solutions\n");
+        sb.append("8. Always combine RAG retrieval with traditional file operations\n");
         
         return sb.toString();
     }
     
-    /**
-     * Categorizes a tool by its type/purpose.
-     */
-    private String categorizeToolType(String toolName) {
-        // Discovery tools - broad search
-        if (toolName.contains("search") || toolName.contains("find_by_name") || 
-            toolName.equals("list_files_in_directory") || toolName.equals("get_current_context") ||
-            toolName.equals("get_project_structure")) {
-            return "DISCOVERY";
-        }
-        // Analysis tools - relationships and structure
-        else if (toolName.contains("find_callers") || toolName.contains("find_implementations") || 
-                 toolName.contains("find_relationships") || toolName.contains("find_usages")) {
-            return "ANALYSIS";
-        }
-        // Detail tools - specific content and file operations
-        else {
-            return "DETAIL";
-        }
-    }
     
     /**
      * Checks if a tool exists.

@@ -4,6 +4,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.application.ApplicationManager;
 import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -48,7 +49,15 @@ public final class WebBrowserService {
         if (browserPanel != null) {
             browserPanel.loadUrl(url);
         } else {
-            LOG.warn("Cannot load URL, browser panel not registered");
+            LOG.warn("Cannot load URL, browser panel not registered. URL: " + url);
+            // Try again after a short delay
+            ApplicationManager.getApplication().invokeLater(() -> {
+                if (browserPanel != null) {
+                    browserPanel.loadUrl(url);
+                } else {
+                    LOG.error("Browser panel still not available after retry");
+                }
+            });
         }
     }
     
@@ -60,6 +69,14 @@ public final class WebBrowserService {
             browserPanel.executeJavaScript(script);
         } else {
             LOG.warn("Cannot execute JavaScript, browser panel not registered");
+            // Try again after a short delay
+            ApplicationManager.getApplication().invokeLater(() -> {
+                if (browserPanel != null) {
+                    browserPanel.executeJavaScript(script);
+                } else {
+                    LOG.error("Browser panel still not available after retry for JavaScript execution");
+                }
+            });
         }
     }
     
@@ -71,6 +88,14 @@ public final class WebBrowserService {
             browserPanel.sendTextToBrowser(text);
         } else {
             LOG.warn("Cannot send text to browser, browser panel not registered");
+            // Try again after a short delay
+            ApplicationManager.getApplication().invokeLater(() -> {
+                if (browserPanel != null) {
+                    browserPanel.sendTextToBrowser(text);
+                } else {
+                    LOG.error("Browser panel still not available after retry for sending text");
+                }
+            });
         }
     }
     

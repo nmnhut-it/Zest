@@ -4,8 +4,6 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.browser.WebBrowserService;
 import org.jetbrains.annotations.NotNull;
 
@@ -25,6 +23,9 @@ public class ToggleDevToolsAction extends AnAction {
 
         LOG.info("Toggling developer tools");
 
+        // Open chat in editor if not already open
+        com.zps.zest.browser.actions.OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "main");
+        
         // Get browser service
         WebBrowserService browserService = WebBrowserService.getInstance(project);
         
@@ -37,12 +38,6 @@ public class ToggleDevToolsAction extends AnAction {
             e.getPresentation().setText(isVisible ? "Hide ZPS Chat Developer Tools" : "Show ZPS Chat Developer Tools");
         } else {
             LOG.warn("Cannot toggle developer tools: Browser panel not available");
-        }
-
-        // Activate browser tool window
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-        if (toolWindow != null) {
-            toolWindow.activate(null);
         }
     }
 

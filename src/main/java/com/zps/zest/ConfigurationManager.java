@@ -8,126 +8,40 @@ import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.browser.JCEFBrowserManager;
 import com.zps.zest.browser.WebBrowserService;
-import org.apache.commons.lang.StringEscapeUtils;
+import com.zps.zest.settings.ZestGlobalSettings;
+import com.zps.zest.settings.ZestProjectSettings;
 
-import java.io.File;
+
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.*;
 
 /**
- * Configuration manager for loading and accessing plugin settings.
- * Implements a per-project cache to avoid reloading configuration multiple times.
+ * Configuration manager that bridges the old API with new IntelliJ settings.
+ * This class maintains backward compatibility while delegating to the new settings system.
  */
 public class ConfigurationManager {
     private static final Logger LOG = Logger.getInstance(ConfigurationManager.class);
     public static final String CODE_EXPERT = "code-expert";
-    private static final String CONFIG_FILE_NAME = "ollama-plugin.properties";
-    private static final String CONFIG_FILE_NAME_2 = "zest-plugin.properties";
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
-    private static final String DEFAULT_TEST_WRITING_MODEL = "unit_test_generator";
-    private static final String DEFAULT_CODE_MODEL = CODE_EXPERT;
-    private static final String DEFAULT_MCP_SERVER_URI = "http://localhost:8080/mcp";
-    private static final int DEFAULT_MAX_ITERATIONS = 3;
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
+    
+    // .zest folder constants
+    private static final String ZEST_FOLDER = ".zest";
+    private static final String RULES_FILE = "rules.md";
+    private static final String LEGACY_RULES_FILE = "zest_rules.md";
 
-    // Default system prompts
-    public static final String DEFAULT_SYSTEM_PROMPT = "You are an assistant that verifies understanding before solving problems effectively.\n" +
-            "\n" +
-            "CORE APPROACH:\n" +
-            "\n" +
-            "1. VERIFY FIRST\n" +
-            "   - Always ask clarifying questions one by one before tackling complex requests\n" +
-            "   - Confirm your understanding explicitly before proceeding\n" +
-            "\n" +
-            "2. SOLVE METHODICALLY\n" +
-            "   - Analyze problems from multiple perspectives\n" +
-            "   - Break down complex issues while maintaining holistic awareness\n" +
-            "   - Apply appropriate mental models (first principles, systems thinking)\n" +
-            "   - Balance creativity with pragmatism in solutions\n" +
-            "\n" +
-            "3. COMMUNICATE EFFECTIVELY\n" +
-            "   - Express ideas clearly and concisely\n" +
-            "   - Show empathy by tailoring responses to users' needs\n" +
-            "   - Explain reasoning to help users understand solutions\n" +
-            "\n" +
-            "First verify understanding through questions, then solve problems step-by-step with clear reasoning.\n/no_think\n";
-    public static final String DEFAULT_CODE_SYSTEM_PROMPT = "You are an expert programming assistant with a sophisticated problem-solving framework modeled after elite software engineers.\n" +
-            "\n" +
-            "    CORE CODING METHODOLOGY:\n" +
-            "\n" +
-            "1. REQUIREMENT ANALYSIS\n" +
-            "   - Understand the task completely before writing code\n" +
-            "   - Identify explicit requirements and implicit constraints\n" +
-            "\n" +
-            "2. ARCHITECTURAL THINKING\n" +
-            "   - Break complex systems into logical components\n" +
-            "   - Consider appropriate design patterns\n" +
-            "\n" +
-            "3. IMPLEMENTATION STRATEGY\n" +
-            "   - Apply appropriate algorithms and data structures\n" +
-            "   - Write readable, maintainable code following conventions\n" +
-            "\n" +
-            "4. DEBUGGING MINDSET\n" +
-            "   - Approach errors systematically\n" +
-            "   - Look beyond symptoms to underlying problems\n" +
-            "\n" +
-            "5. CONTINUOUS IMPROVEMENT\n" +
-            "   - Identify refactoring and optimization opportunities\n" +
-            "   - Consider edge cases and failure modes\n" +
-            "\n" +
-            "6. KNOWLEDGE INTEGRATION\n" +
-            "   - Leverage relevant libraries, frameworks, and tools\n" +
-            "   - Apply language-specific best practices\n" +
-            "\n" +
-            "    CODE REPLACEMENT FORMAT:\n" +
-            "When suggesting code changes in a file, you can use the following format to enable automatic code replacement:\n" +
-            "\n" +
-            "replace_in_file:absolute/path/to/file.ext\n" +
-            "```language\n" +
-            "code to be replaced\n" +
-            "```\n" +
-            "```language\n" +
-            "replacement code\n" +
-            "```\n" +
-            "\n" +
-            "You can include multiple replace_in_file blocks in your response. The system will automatically batch multiple replacements for the same file, showing a unified diff to the user.\n" +
-            "\n" +
-            "    TOOL USAGE:\n" +
-            "- Check for available tools before suggesting manual operations\n" +
-            "\n" +
-            "    Ask questions to clarify requirements, explain reasoning, and think step-by-step while maintaining system awareness. Provide clear code examples with explanations./no_think";
-    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = "Generate a well-structured git commit message based on the changes below.\n\n" +
-            "## Changed files:\n" +
-            "{FILES_LIST}\n\n" +
-            "## File changes:\n" +
-            "{DIFFS}\n\n" +
-            "## Instructions:\n" +
-            "Please follow this structure for the commit message:\n\n" +
-            "1. First line: Short summary (50-72 chars) following conventional commit format\n" +
-            "   - format: <type>(<scope>): <subject>\n" +
-            "   - example: feat(auth): implement OAuth2 login\n\n" +
-            "2. Body: Detailed explanation of what changed and why\n" +
-            "   - Separated from summary by a blank line\n" +
-            "   - Explain what and why, not how\n" +
-            "   - Wrap at 72 characters\n\n" +
-            "3. Footer (optional):\n" +
-            "   - Breaking changes (BREAKING CHANGE: description)\n\n" +
-            "Example output:\n" +
-            "feat(user-profile): implement password reset functionality\n\n" +
-            "Add secure password reset flow with email verification and rate limiting.\n" +
-            "This change improves security by requiring email confirmation before\n" +
-            "allowing password changes.\n\n" +
-            "- Added PasswordResetController with email verification\n" +
-            "- Implemented rate limiting to prevent brute force attacks\n" +
-            "- Added unit and integration tests\n\n" +
-            "BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset\n\n" +
-            "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
+    // Default system prompts - reference from ZestGlobalSettings to avoid duplication
+    public static final String DEFAULT_SYSTEM_PROMPT = ZestGlobalSettings.DEFAULT_SYSTEM_PROMPT;
+    public static final String DEFAULT_CODE_SYSTEM_PROMPT = ZestGlobalSettings.DEFAULT_CODE_SYSTEM_PROMPT;
+    public static final String DEFAULT_COMMIT_PROMPT_TEMPLATE = ZestGlobalSettings.DEFAULT_COMMIT_PROMPT_TEMPLATE;
     
     // Static cache to store configuration managers by project
     private static final Map<Project, ConfigurationManager> INSTANCES = new ConcurrentHashMap<>();
@@ -145,29 +59,9 @@ public class ConfigurationManager {
         );
     }
 
-    private String apiUrl;
-    private String testModel;
-    private String codeModel;
-    private int maxIterations;
-    private String authToken;
-    private Project project;
-    // Configuration flags
-    private boolean ragEnabled = false;
-    private String mcpServerUri = DEFAULT_MCP_SERVER_URI;
-    private boolean mcpEnabled = false;
-    // System prompts
-    private String systemPrompt;
-    private String codeSystemPrompt;
-    private String commitPromptTemplate;
-    // Knowledge base ID for code indexing
-    private String knowledgeId = null;
-    // Button states
-    private boolean contextInjectionEnabled = true;
-    private boolean projectIndexEnabled = false;
-    
-    // Documentation search configuration
-    private String docsPath = "docs";
-    private boolean docsSearchEnabled = false;
+    private final Project project;
+    private   ZestGlobalSettings globalSettings;
+    private   ZestProjectSettings projectSettings;
 
     /**
      * Private constructor to enforce singleton pattern per project.
@@ -176,7 +70,32 @@ public class ConfigurationManager {
      */
     private ConfigurationManager(Project project) {
         this.project = project;
-        loadConfig();
+        
+        // Initialize settings with null checks
+        try {
+            this.globalSettings = ZestGlobalSettings.getInstance();
+        } catch (Exception e) {
+            LOG.error("Failed to get ZestGlobalSettings instance", e);
+            // Create a default instance if getInstance fails
+            this.globalSettings = new ZestGlobalSettings();
+        }
+        
+        try {
+            this.projectSettings = ZestProjectSettings.getInstance(project);
+        } catch (Exception e) {
+            LOG.error("Failed to get ZestProjectSettings instance", e);
+            // Create a default instance if getInstance fails
+            this.projectSettings = new ZestProjectSettings();
+        }
+        
+        // Ensure globalSettings is never null
+        if (this.globalSettings == null) {
+            LOG.error("GlobalSettings is still null after initialization, creating default");
+            this.globalSettings = new ZestGlobalSettings();
+        }
+        
+        // Check if API URL needs to be updated on first run
+        checkAndUpdateDefaultApiUrl();
     }
 
     /**
@@ -186,7 +105,7 @@ public class ConfigurationManager {
      * @return The configuration manager instance for the project
      */
     public static ConfigurationManager getInstance(Project project) {
-        return INSTANCES.computeIfAbsent(project, p -> new ConfigurationManager(p));
+        return INSTANCES.computeIfAbsent(project, ConfigurationManager::new);
     }
 
     /**
@@ -199,224 +118,365 @@ public class ConfigurationManager {
         INSTANCES.remove(project);
     }
 
+    // Delegated getters that use the new settings system
+    public String getApiUrl() {
+        return globalSettings.apiUrl;
+    }
+
+    public void setApiUrl(String apiUrl) {
+        globalSettings.apiUrl = apiUrl;
+    }
+
+    public String getTestModel() {
+        return globalSettings.testModel;
+    }
+
+    public void setTestModel(String testModel) {
+        globalSettings.testModel = testModel;
+    }
+
+    public String getCodeModel() {
+        return globalSettings.codeModel;
+    }
+
+    public void setCodeModel(String codeModel) {
+        globalSettings.codeModel = codeModel;
+    }
+
+    public int getMaxIterations() {
+        return projectSettings.maxIterations;
+    }
+
+    public void setMaxIterations(int maxIterations) {
+        projectSettings.maxIterations = maxIterations;
+    }
+
+    /**
+     * Gets the current auth token or prompts the user to enter one if none exists.
+     *
+     * @return The current auth token, or null if the user cancels the prompt
+     */
+    public String getAuthToken() {
+        if (globalSettings.authToken == null || globalSettings.authToken.trim().isEmpty()) {
+            // Token is not set, prompt user to provide one
+            return promptForAuthToken(globalSettings.apiUrl);
+        }
+        return globalSettings.authToken;
+    }
+
+    /**
+     * Gets the current auth token without prompting the user.
+     * Use this method when checking if a token exists.
+     *
+     * @return The current auth token or empty string if none exists
+     */
+    public String getAuthTokenNoPrompt() {
+        return globalSettings.authToken;
+    }
+
+    public void setAuthToken(String authToken) {
+        globalSettings.authToken = authToken;
+        
+        // Notify the browser to update its stored auth token
+        try {
+            WebBrowserService browserService = WebBrowserService.getInstance(project);
+            if (browserService != null && browserService.getBrowserPanel() != null) {
+                JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
+                if (browserManager != null) {
+                    browserManager.updateAuthTokenInBrowser(authToken);
+                }
+            }
+        } catch (Exception e) {
+            // Log but don't fail if browser update fails
+            LOG.warn("Could not update auth token in browser", e);
+        }
+    }
+
     public boolean isRagEnabled() {
-        return ragEnabled;
+        return projectSettings.ragEnabled;
     }
 
     public void setRagEnabled(boolean value) {
-        this.ragEnabled = value;
+        projectSettings.ragEnabled = value;
     }
 
     public boolean isMcpEnabled() {
-        return mcpEnabled;
+        return projectSettings.mcpEnabled;
     }
 
     public void setMcpEnabled(boolean value) {
-        this.mcpEnabled = value;
+        projectSettings.mcpEnabled = value;
     }
 
-    public String getOpenWebUIRagEndpoint() {
-        return apiUrl;
-    }
-
-    /**
-     * Gets the URI for the MCP server.
-     */
     public String getMcpServerUri() {
-        return mcpServerUri;
+        return projectSettings.mcpServerUri;
     }
 
-    /**
-     * Sets the URI for the MCP server.
-     */
     public void setMcpServerUri(String uri) {
-        mcpServerUri = uri;
+        projectSettings.mcpServerUri = uri;
+    }
+
+    public String getSystemPrompt() {
+        return globalSettings.systemPrompt;
+    }
+
+    public void setSystemPrompt(String systemPrompt) {
+        globalSettings.systemPrompt = systemPrompt;
+    }
+
+    public String getCodeSystemPrompt() {
+        return globalSettings.codeSystemPrompt;
+    }
+
+    public void setCodeSystemPrompt(String codeSystemPrompt) {
+        globalSettings.codeSystemPrompt = codeSystemPrompt;
+    }
+
+    public String getCommitPromptTemplate() {
+        return globalSettings.commitPromptTemplate;
+    }
+
+    public void setCommitPromptTemplate(String commitPromptTemplate) {
+        com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
+            com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
+        
+        if (!validation.isValid) {
+            LOG.error("Invalid commit prompt template: " + validation.errorMessage);
+            throw new IllegalArgumentException("Invalid template: " + validation.errorMessage);
+        }
+        
+        globalSettings.commitPromptTemplate = commitPromptTemplate;
+    }
+
+    public String getKnowledgeId() {
+        return projectSettings.knowledgeId.isEmpty() ? null : projectSettings.knowledgeId;
+    }
+
+    public void setKnowledgeId(String knowledgeId) {
+        projectSettings.knowledgeId = knowledgeId != null ? knowledgeId : "";
+    }
+
+    public boolean isContextInjectionEnabled() {
+        return projectSettings.contextInjectionEnabled;
+    }
+
+    public void setContextInjectionEnabled(boolean enabled) {
+        projectSettings.contextInjectionEnabled = enabled;
+        if (enabled && projectSettings.projectIndexEnabled) {
+            projectSettings.projectIndexEnabled = false;
+        }
+    }
+
+    public boolean isProjectIndexEnabled() {
+        return projectSettings.projectIndexEnabled;
+    }
+
+    public void setProjectIndexEnabled(boolean enabled) {
+        projectSettings.projectIndexEnabled = enabled;
+        if (enabled && projectSettings.contextInjectionEnabled) {
+            projectSettings.contextInjectionEnabled = false;
+        }
+    }
+
+    public String getDocsPath() {
+        return projectSettings.docsPath;
+    }
+
+    public void setDocsPath(String docsPath) {
+        projectSettings.docsPath = docsPath;
+    }
+
+    public boolean isDocsSearchEnabled() {
+        return projectSettings.docsSearchEnabled;
+    }
+
+    public void setDocsSearchEnabled(boolean docsSearchEnabled) {
+        projectSettings.docsSearchEnabled = docsSearchEnabled;
+    }
+
+    public boolean isInlineCompletionEnabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for inlineCompletionEnabled");
+            return true; // Default to enabled
+        }
+        return globalSettings.inlineCompletionEnabled;
+    }
+
+    public void setInlineCompletionEnabled(boolean enabled) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set inlineCompletionEnabled - globalSettings is null");
+            return;
+        }
+        globalSettings.inlineCompletionEnabled = enabled;
+        
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
+    }
+
+    public boolean isAutoTriggerEnabled() {
+        return globalSettings.autoTriggerEnabled;
+    }
+
+    public void setAutoTriggerEnabled(boolean enabled) {
+        globalSettings.autoTriggerEnabled = enabled;
+        
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
+    }
+
+    public boolean isBackgroundContextEnabled() {
+        return globalSettings.backgroundContextEnabled;
+    }
+
+    public void setBackgroundContextEnabled(boolean enabled) {
+        globalSettings.backgroundContextEnabled = enabled;
+        
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
+    }
+
+    public boolean isContinuousCompletionEnabled() {
+        return globalSettings.continuousCompletionEnabled;
+    }
+
+    public void setContinuousCompletionEnabled(boolean enabled) {
+        globalSettings.continuousCompletionEnabled = enabled;
+        
+        try {
+            com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
+        } catch (Exception e) {
+            LOG.warn("Failed to notify inline completion service of configuration change", e);
+        }
+    }
+
+    // RAG-specific configurations for inline completion
+    public boolean isInlineCompletionRagEnabled() {
+        return globalSettings.inlineCompletionRagEnabled;
+    }
+    
+    public void setInlineCompletionRagEnabled(boolean enabled) {
+        globalSettings.inlineCompletionRagEnabled = enabled;
+    }
+    
+    public boolean isAstPatternMatchingEnabled() {
+        return globalSettings.astPatternMatchingEnabled;
+    }
+    
+    public void setAstPatternMatchingEnabled(boolean enabled) {
+        globalSettings.astPatternMatchingEnabled = enabled;
+    }
+    
+    public int getMaxRagContextSize() {
+        return globalSettings.maxRagContextSize;
+    }
+    
+    public void setMaxRagContextSize(int size) {
+        globalSettings.maxRagContextSize = size;
+    }
+    
+    public int getEmbeddingCacheSize() {
+        return globalSettings.embeddingCacheSize;
+    }
+    
+    public void setEmbeddingCacheSize(int size) {
+        globalSettings.embeddingCacheSize = size;
+    }
+    
+    /**
+     * Gets the relevance threshold for filtering context
+     * @return The minimum relevance score (0.0 to 1.0)
+     */
+    public double getRelevanceThreshold() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for relevanceThreshold");
+            return 0.3;
+        }
+        return globalSettings.relevanceThreshold;
+    }
+    
+    /**
+     * Gets the maximum number of relevant classes to include
+     * @return The maximum number of classes
+     */
+    public int getMaxRelevantClasses() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for maxRelevantClasses");
+            return 5;
+        }
+        return globalSettings.maxRelevantClasses;
+    }
+    
+    /**
+     * Gets the BM25 weight for hybrid scoring
+     * @return The BM25 weight (0.0 to 1.0)
+     */
+    public double getBm25Weight() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for bm25Weight");
+            return 0.3;
+        }
+        return globalSettings.bm25Weight;
+    }
+    
+    /**
+     * Gets the semantic weight for hybrid scoring
+     * @return The semantic weight (0.0 to 1.0)
+     */
+    public double getSemanticWeight() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for semanticWeight");
+            return 0.7;
+        }
+        return globalSettings.semanticWeight;
+    }
+    
+    /**
+     * Checks if relevance caching is enabled
+     * @return true if relevance caching is enabled
+     */
+    public boolean isRelevanceCacheEnabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for enableRelevanceCache");
+            return true;
+        }
+        return globalSettings.enableRelevanceCache;
     }
 
     /**
-     * Loads the configuration from the properties file.
+     * @deprecated Use IntelliJ settings directly
      */
+    @Deprecated
     public void loadConfig() {
-        // Default values - start with pinging domains to determine which API URL to use
-        String defaultApiUrl = determineDefaultApiUrl();
-
-        apiUrl = defaultApiUrl;
-        testModel = DEFAULT_TEST_WRITING_MODEL;
-        codeModel = DEFAULT_CODE_MODEL;
-        maxIterations = DEFAULT_MAX_ITERATIONS;
-        authToken = "";
-        mcpServerUri = DEFAULT_MCP_SERVER_URI;
-        mcpEnabled = false;
-        systemPrompt = DEFAULT_SYSTEM_PROMPT;
-        codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
-        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
-        knowledgeId = null;
-        contextInjectionEnabled = true;
-        projectIndexEnabled = false;
-        docsPath = "docs";
-        docsSearchEnabled = false;
-
-        boolean configExists = false;
-
-        // Try to load from config file
-        try {
-            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME);
-            if (!configFile.exists()) {
-                configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
-            }
-            if (configFile.exists()) {
-                configExists = true;
-                Properties props = new Properties();
-                try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
-                    props.load(fis);
-                }
-
-                apiUrl = props.getProperty("apiUrl", defaultApiUrl);
-                testModel = props.getProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
-                codeModel = props.getProperty("codeModel", DEFAULT_CODE_MODEL);
-                authToken = props.getProperty("authToken", "");
-                mcpServerUri = props.getProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-                systemPrompt = unescapeFromProperties(props.getProperty("systemPrompt"));
-                if (systemPrompt == null || systemPrompt.trim().isEmpty()) {
-                    systemPrompt = DEFAULT_SYSTEM_PROMPT;
-                }
-                
-                codeSystemPrompt = unescapeFromProperties(props.getProperty("codeSystemPrompt"));
-                if (codeSystemPrompt == null || codeSystemPrompt.trim().isEmpty()) {
-                    codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;
-                }
-                String loadedTemplate = unescapeFromProperties(props.getProperty("commitPromptTemplate"));
-                // Validate and use default if invalid or missing
-                if (loadedTemplate == null || loadedTemplate.trim().isEmpty()) {
-                    commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
-                    LOG.info("Commit prompt template was empty, using default");
-                    // Save the default template back to config for next time
-                    saveConfig();
-                } else {
-                    // Validate template has required placeholders
-                    com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
-                        com.zps.zest.validation.CommitTemplateValidator.validate(loadedTemplate);
-                    if (validation.isValid) {
-                        commitPromptTemplate = loadedTemplate;
-                    } else {
-                        commitPromptTemplate = DEFAULT_COMMIT_PROMPT_TEMPLATE;
-                        LOG.warn("Invalid commit prompt template: " + validation.errorMessage + ". Using default.");
-                        // Save the default template back to config
-                        saveConfig();
-                    }
-                }
-                knowledgeId = props.getProperty("knowledgeId", null);
-                
-                // Load button states
-                String contextInjectionStr = props.getProperty("contextInjectionEnabled");
-                if (contextInjectionStr != null) {
-                    contextInjectionEnabled = Boolean.parseBoolean(contextInjectionStr);
-                }
-                
-                String projectIndexStr = props.getProperty("projectIndexEnabled");
-                if (projectIndexStr != null) {
-                    projectIndexEnabled = Boolean.parseBoolean(projectIndexStr);
-                }
-                
-                // Enforce mutual exclusion on load
-                if (contextInjectionEnabled && projectIndexEnabled) {
-                    // Context injection takes priority
-                    projectIndexEnabled = false;
-                }
-
-                String ragEnabledStr = props.getProperty("ragEnabled");
-                if (ragEnabledStr != null) {
-                    ragEnabled = Boolean.parseBoolean(ragEnabledStr);
-                }
-
-                String mcpEnabledStr = props.getProperty("mcpEnabled");
-                if (mcpEnabledStr != null) {
-                    mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
-                }
-                
-                // Load documentation search configuration
-                String docsPathStr = props.getProperty("docsPath");
-                if (docsPathStr != null && !docsPathStr.trim().isEmpty()) {
-                    docsPath = docsPathStr.trim();
-                }
-                
-                String docsSearchEnabledStr = props.getProperty("docsSearchEnabled");
-                if (docsSearchEnabledStr != null) {
-                    docsSearchEnabled = Boolean.parseBoolean(docsSearchEnabledStr);
-                }
-
-                try {
-                    maxIterations = Integer.parseInt(props.getProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS)));
-                } catch (NumberFormatException e) {
-                    maxIterations = DEFAULT_MAX_ITERATIONS;
-                }
-
-                // We no longer automatically prompt for auth token during config loading
-                // Token will be requested only when needed for API calls
-            } else {
-                createDefaultConfigFile(defaultApiUrl);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        // Settings are now loaded automatically by IntelliJ
     }
 
     /**
-     * Saves the current configuration to the config file.
+     * @deprecated Use IntelliJ settings directly
      */
+    @Deprecated
     public void saveConfig() {
-        try {
-            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
-            Properties props = new Properties();
-
-            // If the file exists, load the current properties first
-            if (configFile.exists()) {
-                try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
-                    props.load(fis);
-                }
-            }
-
-            // Update properties with current values
-            props.setProperty("apiUrl", apiUrl);
-            props.setProperty("testModel", testModel);
-            props.setProperty("codeModel", codeModel);
-            props.setProperty("maxIterations", String.valueOf(maxIterations));
-            props.setProperty("authToken", authToken);
-            props.setProperty("ragEnabled", String.valueOf(ragEnabled));
-            props.setProperty("mcpEnabled", String.valueOf(mcpEnabled));
-            props.setProperty("mcpServerUri", mcpServerUri);
-            props.setProperty("systemPrompt", escapeForProperties(systemPrompt));
-            props.setProperty("codeSystemPrompt", escapeForProperties(codeSystemPrompt));
-            // Save multi-line template with proper escaping
-            props.setProperty("commitPromptTemplate", escapeForProperties(commitPromptTemplate));
-            if (knowledgeId != null) {
-                props.setProperty("knowledgeId", knowledgeId);
-            }
-            props.setProperty("contextInjectionEnabled", String.valueOf(contextInjectionEnabled));
-            props.setProperty("projectIndexEnabled", String.valueOf(projectIndexEnabled));
-            props.setProperty("docsPath", docsPath);
-            props.setProperty("docsSearchEnabled", String.valueOf(docsSearchEnabled));
-
-            // Save the properties
-            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                props.store(fos, "Zest Plugin Configuration");
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        // Settings are now saved automatically by IntelliJ
     }
 
     /**
-     * Prompts the user to enter an authentication token and saves it to the configuration file.
+     * Prompts the user to enter an authentication token.
      * This method should be called when an API call requires a token and none is available.
      *
      * @param apiUrl The API URL that requires authentication
      * @return The authentication token
      */
     public String promptForAuthToken(String apiUrl) {
-        if (authToken != null && !authToken.trim().isEmpty()) {
-            return authToken; // Return existing token if available
+        if (globalSettings.authToken != null && !globalSettings.authToken.trim().isEmpty()) {
+            return globalSettings.authToken; // Return existing token if available
         }
 
         final String[] resultToken = {null};
@@ -431,12 +491,10 @@ public class ConfigurationManager {
                         Messages.getQuestionIcon()
                 );
 
-                // Update the token in properties if the user provided one
+                // Update the token if the user provided one
                 if (token != null && !token.trim().isEmpty()) {
                     resultToken[0] = token.trim();
-
-                    // Update the current authToken value
-                    this.authToken = token.trim();
+                    globalSettings.authToken = token.trim();
                     
                     // Update the browser's auth token immediately
                     try {
@@ -444,46 +502,44 @@ public class ConfigurationManager {
                         if (browserService != null && browserService.getBrowserPanel() != null) {
                             JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
                             if (browserManager != null) {
-                                browserManager.updateAuthTokenInBrowser(this.authToken);
+                                browserManager.updateAuthTokenInBrowser(globalSettings.authToken);
                             }
                         }
                     } catch (Exception ex) {
                         LOG.warn("Could not update auth token in browser", ex);
                     }
 
-                    // Save the configuration with the new token
-                    File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
-                    Properties props = new Properties();
-
-                    // Load existing properties first if the file exists
-                    if (configFile.exists()) {
-                        try (java.io.FileInputStream fis = new java.io.FileInputStream(configFile)) {
-                            props.load(fis);
-                        }
-                    }
-
-                    props.setProperty("authToken", authToken.trim());
-
-                    // Save the updated properties
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                        props.store(fos, "Zest Plugin Configuration");
-                    }
-
                     Messages.showInfoMessage(
-                            "Configuration updated successfully with your authorization token.",
+                            "Authorization token has been saved.",
                             "Configuration Updated"
                     );
                 }
             } catch (Exception e) {
                 e.printStackTrace();
                 Messages.showErrorDialog(
-                        "Failed to update configuration with authorization token: " + e.getMessage(),
+                        "Failed to save authorization token: " + e.getMessage(),
                         "Configuration Error"
                 );
             }
         });
 
         return resultToken[0];
+    }
+
+    /**
+     * Checks and updates the default API URL if needed.
+     * This is called once when ConfigurationManager is created.
+     */
+    private void checkAndUpdateDefaultApiUrl() {
+        // Only update if using the old default URL
+        if (globalSettings == null)
+            return;
+        if (DEFAULT_API_URL.equals(globalSettings.apiUrl)) {
+            String bestUrl = determineDefaultApiUrl();
+            if (!bestUrl.equals(globalSettings.apiUrl)) {
+                globalSettings.apiUrl = bestUrl;
+            }
+        }
     }
 
     /**
@@ -556,257 +612,109 @@ public class ConfigurationManager {
             return false;
         }
     }
-
+    
+    // .zest folder management methods
+    
     /**
-     * Creates a default configuration file with initial settings.
-     *
-     * @param defaultApiUrl The default API URL to use
+     * Ensure .zest folder exists and is properly configured
      */
-    private void createDefaultConfigFile(String defaultApiUrl) {
+    public boolean ensureZestFolderExists() {
         try {
-            File configFile = new File(project.getBasePath(), CONFIG_FILE_NAME_2);
-            Properties props = new Properties();
-            props.setProperty("apiUrl", defaultApiUrl);
-            props.setProperty("testModel", DEFAULT_TEST_WRITING_MODEL);
-            props.setProperty("codeModel", DEFAULT_CODE_MODEL);
-            props.setProperty("maxIterations", String.valueOf(DEFAULT_MAX_ITERATIONS));
-            props.setProperty("authToken", "");  // Empty by default, will be requested when needed
-            props.setProperty("ragEnabled", "false");
-            props.setProperty("mcpEnabled", "false");
-            props.setProperty("mcpServerUri", DEFAULT_MCP_SERVER_URI);
-            props.setProperty("systemPrompt", escapeForProperties(DEFAULT_SYSTEM_PROMPT));
-            props.setProperty("codeSystemPrompt", escapeForProperties(DEFAULT_CODE_SYSTEM_PROMPT));
-            props.setProperty("commitPromptTemplate", escapeForProperties(DEFAULT_COMMIT_PROMPT_TEMPLATE));
-            props.setProperty("knowledgeId", ""); // Empty by default
-            props.setProperty("contextInjectionEnabled", "true");
-            props.setProperty("projectIndexEnabled", "false");
-            props.setProperty("docsPath", "docs");
-            props.setProperty("docsSearchEnabled", "false");
-
-            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(configFile)) {
-                props.store(fos, "Zest Plugin Configuration");
+            String projectPath = project.getBasePath();
+            if (projectPath == null) return false;
+            
+            Path zestPath = Paths.get(projectPath, ZEST_FOLDER);
+            
+            // Create directory if it doesn't exist
+            if (!Files.exists(zestPath)) {
+                Files.createDirectories(zestPath);
+                LOG.info("Created .zest directory at: " + zestPath);
             }
-
-            Messages.showInfoMessage(
-                    "Created default configuration file at: " + configFile.getPath() +
-                            "\nAPI token will be requested when needed.",
-                    "Configuration Created"
-            );
-
+            
+            // Git ignore management has been removed
+            
+            // Migrate legacy rules if they exist
+            migrateLegacyRules();
+            
+            return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.error("Failed to ensure .zest folder exists", e);
+            return false;
         }
     }
-
-    // Getters
-    public String getApiUrl() {
-        return apiUrl;
-    }
-
-    // Setters for additional configuration options
-    public void setApiUrl(String apiUrl) {
-        this.apiUrl = apiUrl;
-    }
-
-    public String getTestModel() {
-        return testModel;
-    }
-
-    public void setTestModel(String testModel) {
-        this.testModel = testModel;
-    }
-
-    public String getCodeModel() {
-        return codeModel;
-    }
-
-    public void setCodeModel(String codeModel) {
-        this.codeModel = codeModel;
-    }
-
-    public int getMaxIterations() {
-        return maxIterations;
-    }
-
-    public void setMaxIterations(int maxIterations) {
-        this.maxIterations = maxIterations;
-    }
-
+    
     /**
-     * Gets the current auth token or prompts the user to enter one if none exists.
-     *
-     * @return The current auth token, or null if the user cancels the prompt
+     * Migrate legacy zest_rules.md to .zest/rules.md
      */
-    public String getAuthToken() {
-        if (authToken == null || authToken.trim().isEmpty()) {
-            // Token is not set, prompt user to provide one
-            return promptForAuthToken(apiUrl);
-        }
-        return authToken;
-    }
-
-    /**
-     * Gets the current auth token without prompting the user.
-     * Use this method when checking if a token exists.
-     *
-     * @return The current auth token or empty string if none exists
-     */
-    public String getAuthTokenNoPrompt() {
-        return authToken;
-    }
-
-    public void setAuthToken(String authToken) {
-        this.authToken = authToken;
-        
-        // Notify the browser to update its stored auth token
+    private void migrateLegacyRules() {
         try {
-            WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null && browserService.getBrowserPanel() != null) {
-                JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
-                if (browserManager != null) {
-                    browserManager.updateAuthTokenInBrowser(authToken);
-                }
+            String projectPath = project.getBasePath();
+            if (projectPath == null) return;
+            
+            Path legacyPath = Paths.get(projectPath, LEGACY_RULES_FILE);
+            Path newPath = Paths.get(projectPath, ZEST_FOLDER, RULES_FILE);
+            
+            if (Files.exists(legacyPath) && !Files.exists(newPath)) {
+                // Read legacy content
+                String content = new String(Files.readAllBytes(legacyPath));
+                
+                // Write to new location
+                Files.createDirectories(newPath.getParent());
+                Files.write(newPath, content.getBytes());
+                
+                // Add deprecation notice to legacy file
+                String deprecationNotice = "# DEPRECATED - This file has been moved!\n\n" +
+                    "Your rules have been migrated to: .zest/rules.md\n\n" +
+                    "This file is no longer used and can be safely deleted.\n" +
+                    "The new location allows better organization of Zest configuration.\n\n" +
+                    "---\n\n" + content;
+                Files.write(legacyPath, deprecationNotice.getBytes());
+                
+                LOG.info("Migrated rules from " + LEGACY_RULES_FILE + " to " + ZEST_FOLDER + "/" + RULES_FILE);
             }
         } catch (Exception e) {
-            // Log but don't fail if browser update fails
-            LOG.warn("Could not update auth token in browser", e);
+            LOG.error("Failed to migrate legacy rules", e);
         }
-    }
-
-    public String getSystemPrompt() {
-        return systemPrompt;
-    }
-
-    public void setSystemPrompt(String systemPrompt) {
-        this.systemPrompt = systemPrompt;
-    }
-
-    public String getCodeSystemPrompt() {
-        return codeSystemPrompt;
-    }
-
-    public void setCodeSystemPrompt(String codeSystemPrompt) {
-        this.codeSystemPrompt = codeSystemPrompt;
-    }
-
-    public String getOpenWebUISystemPrompt() {
-        return systemPrompt;
-    }
-
-    public String getOpenWebUISystemPromptForCode() {
-        return codeSystemPrompt;
-    }
-
-    public String getBossPrompt() {
-
-        String s = "Bạn là sếp của tôi. Bạn nói chuyện ngắn gọn, không giải thích nhiều trừ khi cần thiết, và dùng nhiều câu trực tiếp mà thân thiện. \n" +
-                "\n" +
-                "Ví dụ: \n" +
-                "Péo lắm đấy em\n" +
-                "Anh qua em review Game design Match3 nha\n" +
-                "Thực ra cái này có những điểm yếu như sau ...\n" +
-                "Nếu mà em làm cái này thì sẽ có nguy cơ là, ....., em giải quyết như thế nào ...\n" +
-                "-------\n" +
-                "Bạn có những kỹ năng xuất sắc, bao gồm nhưng không giới hạn ở việc trả lời câu hỏi, tư duy phản biện, phân tích vấn đề. Bạn đã thông thạo các khung tư duy hiện có và các khung giải quyết vấn đề luôn tận dụng chúng, dùng SWOT Analysis để phân tích và cho lời khuyên. \n" +
-                "\n" +
-                "Bạn luôn tìm cách nắm trọn ý người nói muốn diễn đạt bằng cách đặt câu hỏi, sau đó phân tích rồi đưa ra nhận xét ngắn gọn dưới hình thức các câu hỏi để tôi tự trả lời.\n" +
-                "---------\n" +
-                "Bạn đang trong một cuộc họp. Bạn sẽ lắng nghe, đặt câu hỏi để làm rõ và thách thức tôi bằng các câu hỏi. Bạn hỏi tôi từng câu hỏi một để giúp tôi giải quyết vấn đề hoặc tìm ra điểm yếu, hoặc để đưa ra một ý tưởng mới hoặc giải quyết các vấn đề.";
-        return s;
-    }
-
-    public String getKnowledgeId() {
-        return knowledgeId;
-    }
-
-    public void setKnowledgeId(String knowledgeId) {
-        this.knowledgeId = knowledgeId;
-    }
-    
-    public boolean isContextInjectionEnabled() {
-        return contextInjectionEnabled;
-    }
-    
-    public void setContextInjectionEnabled(boolean enabled) {
-        this.contextInjectionEnabled = enabled;
-        // Enforce mutual exclusion
-        if (enabled && projectIndexEnabled) {
-            projectIndexEnabled = false;
-        }
-        saveConfig();
-    }
-    
-    public boolean isProjectIndexEnabled() {
-        return projectIndexEnabled;
-    }
-    
-    public void setProjectIndexEnabled(boolean enabled) {
-        this.projectIndexEnabled = enabled;
-        // Enforce mutual exclusion
-        if (enabled && contextInjectionEnabled) {
-            contextInjectionEnabled = false;
-        }
-        saveConfig();
-    }
-    
-    public String getCommitPromptTemplate() {
-        return commitPromptTemplate;
-    }
-    
-    public void setCommitPromptTemplate(String commitPromptTemplate) {
-        // Validate before setting
-        com.zps.zest.validation.CommitTemplateValidator.ValidationResult validation = 
-            com.zps.zest.validation.CommitTemplateValidator.validate(commitPromptTemplate);
-        
-        if (!validation.isValid) {
-            LOG.error("Invalid commit prompt template: " + validation.errorMessage);
-            throw new IllegalArgumentException("Invalid template: " + validation.errorMessage);
-        }
-        
-        this.commitPromptTemplate = commitPromptTemplate;
-        saveConfig();
-    }
-    
-    public String getDocsPath() {
-        return docsPath;
-    }
-    
-    public void setDocsPath(String docsPath) {
-        this.docsPath = docsPath;
-        saveConfig();
-    }
-    
-    public boolean isDocsSearchEnabled() {
-        return docsSearchEnabled;
-    }
-    
-    public void setDocsSearchEnabled(boolean docsSearchEnabled) {
-        this.docsSearchEnabled = docsSearchEnabled;
-        saveConfig();
     }
     
     /**
-     * Escapes a string for safe storage in Properties file.
-     * Handles newlines and other special characters.
+     * Get path to a .zest configuration file
      */
-    private String escapeForProperties(String input) {
-        if (input == null) return "";
-        return input.replace("\\", "\\\\")
-                   .replace("\n", "\\n")
-                   .replace("\r", "\\r")
-                   .replace("\t", "\\t")
-                   .replace("\f", "\\f");
+    public Path getZestConfigFilePath(String filename) {
+        String projectPath = project.getBasePath();
+        if (projectPath == null) return null;
+        return Paths.get(projectPath, ZEST_FOLDER, filename);
     }
     
     /**
-     * Unescapes a string loaded from Properties file.
+     * Read content from a .zest configuration file
      */
-    private String unescapeFromProperties(String input) {
-        if (input == null) return "";
-        return input.replace("\\n", "\n")
-                   .replace("\\r", "\r")
-                   .replace("\\t", "\t")
-                   .replace("\\f", "\f")
-                   .replace("\\\\", "\\");
+    public String readZestConfigFile(String filename) {
+        try {
+            Path path = getZestConfigFilePath(filename);
+            if (path != null && Files.exists(path)) {
+                return new String(Files.readAllBytes(path));
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to read " + filename, e);
+        }
+        return null;
+    }
+    
+    /**
+     * Write content to a .zest configuration file
+     */
+    public boolean writeZestConfigFile(String filename, String content) {
+        try {
+            Path path = getZestConfigFilePath(filename);
+            if (path != null) {
+                Files.createDirectories(path.getParent());
+                Files.write(path, content.getBytes());
+                return true;
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to write " + filename, e);
+        }
+        return false;
     }
 }

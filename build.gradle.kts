@@ -1,33 +1,41 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import java.time.Duration
+
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.25"
-    id("org.jetbrains.intellij") version "1.17.4"
+    id("org.jetbrains.kotlin.jvm") version "2.1.0"
+    id("org.jetbrains.intellij.platform") version "2.1.0"
 }
 
 group = "com.zps"
-version = "1.9.857-SNAPSHOT"
+version = "1.9.891"
 
 repositories {
     mavenCentral()
-}
-
-
-// Configure Gradle IntelliJ Plugin
-// Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
-intellij {
-    version.set("2024.3.4.1")
-    type.set("IC") // Target IDE Platform
-    // Add this to help with resource loading
-    sandboxDir = "$projectDir/build/idea-sandbox"
-
-    // Ensure all dependencies are included
-    downloadSources.set(true)
-    // This might help with classloader issues
-    sameSinceUntilBuild.set(false)
-    plugins.set(listOf("java"/* Plugin Dependencies */))
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
 dependencies {
+    intellijPlatform {
+        intellijIdeaCommunity("2024.3.4.1")
+
+        // Plugin Dependencies
+        bundledPlugin("com.intellij.java")
+        bundledPlugin("org.jetbrains.kotlin")
+
+        // Required for testing
+        pluginVerifier()
+        zipSigner()
+        instrumentationTools()
+
+        // IntelliJ Platform testing framework
+        testFramework(TestFrameworkType.Platform)
+        // Add Java test framework for LightJavaCodeInsightFixtureTestCase
+        testFramework(TestFrameworkType.Plugin.Java)
+    }
+
     // JUnit 4 for IntelliJ platform tests
     testImplementation("junit:junit:4.13.2")
 
@@ -36,45 +44,77 @@ dependencies {
 
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
-    // ONNX Runtime - REQUIRED for ONNX models to work
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.19.2")
 
-    // Optional but recommended for better performance
-    implementation("ai.djl:api:0.28.0")
-    implementation("ai.djl.onnxruntime:onnxruntime-engine:0.28.0")
+    // Coroutines testing
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 
-    // If you still have issues, try adding:
-//    implementation("com.microsoft.onnxruntime:onnxruntime_gpu:1.19.2")
-    // LSP4J for language server protocol support
-    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.1")
-    
+    // Kotlin Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
+
     // MCP SDK dependencies
     implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
     implementation("io.modelcontextprotocol.sdk:mcp")
     implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
-    
+
+    // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j
+    implementation("dev.langchain4j:langchain4j:1.3.0-beta9")
+
+    // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-agentic
+    implementation("dev.langchain4j:langchain4j-agentic:1.3.0-beta9")
+
+    // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-open-ai
+    implementation("dev.langchain4j:langchain4j-open-ai:1.3.0")
+
     // Javalin for REST API server
     implementation("io.javalin:javalin:5.6.3")
 
-    implementation("dev.langchain4j:langchain4j:0.35.0")
-    implementation("dev.langchain4j:langchain4j-embeddings:0.35.0")
 
-    // ONNX embedding models
-    implementation("dev.langchain4j:langchain4j-embeddings-all-minilm-l6-v2:0.35.0")
-    implementation("dev.langchain4j:langchain4j-embeddings-bge-small-en-v15-q:0.35.0")
+    // Tree-sitter for AST-based code chunking
+    implementation("io.github.bonede:tree-sitter:0.25.3")
+    implementation("io.github.bonede:tree-sitter-java:0.23.4")
+    implementation("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
+    implementation("io.github.bonede:tree-sitter-javascript:0.23.1")
+    implementation("io.github.bonede:tree-sitter-typescript:0.23.2")
 
-    // Document processing
-    implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:0.35.0")
+    // Java Diff Utils for gdiff functionality
+    implementation("io.github.java-diff-utils:java-diff-utils:4.12")
 
-    // Apache Tika
-    implementation("org.apache.tika:tika-core:2.9.2")
-    implementation("org.apache.tika:tika-parsers-standard-package:2.9.2")
-    
-    // No Lucene dependencies needed - using in-memory index instead
+    // Gson for JSON serialization (used by custom LangChain4j codec)
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
-tasks {
+intellijPlatform {
+    buildSearchableOptions = false
+    instrumentCode = false
 
+    pluginConfiguration {
+        id = "com.zps.zest"
+        name = "Zest"
+        vendor {
+            name = "ZPS"
+        }
+    }
+
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+    }
+
+    pluginVerification {
+        ides {
+            recommended()
+        }
+    }
+}
+
+
+tasks {
     // Clean task to also remove the sandbox
     clean {
         delete("$projectDir/build/idea-sandbox")
@@ -88,30 +128,148 @@ tasks {
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }
+
     // Add this to ensure resources are properly packaged
     processResources {
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
     }
-    // Configure the test task for JUnit 4 (IntelliJ platform tests)
+
+    // Configure the test task for IntelliJ platform tests
     test {
         useJUnit()
+
+        // IntelliJ Platform specific JVM arguments
+        jvmArgs(
+            "-ea", // Enable assertions
+            "-Xmx3g", // More memory for IntelliJ platform tests
+            "-XX:+UseG1GC",
+
+            // IntelliJ Platform specific properties
+            "-Djava.awt.headless=true", // Headless mode for CI
+            "-Didea.platform.prefix=Idea",
+            "-Didea.test.cyclic.buffer.size=1048576",
+
+            // Disable GUI components for testing
+            "-Djb.privacy.policy.text=<!--999.999-->",
+            "-Djb.consents.confirmation.enabled=false",
+
+            // Enable proper EDT handling
+            "-Dswing.bufferPerWindow=false",
+            "-Dsun.awt.noerasebackground=true",
+
+            // Platform testing optimizations
+            "-Didea.fatal.error.notification=disabled",
+            "-Didea.ui.icons.svg.disk.cache=false",
+
+            // Security properties for tests
+            "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.awt=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.font=ALL-UNNAMED",
+            "--add-exports=java.desktop/sun.java2d=ALL-UNNAMED",
+            "--add-exports=java.base/sun.security.util=ALL-UNNAMED"
+        )
+
+        // Test environment properties
+        systemProperties(
+            mapOf(
+                "idea.test.execution.policy" to "com.intellij.testFramework.TestExecutionPolicy",
+                "java.awt.headless" to "true",
+                "idea.test" to "true"
+            )
+        )
+
+        // Increased timeout for platform tests
+        timeout.set(Duration.ofMinutes(15))
+
+        // Test logging
         testLogging {
-            events("passed", "skipped", "failed")
+            events("started", "passed", "skipped", "failed", "standardOut", "standardError")
+            showStandardStreams = false
+            showExceptions = true
+            showStackTraces = true
+
+            afterSuite(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+                if (desc.parent == null) {
+                    val testType = "IntelliJ Platform Tests"
+                    val output =
+                        "$testType: ${result.resultType} " + "(${result.testCount} tests, " + "${result.successfulTestCount} passed, " + "${result.failedTestCount} failed, " + "${result.skippedTestCount} skipped)"
+
+                    val border = "=".repeat(output.length)
+                    println("\n$border")
+                    println(output)
+                    println("$border\n")
+
+                    if (result.failedTestCount > 0) {
+                        println("❌ Some IntelliJ platform tests failed!")
+                        println("Check test reports for detailed information")
+                    } else {
+                        println("✅ All IntelliJ platform tests passed!")
+                    }
+                }
+            }))
+        }
+
+        // Keep at 1 for EDT thread safety
+        maxParallelForks = 1
+    }
+
+    // IntelliJ-specific test tasks
+    register<Test>("testCompletion") {
+        description = "Run only completion service tests"
+        group = "verification"
+
+        useJUnit()
+        include("**/completion/**")
+
+        outputs.upToDateWhen { false } // Always run
+    }
+
+    register<Test>("testIntellij") {
+        description = "Run IntelliJ platform integration tests"
+        group = "intellij"
+
+        useJUnit()
+        include("**/*IntelliJ*")
+        include("**/integration/**")
+
+        // Extended timeout for integration tests
+        timeout.set(Duration.ofMinutes(20))
+
+        doFirst {
+            println("Running IntelliJ Platform Integration Tests...")
+        }
+    }
+
+    register<Test>("testPerformance") {
+        description = "Run performance tests"
+        group = "verification"
+
+        useJUnit()
+        include("**/*Performance*")
+
+        // Performance tests need more resources
+        maxHeapSize = "4g"
+        jvmArgs("-XX:+UnlockExperimentalVMOptions", "-XX:+UseZGC")
+
+        doFirst {
+            println("Running Performance Tests...")
+        }
+    }
+
+    // Combined completion test task
+    register("checkCompletion") {
+        group = "verification"
+        description = "Run all completion service tests and generate reports"
+
+        dependsOn("testCompletion", "testPerformance", "testIntellij")
+
+        doLast {
+            println("✅ All completion service tests completed!")
         }
     }
 
     patchPluginXml {
-        sinceBuild.set("223.0")
-        untilBuild.set("251.*") // Makes it compatible with 2024.3.x
-    }
-
-    signPlugin {
-        certificateChain.set(System.getenv("CERTIFICATE_CHAIN"))
-        privateKey.set(System.getenv("PRIVATE_KEY"))
-        password.set(System.getenv("PRIVATE_KEY_PASSWORD"))
-    }
-
-    publishPlugin {
-        token.set(System.getenv("PUBLISH_TOKEN"))
+        sinceBuild.set("243.0")
+        untilBuild.set("251.*") // Makes it compatible with 2024.3.x and beyond
     }
 }

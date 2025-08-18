@@ -1,0 +1,605 @@
+package com.zps.zest.testgen;
+
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.Service;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
+import com.zps.zest.langchain4j.ZestLangChain4jService;
+import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.testgen.agents.*;
+import com.zps.zest.testgen.model.*;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+
+/**
+ * Test Generation Service using improved LangChain4j agents.
+ * Clean workflow with proper streaming support.
+ */
+@Service(Service.Level.PROJECT)
+public final class TestGenerationService {
+    private static final Logger LOG = Logger.getInstance(TestGenerationService.class);
+    
+    /**
+     * MERGER CONFIGURATION
+     * Set to true to use the faster PSI-based merger (no LLM calls)
+     * Set to false to use the LLM-based merger with conflict resolution (default)
+     * 
+     * Can also be set via system property: -Dzest.test.merger.use_psi=true
+     */
+    private static final boolean USE_PSI_MERGER = 
+        true;
+    
+    private final Project project;
+    private final ZestLangChain4jService langChainService;
+    private final LLMService llmService;
+    
+    // Improved agents
+    private final ContextAgent contextAgent;
+    private final CoordinatorAgent coordinatorAgent;
+    private final TestWriterAgent testWriterAgent;
+    
+    // Test merger implementations
+    private final TestMergerAgent testMergerAgent;      // LLM-based, handles conflicts intelligently
+    private final PSITestMergerAgent psiTestMergerAgent; // Pure PSI, faster but no conflict handling
+    
+    // Session management
+    private final Map<String, TestGenerationSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<String, Consumer<String>> streamingConsumers = new ConcurrentHashMap<>();
+    private final Map<String, Consumer<TestGenerationSession>> completionCallbacks = new ConcurrentHashMap<>();
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+    
+    public TestGenerationService(@NotNull Project project) {
+        this.project = project;
+        this.langChainService = project.getService(ZestLangChain4jService.class);
+        this.llmService = project.getService(LLMService.class);
+        
+        // Initialize improved agents
+        this.contextAgent = new ContextAgent(project, langChainService, llmService);
+        this.coordinatorAgent = new CoordinatorAgent(project, langChainService, llmService);
+        this.testWriterAgent = new TestWriterAgent(project, langChainService, llmService);
+        
+        // Initialize both merger implementations
+        this.testMergerAgent = new TestMergerAgent(project, langChainService, llmService);
+        this.psiTestMergerAgent = new PSITestMergerAgent(project);
+        
+        LOG.info("TestGenerationService initialized with improved agents");
+    }
+    
+    /**
+     * Start test generation with streaming support.
+     * Clean, simplified workflow.
+     */
+    @NotNull
+    public CompletableFuture<TestGenerationSession> startTestGeneration(
+            @NotNull TestGenerationRequest request,
+            @Nullable Consumer<String> streamingConsumer) {
+        return startTestGeneration(request, streamingConsumer, null);
+    }
+    
+    /**
+     * Start test generation with streaming support and event listener.
+     * Clean, simplified workflow.
+     */
+    @NotNull
+    public CompletableFuture<TestGenerationSession> startTestGeneration(
+            @NotNull TestGenerationRequest request,
+            @Nullable Consumer<String> streamingConsumer,
+            @Nullable com.zps.zest.testgen.ui.StreamingEventListener eventListener) {
+        return startTestGeneration(request, streamingConsumer, eventListener, null);
+    }
+    
+    /**
+     * Start test generation with streaming support, event listener, and completion callback.
+     * Clean, simplified workflow.
+     */
+    @NotNull
+    public CompletableFuture<TestGenerationSession> startTestGeneration(
+            @NotNull TestGenerationRequest request,
+            @Nullable Consumer<String> streamingConsumer,
+            @Nullable com.zps.zest.testgen.ui.StreamingEventListener eventListener,
+            @Nullable Consumer<TestGenerationSession> completionCallback) {
+        
+        String sessionId = UUID.randomUUID().toString();
+        LOG.info("Starting test generation session: " + sessionId);
+        
+        // Register streaming consumer
+        if (streamingConsumer != null) {
+            streamingConsumers.put(sessionId, streamingConsumer);
+            setupAgentStreaming(streamingConsumer, eventListener);
+        }
+        
+        // Register completion callback
+        if (completionCallback != null) {
+            completionCallbacks.put(sessionId, completionCallback);
+        }
+        
+        // Create session
+        TestGenerationSession session = new TestGenerationSession(
+            sessionId,
+            request,
+            TestGenerationSession.Status.INITIALIZING
+        );
+        activeSessions.put(sessionId, session);
+        
+        // Execute simplified workflow
+        CompletableFuture.runAsync(() -> executeWorkflow(session), executor);
+        
+        return CompletableFuture.completedFuture(session);
+    }
+    
+    /**
+     * Execute the simplified multi-agent workflow.
+     * Each agent completes its task in one shot - no loops.
+     */
+    private void executeWorkflow(@NotNull TestGenerationSession session) {
+        try {
+            Consumer<String> streamingConsumer = streamingConsumers.get(session.getSessionId());
+            
+            // Phase 1: Context Gathering (LangChain4j handles the conversation)
+            LOG.info("Phase 1: Context Gathering");
+            session.setStatus(TestGenerationSession.Status.GATHERING_CONTEXT);
+            
+            // Create callback to update context as it's gathered
+            Consumer<Map<String, Object>> contextUpdateCallback = contextData -> {
+                if (streamingConsumer != null) {
+                    int analyzedClasses = ((Map<?, ?>) contextData.get("analyzedClasses")).size();
+                    int notes = ((List<?>) contextData.get("contextNotes")).size();
+                    int files = ((Map<?, ?>) contextData.get("readFiles")).size();
+                    streamingConsumer.accept(String.format("📚 Context updated: %d classes, %d notes, %d files\n", 
+                        analyzedClasses, notes, files));
+                }
+            };
+            
+            TestContext context = contextAgent.gatherContext(
+                session.getRequest(),
+                null,
+                session.getSessionId(),
+                contextUpdateCallback
+            ).join();
+            
+            session.setContext(context);
+            LOG.info("Context gathered with " + context.getContextItemCount() + " items");
+            
+            // Phase 2: Test Planning (Single response with all scenarios)
+            LOG.info("Phase 2: Test Planning");
+            session.setStatus(TestGenerationSession.Status.PLANNING);
+            
+            // Create callback to update session's test plan as scenarios are added
+            Consumer<TestPlan> planUpdateCallback = partialPlan -> {
+                session.setTestPlan(partialPlan);
+                if (streamingConsumer != null) {
+                    streamingConsumer.accept("📊 Test plan updated: " + partialPlan.getScenarioCount() + " scenarios\n");
+                }
+            };
+            
+            TestPlan testPlan = coordinatorAgent.planTests(
+                session.getRequest(),
+                context,
+                planUpdateCallback
+            ).join();
+            
+            session.setTestPlan(testPlan);
+            LOG.info("Test plan created with " + testPlan.getScenarioCount() + " scenarios");
+            
+            // Phase 3: User Selection (Human-in-the-loop)
+            if (testPlan.getScenarioCount() > 0) {
+                LOG.info("Phase 3: Awaiting user scenario selection");
+                session.setStatus(TestGenerationSession.Status.AWAITING_USER_SELECTION);
+                
+                // The UI will call continueWithSelectedScenarios
+                // For now, we pause here and wait for user input
+                return;
+            }
+            
+            // If no user selection needed, continue with all scenarios
+            continueGenerationWithScenarios(session, testPlan.getTestScenarios());
+            
+        } catch (Exception e) {
+            LOG.error("Workflow execution failed", e);
+            session.setStatus(TestGenerationSession.Status.FAILED);
+            session.addError("Workflow failed: " + e.getMessage());
+            
+            // Show error dialog to user
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showErrorDialog(
+                    project,
+                    "Test workflow execution failed:\n" + e.getMessage() + 
+                    "\n\nPlease check the logs for more details.",
+                    "Test Generation Error"
+                );
+            });
+        }
+    }
+    
+    /**
+     * Continue generation after user selects scenarios.
+     */
+    public void continueWithSelectedScenarios(@NotNull String sessionId, 
+                                             @NotNull List<TestPlan.TestScenario> selectedScenarios) {
+        continueWithSelectedScenarios(sessionId, selectedScenarios, null);
+    }
+    
+    /**
+     * Continue generation after user selects scenarios with event listener support.
+     */
+    public void continueWithSelectedScenarios(@NotNull String sessionId, 
+                                             @NotNull List<TestPlan.TestScenario> selectedScenarios,
+                                             @Nullable com.zps.zest.testgen.ui.StreamingEventListener eventListener) {
+        TestGenerationSession session = activeSessions.get(sessionId);
+        if (session == null) {
+            LOG.error("Session not found: " + sessionId);
+            return;
+        }
+        
+        LOG.info("User selected " + selectedScenarios.size() + " scenarios for test generation");
+        
+        // The filtered plan will be created in continueGenerationWithScenarios
+        // We keep the original plan in the session for reference
+        
+        // Execute asynchronously to avoid blocking the UI thread
+        CompletableFuture.runAsync(() -> {
+            continueGenerationWithScenarios(session, selectedScenarios, eventListener);
+        }, executor);
+    }
+    
+    /**
+     * Continue generation with selected scenarios.
+     */
+    private void continueGenerationWithScenarios(@NotNull TestGenerationSession session,
+                                                 @NotNull List<TestPlan.TestScenario> scenarios) {
+        continueGenerationWithScenarios(session, scenarios, null);
+    }
+    
+    /**
+     * Continue generation with selected scenarios with event listener support.
+     */
+    private void continueGenerationWithScenarios(@NotNull TestGenerationSession session,
+                                                 @NotNull List<TestPlan.TestScenario> scenarios,
+                                                 @Nullable com.zps.zest.testgen.ui.StreamingEventListener eventListener) {
+        try {
+            // Re-setup streaming if needed
+            Consumer<String> streamingConsumer = streamingConsumers.get(session.getSessionId());
+            if (streamingConsumer != null) {
+                setupAgentStreaming(streamingConsumer, eventListener);
+            }
+            
+            // Phase 4: Test Generation (Complete test class in one response)
+            LOG.info("Phase 4: Test Generation for " + scenarios.size() + " selected scenarios");
+            session.setStatus(TestGenerationSession.Status.GENERATING);
+            
+            TestPlan originalPlan = session.getTestPlan();
+            TestContext context = session.getContext();
+            
+            if (originalPlan == null || context == null) {
+                throw new IllegalStateException("Missing test plan or context");
+            }
+            
+            // Create a filtered test plan with only the selected scenarios
+            TestPlan filteredPlan = new TestPlan(
+                originalPlan.getTargetMethods(),
+                originalPlan.getTargetClass(),
+                scenarios, // Use only the selected scenarios
+                originalPlan.getDependencies(),
+                originalPlan.getRecommendedTestType(),
+                originalPlan.getReasoning() + "\n[User selected " + scenarios.size() + " of " + 
+                    originalPlan.getScenarioCount() + " scenarios]"
+            );
+            
+            // Generate tests only for the selected scenarios
+            testWriterAgent.generateTests(
+                filteredPlan, // Use the filtered plan
+                context
+            ).thenCompose(result -> {
+                session.setTestGenerationResult(result);
+                LOG.info("Generated " + result.getMethodCount() + " test(s)");
+                
+                // Phase 5: Merging (always merge to create complete test class)
+                LOG.info("Phase 5: Merging tests into complete class");
+                session.setStatus(TestGenerationSession.Status.MERGING);
+                
+                /*
+                 * ========== MERGE STRATEGY SELECTION ==========
+                 * 
+                 * Option 1: LLM-based merger (DEFAULT - RECOMMENDED)
+                 * - Intelligently handles conflicts with existing test files
+                 * - Prevents duplicate test methods
+                 * - Properly merges imports and resolves conflicts
+                 * - Uses AI to handle complex merge scenarios
+                 * 
+                 * USE WHEN: 
+                 * - Test file might already exist
+                 * - Merging with existing test code
+                 * - Need intelligent conflict resolution
+                 * - Production usage
+                 * 
+                 * Option 2: PSI-based merger (FASTER - EXPERIMENTAL)
+                 * - Pure IntelliJ PSI manipulation, no LLM calls
+                 * - Much faster (no API calls) and no usage costs
+                 * - Creates new test files well
+                 * 
+                 * ⚠️ LIMITATIONS:
+                 * - Does NOT check for existing test files
+                 * - May create duplicate methods if file exists
+                 * - No conflict resolution
+                 * 
+                 * USE WHEN:
+                 * - Creating brand new test files only
+                 * - 100% certain no test file exists
+                 * - Want to minimize LLM usage
+                 * 
+                 * To switch: Set USE_PSI_MERGER constant above or use -Dzest.test.merger.use_psi=true
+                 */
+                
+                if (USE_PSI_MERGER) {
+                    LOG.info("Using PSI-based merger (no conflict detection)");
+                    return psiTestMergerAgent.mergeTests(
+                        result,
+                        context
+                    ).thenAccept(mergedTestClass -> {
+                        // Store the merged test class in the session
+                        session.setMergedTestClass(mergedTestClass);
+                        
+                        // Complete
+                        session.setStatus(TestGenerationSession.Status.COMPLETED);
+                        LOG.info("Test generation completed successfully with " + 
+                                 mergedTestClass.getMethodCount() + " test methods (PSI merger)");
+                        
+                        // Trigger completion callback
+                        triggerCompletionCallback(session);
+                    }).exceptionally(throwable -> {
+                        LOG.error("PSI merger failed", throwable);
+                        session.setStatus(TestGenerationSession.Status.FAILED);
+                        String errorMsg = "Test merging failed: " + throwable.getMessage();
+                        session.addError(errorMsg);
+                        
+                        // Show error dialog to user
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(
+                                project,
+                                "Failed to merge test methods:\n" + throwable.getMessage() + 
+                                "\n\nPlease check the logs for more details.",
+                                "Test Generation Error"
+                            );
+                        });
+                        return null;
+                    });
+                } else {
+                    LOG.info("Using LLM-based merger (with conflict resolution)");
+                    return testMergerAgent.mergeTests(
+                        result,
+                        context
+                    ).thenAccept(mergedTestClass -> {
+                        // Store the merged test class in the session
+                        session.setMergedTestClass(mergedTestClass);
+                        
+                        // Complete
+                        session.setStatus(TestGenerationSession.Status.COMPLETED);
+                        LOG.info("Test generation completed successfully with " + 
+                                 mergedTestClass.getMethodCount() + " test methods (LLM merger)");
+                        
+                        // Trigger completion callback
+                        triggerCompletionCallback(session);
+                    }).exceptionally(throwable -> {
+                        LOG.error("LLM merger failed", throwable);
+                        session.setStatus(TestGenerationSession.Status.FAILED);
+                        String errorMsg = "Test merging failed: " + throwable.getMessage();
+                        session.addError(errorMsg);
+                        
+                        // Show error dialog to user
+                        ApplicationManager.getApplication().invokeLater(() -> {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(
+                                project,
+                                "Failed to merge test methods:\n" + throwable.getMessage() + 
+                                "\n\nPlease check the logs for more details.",
+                                "Test Generation Error"
+                            );
+                        });
+                        return null;
+                    });
+                }
+            }).exceptionally(throwable -> {
+                LOG.error("Test generation failed", throwable);
+                session.setStatus(TestGenerationSession.Status.FAILED);
+                session.addError("Generation failed: " + throwable.getMessage());
+                
+                // Show error dialog to user
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    com.intellij.openapi.ui.Messages.showErrorDialog(
+                        project,
+                        "Test generation failed:\n" + throwable.getMessage() + 
+                        "\n\nPlease check the logs for more details.",
+                        "Test Generation Error"
+                    );
+                });
+                return null;
+            });
+            
+        } catch (Exception e) {
+            LOG.error("Test generation failed", e);
+            session.setStatus(TestGenerationSession.Status.FAILED);
+            session.addError("Generation failed: " + e.getMessage());
+            
+            // Show error dialog to user
+            ApplicationManager.getApplication().invokeLater(() -> {
+                Messages.showErrorDialog(
+                    project,
+                    "Test generation failed:\n" + e.getMessage() + 
+                    "\n\nPlease check the logs for more details.",
+                    "Test Generation Error"
+                );
+            });
+        }
+    }
+    
+    /**
+     * Setup streaming for all agents.
+     */
+    private void setupAgentStreaming(@NotNull Consumer<String> streamingConsumer) {
+        setupAgentStreaming(streamingConsumer, null);
+    }
+    
+    /**
+     * Setup streaming for all agents with event listener.
+     */
+    private void setupAgentStreaming(@NotNull Consumer<String> streamingConsumer,
+                                    @Nullable com.zps.zest.testgen.ui.StreamingEventListener eventListener) {
+        contextAgent.setStreamingConsumer(streamingConsumer);
+        coordinatorAgent.setStreamingConsumer(streamingConsumer);
+        testWriterAgent.setStreamingConsumer(streamingConsumer);
+        testMergerAgent.setStreamingConsumer(streamingConsumer);
+        
+        if (eventListener != null) {
+            contextAgent.setEventListener(eventListener);
+            coordinatorAgent.setEventListener(eventListener);
+            testWriterAgent.setEventListener(eventListener);
+            testMergerAgent.setEventListener(eventListener);
+        }
+    }
+    
+    /**
+     * Get a session by ID.
+     */
+    @Nullable
+    public TestGenerationSession getSession(@NotNull String sessionId) {
+        return activeSessions.get(sessionId);
+    }
+    
+    /**
+     * Cancel a session.
+     */
+    public void cancelSession(@NotNull String sessionId) {
+        TestGenerationSession session = activeSessions.get(sessionId);
+        if (session != null) {
+            session.setStatus(TestGenerationSession.Status.CANCELLED);
+            LOG.info("Session cancelled: " + sessionId);
+        }
+    }
+    
+    /**
+     * Write generated tests to files.
+     * Uses the MergedTestResult from TestMergerAgent which already contains complete test classes.
+     */
+    @NotNull
+    public CompletableFuture<List<String>> writeTestsToFiles(@NotNull String sessionId) {
+        return CompletableFuture.supplyAsync(() -> {
+            TestGenerationSession session = activeSessions.get(sessionId);
+            if (session == null) {
+                LOG.warn("Session not found: " + sessionId);
+                return Collections.emptyList();
+            }
+            
+            List<String> writtenFiles = new ArrayList<>();
+            
+            // Write the merged test class
+            MergedTestClass mergedTest = session.getMergedTestClass();
+            if (mergedTest != null) {
+                try {
+                    String filePath = writeMergedTestToFile(mergedTest);
+                    writtenFiles.add(filePath);
+                    LOG.info("Wrote merged test class: " + mergedTest.getClassName() + 
+                             " with " + mergedTest.getMethodCount() + " test methods");
+                } catch (Exception e) {
+                    LOG.error("Failed to write merged test class: " + mergedTest.getClassName(), e);
+                }
+            } else {
+                LOG.warn("No merged test class to write for session: " + sessionId);
+            }
+            
+            return writtenFiles;
+        });
+    }
+
+
+    /**
+     * Write a merged test class to file.
+     * The merged test contains the complete, formatted Java file.
+     */
+    private String writeMergedTestToFile(@NotNull MergedTestClass mergedTest) {
+        try {
+            // Use standard Maven/Gradle test directory structure
+            String basePath = project.getBasePath();
+            if (basePath == null) {
+                throw new IllegalStateException("Project base path is null");
+            }
+            
+            // Try standard test source root first
+            String testSourceRoot = basePath + "/src/test/java";
+            java.io.File testDir = new java.io.File(testSourceRoot);
+            
+            if (!testDir.exists()) {
+                // Fallback to simple test directory
+                testSourceRoot = basePath + "/test";
+                testDir = new java.io.File(testSourceRoot);
+                if (!testDir.exists()) {
+                    testDir.mkdirs();
+                }
+            }
+            
+            // Create package directories
+            String packagePath = mergedTest.getPackageName().replace('.', java.io.File.separatorChar);
+            java.io.File packageDir = new java.io.File(testDir, packagePath);
+            if (!packageDir.exists()) {
+                packageDir.mkdirs();
+            }
+            
+            // Write the test file
+            java.io.File testFile = new java.io.File(packageDir, mergedTest.getFileName());
+            try (java.io.FileWriter writer = new java.io.FileWriter(testFile)) {
+                writer.write(mergedTest.getFullContent());
+            }
+            
+            LOG.info("Merged test class written to: " + testFile.getAbsolutePath());
+            return testFile.getAbsolutePath();
+            
+        } catch (Exception e) {
+            LOG.error("Failed to write merged test class: " + mergedTest.getClassName(), e);
+            throw new RuntimeException("Failed to write merged test class", e);
+        }
+    }
+    
+    /**
+     * Clean up old sessions.
+     */
+    public void cleanupOldSessions() {
+        long cutoffTime = System.currentTimeMillis() - (24 * 60 * 60 * 1000); // 24 hours
+        
+        activeSessions.entrySet().removeIf(entry -> {
+            TestGenerationSession session = entry.getValue();
+            if (session.getCreatedAt() < cutoffTime) {
+                streamingConsumers.remove(entry.getKey());
+                completionCallbacks.remove(entry.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
+    
+    /**
+     * Trigger the completion callback for a session if one is registered.
+     */
+    private void triggerCompletionCallback(@NotNull TestGenerationSession session) {
+        Consumer<TestGenerationSession> callback = completionCallbacks.get(session.getSessionId());
+        if (callback != null) {
+            try {
+                // Execute callback on EDT to ensure UI updates are safe
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    callback.accept(session);
+                });
+                
+                // Remove callback after use
+                completionCallbacks.remove(session.getSessionId());
+            } catch (Exception e) {
+                LOG.error("Error executing completion callback for session: " + session.getSessionId(), e);
+            }
+        }
+    }
+}

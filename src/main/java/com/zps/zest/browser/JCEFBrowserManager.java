@@ -7,17 +7,21 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.ui.jcef.*;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.jcef.JCEFInitializer;
+import com.zps.zest.browser.jcef.JCEFResourceManager;
 import org.cef.CefApp;
 import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
 
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Disposer;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.lang.management.ManagementFactory;
 
 import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
 
@@ -25,7 +29,7 @@ import static com.intellij.ui.jcef.JBCefClient.Properties.JS_QUERY_POOL_SIZE;
  * Manages the JCEF browser instance and provides a simplified API for browser interactions.
  */
 @SuppressWarnings("removal")
-public class JCEFBrowserManager {
+public class JCEFBrowserManager implements Disposable {
     // Static initializer to ensure CEF is configured before any usage
     static {
         JCEFInitializer.initialize();
@@ -73,6 +77,9 @@ public class JCEFBrowserManager {
         browserBuilder.setUrl(initialUrl);
         
         browser = browserBuilder.build();
+        
+        // Register browser with resource manager for proper tracking and disposal
+        JCEFResourceManager.getInstance().registerBrowser(browser, project);
         
         // Force enable cookies and local storage at the browser level
         browser.getCefBrowser().executeJavaScript(
@@ -386,25 +393,36 @@ public class JCEFBrowserManager {
 
     private void setupJavaScriptBridge(CefBrowser cefBrowser, CefFrame frame) {
         try {
-            LOG.info("Setting up JavaScript bridge for frame: " + frame.getURL());
+            String frameUrl = frame.getURL();
+            LOG.info("Setting up JavaScript bridge for frame: " + frameUrl);
             
-            // Inject auth token from ConfigurationManager before setting up the bridge
-            injectAuthToken(cefBrowser, frame);
+            // Check if this is the Git UI page - if so, only inject minimal scripts
+            boolean isGitUI = frameUrl.contains("git-ui.html") || 
+                            (frameUrl.startsWith("data:") && (frameUrl.contains("Git Operations") || frameUrl.contains("Git%20Operations")));
+            boolean isLocalFile = frameUrl.startsWith("file://") || frameUrl.startsWith("jar:file://") || frameUrl.startsWith("data:");
+            
+            // For local files, don't inject auth tokens or cookie persistence
+            if (!isLocalFile) {
+                // Inject auth token from ConfigurationManager before setting up the bridge
+                injectAuthToken(cefBrowser, frame);
+            }
 
-            // Create a JS query
-            jsQuery = JBCefJSQuery.create((JBCefBrowserBase) browser);
+            // Create a JS query only if not already created
+            if (jsQuery == null) {
+                jsQuery = JBCefJSQuery.create((JBCefBrowserBase) browser);
 
-            // Add a handler for the query
-            jsQuery.addHandler((query) -> {
-                try {
-                    // Process the query using the JavaScriptBridge (now with chunked messaging support)
-                    String result = jsBridge.handleJavaScriptQuery(query);
-                    return new JBCefJSQuery.Response(result);
-                } catch (Exception e) {
-                    LOG.error("Error handling JavaScript query", e);
-                    return new JBCefJSQuery.Response(null, 500, e.getMessage());
-                }
-            });
+                // Add a handler for the query
+                jsQuery.addHandler((query) -> {
+                    try {
+                        // Process the query using the JavaScriptBridge (now with chunked messaging support)
+                        String result = jsBridge.handleJavaScriptQuery(query);
+                        return new JBCefJSQuery.Response(result);
+                    } catch (Exception e) {
+                        LOG.error("Error handling JavaScript query", e);
+                        return new JBCefJSQuery.Response(null, 500, e.getMessage());
+                    }
+                });
+            }
 
             // Load the bridge script template
             String bridgeScript = loadResourceAsString("/js/intellijBridgeChunked.js");
@@ -437,51 +455,54 @@ public class JCEFBrowserManager {
             // Replace the chunk placeholder
             bridgeScript = bridgeScript.replace("[[JBCEF_CHUNK_INJECT]]", chunkQueryInject);
 
-            // Inject the bridge script
+            // Always inject the bridge script
             cefBrowser.executeJavaScript(bridgeScript, frame.getURL(), 0);
 
-            // Load and inject the response parser script
-            String responseParserScript = loadResourceAsString("/js/responseParser.js");
-            cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
+            // For Git UI, no additional scripts needed - it's self-contained
+            if (isGitUI) {
+                LOG.info("Git UI page detected - no additional scripts needed");
+            } else {
+                // For non-Git UI pages, inject all scripts
+                
+                // Load and inject the response parser script
+                String responseParserScript = loadResourceAsString("/js/responseParser.js");
+                cefBrowser.executeJavaScript(responseParserScript, frame.getURL(), 0);
 
-            // Load and inject the code extractor script
-            String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
-            cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
+                // Load and inject the code extractor script
+                String codeExtractorScript = loadResourceAsString("/js/codeExtractor.js");
+                cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
+                
+                // Load and inject the exploration UI script
+                String explorationUIScript = loadResourceAsString("/js/explorationUI.js");
+                cefBrowser.executeJavaScript(explorationUIScript, frame.getURL(), 0);
+                
+                // Load and inject the context debugger script
+                String contextDebuggerScript = loadResourceAsString("/js/contextDebugger.js");
+                cefBrowser.executeJavaScript(contextDebuggerScript, frame.getURL(), 0);
 
-            // Load and inject the git integration scripts
-            String gitScript = loadResourceAsString("/js/git.js");
-            cefBrowser.executeJavaScript(gitScript, frame.getURL(), 0);
+                // Load and inject the context toggle script
+                String contextToggleScript = loadResourceAsString("/js/context-toggle.js");
+                cefBrowser.executeJavaScript(contextToggleScript, frame.getURL(), 0);
 
-            String gitUIScript = loadResourceAsString("/js/git-ui.js");
-            cefBrowser.executeJavaScript(gitUIScript, frame.getURL(), 0);
-            
-            // Load and inject the exploration UI script
-            String explorationUIScript = loadResourceAsString("/js/explorationUI.js");
-            cefBrowser.executeJavaScript(explorationUIScript, frame.getURL(), 0);
-            
-            // Load and inject the context debugger script
-            String contextDebuggerScript = loadResourceAsString("/js/contextDebugger.js");
-            cefBrowser.executeJavaScript(contextDebuggerScript, frame.getURL(), 0);
+                // Load and inject the knowledge API script
+                String knowledgeApiScript = loadResourceAsString("/js/knowledgeApi.js");
+                cefBrowser.executeJavaScript(knowledgeApiScript, frame.getURL(), 0);
 
-            // Load and inject the context toggle script
-            String contextToggleScript = loadResourceAsString("/js/context-toggle.js");
-            cefBrowser.executeJavaScript(contextToggleScript, frame.getURL(), 0);
-            
-            // Load and inject the project index button script
-            String indexButtonScript = loadResourceAsString("/js/index-button.js");
-            cefBrowser.executeJavaScript(indexButtonScript, frame.getURL(), 0);
-            
-            // Load and inject the knowledge API script
-            String knowledgeApiScript = loadResourceAsString("/js/knowledgeApi.js");
-            cefBrowser.executeJavaScript(knowledgeApiScript, frame.getURL(), 0);
+                // Load and inject the tool injector script
+                String toolInjectorScript = loadResourceAsString("/js/tool-injector.js");
+                cefBrowser.executeJavaScript(toolInjectorScript, frame.getURL(), 0);
 
-            // Ensure cookie persistence
-            ensureCookiePersistence();
-            
-            // Try to restore any saved browser state
-            restoreBrowserState();
+                // Only ensure cookie persistence for non-local files
+                if (!isLocalFile) {
+                    // Ensure cookie persistence
+                    ensureCookiePersistence();
+                    
+                    // Try to restore any saved browser state
+                    restoreBrowserState();
+                }
+            }
 
-            LOG.info("JavaScript bridge initialized successfully with chunked messaging support and git integration");
+            LOG.info("JavaScript bridge initialized successfully");
         } catch (Exception e) {
             LOG.error("Failed to setup JavaScript bridge", e);
         }
@@ -552,10 +573,42 @@ public class JCEFBrowserManager {
 
         // Dispose JavaScript query
         if (jsQuery != null) {
-            Disposer.dispose(jsQuery);
+            try {
+                Disposer.dispose(jsQuery);
+            } catch (Exception e) {
+                LOG.warn("Error disposing jsQuery", e);
+            }
+            jsQuery = null;
         }
 
+        // Close dev tools if open
         closeDevTools();
+        
+        // Dispose the browser properly using IntelliJ's disposal mechanism
+        if (browser != null) {
+            try {
+                // First, navigate to about:blank to stop any running JavaScript
+                browser.getCefBrowser().loadURL("about:blank");
+                
+                // Give it a moment to stop
+                Thread.sleep(100);
+                
+                // Properly close the browser
+                browser.getCefBrowser().close(true);
+                
+                // Wait a bit for the close to complete
+                Thread.sleep(200);
+                
+                // Dispose the browser using IntelliJ's Disposer
+                Disposer.dispose(browser);
+                
+                // Force garbage collection to help clean up native resources
+                System.gc();
+                
+            } catch (Exception e) {
+                LOG.warn("Error disposing browser", e);
+            }
+        }
 
         LOG.info("JCEFBrowserManager disposed");
     }

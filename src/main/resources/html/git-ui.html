@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Git Operations</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f5;
+            color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        body.dark {
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        
+        .git-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .git-header {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .dark .git-header {
+            background: #2d2d2d;
+            border-bottom-color: #444;
+        }
+        
+        .git-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        .files-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        .commit-panel {
+            width: 400px;
+            border-left: 1px solid #e0e0e0;
+            background: white;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .dark .commit-panel {
+            background: #2d2d2d;
+            border-left-color: #444;
+        }
+        
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            margin-bottom: 4px;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        
+        .dark .file-item {
+            background: #2d2d2d;
+        }
+        
+        .file-item:hover {
+            border-color: #3b82f6;
+            transform: translateX(2px);
+            cursor: pointer;
+        }
+        
+        .file-item:hover .file-name::after {
+            content: ' (click to view diff)';
+            font-size: 11px;
+            color: #3b82f6;
+            font-weight: normal;
+        }
+        
+        .file-status {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            margin-right: 12px;
+        }
+        
+        .status-M { background: #fef3c7; color: #92400e; }
+        .status-A { background: #dcfce7; color: #166534; }
+        .status-D { background: #fee2e2; color: #991b1b; }
+        .status-R { background: #e0e7ff; color: #3730a3; }
+        .status-C { background: #f3e8ff; color: #7c3aed; }
+        
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .file-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .file-dir {
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .dark .file-dir {
+            color: #999;
+        }
+        
+        .file-checkbox {
+            margin-right: 12px;
+            width: 16px;
+            height: 16px;
+            accent-color: #3b82f6;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #2563eb;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        
+        .dark .btn-secondary {
+            background: #4b5563;
+            color: #d1d5db;
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: #d1d5db;
+        }
+        
+        .dark .btn-secondary:hover:not(:disabled) {
+            background: #6b7280;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .commit-message-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+        
+        .commit-message {
+            flex: 1;
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s;
+            min-height: 100px;
+        }
+        
+        .commit-message.streaming {
+            border-color: #3b82f6;
+            background: linear-gradient(90deg, 
+                rgba(59, 130, 246, 0.05) 0%, 
+                rgba(59, 130, 246, 0.1) 50%, 
+                rgba(59, 130, 246, 0.05) 100%);
+            background-size: 200% 100%;
+            animation: streaming 2s ease-in-out infinite;
+        }
+        
+        @keyframes streaming {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        .dark .commit-message {
+            background: #1e1e1e;
+            border-color: #4b5563;
+            color: #d4d4d4;
+        }
+        
+        .commit-message:focus {
+            border-color: #3b82f6;
+        }
+        
+        .status-bar {
+            padding: 8px 12px;
+            background: #e5e7eb;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .dark .status-bar {
+            background: #374151;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .message-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .message-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .message-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6b7280;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        
+        .select-all-container {
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .dark .select-all-container {
+            background: #2d2d2d;
+        }
+        
+        .file-count {
+            font-size: 13px;
+            color: #6b7280;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .git-content {
+                flex-direction: column;
+            }
+            
+            .commit-panel {
+                width: 100%;
+                border-left: none;
+                border-top: 1px solid #e0e0e0;
+            }
+            
+            .dark .commit-panel {
+                border-top-color: #444;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="git-container">
+        <div class="git-header">
+            <h2 style="margin: 0; font-size: 20px;">Git Operations</h2>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="GitUI.refreshFiles()">
+                    <span>🔄</span> Refresh
+                </button>
+                <button class="btn btn-primary" onclick="GitUI.reviewSelected()" id="review-btn" disabled>
+                    <span>🔍</span> Code Health Review
+                </button>
+            </div>
+        </div>
+        
+        <div class="git-content">
+            <div class="files-panel">
+                <div id="status-message"></div>
+                
+                <div class="select-all-container">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="select-all" class="file-checkbox" onchange="GitUI.toggleSelectAll()">
+                        <span style="margin-left: 8px; font-weight: 500;">Select All</span>
+                    </label>
+                    <span class="file-count" id="file-count">0 files</span>
+                </div>
+                
+                <div id="file-list-container">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading changed files...
+                    </div>
+                </div>
+            </div>
+            
+            <div class="commit-panel">
+                <h3 style="margin: 0 0 15px 0;">Commit Details</h3>
+                
+                <div class="status-bar">
+                    <span id="selected-count">0 files selected</span>
+                </div>
+                
+                <div class="commit-message-area">
+                    <label style="font-weight: 500; margin-bottom: 8px;">Commit Message</label>
+                    <textarea id="commit-message" class="commit-message" 
+                              placeholder="Enter your commit message..."></textarea>
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="GitUI.generateMessage()" id="generate-btn">
+                        <span>✨</span> Generate
+                    </button>
+                    <button class="btn btn-primary" onclick="GitUI.commit(false)" id="commit-btn" disabled>
+                        <span>💾</span> Commit
+                    </button>
+                    <button class="btn btn-primary" onclick="GitUI.commit(true)" id="push-btn" disabled>
+                        <span>🚀</span> Push
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Check for dark mode
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.body.classList.add('dark');
+        }
+        
+        // GitUtils - Git file parsing and utilities
+        window.GitUtils = {
+            /**
+             * Parse changed files from git status output
+             */
+            parseChangedFiles: function(changedFiles) {
+                if (!changedFiles || typeof changedFiles !== 'string') {
+                    return [];
+                }
+                
+                const lines = changedFiles.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+                    .split('\n').filter(line => line.trim().length > 0);
+                
+                const parsedFiles = [];
+                
+                lines.forEach(line => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+                    
+                    let status = '';
+                    let filePath = '';
+                    
+                    // Tab-separated format
+                    if (trimmedLine.includes('\t')) {
+                        const parts = trimmedLine.split('\t');
+                        if (parts.length >= 2) {
+                            status = parts[0].trim();
+                            filePath = parts.slice(1).join('\t').trim();
+                            // Remove quotes from paths with spaces
+                            if (filePath.startsWith('"') && filePath.endsWith('"')) {
+                                filePath = filePath.slice(1, -1);
+                            }
+                        }
+                    }
+                    
+                    // Git status porcelain format
+                    if (!status && !filePath && trimmedLine.length >= 3) {
+                        const statusChars = trimmedLine.substring(0, 2);
+                        const filenamePart = trimmedLine.substring(3);
+                        
+                        if (statusChars === '??') {
+                            status = 'A';
+                            filePath = filenamePart.trim();
+                        } else {
+                            let primaryStatus = '';
+                            if (statusChars[1] !== ' ' && /[MADRC]/.test(statusChars[1])) {
+                                primaryStatus = statusChars[1];
+                            } else if (statusChars[0] !== ' ' && /[MADRC]/.test(statusChars[0])) {
+                                primaryStatus = statusChars[0];
+                            }
+                            
+                            if (primaryStatus && filenamePart.trim()) {
+                                status = primaryStatus;
+                                filePath = filenamePart.trim();
+                            }
+                        }
+                    }
+                    
+                    if (status && filePath && /^[MADRC]$/.test(status)) {
+                        parsedFiles.push({ status, filePath });
+                    }
+                });
+                
+                return parsedFiles;
+            },
+            
+            /**
+             * Get status color for UI display
+             */
+            getStatusColor: function(status) {
+                switch (status) {
+                    case 'M': return { bg: '#fef3c7', text: '#92400e' };
+                    case 'A': return { bg: '#dcfce7', text: '#166534' };
+                    case 'D': return { bg: '#fee2e2', text: '#991b1b' };
+                    case 'R': return { bg: '#e0e7ff', text: '#3730a3' };
+                    case 'C': return { bg: '#f3e8ff', text: '#7c3aed' };
+                    default: return { bg: '#f3f4f6', text: '#374151' };
+                }
+            },
+            
+            /**
+             * Get status description
+             */
+            getStatusDescription: function(status) {
+                switch (status) {
+                    case 'M': return 'Modified';
+                    case 'A': return 'Added/New';
+                    case 'D': return 'Deleted';
+                    case 'R': return 'Renamed';
+                    case 'C': return 'Copied';
+                    default: return 'Unknown';
+                }
+            }
+        };
+        
+        // Check if GitUI already exists to prevent duplicate declaration
+        if (window.GitUI) {
+            console.log('GitUI already exists, skipping initialization');
+        } else {
+            // Git UI object
+            window.GitUI = {
+            files: [],
+            
+            init: function() {
+                // Notify IntelliJ that Git UI is ready
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('contentUpdated', {
+                        url: window.location.href,
+                        type: 'git-ui-ready'
+                    }).catch(e => console.warn('Failed to notify content update:', e));
+                }
+                this.loadFiles();
+            },
+            
+            loadFiles: function() {
+                console.log('Loading git files...');
+                const container = document.getElementById('file-list-container');
+                
+                // Show loading state
+                container.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading changed files...
+                    </div>
+                `;
+                
+                // Request files from IntelliJ bridge
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    // Add timeout to prevent infinite loading
+                    const timeoutId = setTimeout(() => {
+                        console.error('Git status request timed out');
+                        this.showMessage('Request timed out. Please refresh.', 'error');
+                        container.innerHTML = `
+                            <div class="empty-state">
+                                <div class="empty-state-icon">⚠️</div>
+                                <div style="font-weight: 500; margin-bottom: 8px;">Failed to load files</div>
+                                <div style="font-size: 14px;">Please click Refresh to try again</div>
+                            </div>
+                        `;
+                    }, 5000); // 5 second timeout
+                    
+                    // Store timeout for cleanup
+                    container._loadTimeout = timeoutId;
+                    
+                    window.intellijBridge.callIDE('getGitStatus')
+                        .then(response => {
+                            clearTimeout(timeoutId);
+                            if (response && response.changedFiles) {
+                                this.updateFileList(response.changedFiles);
+                            } else {
+                                console.warn('No changed files in response');
+                                this.updateFileList('');
+                            }
+                        })
+                        .catch(error => {
+                            clearTimeout(timeoutId);
+                            console.error('Error loading git status:', error);
+                            this.showMessage('Failed to load git status', 'error');
+                            container.innerHTML = `
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">❌</div>
+                                    <div style="font-weight: 500; margin-bottom: 8px;">Error loading files</div>
+                                    <div style="font-size: 14px;">${error.message || 'Unknown error'}</div>
+                                </div>
+                            `;
+                        });
+                } else {
+                    console.error('IntelliJ Bridge not available');
+                    this.showMessage('IntelliJ Bridge not available', 'error');
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔌</div>
+                            <div style="font-weight: 500; margin-bottom: 8px;">Bridge not connected</div>
+                            <div style="font-size: 14px;">Please ensure the IntelliJ bridge is loaded</div>
+                        </div>
+                    `;
+                }
+            },
+            
+            updateFileList: function(changedFilesStr) {
+                // Use GitUtils to parse files
+                if (window.GitUtils) {
+                    const parsedFiles = GitUtils.parseChangedFiles(changedFilesStr);
+                    this.files = parsedFiles;
+                    this.renderFileList();
+                }
+            },
+            
+            renderFileList: function() {
+                const container = document.getElementById('file-list-container');
+                const fileCount = document.getElementById('file-count');
+                
+                fileCount.textContent = this.files.length + ' file' + (this.files.length !== 1 ? 's' : '');
+                
+                if (this.files.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📁</div>
+                            <div style="font-weight: 500; margin-bottom: 8px;">No changed files</div>
+                            <div style="font-size: 14px;">All files are up to date</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                container.innerHTML = this.files.map((file, index) => {
+                    const parts = file.filePath.split('/');
+                    const fileName = parts.pop();
+                    const dirPath = parts.join('/');
+                    
+                    const statusInfo = GitUtils.getStatusColor(file.status);
+                    const statusDesc = GitUtils.getStatusDescription(file.status);
+                    
+                    return `
+                        <div class="file-item" onclick="GitUI.toggleFile(${index})">
+                            <input type="checkbox" class="file-checkbox" data-index="${index}" 
+                                   onclick="event.stopPropagation()" onchange="GitUI.updateSelection()" checked>
+                            <div class="file-status status-${file.status}" title="${statusDesc}">
+                                ${file.status}
+                            </div>
+                            <div class="file-info">
+                                <div class="file-name">${this.escapeHtml(fileName)}</div>
+                                ${dirPath ? `<div class="file-dir">${this.escapeHtml(dirPath)}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                this.updateSelection();
+            },
+            
+            toggleFile: function(index) {
+                const file = this.files[index];
+                if (file) {
+                    // Open diff in IntelliJ's diff viewer
+                    console.log('Opening diff for file:', file.filePath, 'status:', file.status);
+                    if (window.intellijBridge && window.intellijBridge.callIDE) {
+                        window.intellijBridge.callIDE('openFileDiffInIDE', {
+                            filePath: file.filePath,
+                            status: file.status
+                        }).then(response => {
+                            if (!response.success) {
+                                this.showMessage('Failed to open diff: ' + (response.error || 'Unknown error'), 'error');
+                            }
+                        }).catch(error => {
+                            console.error('Error opening diff:', error);
+                            this.showMessage('Error opening diff', 'error');
+                        });
+                    }
+                }
+            },
+            
+            toggleSelectAll: function() {
+                const selectAll = document.getElementById('select-all');
+                const checkboxes = document.querySelectorAll('.file-checkbox[data-index]');
+                checkboxes.forEach(cb => cb.checked = selectAll.checked);
+                this.updateSelection();
+            },
+            
+            updateSelection: function() {
+                const checkboxes = document.querySelectorAll('.file-checkbox[data-index]:checked');
+                const selectedCount = checkboxes.length;
+                const totalCount = this.files.length;
+                
+                document.getElementById('selected-count').textContent = 
+                    selectedCount + ' file' + (selectedCount !== 1 ? 's' : '') + ' selected';
+                
+                const selectAll = document.getElementById('select-all');
+                if (selectedCount === 0) {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = false;
+                } else if (selectedCount === totalCount) {
+                    selectAll.checked = true;
+                    selectAll.indeterminate = false;
+                } else {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = true;
+                }
+                
+                // Enable/disable buttons
+                const hasSelection = selectedCount > 0;
+                document.getElementById('generate-btn').disabled = !hasSelection;
+                document.getElementById('commit-btn').disabled = !hasSelection;
+                document.getElementById('push-btn').disabled = !hasSelection;
+                document.getElementById('review-btn').disabled = !hasSelection;
+            },
+            
+            getSelectedFiles: function() {
+                const checkboxes = document.querySelectorAll('.file-checkbox[data-index]:checked');
+                return Array.from(checkboxes).map(cb => {
+                    const index = parseInt(cb.dataset.index);
+                    return {
+                        path: this.files[index].filePath,
+                        status: this.files[index].status
+                    };
+                });
+            },
+            
+            generateMessage: function() {
+                const selectedFiles = this.getSelectedFiles();
+                if (selectedFiles.length === 0) {
+                    this.showMessage('Please select files first', 'error');
+                    return;
+                }
+                
+                this.showMessage('Generating commit message...', 'info');
+                document.getElementById('generate-btn').disabled = true;
+                const messageTextarea = document.getElementById('commit-message');
+                messageTextarea.value = ''; // Clear existing message
+                
+                // Start streaming session
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('generateCommitMessage', {
+                        files: selectedFiles
+                    }).then(response => {
+                        if (response && response.success) {
+                            // Start polling for streaming chunks
+                            this.streamCommitMessage(response.sessionId);
+                        } else {
+                            this.showMessage('Failed to start generation: ' + (response.error || 'Unknown error'), 'error');
+                            document.getElementById('generate-btn').disabled = false;
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                        document.getElementById('generate-btn').disabled = false;
+                    });
+                }
+            },
+            
+            streamCommitMessage: function(sessionId) {
+                const messageTextarea = document.getElementById('commit-message');
+                let streamingText = '';
+                
+                // Add streaming visual effect
+                messageTextarea.classList.add('streaming');
+                
+                // Helper function to clean markdown code blocks
+                const cleanMarkdownCodeBlocks = (text) => {
+                    // Remove code block markers (```language or just ```)
+                    return text.replace(/^```[\w]*\n?/gm, '').replace(/\n?```$/gm, '');
+                };
+                
+                const pollForChunks = () => {
+                    if (window.intellijBridge && window.intellijBridge.callIDE) {
+                        window.intellijBridge.callIDE('streamCommitMessage', {
+                            sessionId: sessionId
+                        }).then(response => {
+                            if (response && response.success) {
+                                if (response.done) {
+                                    // Streaming complete - clean the final message
+                                    const finalMessage = response.fullMessage || streamingText;
+                                    messageTextarea.value = cleanMarkdownCodeBlocks(finalMessage);
+                                    messageTextarea.classList.remove('streaming');
+                                    this.showMessage('Commit message generated successfully!', 'success');
+                                    document.getElementById('generate-btn').disabled = false;
+                                } else {
+                                    // Append chunk if available
+                                    if (response.chunk) {
+                                        streamingText += response.chunk;
+                                        // Show raw text while streaming, clean at the end
+                                        messageTextarea.value = streamingText;
+                                        // Auto-resize textarea
+                                        messageTextarea.style.height = 'auto';
+                                        messageTextarea.style.height = messageTextarea.scrollHeight + 'px';
+                                    }
+                                    // Continue polling
+                                    setTimeout(pollForChunks, 100);
+                                }
+                            } else {
+                                messageTextarea.classList.remove('streaming');
+                                this.showMessage('Streaming error: ' + (response.error || 'Unknown error'), 'error');
+                                document.getElementById('generate-btn').disabled = false;
+                            }
+                        }).catch(error => {
+                            messageTextarea.classList.remove('streaming');
+                            this.showMessage('Polling error: ' + error.message, 'error');
+                            document.getElementById('generate-btn').disabled = false;
+                        });
+                    }
+                };
+                
+                // Start polling
+                pollForChunks();
+            },
+            
+            commit: function(shouldPush) {
+                const message = document.getElementById('commit-message').value.trim();
+                if (!message) {
+                    this.showMessage('Please enter a commit message', 'error');
+                    return;
+                }
+                
+                const selectedFiles = this.getSelectedFiles();
+                if (selectedFiles.length === 0) {
+                    this.showMessage('Please select files to commit', 'error');
+                    return;
+                }
+                
+                this.showMessage(shouldPush ? 'Committing and pushing...' : 'Committing...', 'info');
+                
+                // Disable buttons during operation
+                document.getElementById('commit-btn').disabled = true;
+                document.getElementById('push-btn').disabled = true;
+                
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('commitWithMessage', {
+                        message: message,
+                        selectedFiles: selectedFiles,
+                        shouldPush: false
+                    }).then(response => {
+                        if (response && response.success) {
+                            if (shouldPush) {
+                                return window.intellijBridge.callIDE('gitPush');
+                            }
+                            return response;
+                        }
+                        throw new Error(response?.error || 'Commit failed');
+                    }).then(response => {
+                        if (response && response.success) {
+                            this.showMessage(shouldPush ? 'Committed and pushed successfully!' : 'Committed successfully!', 'success');
+                            document.getElementById('commit-message').value = '';
+                            
+                            // Filter for code files only
+                            const codeFiles = selectedFiles.filter(file => {
+                                const ext = file.path.toLowerCase().split('.').pop();
+                                const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
+                                return codeExtensions.includes(ext);
+                            });
+                            
+                            // Trigger Code Health Review on committed code files if 5 or fewer
+                            if (codeFiles.length > 0 && codeFiles.length <= 5) {
+                                console.log('Triggering Code Health Review for', codeFiles.length, 'code files');
+                                window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
+                                    files: codeFiles
+                                }).then(reviewResponse => {
+                                    if (reviewResponse && reviewResponse.success) {
+                                        this.showMessage('Code Health Review started', 'info');
+                                    }
+                                }).catch(err => {
+                                    console.warn('Failed to trigger Code Health Review:', err);
+                                });
+                            }
+                            
+                            this.refreshFiles();
+                        } else {
+                            throw new Error(response?.error || 'Operation failed');
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                    }).finally(() => {
+                        document.getElementById('commit-btn').disabled = false;
+                        document.getElementById('push-btn').disabled = false;
+                        this.updateSelection();
+                    });
+                }
+            },
+            
+            refreshFiles: function() {
+                console.log('Refresh button clicked');
+                this.showMessage('Refreshing...', 'info');
+                // Clear any existing timeouts
+                const container = document.getElementById('file-list-container');
+                if (container._loadTimeout) {
+                    clearTimeout(container._loadTimeout);
+                    container._loadTimeout = null;
+                }
+                this.loadFiles();
+            },
+            
+            
+            reviewSelected: function() {
+                const selectedFiles = this.getSelectedFiles();
+                if (selectedFiles.length === 0) {
+                    this.showMessage('Please select files to review', 'error');
+                    return;
+                }
+                
+                // Filter for code files only
+                const codeFiles = selectedFiles.filter(file => {
+                    const ext = file.path.toLowerCase().split('.').pop();
+                    const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
+                    return codeExtensions.includes(ext);
+                });
+                
+                if (codeFiles.length === 0) {
+                    this.showMessage('No code files selected for review', 'error');
+                    return;
+                }
+                
+                this.showMessage('Starting Code Health Review for ' + codeFiles.length + ' code file(s)...', 'info');
+                document.getElementById('review-btn').disabled = true;
+                
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
+                        files: codeFiles,
+                        immediate: true  // Flag to indicate immediate review request
+                    }).then(response => {
+                        if (response && response.success) {
+                            this.showMessage('Code Health Review started for ' + codeFiles.length + ' file(s)', 'success');
+                        } else {
+                            this.showMessage('Failed to start review: ' + (response.error || 'Unknown error'), 'error');
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                    }).finally(() => {
+                        document.getElementById('review-btn').disabled = false;
+                        this.updateSelection();
+                    });
+                }
+            },
+            
+            showMessage: function(text, type = 'info') {
+                const container = document.getElementById('status-message');
+                container.innerHTML = `
+                    <div class="message message-${type}">
+                        <span>${this.getMessageIcon(type)}</span>
+                        <span>${text}</span>
+                    </div>
+                `;
+                
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        container.innerHTML = '';
+                    }, 3000);
+                }
+            },
+            
+            getMessageIcon: function(type) {
+                switch(type) {
+                    case 'error': return '❌';
+                    case 'success': return '✅';
+                    case 'info': return 'ℹ️';
+                    default: return '📋';
+                }
+            },
+            
+            escapeHtml: function(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        };
+        }
+        
+        
+        // Wait for intellijBridge to be available before initializing
+        function initializeGitUI() {
+            if (window.intellijBridge && window.intellijBridge.callIDE) {
+                console.log('IntelliJ Bridge detected, initializing Git UI');
+                if (window.GitUI) {
+                    window.GitUI.init();
+                }
+            } else {
+                console.log('Waiting for IntelliJ Bridge...');
+                setTimeout(initializeGitUI, 100);
+            }
+        }
+        
+        // Check if we're already loaded (for refresh cases)
+        if (document.readyState === 'complete') {
+            initializeGitUI();
+        } else {
+            // Wait for DOM to be ready
+            window.addEventListener('DOMContentLoaded', initializeGitUI);
+        }
+    </script>
+</body>
+</html>

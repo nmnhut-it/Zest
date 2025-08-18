@@ -1,180 +1,164 @@
-## Code của bạn có đang ...
-✅ Muốn unit test nhưng ngám ngẩm?
-✅ Ngập tràn // TODO nhưng ngập ngừng?
-✅ Thèm review nhưng ngại ngùng?
- 
-## Bạn muốn dùng AI nhưng ... 
-✅ Mệt mỏi tab sang Chat Zingplay?
-✅ Tiếc nuối AI ở mạng trong?
-✅ Chán gõ prompt vì lặp đi lặp lại/? 
+# 🌱 ZEST - Plugin AI Cho Anh Em Dev Lười
 
-Đừng lo, đã có .. Zest. 
+> *"Mình chỉ là plugin nhỏ bé, nhưng sẽ cố gắng giúp bạn code ít bug hơn... một chút!"* 😅
 
-**Zest** cho phép bạn sử dụng chat zingplay ngay trong IDE, tích hợp MCP server để AI đọc viết code, mang cả không gian AI về Intelij máy bạn. 
+## 📖 Xin Chào!
 
-**Zest** giúp bạn tự collect context, implement TODOs, viết unit test tự động, soạn văn mẫu để review và thêm comment vào code của bạn, với so sáng before-after change, dễ dàng theo dõi.  
+**ZEST** là một plugin khiêm tốn cho IntelliJ, được sinh ra từ nỗi đau của việc alt-tab qua lại giữa IDE và ChatGPT. Mình có thể không hoàn hảo, nhưng ít nhất bạn không phải copy-paste code nữa! 
 
+**Version**: 1.9.890 (vẫn còn bug đấy, nhưng ít hơn version trước 🎉)
 
-Cài đặt MCP để  điều khiển intelij: cài plugin vào ./mcp-server-plugin.zip
+## 🥺 Cài Đặt (Dễ Ợt)
 
-Tích hợp Zest với MCP:  
+1. **Download** file ZIP (mình hơi nặng, xin lỗi!)
+2. **Cài vào IntelliJ**: File → Settings → Plugins → ⚙️ → Install Plugin from Disk
+3. **Restart IDE** (cơ hội để đi pha cà phê ☕)
+4. **Tìm icon Z** ở góc phải (nhỏ xíu thôi, đừng bỏ qua mình)
+5. **Chọn model "Code Expert"** (nghe oai ghê nhưng thực ra cũng bình thường)
 
-> *"Tôi đã giảm được một nửa thời gian viết test nhờ ZEST. Plugin đã giúp tôi tạo unit test cho những phương thức phức tạp với code coverage tốt."*
+> 💌 **Chưa có tài khoản?** Nhắn AnhNT22 nhé, anh ấy tốt lắm!
 
----
+## 🎁 Mình Có Thể Giúp Gì?
 
-# ZEST - Trợ Lý AI Viết Code Java: Từ Unit Test Đến Code Review
+### 1. 💬 ZPS Chat - Tâm Sự Cùng AI
 
+Một cửa sổ chat nho nhỏ trong IDE, không có gì đặc biệt lắm...
 
-## Cài đặt trong 3 phút
+**Ngoại trừ:**
+- Chat với AI (đôi khi nó hiểu, đôi khi không 🤷)
+- Có cả Git UI luôn (commit ngay trong chat, khỏi chuyển tab!)
+- Kéo thả file vào chat (drag & drop, fancy nhỉ?)
+- Bấm F12 xem DevTools (cho ai thích soi code HTML)
 
-### 1. Cài đặt Plugin
+**Cách dùng:** Bấm icon **Z** → Hãy kiên nhẫn với loading screen...
 
-1. **Tải file ZIP plugin** từ link được cung cấp
-2. **Cài đặt vào IntelliJ IDEA**:
-   - **File > Settings > Plugins > ⚙️ > Install Plugin from Disk**
-   - Chọn file ZIP vừa tải và khởi động lại IDE
+### 2. 🔮 Block Rewrite (Ctrl+Space) - Phép Thuật Nhỏ
 
-### 2. Thiết lập API Key
+Đặt con trỏ trong method, bấm Ctrl+Space, và... điều kỳ diệu có thể xảy ra!
 
-1. **Chuẩn bị API Key** từ nhà cung cấp dịch vụ AI
-2. **Kích hoạt ZEST**:
-   - Nhấp chuột phải vào bất kỳ file Java nào
-   - Chọn **Generate > ZPS: Review This Class in Chat ZPS**
-   - Nhập API Key khi được nhắc
+**Menu xinh xắn với:**
+- **Số 1-4**: Gợi ý có sẵn (mình đoán theo context đấy!)
+- **Shift+1-9**: Custom prompts bạn lưu
+- **Gõ chữ**: Tự viết instruction của riêng bạn
 
-### 3. Bắt đầu sử dụng ngay!
+**Mình thấy bạn có:**
+- Method trống? → "Implement method" (cố gắng đoán ý bạn)
+- TODO comment? → "Implement TODO" (TODO của bạn là gì?)
+- Code phức tạp? → "Refactor & simplify" (đơn giản hóa... nếu được)
 
-Hoàn tất! Giờ đây AI đã sẵn sàng làm việc cho bạn.
+*Progress bar ở status bar nhé, đừng tưởng mình đơ!*
 
----
+### 3. 🎨 Git UI - Commit Xinh Như Mơ
 
-## Những tính năng ấn tượng
+Một giao diện Git nho nhỏ, không pro bằng SourceTree nhưng...
 
-### 📊 Tạo Unit Test Tự Động
+**Có thể:**
+- Xem file changes với màu mè (xanh đỏ tím vàng 🌈)
+- Tick chọn files muốn commit
+- Generate commit message (AI viết hay hơn mình!)
+- Commit & Push một phát
+- Click file để xem diff (wow!)
 
-**Vấn đề**: Viết unit test thường chiếm đến 40% thời gian phát triển.  
-**Giải pháp**: Nhấp chuột phải > Generate > **"Ai test?!: One-click Write Test"**
+*Bonus: Code Guardian tự động check sau khi commit đấy!*
 
-**Lợi ích thực tế:**
-- ✅ Tự động phân tích lớp Java và tạo test case phù hợp
-- ✅ Tích hợp sẵn với Mockito để mô phỏng các dependency
-- ✅ Hỗ trợ cả JUnit 4 và JUnit 5 với code coverage cao
+### 4. 🤖 Inline Completion - Gợi Ý Khiêm Tốn
 
-### 🚀 Biến TODO Thành Code Thực Tế
+Mình cố gắng đoán bạn muốn gõ gì tiếp theo...
 
-**Vấn đề**: Các TODO thường bị bỏ quên hoặc trì hoãn mãi.  
-**Giải pháp**: Chọn đoạn mã > Nhấp chuột phải > Generate > **"ZPS: Implement Your TODOs"**
+**Phím tắt dễ nhớ:**
+- `Tab` - "OK được rồi, lấy hết đi"
+- `Ctrl+Tab` - "Từ từ, cho tôi xem từng dòng"
+- `Alt+↓` - "Còn ý nào khác không?"
+- `Escape` - "Thôi, tự gõ cho lành"
 
-**Điểm mạnh:**
-- ✅ Phân tích ngữ cảnh code hiện tại của bạn
-- ✅ Đề xuất triển khai logic phù hợp với style dự án
-- ✅ Cho phép kiểm tra thay đổi trước khi áp dụng
+*Đôi khi mình đoán sai, xin lỗi trước! 🙏*
 
-### 💬 ZPS Chat - Trợ Lý Lập Trình Riêng
+### 5. 🛡️ Code Guardian - Bạn Review Ảo
 
-Trợ lý AI tích hợp trong IDE, sẵn sàng hỗ trợ mọi lúc:
-- 💡 Giải đáp thắc mắc về code và kiến trúc phần mềm
-- 💡 Phân tích đoạn mã được chọn từ editor
-- 💡 Tạo code mẫu theo yêu cầu của bạn
+Như có một junior dev ngồi cạnh review code... nhưng junior này chăm chỉ hơn!
 
-### 🔍 Code Review Ngay Lập Tức
+**Biết làm:**
+- Review code thay đổi (tìm bug cơ bản)
+- Báo cáo hàng ngày lúc 13h (sau giờ ăn trưa)
+- Kêu la khi thấy vấn đề (notification nhẹ nhàng thôi)
 
-**Vấn đề**: Code review thủ công tốn thời gian và dễ bỏ sót vấn đề.  
-**Giải pháp**: Nhấp chuột phải > Generate > **"ZPS: Review This Class in Chat ZPS"**
+**Menu dễ thương:**
+- `Activate Code Guardian` - "Mình bắt đầu canh nhé?"
+- `Guard This Method` - "Method này quan trọng à?"
+- `Guardian Watch List` - "Mình đang canh mấy chỗ rồi?"
 
-**Ưu điểm vượt trội:**
-- ✅ Phát hiện bug tiềm ẩn và vấn đề bảo mật
-- ✅ Gợi ý cải thiện code style và hiệu suất
-- ✅ Luôn sẵn sàng 24/7, không cần chờ đợi
+### 6. 🧪 Test Advisor - Cố Vấn Tập Sự
 
-### 🚀 Cấu hình MCP để chạy tool điều khiển intelij: 
+"Viết test kiểu gì ta?" - Để mình gợi ý cho!
 
-- Cài plugin intelij mcp (file mcp-server-plugin.zip)
-- Chạy file mcp.bat trong thư mục ./mcp để bật mcp server
-- Config trên chat/talk zingplay: Setting --> Tools --> Add localhost:8000/jetbrains/openapi.json --> Save
-- F5 lại trang, xem phần tools trên khung chat thấy có 'JetBrains' là được
+*Disclaimer: Gợi ý thôi nhé, test vẫn phải tự viết!*
 
-### 📝 Comment Code Chuyên Nghiệp
+### 7. ⚙️ Settings - Tùy Chỉnh Thoải Mái
 
-**Giải pháp**: Chọn đoạn code > Generate > **"ZPS: Write Comment for the Selected Text"**
+Settings → Tools → Zest Plugin
 
-Biến code khó hiểu thành tài liệu rõ ràng:
-- Tạo Javadoc chuẩn mực cho method và class
-- Giải thích logic phức tạp bằng ngôn ngữ dễ hiểu
-- Tăng tính bảo trì của dự án dài hạn
+**5 tabs ngăn nắp:**
+- **General**: API và những thứ cơ bản
+- **Models**: Chọn AI model (có 2-3 cái)
+- **Features**: Bật tắt tính năng
+- **Prompts**: Sửa prompt cho hợp gu
+- **Project**: Rules và custom prompts
 
----
+*Mình cố gắng làm UI dễ hiểu, không biết có được không? 😅*
 
-## Cấu hình đơn giản
+## 🎮 Mẹo Nhỏ Từ Mình
 
-File `zest-plugin.properties` giúp bạn tùy chỉnh trải nghiệm:
+1. **Method trống + Ctrl+Space** = Magic (đôi khi)
+2. **Shift+1-9** lưu prompts hay dùng (tiết kiệm thời gian)
+3. **Git UI** trong chat (khỏi chuyển window)
+4. **F12** để debug nếu chat bị lỗi
+5. **Code Guardian** để yên tâm hơn (một chút)
 
-```properties
-# API Zingplay
-apiUrl=https://chat.zingplay.com/api/chat/completions
+## 📝 Fun Facts
 
-# Model AI
-testModel=unit_test_generator
-codeModel=qwen3-32b
+- Mình được làm bởi team Zingplay (họ chơi game nhiều hơn code 🎮)
+- Code Guardian làm việc cả khi bạn đi ăn trưa
+- Commit message do AI viết thường... nghe pro hơn của dev
+- Có bug? Feature đấy! 🐛
 
-# API Key
-authToken=YOUR_API_KEY_HERE
-```
+## 🔧 Yêu Cầu Tối Thiểu
 
-### API Zingplay Mạnh Mẽ
+- IntelliJ 2022.3+ (già hơn thì... may rủi)
+- Java plugin (dĩ nhiên rồi)
+- RAM 8GB (mình ăn hơi nhiều RAM, sorry!)
+- Internet (không có thì mình câm như hến)
 
-```properties
-apiUrl=https://chat.zingplay.com/api/chat/completions
-# Hoặc phiên bản nâng cao
-apiUrl=https://talk.zingplay.com/api/chat/completions
-```
+## 🆘 Cần Giúp Đỡ?
 
-### Lựa chọn model phù hợp
-
-```properties
-# Tạo Unit Test
-testModel=unit_test_generator
-
-# Triển khai Code
-codeModel=qwen3-32b
-```
-
----
- 
-### Bảo mật API Key
-
-- ✓ Thêm `*-plugin.properties` vào file `.gitignore`
-
----
-
-## Mẹo sử dụng hiệu quả
-
-1. **Tự động hóa các công việc lặp lại** để tiết kiệm thời gian
-2. **Sử dụng ZPS Chat** khi cần tư vấn về kiến trúc hoặc pattern
-3. **Code review thường xuyên** trước khi commit
-4. **Tạo comment tự động** để dễ dàng bảo trì code
-
----
-
-## Yêu cầu hệ thống
-
-- IntelliJ IDEA phiên bản 223.0 trở lên (tương thích đến 243.*)
-- Plugin "Java" đã cài đặt
-- Kết nối Internet ổn định
-- 8GB RAM trở lên
-
----
-
-## Hỗ trợ kỹ thuật
-
-Đội ngũ phát triển luôn sẵn sàng hỗ trợ:
-
+- **Xin account**: Tìm anh AnhNT22 (người tốt)
 - **Email**: nhutnm3@vng.com.vn
-- **Website**: https://www.vng.com.vn
+- **Team**: Zingplay Game Studio
+
+## 🔍 Mở Settings Như Thế Nào?
+
+Có 3 cách để tìm mình trong Settings nhé:
+
+**Cách 1 - Dùng menu:**
+- Windows/Linux: `File → Settings → Tools → Zest Plugin`
+- macOS: `IntelliJ IDEA → Preferences → Tools → Zest Plugin`
+
+**Cách 2 - Dùng phím tắt:**
+- Windows/Linux: `Ctrl + Alt + S` → gõ "Zest" → Enter
+- macOS: `⌘ + ,` → gõ "Zest" → Enter
+
+**Cách 3 - Search everywhere:**
+- Double Shift → gõ "Zest settings" → Enter
+
+*Mẹo: Bookmark settings để mở nhanh lần sau! ⭐*
+
+## 🌟 Lời Cuối
+
+ZEST có thể không phải plugin AI tốt nhất, nhưng ít nhất mình ở ngay trong IDE của bạn! Hãy cho mình cơ hội nhé? 🥺
+
+*P/S: Nếu thấy hay, star cho project. Nếu thấy bug... thì báo nhẹ nhàng thôi!*
 
 ---
 
-*Tiết kiệm thời gian, nâng cao chất lượng code với ZEST!*
+**ZEST** - *Plugin nhỏ bé với ước mơ lớn lao: Giúp bạn code vui vẻ hơn!* 💚
 
-*Cập nhật: Tháng 5, 2025*
+*Version 1.9.890 - Vẫn đang cố gắng từng ngày*

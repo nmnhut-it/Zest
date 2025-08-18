@@ -81,9 +81,9 @@ public class TestWriterAgent extends StreamingBaseAgent {
         3. setTestFramework - Set the framework (JUnit5, JUnit4, TestNG, etc.)
         4. addMultipleImports - Add ALL common imports at once as a list
         5. addMultipleFieldDeclarations - Add ALL field declarations at once as a list
-        6. addSetupMethod - Add complete setup method with LLM-chosen annotation and signature (optional)
-        7. addTeardownMethod - Add complete teardown method with LLM-chosen annotation and signature (optional)  
-        8. addMultipleTestMethods - Generate many test methods at once as a list
+        6. addSetupMethod - Add setup method with structured parameters: methodName, methodBody, annotations, accessModifier (optional)
+        7. addTeardownMethod - Add teardown method with structured parameters: methodName, methodBody, annotations, accessModifier (optional)  
+        8. addMultipleTestMethods - Generate test methods in batches of 3-5 methods (optimal efficiency, not too many at once)
         
         CRITICAL VALIDATION RULES:
         - NEVER create duplicate method names - each test method must have a unique name
@@ -113,6 +113,11 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Use appropriate assertions: assertEquals, assertTrue, assertThrows, etc.
         - Mock external dependencies appropriately
         - Clean up resources in teardown if needed
+        
+        BATCHING STRATEGY:
+        - Generate 3-5 test methods per addMultipleTestMethods call for optimal efficiency
+        - Don't generate just 1 method (use batches), don't generate too many at once (>10)
+        - Multiple batches are better than one huge batch for better error recovery
         
         PROJECT-SPECIFIC DEPENDENCIES:
         - ONLY use testing frameworks and libraries that are detected in the project's build configuration
@@ -146,26 +151,17 @@ public class TestWriterAgent extends StreamingBaseAgent {
         [Tool: setTestFramework with "JUnit5"]
         [Tool: addMultipleImports with JUnit5 imports]
         [Tool: addMultipleFieldDeclarations with @Mock fields]
-        [Tool: addSetupMethod with complete method:
-         "@BeforeEach
-          void setUp() {
-              MockitoAnnotations.openMocks(this);
-              userService = new UserService(userRepository);
-          }"]
-        [Tool: addTeardownMethod with complete method:
-         "@AfterEach  
-          void tearDown() {
-              // Clean up resources
-          }"]
+        [Tool: addSetupMethod with methodName="setUp", methodBody="MockitoAnnotations.openMocks(this);\nuserService = new UserService(userRepository);", annotations=["BeforeEach"], accessModifier="public"]
+        [Tool: addTeardownMethod with methodName="tearDown", methodBody="// Clean up resources", annotations=["AfterEach"], accessModifier="public"]
         [Tool: addMultipleTestMethods with test methods including annotations]
         
         The examples above are just illustrating how you should utilize your tools, not tool syntax. 
         
         IMPORTANT: 
-        - Setup/teardown methods: Provide COMPLETE method code with annotations
+        - Setup/teardown methods: Provide structured parameters separately (methodName, methodBody, annotations list, accessModifier)
         - Test methods: Include appropriate annotations (@Test, @ParameterizedTest, etc.)
         - Choose framework-appropriate annotations based on detected dependencies
-        - Each method must have complete signature and body
+        - Annotations should be provided as list without @ prefix (e.g., ["BeforeEach"] not ["@BeforeEach"])
         
         Generate ALL methods NOW using tools. Only use tool calls. 
         """)
@@ -854,63 +850,107 @@ public class TestWriterAgent extends StreamingBaseAgent {
             return result;
         }
         
-        @Tool("Add complete setup method - LLM provides full method with annotations, signature, and body")
-        public String addSetupMethod(String completeMethodCode) {
-            notifyTool("addSetupMethod", completeMethodCode.length() + " chars");
+        @Tool("Add setup method with structured parameters")
+        public String addSetupMethod(String methodName, String methodBody, List<String> annotations, String accessModifier) {
+            notifyTool("addSetupMethod", methodName + " with " + annotations.size() + " annotations");
             
-            // Parse the complete method to extract method body for backward compatibility
-            SetupTeardownMethod parsedMethod = parseCompleteMethod(completeMethodCode);
-            if (parsedMethod != null) {
-                metadataBuilder.beforeEachCode(parsedMethod.methodBody);
-                // Store complete method as a special "test method" for the merger
-                GeneratedTestMethod setupMethod = new GeneratedTestMethod.Builder(parsedMethod.methodName)
-                    .methodBody(parsedMethod.methodBody)
-                    .build();
-                
-                // Add annotations
-                for (String annotation : parsedMethod.annotations) {
-                    setupMethod = new GeneratedTestMethod.Builder(parsedMethod.methodName)
-                        .methodBody(parsedMethod.methodBody)
-                        .addAnnotation(annotation.replace("@", ""))
-                        .build();
-                }
-                
-                testMethods.add(0, setupMethod); // Add at beginning
-                return "Setup method added: " + parsedMethod.methodName;
+            // Validate parameters
+            if (methodName == null || methodName.trim().isEmpty()) {
+                return "Failed: methodName is required";
+            }
+            if (methodBody == null || methodBody.trim().isEmpty()) {
+                return "Failed: methodBody is required";
             }
             
-            return "Failed to parse setup method";
-        }
-        
-        @Tool("Add complete teardown method - LLM provides full method with annotations, signature, and body")
-        public String addTeardownMethod(String completeMethodCode) {
-            notifyTool("addTeardownMethod", completeMethodCode.length() + " chars");
+            // Clean and validate method name
+            String cleanMethodName = methodName.trim();
             
-            // Parse the complete method to extract method body for backward compatibility
-            SetupTeardownMethod parsedMethod = parseCompleteMethod(completeMethodCode);
-            if (parsedMethod != null) {
-                metadataBuilder.afterEachCode(parsedMethod.methodBody);
-                // Store complete method as a special "test method" for the merger
-                GeneratedTestMethod teardownMethod = new GeneratedTestMethod.Builder(parsedMethod.methodName)
-                    .methodBody(parsedMethod.methodBody)
-                    .build();
-                
-                // Add annotations
-                for (String annotation : parsedMethod.annotations) {
-                    teardownMethod = new GeneratedTestMethod.Builder(parsedMethod.methodName)
-                        .methodBody(parsedMethod.methodBody)
-                        .addAnnotation(annotation.replace("@", ""))
-                        .build();
+            // Clean annotations (remove @ prefix if present)
+            List<String> cleanAnnotations = new ArrayList<>();
+            if (annotations != null) {
+                for (String annotation : annotations) {
+                    String clean = annotation.trim();
+                    if (clean.startsWith("@")) {
+                        clean = clean.substring(1);
+                    }
+                    if (!clean.isEmpty()) {
+                        cleanAnnotations.add(clean);
+                    }
                 }
-                
-                testMethods.add(teardownMethod); // Add at end
-                return "Teardown method added: " + parsedMethod.methodName;
             }
             
-            return "Failed to parse teardown method";
+            // Store method body for backward compatibility
+            metadataBuilder.beforeEachCode(methodBody.trim());
+            
+            // Create method for the merger
+            GeneratedTestMethod.Builder methodBuilder = new GeneratedTestMethod.Builder(cleanMethodName)
+                .methodBody(methodBody.trim());
+            
+            // Add annotations
+            for (String annotation : cleanAnnotations) {
+                methodBuilder.addAnnotation(annotation);
+            }
+            
+            GeneratedTestMethod setupMethod = methodBuilder.build();
+            testMethods.add(0, setupMethod); // Add at beginning
+            
+            return String.format("Setup method added: %s (access: %s, annotations: %s)", 
+                cleanMethodName, 
+                accessModifier != null ? accessModifier : "public",
+                String.join(", ", cleanAnnotations));
         }
         
-        @Tool("Add ALL methods at once: setup, teardown, and test methods. Include only imports not yet added to the class.")
+        @Tool("Add teardown method with structured parameters")
+        public String addTeardownMethod(String methodName, String methodBody, List<String> annotations, String accessModifier) {
+            notifyTool("addTeardownMethod", methodName + " with " + annotations.size() + " annotations");
+            
+            // Validate parameters
+            if (methodName == null || methodName.trim().isEmpty()) {
+                return "Failed: methodName is required";
+            }
+            if (methodBody == null || methodBody.trim().isEmpty()) {
+                return "Failed: methodBody is required";
+            }
+            
+            // Clean and validate method name
+            String cleanMethodName = methodName.trim();
+            
+            // Clean annotations (remove @ prefix if present)
+            List<String> cleanAnnotations = new ArrayList<>();
+            if (annotations != null) {
+                for (String annotation : annotations) {
+                    String clean = annotation.trim();
+                    if (clean.startsWith("@")) {
+                        clean = clean.substring(1);
+                    }
+                    if (!clean.isEmpty()) {
+                        cleanAnnotations.add(clean);
+                    }
+                }
+            }
+            
+            // Store method body for backward compatibility
+            metadataBuilder.afterEachCode(methodBody.trim());
+            
+            // Create method for the merger
+            GeneratedTestMethod.Builder methodBuilder = new GeneratedTestMethod.Builder(cleanMethodName)
+                .methodBody(methodBody.trim());
+            
+            // Add annotations
+            for (String annotation : cleanAnnotations) {
+                methodBuilder.addAnnotation(annotation);
+            }
+            
+            GeneratedTestMethod teardownMethod = methodBuilder.build();
+            testMethods.add(teardownMethod); // Add at end
+            
+            return String.format("Teardown method added: %s (access: %s, annotations: %s)", 
+                cleanMethodName, 
+                accessModifier != null ? accessModifier : "public",
+                String.join(", ", cleanAnnotations));
+        }
+        
+        @Tool("Add test methods in reasonable batches. Optimal batch size: 3-5 methods (not 1, not too many). Include only imports not yet added to the class.")
         public String addMultipleTestMethods(List<TestMethodInput> testMethodInputs) {
             notifyTool("addMultipleTestMethods", testMethodInputs.size() + " methods");
             
@@ -1119,70 +1159,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
             return true;
         }
         
-        /**
-         * Parse a complete method provided by LLM.
-         */
-        private SetupTeardownMethod parseCompleteMethod(String completeMethodCode) {
-            try {
-                // Extract method name from signature
-                String[] lines = completeMethodCode.split("\n");
-                String methodName = null;
-                String methodBody = null;
-                List<String> annotations = new ArrayList<>();
-                
-                boolean inMethodBody = false;
-                StringBuilder bodyBuilder = new StringBuilder();
-                
-                for (String line : lines) {
-                    String trimmedLine = line.trim();
-                    
-                    if (trimmedLine.startsWith("@")) {
-                        annotations.add(trimmedLine);
-                    } else if (trimmedLine.contains("void ") && trimmedLine.contains("(")) {
-                        // Extract method name
-                        int voidIndex = trimmedLine.indexOf("void ");
-                        int parenIndex = trimmedLine.indexOf("(");
-                        if (voidIndex >= 0 && parenIndex > voidIndex) {
-                            methodName = trimmedLine.substring(voidIndex + 5, parenIndex).trim();
-                        }
-                        if (trimmedLine.contains("{")) {
-                            inMethodBody = true;
-                        }
-                    } else if (inMethodBody) {
-                        if (trimmedLine.equals("}")) {
-                            break; // End of method
-                        }
-                        bodyBuilder.append(line).append("\n");
-                    }
-                }
-                
-                methodBody = bodyBuilder.toString().trim();
-                
-                if (methodName != null && !methodBody.isEmpty()) {
-                    return new SetupTeardownMethod(methodName, methodBody, annotations);
-                }
-                
-            } catch (Exception e) {
-                // Parsing failed
-            }
-            
-            return null;
-        }
-        
-        /**
-         * Helper class for parsed setup/teardown methods.
-         */
-        private static class SetupTeardownMethod {
-            final String methodName;
-            final String methodBody;
-            final List<String> annotations;
-            
-            SetupTeardownMethod(String methodName, String methodBody, List<String> annotations) {
-                this.methodName = methodName;
-                this.methodBody = methodBody;
-                this.annotations = annotations;
-            }
-        }
         
         
         /**

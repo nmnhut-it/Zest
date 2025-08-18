@@ -179,6 +179,11 @@ class MergedTestPreviewDialog(
                 appendLine()
                 appendLine("File: ${mergedTest.fileName}")
                 appendLine("Location: $filePath")
+                if (mergedTest.hasInferredPath()) {
+                    appendLine("Path source: AI-inferred from project structure analysis")
+                } else {
+                    appendLine("Path source: Convention-based fallback")
+                }
                 appendLine("Methods: ${mergedTest.methodCount} test methods")
                 appendLine("Framework: ${mergedTest.framework}")
             }
@@ -202,37 +207,53 @@ class MergedTestPreviewDialog(
     }
     
     /**
-     * Write a merged test class to file using standard Maven/Gradle structure
+     * Write a merged test class to file using AI-inferred path or fallback to standard structure
      */
     private fun writeMergedTestToFile(mergedTest: MergedTestClass): String {
-        // Use standard Maven/Gradle test directory structure
-        val basePath = project.basePath ?: throw IllegalStateException("Project base path is null")
+        val targetFile: java.io.File
         
-        // Try standard test source root first
-        var testSourceRoot = "$basePath/src/test/java"
-        var testDir = java.io.File(testSourceRoot)
-        
-        if (!testDir.exists()) {
-            // Fallback to simple test directory
-            testSourceRoot = "$basePath/test"
-            testDir = java.io.File(testSourceRoot)
-            if (!testDir.exists()) {
-                testDir.mkdirs()
+        if (mergedTest.hasInferredPath()) {
+            // Use AI-inferred path from merger agent
+            val inferredPath = mergedTest.fullFilePath!!
+            targetFile = java.io.File(inferredPath)
+            
+            // Ensure parent directories exist
+            val parentDir = targetFile.parentFile
+            if (!parentDir.exists()) {
+                parentDir.mkdirs()
             }
-        }
-        
-        // Create package directories
-        val packagePath = mergedTest.packageName.replace('.', java.io.File.separatorChar)
-        val packageDir = java.io.File(testDir, packagePath)
-        if (!packageDir.exists()) {
-            packageDir.mkdirs()
+            
+        } else {
+            // Fallback to convention-based approach (legacy behavior)
+            val basePath = project.basePath ?: throw IllegalStateException("Project base path is null")
+            
+            // Try standard test source root first
+            var testSourceRoot = "$basePath/src/test/java"
+            var testDir = java.io.File(testSourceRoot)
+            
+            if (!testDir.exists()) {
+                // Fallback to simple test directory
+                testSourceRoot = "$basePath/test"
+                testDir = java.io.File(testSourceRoot)
+                if (!testDir.exists()) {
+                    testDir.mkdirs()
+                }
+            }
+            
+            // Create package directories
+            val packagePath = mergedTest.packageName.replace('.', java.io.File.separatorChar)
+            val packageDir = java.io.File(testDir, packagePath)
+            if (!packageDir.exists()) {
+                packageDir.mkdirs()
+            }
+            
+            targetFile = java.io.File(packageDir, mergedTest.fileName)
         }
         
         // Write the test file
-        val testFile = java.io.File(packageDir, mergedTest.fileName)
-        testFile.writeText(mergedTest.fullContent)
+        targetFile.writeText(mergedTest.fullContent)
         
-        return testFile.absolutePath
+        return targetFile.absolutePath
     }
     
     private fun copyToClipboard() {

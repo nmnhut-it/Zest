@@ -12,10 +12,13 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
+import com.zps.zest.testgen.util.ExistingTestAnalyzer;
+import com.zps.zest.testgen.util.ModuleAnalysisService;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,20 +57,41 @@ public class TestMergerAgent extends StreamingBaseAgent {
     public interface TestMergingAssistant {
         @dev.langchain4j.service.SystemMessage("""
         You are a test merging assistant responsible for creating complete test classes.
-        You will receive test methods and class metadata, and you should:
         
-        1. Create or update the test class using createOrUpdateTestClass
-        2. Add all necessary imports using addImportToClass
-        3. Add field declarations using addFieldToClass
-        4. Add setup/teardown methods using addSetupMethod/addTeardownMethod
-        5. Add each test method using addMethodToClass
-        6. Ensure the class compiles and is properly formatted
+        CRITICAL WORKFLOW - Follow this exact order:
+        
+        1. FIRST: Call analyzeProjectStructure() to understand the build system and source layout
+        2. SECOND: Call findExistingTestFile() to check for existing tests that we need to merge with
+        3. THIRD: Call setOutputFilePath() with your reasoned file path choice based on analysis
+           - Include full path: "src/test/java/com/example/service/UserServiceTest.java"
+           - Include reasoning: "Maven project detected, using standard test layout, existing test found at X"
+           - If existing test found, use its path for merging
+           - If no existing test, choose optimal path based on project structure
+        4. FOURTH: Create or merge the test class using PSI tools:
+           - createOrUpdateTestClass for basic class structure
+           - addImportToClass for all necessary imports
+           - addFieldToClass for field declarations  
+           - addSetupMethod/addTeardownMethod if needed
+           - addMethodToClass for each test method
+        
+        PATH SELECTION RULES:
+        - Maven projects: Use "src/test/java/package/ClassName.java"
+        - Gradle projects: Use "src/test/java/package/ClassName.java" 
+        - IntelliJ projects: Use existing test source roots or "test/package/ClassName.java"
+        - If existing test found: ALWAYS use its exact path for merging
+        - If no existing test: Choose path based on project conventions
+        
+        EXISTING TEST HANDLING:
+        - If existing test file found: Merge new methods into existing file
+        - Avoid creating duplicate method names
+        - Respect existing test framework and patterns
+        - Preserve existing imports and field declarations
         
         IMPORTANT:
         - Use PSI-based tools for all operations
-        - Maintain existing test methods when updating
-        - Follow the project's code style
-        - Ensure all imports are properly added
+        - Always provide reasoning for path decisions
+        - Follow the project's detected code style and framework
+        - Ensure all imports are properly added and deduplicated
         """)
         @dev.langchain4j.agentic.Agent
         String mergeTests(String request);
@@ -121,12 +145,14 @@ public class TestMergerAgent extends StreamingBaseAgent {
                 // Create and return MergedTestClass
                 String finalContent = mergingTools.getFinalContent();
                 String fileName = className + ".java";
+                String inferredPath = mergingTools.getInferredOutputPath();
                 
                 return new MergedTestClass(
                     className,
                     packageName,
                     finalContent,
                     fileName,
+                    inferredPath,
                     methods.size(),
                     framework
                 );
@@ -177,9 +203,13 @@ public class TestMergerAgent extends StreamingBaseAgent {
         private TestClassMetadata metadata;
         private final List<GeneratedTestMethod> testMethods = new ArrayList<>();
         private Consumer<String> toolNotifier;
+        private final ExistingTestAnalyzer existingTestAnalyzer;
+        private String inferredOutputPath;
+        private String pathReasoning;
         
         public TestMergingTools(Project project) {
             this.project = project;
+            this.existingTestAnalyzer = new ExistingTestAnalyzer(project);
         }
         
         public void reset(TestClassMetadata metadata, List<GeneratedTestMethod> methods) {
@@ -374,6 +404,116 @@ public class TestMergerAgent extends StreamingBaseAgent {
             });
             
             return testFile.getText();
+        }
+        
+        @Tool("Analyze project structure to understand build system and source layout")
+        public String analyzeProjectStructure() {
+            notifyTool("analyzeProjectStructure", "Detecting build system and source roots");
+            
+            ModuleAnalysisService.ProjectStructureInfo structureInfo = 
+                ModuleAnalysisService.analyzeProject(project);
+            
+            return structureInfo.getAnalysisSummary();
+        }
+        
+        @Tool("Find and analyze existing test files for the target class")
+        public String findExistingTestFile(String targetClassName) {
+            notifyTool("findExistingTestFile", targetClassName);
+            
+            try {
+                ExistingTestAnalyzer.ExistingTestClass existingTest = 
+                    existingTestAnalyzer.findExistingTestClass(targetClassName);
+                
+                if (existingTest == null) {
+                    return String.format("✅ No existing test file found for %s\n" +
+                                       "This is a clean slate - we can create a new test file.\n" +
+                                       "Recommendation: Create new test file with standard naming convention.",
+                                       targetClassName);
+                }
+                
+                // Analyze what exists vs what we're generating
+                StringBuilder analysis = new StringBuilder();
+                analysis.append("🔍 Found existing test file for ").append(targetClassName).append(":\n");
+                analysis.append("  • File: ").append(existingTest.getFilePath()).append("\n");
+                analysis.append("  • Class: ").append(existingTest.getClassName()).append("\n");
+                analysis.append("  • Package: ").append(existingTest.getPackageName()).append("\n");
+                analysis.append("  • Framework: ").append(existingTest.getFramework()).append("\n");
+                analysis.append("  • Existing methods: ").append(existingTest.getTestMethodCount()).append("\n");
+                
+                if (existingTest.canAddMethods()) {
+                    analysis.append("  • Status: ✅ Can merge new tests into existing file\n");
+                    analysis.append("\n⚠️  IMPORTANT: Use the existing file path for merging: ")
+                           .append(existingTest.getFilePath()).append("\n");
+                } else {
+                    analysis.append("  • Status: ❌ Cannot modify existing file (read-only or locked)\n");
+                    analysis.append("\n💡 Recommendation: Create new test file with different name\n");
+                }
+                
+                // List existing test methods to avoid duplicates
+                if (!existingTest.getTestMethods().isEmpty()) {
+                    analysis.append("\nExisting test methods to avoid duplicating:\n");
+                    for (ExistingTestAnalyzer.ExistingTestMethod method : existingTest.getTestMethods()) {
+                        analysis.append("  • ").append(method.getMethodName()).append("\n");
+                    }
+                }
+                
+                return analysis.toString();
+                
+            } catch (Exception e) {
+                return "❌ Error analyzing existing tests: " + e.getMessage() + 
+                       "\nContinuing with new file creation...";
+            }
+        }
+        
+        @Tool("Set the output file path for the test class with reasoning")
+        public String setOutputFilePath(String filePath, String reasoning) {
+            notifyTool("setOutputFilePath", filePath);
+            
+            // Validate the path
+            if (filePath == null || filePath.trim().isEmpty()) {
+                return "❌ Error: File path cannot be empty";
+            }
+            
+            // Store the inferred path and reasoning
+            this.inferredOutputPath = filePath.trim();
+            this.pathReasoning = reasoning != null ? reasoning.trim() : "No reasoning provided";
+            
+            // Validate path format
+            if (!inferredOutputPath.endsWith(".java")) {
+                return "⚠️  Warning: Path should end with .java - " + inferredOutputPath;
+            }
+            
+            // Check if target directory exists or can be created
+            String dirPath = inferredOutputPath.substring(0, inferredOutputPath.lastIndexOf('/'));
+            File targetDir = new File(dirPath);
+            
+            StringBuilder result = new StringBuilder();
+            result.append("📂 Output path set: ").append(inferredOutputPath).append("\n");
+            result.append("💭 Reasoning: ").append(pathReasoning).append("\n");
+            
+            if (targetDir.exists()) {
+                result.append("✅ Target directory exists: ").append(dirPath).append("\n");
+            } else {
+                result.append("📁 Target directory will be created: ").append(dirPath).append("\n");
+            }
+            
+            // Check if file already exists
+            File targetFile = new File(inferredOutputPath);
+            if (targetFile.exists()) {
+                result.append("⚠️  Warning: File already exists - will be overwritten\n");
+            } else {
+                result.append("✨ New file will be created\n");
+            }
+            
+            return result.toString();
+        }
+        
+        public String getInferredOutputPath() {
+            return inferredOutputPath;
+        }
+        
+        public String getPathReasoning() {
+            return pathReasoning;
         }
     }
 }

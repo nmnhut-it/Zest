@@ -15,6 +15,8 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.testgen.model.*;
+import com.zps.zest.testgen.util.ExistingTestAnalyzer;
+import com.zps.zest.testgen.util.ModuleAnalysisService;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -50,9 +52,11 @@ import java.util.concurrent.CompletableFuture;
 public class PSITestMergerAgent {
     private static final Logger LOG = Logger.getInstance(PSITestMergerAgent.class);
     private final Project project;
+    private final ExistingTestAnalyzer existingTestAnalyzer;
     
     public PSITestMergerAgent(@NotNull Project project) {
         this.project = project;
+        this.existingTestAnalyzer = new ExistingTestAnalyzer(project);
     }
     
     /**
@@ -143,9 +147,12 @@ public class PSITestMergerAgent {
         fieldDeclarations = validation.getCleanedFieldDeclarations();
         testMethods = validation.getCleanedTestMethods();
         
-        // Check for existing test file
-        PsiJavaFile existingFile = findExistingFile(className, packageName);
-        boolean hasExistingFile = existingFile != null;
+        // Infer optimal test path and check for existing tests
+        PathInferenceResult pathResult = inferOptimalTestPath(result);
+        ExistingTestAnalyzer.ExistingTestClass existingTest = pathResult.getExistingTest();
+        boolean hasExistingFile = existingTest != null;
+        
+        LOG.info("Path inference: " + pathResult.getInferredPath() + " (reasoning: " + pathResult.getReasoning() + ")");
         
         // Build the complete file content as text
         StringBuilder fileContent = new StringBuilder();
@@ -232,6 +239,7 @@ public class PSITestMergerAgent {
             packageName,
             finalContent,
             className + ".java",
+            pathResult.getInferredPath(),
             result.getMethodCount(),
             framework
         );
@@ -692,5 +700,105 @@ public class PSITestMergerAgent {
         public List<String> getCleanedImports() { return cleanedImports; }
         public List<String> getCleanedFieldDeclarations() { return cleanedFieldDeclarations; }
         public List<GeneratedTestMethod> getCleanedTestMethods() { return cleanedTestMethods; }
+    }
+    
+    /**
+     * Infer the optimal test file path using project structure analysis and existing test detection.
+     */
+    @NotNull
+    private PathInferenceResult inferOptimalTestPath(@NotNull TestGenerationResult result) {
+        String className = result.getClassName();
+        String packageName = result.getPackageName();
+        
+        // Check for existing test first
+        ExistingTestAnalyzer.ExistingTestClass existingTest = null;
+        try {
+            // Try to find by target class name if available
+            TestPlan testPlan = result.getTestPlan();
+            if (testPlan != null && testPlan.getTargetClass() != null) {
+                existingTest = existingTestAnalyzer.findExistingTestClass(testPlan.getTargetClass());
+            }
+            
+            // If not found, try by generated class name
+            if (existingTest == null) {
+                existingTest = existingTestAnalyzer.findExistingTestClass(className.replace("Test", ""));
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to find existing test class", e);
+        }
+        
+        String inferredPath;
+        String reasoning;
+        
+        if (existingTest != null) {
+            // Use existing test file path
+            inferredPath = existingTest.getFilePath();
+            reasoning = String.format("Found existing test file at %s with %d methods - merging into existing file", 
+                                    inferredPath, existingTest.getTestMethodCount());
+        } else {
+            // Analyze project structure to determine optimal path
+            ModuleAnalysisService.ProjectStructureInfo structureInfo = 
+                ModuleAnalysisService.analyzeProject(project);
+            
+            String basePath = project.getBasePath();
+            if (basePath == null) {
+                inferredPath = "test/" + packageName.replace('.', '/') + "/" + className + ".java";
+                reasoning = "Project path unavailable - using simple test directory";
+            } else {
+                switch (structureInfo.getBuildSystem()) {
+                    case MAVEN:
+                    case GRADLE:
+                        if (structureInfo.hasTestSourceRoots()) {
+                            String testRoot = structureInfo.getTestSourceRoots().get(0);
+                            inferredPath = testRoot + "/" + packageName.replace('.', '/') + "/" + className + ".java";
+                            reasoning = structureInfo.getBuildSystem().getDisplayName() + 
+                                      " project with existing test source root - using " + testRoot;
+                        } else {
+                            inferredPath = basePath + "/src/test/java/" + packageName.replace('.', '/') + "/" + className + ".java";
+                            reasoning = structureInfo.getBuildSystem().getDisplayName() + 
+                                      " project - using standard src/test/java layout";
+                        }
+                        break;
+                    case INTELLIJ:
+                        if (structureInfo.hasTestSourceRoots()) {
+                            String testRoot = structureInfo.getTestSourceRoots().get(0);
+                            inferredPath = testRoot + "/" + packageName.replace('.', '/') + "/" + className + ".java";
+                            reasoning = "IntelliJ project with configured test source root - using " + testRoot;
+                        } else {
+                            inferredPath = basePath + "/test/" + packageName.replace('.', '/') + "/" + className + ".java";
+                            reasoning = "IntelliJ project without test source root - using test/ directory";
+                        }
+                        break;
+                    default:
+                        inferredPath = basePath + "/test/" + packageName.replace('.', '/') + "/" + className + ".java";
+                        reasoning = "Unknown build system - using simple test/ directory structure";
+                }
+            }
+        }
+        
+        return new PathInferenceResult(inferredPath, reasoning, existingTest);
+    }
+    
+    /**
+     * Result of path inference analysis.
+     */
+    private static class PathInferenceResult {
+        private final String inferredPath;
+        private final String reasoning;
+        private final ExistingTestAnalyzer.ExistingTestClass existingTest;
+        
+        public PathInferenceResult(@NotNull String inferredPath, 
+                                 @NotNull String reasoning,
+                                 @Nullable ExistingTestAnalyzer.ExistingTestClass existingTest) {
+            this.inferredPath = inferredPath;
+            this.reasoning = reasoning;
+            this.existingTest = existingTest;
+        }
+        
+        @NotNull public String getInferredPath() { return inferredPath; }
+        @NotNull public String getReasoning() { return reasoning; }
+        @Nullable public ExistingTestAnalyzer.ExistingTestClass getExistingTest() { return existingTest; }
+        
+        public boolean hasExistingTest() { return existingTest != null; }
     }
 }

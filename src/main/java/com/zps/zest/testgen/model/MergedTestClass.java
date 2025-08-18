@@ -15,6 +15,7 @@ public class MergedTestClass {
     private final String packageName;
     private final String fullContent;  // Complete Java file content with package, imports, class, and all methods
     private final String fileName;     // e.g., "UserServiceTest.java"
+    private final String fullFilePath; // Full path where the file should be written (inferred by AI)
     private final int methodCount;     // Number of test methods in the class
     private final String framework;    // JUnit4, JUnit5, TestNG, etc.
     
@@ -22,12 +23,14 @@ public class MergedTestClass {
                           @NotNull String packageName,
                           @NotNull String fullContent,
                           @NotNull String fileName,
+                          @Nullable String fullFilePath,
                           int methodCount,
                           @NotNull String framework) {
         this.className = className;
         this.packageName = packageName;
         this.fullContent = fullContent;
         this.fileName = fileName;
+        this.fullFilePath = fullFilePath;
         this.methodCount = methodCount;
         this.framework = framework;
     }
@@ -59,6 +62,22 @@ public class MergedTestClass {
     @NotNull
     public String getFramework() {
         return framework;
+    }
+    
+    /**
+     * Get the full file path where this test should be written.
+     * This path is inferred by the AI merger agents based on project structure analysis.
+     */
+    @Nullable
+    public String getFullFilePath() {
+        return fullFilePath;
+    }
+    
+    /**
+     * Check if a specific file path was inferred by the AI.
+     */
+    public boolean hasInferredPath() {
+        return fullFilePath != null && !fullFilePath.trim().isEmpty();
     }
     
     /**

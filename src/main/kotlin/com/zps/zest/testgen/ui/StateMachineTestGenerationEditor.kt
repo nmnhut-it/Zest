@@ -127,8 +127,8 @@ class StateMachineTestGenerationEditor(
                 updateControlButtons()
                 logEvent("✓ Completed: ${event.summary}")
                 
-                // Auto-show preview dialog when generation completes
-                if (event.completedState == TestGenerationState.COMPLETED) {
+                // Auto-show preview dialog when merging completes
+                if (event.completedState == TestGenerationState.MERGING_TESTS) {
                     showFinalResult()
                 }
             }

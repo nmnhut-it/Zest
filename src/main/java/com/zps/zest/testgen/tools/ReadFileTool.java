@@ -67,13 +67,27 @@ public class ReadFileTool {
             try {
                 VirtualFile virtualFile = findFileByPathOrFqn(filePath);
                 if (virtualFile == null) {
-                    return String.format("❌ File not found: %s\n" +
-                                       "Suggestions:\n" +
-                                       "- Check the file path and spelling\n" +
-                                       "- Try different path formats (absolute, relative, package-style)\n" +
-                                       "- Use listFiles or findFiles to locate the file first\n" +
-                                       "- Ensure the file exists in the project",
-                                       filePath);
+                    // Enhanced error message with debugging info
+                    StringBuilder suggestions = new StringBuilder();
+                    suggestions.append("❌ File not found: ").append(filePath).append("\n\n");
+                    suggestions.append("🔍 Paths tried:\n");
+                    suggestions.append("- Direct path: ").append(filePath).append("\n");
+                    suggestions.append("- Normalized: ").append(filePath.replace('\\', '/')).append("\n");
+                    
+                    String basePath = project.getBasePath();
+                    if (basePath != null) {
+                        suggestions.append("- Project relative: ").append(basePath).append("/").append(filePath).append("\n");
+                    }
+                    
+                    suggestions.append("\n💡 Suggestions:\n");
+                    suggestions.append("- Check the file path and spelling\n");
+                    suggestions.append("- Try different path formats (absolute, relative, package-style)\n");
+                    suggestions.append("- Use listFiles or findFiles to locate the file first\n");
+                    suggestions.append("- For Java files, try: com/package/ClassName.java\n");
+                    suggestions.append("- For Windows paths, try: C:/full/path/to/file.ext\n");
+                    suggestions.append("- Ensure the file exists in the project");
+                    
+                    return suggestions.toString();
                 }
 
                 // Check if it's a binary file
@@ -156,8 +170,11 @@ public class ReadFileTool {
      */
     @Nullable
     private VirtualFile findFileByPathOrFqn(String pathOrFqn) {
+        // First normalize path separators for Windows/Unix compatibility
+        String normalizedPath = pathOrFqn.replace('\\', '/');
+        
         // Try direct absolute path
-        VirtualFile file = LocalFileSystem.getInstance().findFileByPath(pathOrFqn);
+        VirtualFile file = LocalFileSystem.getInstance().findFileByPath(normalizedPath);
         if (file != null && file.exists()) {
             return file;
         }
@@ -165,50 +182,70 @@ public class ReadFileTool {
         // Try relative to project base path
         String basePath = project.getBasePath();
         if (basePath != null) {
+            basePath = basePath.replace('\\', '/');
+            
             // Try as relative path from project root
-            file = LocalFileSystem.getInstance().findFileByPath(basePath + "/" + pathOrFqn);
+            file = LocalFileSystem.getInstance().findFileByPath(basePath + "/" + normalizedPath);
             if (file != null && file.exists()) {
                 return file;
             }
 
             // Try without leading slash if present
-            if (pathOrFqn.startsWith("/")) {
-                file = LocalFileSystem.getInstance().findFileByPath(basePath + pathOrFqn);
+            if (normalizedPath.startsWith("/")) {
+                file = LocalFileSystem.getInstance().findFileByPath(basePath + normalizedPath);
+                if (file != null && file.exists()) {
+                    return file;
+                }
+            }
+            
+            // Try with explicit normalization for Windows paths like C:/...
+            if (normalizedPath.matches("^[A-Za-z]:/.*")) {
+                file = LocalFileSystem.getInstance().findFileByPath(normalizedPath);
                 if (file != null && file.exists()) {
                     return file;
                 }
             }
         }
 
-        // Handle FQN for resource files (e.g., com.example.resources.config)
-        if (pathOrFqn.contains(".") && !pathOrFqn.contains("/") && !pathOrFqn.contains("\\")) {
-            String resourcePath = pathOrFqn.replace('.', '/');
+        // Handle package-style paths or FQN (e.g., com.example.resources.config or com/zps.redis/RedisConfig.java)
+        if (normalizedPath.contains(".") && !normalizedPath.startsWith("/") && !normalizedPath.matches("^[A-Za-z]:/.*")) {
+            // Check if it already has a file extension
+            boolean hasExtension = normalizedPath.matches(".*\\.[a-zA-Z0-9]{1,4}$");
+            
+            if (hasExtension) {
+                // It's already a path with extension, just try to find it in project
+                file = findInProjectSources(normalizedPath);
+                if (file != null) {
+                    return file;
+                }
+            } else {
+                // Convert dot notation to path and try various extensions
+                String resourcePath = normalizedPath.replace('.', '/');
 
-            // Try common resource file extensions
-            String[] extensions = {".properties", ".xml", ".json", ".yml", ".yaml", 
-                                  ".conf", ".txt", ".csv", ".sql", ".ftl", ".vm", ".html"};
-            for (String ext : extensions) {
-                file = findResourceFile(resourcePath + ext);
+                // Try common file extensions including Java source files
+                String[] extensions = {".java", ".kt", ".properties", ".xml", ".json", ".yml", ".yaml", 
+                                      ".conf", ".txt", ".csv", ".sql", ".ftl", ".vm", ".html", ".js", ".ts"};
+                for (String ext : extensions) {
+                    file = findInProjectSources(resourcePath + ext);
+                    if (file != null) {
+                        return file;
+                    }
+                }
+
+                // Try without extension
+                file = findInProjectSources(resourcePath);
                 if (file != null) {
                     return file;
                 }
             }
-
-            // Try without extension
-            file = findResourceFile(resourcePath);
-            if (file != null) {
-                return file;
-            }
+        }
+        
+        // Try to find the file in project sources (handles mixed path styles)
+        file = findInProjectSources(normalizedPath);
+        if (file != null) {
+            return file;
         }
 
-        // Handle Windows-style paths
-        if (pathOrFqn.contains("\\")) {
-            String normalizedPath = pathOrFqn.replace('\\', '/');
-            file = LocalFileSystem.getInstance().findFileByPath(normalizedPath);
-            if (file != null && file.exists()) {
-                return file;
-            }
-        }
 
         // Try to expand ~ for home directory
         if (pathOrFqn.startsWith("~")) {
@@ -223,6 +260,50 @@ public class ReadFileTool {
         return null;
     }
 
+    /**
+     * Enhanced method to find files in project sources, including all source and resource directories.
+     */
+    @Nullable
+    private VirtualFile findInProjectSources(String filePath) {
+        ModuleManager moduleManager = ModuleManager.getInstance(project);
+        
+        for (Module module : moduleManager.getModules()) {
+            ModuleRootManager rootManager = ModuleRootManager.getInstance(module);
+
+            // Check all source roots (includes src/main/java, src/test/java, etc.)
+            for (VirtualFile sourceRoot : rootManager.getSourceRoots()) {
+                VirtualFile file = sourceRoot.findFileByRelativePath(filePath);
+                if (file != null && file.exists()) {
+                    return file;
+                }
+            }
+
+            // Check content roots and their subdirectories
+            for (VirtualFile contentRoot : rootManager.getContentRoots()) {
+                // Try direct path from content root
+                VirtualFile file = contentRoot.findFileByRelativePath(filePath);
+                if (file != null && file.exists()) {
+                    return file;
+                }
+                
+                // Try common source directories
+                String[] sourceDirs = {"src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin",
+                                      "src/main/resources", "src/test/resources", "src", "main", "test"};
+                for (String srcDir : sourceDirs) {
+                    VirtualFile sourceDir = contentRoot.findFileByRelativePath(srcDir);
+                    if (sourceDir != null) {
+                        file = sourceDir.findFileByRelativePath(filePath);
+                        if (file != null && file.exists()) {
+                            return file;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+    
     /**
      * Finds a resource file in the project's resource directories.
      */

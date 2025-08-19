@@ -43,13 +43,15 @@ class StateMachineTestGenerationEditor(
     private val component: JPanel
     private var currentSessionId: String? = null
     private var currentStateMachine: TestGenerationStateMachine? = null
+    private var blinkTimer: javax.swing.Timer? = null
     
     // UI Components
     private lateinit var tabbedPane: JBTabbedPane
     private lateinit var stateDisplayPanel: JPanel
     private lateinit var stateLabel: JBLabel
     private lateinit var stateDescription: JBLabel
-    private lateinit var progressBar: JProgressBar
+    private lateinit var statusIndicator: JLabel
+    private lateinit var actionPrompt: JLabel
     private lateinit var logArea: JBTextArea
     
     // Real-time display panels
@@ -78,12 +80,14 @@ class StateMachineTestGenerationEditor(
             }
         }
         
-        override fun onProgressUpdated(event: TestGenerationEvent.ProgressUpdated) {
+        override fun onActivityLogged(event: TestGenerationEvent.ActivityLogged) {
             SwingUtilities.invokeLater {
-                progressBar.value = event.progressPercent
-                progressBar.string = event.message
-                progressBar.isIndeterminate = event.progressPercent == 0
-                logEvent("Progress: ${event.progressPercent}% - ${event.message}")
+                // Show activity in the log
+                logEvent("Activity: ${event.message}")
+                
+                // Update status indicator and clear action prompts
+                statusIndicator.text = "🔄 ${event.message}"
+                clearActionPrompt()
             }
         }
         
@@ -137,16 +141,42 @@ class StateMachineTestGenerationEditor(
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
             SwingUtilities.invokeLater {
                 updateControlButtons()
-                logEvent("⚠ User input required: ${event.prompt}")
+                logEvent("⚠️ USER ACTION REQUIRED: ${event.prompt}")
                 
-                if (event.inputType == "scenario_selection") {
-                    // Use test plan tab directly instead of dialog
-                    val testPlan = event.data as TestPlan
-                    testPlanDisplayPanel.setTestPlanForSelection(testPlan)
-                    // Switch to test plan tab
-                    tabbedPane.selectedIndex = 1
-                    logEvent("Please select scenarios in the Test Plan tab")
+                when (event.inputType) {
+                    "scenario_selection" -> {
+                        val testPlan = event.data as TestPlan
+                        testPlanDisplayPanel.setTestPlanForSelection(testPlan)
+                        tabbedPane.selectedIndex = 1
+                        
+                        actionPrompt.text = "⚠️ ACTION REQUIRED: Select test scenarios in Test Plan tab"
+                        statusIndicator.text = "⏳ Waiting for scenario selection"
+                        logEvent("⚠️ ACTION REQUIRED: Select test scenarios in the Test Plan tab and click 'Generate Selected Tests'")
+                    }
+                    "write_file" -> {
+                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Write to File' to save tests"
+                        statusIndicator.text = "⏳ Waiting for file write confirmation"
+                        logEvent("⚠️ ACTION REQUIRED: Click 'Write to File' button to save the generated tests")
+                    }
+                    "retry_generation" -> {
+                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Retry' to regenerate tests"
+                        statusIndicator.text = "❌ Generation failed"
+                        logEvent("⚠️ ACTION REQUIRED: Click 'Retry' button to attempt test generation again")
+                    }
+                    "continue_merge" -> {
+                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Continue Merge' to proceed"
+                        statusIndicator.text = "⏸️ Merge paused"
+                        logEvent("⚠️ ACTION REQUIRED: Click 'Continue Merge' button to proceed with merging")
+                    }
+                    else -> {
+                        actionPrompt.text = "⚠️ ACTION REQUIRED: ${event.prompt}"
+                        statusIndicator.text = "⏳ Waiting for user input"
+                        logEvent("⚠️ ACTION REQUIRED: ${event.prompt}")
+                    }
                 }
+                
+                // Make action prompt blink to draw attention
+                startBlinkingActionPrompt()
             }
         }
         
@@ -188,10 +218,9 @@ class StateMachineTestGenerationEditor(
         
         override fun onProgressChanged(percent: Int, message: String) {
             SwingUtilities.invokeLater {
-                progressBar.value = percent
-                progressBar.string = message
-                progressBar.isIndeterminate = percent == 0
-                logEvent("Progress: $percent% - $message")
+                // Legacy method - now just show status
+                statusIndicator.text = "🔄 $message"
+                logEvent("Status: $message")
             }
         }
     }
@@ -244,17 +273,22 @@ class StateMachineTestGenerationEditor(
         
         stateDisplayPanel.add(stateInfoPanel, BorderLayout.WEST)
         
-        // Right side - progress
-        val progressPanel = JPanel(BorderLayout())
-        progressPanel.isOpaque = false
+        // Right side - status and action prompts
+        val statusPanel = JPanel()
+        statusPanel.layout = BoxLayout(statusPanel, BoxLayout.Y_AXIS)
+        statusPanel.isOpaque = false
         
-        progressBar = JProgressBar()
-        progressBar.isStringPainted = true
-        progressBar.string = "Ready"
-        progressBar.preferredSize = JBUI.size(250, 20)
-        progressPanel.add(progressBar, BorderLayout.CENTER)
+        statusIndicator = JBLabel("Ready")
+        statusIndicator.font = statusIndicator.font.deriveFont(Font.BOLD)
+        statusIndicator.foreground = UIUtil.getContextHelpForeground()
+        statusPanel.add(statusIndicator)
         
-        stateDisplayPanel.add(progressPanel, BorderLayout.EAST)
+        actionPrompt = JBLabel("")
+        actionPrompt.font = actionPrompt.font.deriveFont(Font.BOLD)
+        actionPrompt.foreground = UIUtil.getErrorForeground()
+        statusPanel.add(actionPrompt)
+        
+        stateDisplayPanel.add(statusPanel, BorderLayout.EAST)
         
         return stateDisplayPanel
     }
@@ -568,6 +602,34 @@ class StateMachineTestGenerationEditor(
         val timestamp = java.time.LocalTime.now().toString().substring(0, 8)
         logArea.append("[$timestamp] $message\n")
         logArea.caretPosition = logArea.document.length
+    }
+    
+    private fun startBlinkingActionPrompt() {
+        stopBlinking() // Stop any existing timer
+        
+        var visible = true
+        blinkTimer = javax.swing.Timer(500) {
+            visible = !visible
+            actionPrompt.isVisible = visible
+        }
+        blinkTimer?.start()
+        
+        // Stop blinking after 10 seconds
+        javax.swing.Timer(10000) {
+            stopBlinking()
+        }.apply { isRepeats = false }.start()
+    }
+    
+    private fun stopBlinking() {
+        blinkTimer?.stop()
+        blinkTimer = null
+        actionPrompt.isVisible = true
+    }
+    
+    private fun clearActionPrompt() {
+        stopBlinking()
+        actionPrompt.text = ""
+        statusIndicator.text = "🔄 Processing..."
     }
     
     // FileEditor implementation

@@ -57,7 +57,7 @@ public class TestGenerationHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             TestWriterAgent testWriterAgent = new TestWriterAgent(getProject(stateMachine), langChainService, llmService);
             
-            updateProgress(stateMachine, 10, "Preparing test generation");
+            logToolActivity(stateMachine, "TestWriterAgent", "Preparing test generation");
             
             // Send initial streaming update
             if (streamingCallback != null) {
@@ -75,7 +75,7 @@ public class TestGenerationHandler extends AbstractStateHandler {
                     " of " + originalPlan.getScenarioCount() + " scenarios]"
             );
             
-            updateProgress(stateMachine, 20, "Generating test methods");
+            logToolActivity(stateMachine, "TestWriterAgent", "Generating test methods");
             
             // Execute test generation with enhanced error handling
             CompletableFuture<TestGenerationResult> generationFuture = testWriterAgent.generateTests(
@@ -143,7 +143,7 @@ public class TestGenerationHandler extends AbstractStateHandler {
             waitedSeconds += 2;
             progressPercent = Math.min(80, 20 + (waitedSeconds * 60 / maxWaitSeconds));
             
-            updateProgress(stateMachine, progressPercent, 
+            logToolActivity(stateMachine, "TestWriterAgent", 
                 String.format("Generating tests... (%d/%d scenarios)", 
                     Math.min(waitedSeconds / 10, expectedScenarios), expectedScenarios));
             

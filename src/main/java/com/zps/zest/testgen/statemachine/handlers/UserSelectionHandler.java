@@ -30,7 +30,7 @@ public class UserSelectionHandler extends AbstractStateHandler {
             
             TestPlan testPlan = (TestPlan) getSessionData(stateMachine, "testPlan");
             
-            updateProgress(stateMachine, 50, "Waiting for user scenario selection");
+            logToolActivity(stateMachine, "UserSelection", "Waiting for user scenario selection");
             
             // Check if user has already made a selection
             @SuppressWarnings("unchecked")

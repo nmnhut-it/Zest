@@ -55,7 +55,7 @@ public class TestPlanningHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService);
             
-            updateProgress(stateMachine, 10, "Analyzing testing requirements");
+            logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
             
             // Send initial streaming update
             if (streamingCallback != null) {
@@ -67,7 +67,7 @@ public class TestPlanningHandler extends AbstractStateHandler {
                 if (partialPlan != null) {
                     int scenarioCount = partialPlan.getScenarioCount();
                     int progressPercent = Math.min(80, 20 + (scenarioCount * 10)); // Cap at 80% during planning
-                    updateProgress(stateMachine, progressPercent, 
+                    logToolActivity(stateMachine, "CoordinatorAgent", 
                         String.format("Planning: %d scenarios identified", scenarioCount));
                     
                     // Send streaming update if callback available

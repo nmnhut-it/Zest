@@ -16,9 +16,9 @@ public interface TestGenerationEventListener {
     }
     
     /**
-     * Called when progress is updated during a state execution
+     * Called when activity is logged during state execution (replaces progress updates)
      */
-    default void onProgressUpdated(@NotNull TestGenerationEvent.ProgressUpdated event) {
+    default void onActivityLogged(@NotNull TestGenerationEvent.ActivityLogged event) {
         // Default empty implementation
     }
     

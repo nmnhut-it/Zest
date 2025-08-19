@@ -52,6 +52,11 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             ContextAgent contextAgent = new ContextAgent(getProject(stateMachine), langChainService, llmService);
             
+            // Set up UI event listener for real-time context tab updates
+            if (uiEventListener != null) {
+                contextAgent.setEventListener(uiEventListener);
+            }
+            
             // Set up progress callback for context updates
             Consumer<Map<String, Object>> contextUpdateCallback = contextData -> {
                 if (contextData != null) {
@@ -62,7 +67,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     int totalItems = analyzedClasses + notes + files;
                     if (totalItems > 0) {
                         int progressPercent = Math.min(90, 20 + (totalItems * 5)); // Cap at 90% during gathering
-                        updateProgress(stateMachine, progressPercent, 
+                        logToolActivity(stateMachine, "ContextAgent", 
                             String.format("Context: %d classes, %d notes, %d files", analyzedClasses, notes, files));
                         
                         // Send streaming update if callback available
@@ -79,7 +84,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 }
             };
             
-            updateProgress(stateMachine, 10, "Starting context analysis");
+            logToolActivity(stateMachine, "ContextAgent", "Starting context analysis");
             
             // Send initial streaming update
             if (streamingCallback != null) {

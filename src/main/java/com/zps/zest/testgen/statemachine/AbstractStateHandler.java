@@ -30,17 +30,18 @@ public abstract class AbstractStateHandler implements StateHandler {
         LOG.info("Executing state handler: " + handledState);
         
         try {
-            // Update progress to indicate start
-            stateMachine.updateProgress(0, "Starting " + handledState.getDisplayName().toLowerCase());
+            // Log state execution start
+            logStateStart(stateMachine);
             
             // Execute the state-specific logic
             StateResult result = executeState(stateMachine);
             
             if (result.isSuccess()) {
                 LOG.info("State handler completed successfully: " + handledState);
-                stateMachine.updateProgress(100, "Completed " + handledState.getDisplayName().toLowerCase());
+                logStateComplete(stateMachine);
             } else {
                 LOG.warn("State handler failed: " + handledState + " - " + result.getSummary());
+                logStateError(stateMachine, result.getSummary());
             }
             
             return result;
@@ -83,11 +84,36 @@ public abstract class AbstractStateHandler implements StateHandler {
     }
     
     /**
-     * Helper method to update progress during execution
+     * Log state execution start
      */
-    protected final void updateProgress(@NotNull TestGenerationStateMachine stateMachine, 
-                                       int percent, @NotNull String message) {
-        stateMachine.updateProgress(percent, message);
+    protected final void logStateStart(@NotNull TestGenerationStateMachine stateMachine) {
+        LOG.info("🏁 Starting: " + handledState.getDisplayName());
+        stateMachine.logActivity("🏁 Starting: " + handledState.getDisplayName());
+    }
+    
+    /**
+     * Log state execution completion
+     */
+    protected final void logStateComplete(@NotNull TestGenerationStateMachine stateMachine) {
+        LOG.info("✅ Completed: " + handledState.getDisplayName());
+        stateMachine.logActivity("✅ Completed: " + handledState.getDisplayName());
+    }
+    
+    /**
+     * Log state execution error
+     */
+    protected final void logStateError(@NotNull TestGenerationStateMachine stateMachine, String error) {
+        LOG.error("❌ Failed: " + handledState.getDisplayName() + " - " + error);
+        stateMachine.logActivity("❌ Failed: " + handledState.getDisplayName() + " - " + error);
+    }
+    
+    /**
+     * Log tool call activity during state execution
+     */
+    protected final void logToolActivity(@NotNull TestGenerationStateMachine stateMachine,
+                                        @NotNull String toolName, @NotNull String description) {
+        LOG.info("🔧 " + toolName + ": " + description);
+        stateMachine.logActivity("🔧 " + toolName + ": " + description);
     }
     
     /**
@@ -121,11 +147,11 @@ public abstract class AbstractStateHandler implements StateHandler {
     }
     
     /**
-     * Helper method to create a step-by-step progress callback
+     * Helper method to execute steps with activity logging
      */
-    protected final void executeWithProgress(@NotNull TestGenerationStateMachine stateMachine,
-                                            @NotNull String[] steps,
-                                            @NotNull ProgressCallback callback) throws Exception {
+    protected final void executeWithActivityLogging(@NotNull TestGenerationStateMachine stateMachine,
+                                                    @NotNull String[] steps,
+                                                    @NotNull ActivityCallback callback) throws Exception {
         int stepCount = steps.length;
         for (int i = 0; i < stepCount; i++) {
             if (shouldCancel(stateMachine)) {
@@ -133,20 +159,23 @@ public abstract class AbstractStateHandler implements StateHandler {
             }
             
             String step = steps[i];
-            int progressPercent = (i * 100) / stepCount;
-            updateProgress(stateMachine, progressPercent, step);
+            stateMachine.logActivity("⚡ Step " + (i + 1) + "/" + stepCount + ": " + step);
             
+            long startTime = System.currentTimeMillis();
             callback.executeStep(i, step);
+            long duration = System.currentTimeMillis() - startTime;
+            
+            stateMachine.logActivity("✅ Completed step " + (i + 1) + " in " + duration + "ms");
         }
         
-        updateProgress(stateMachine, 100, "Completed " + handledState.getDisplayName().toLowerCase());
+        stateMachine.logActivity("🎉 All steps completed for " + handledState.getDisplayName());
     }
     
     /**
-     * Functional interface for progress-based execution
+     * Functional interface for activity-based execution
      */
     @FunctionalInterface
-    protected interface ProgressCallback {
+    protected interface ActivityCallback {
         void executeStep(int stepIndex, String stepDescription) throws Exception;
     }
 }

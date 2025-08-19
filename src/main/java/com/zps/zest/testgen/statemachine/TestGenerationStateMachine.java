@@ -203,8 +203,8 @@ public class TestGenerationStateMachine {
         
         currentExecution = CompletableFuture.runAsync(() -> {
             try {
-                fireEvent(new TestGenerationEvent.ProgressUpdated(
-                    sessionId, currentState, 0, "Starting " + currentState.getDisplayName().toLowerCase()
+                fireEvent(new TestGenerationEvent.ActivityLogged(
+                    sessionId, currentState, "🏁 Starting " + currentState.getDisplayName().toLowerCase(), System.currentTimeMillis()
                 ));
                 
                 StateHandler.StateResult result = handler.execute(this);
@@ -375,8 +375,8 @@ public class TestGenerationStateMachine {
                 // Call specific handler based on event type
                 if (event instanceof TestGenerationEvent.StateChanged) {
                     listener.onStateChanged((TestGenerationEvent.StateChanged) event);
-                } else if (event instanceof TestGenerationEvent.ProgressUpdated) {
-                    listener.onProgressUpdated((TestGenerationEvent.ProgressUpdated) event);
+                } else if (event instanceof TestGenerationEvent.ActivityLogged) {
+                    listener.onActivityLogged((TestGenerationEvent.ActivityLogged) event);
                 } else if (event instanceof TestGenerationEvent.ErrorOccurred) {
                     listener.onErrorOccurred((TestGenerationEvent.ErrorOccurred) event);
                 } else if (event instanceof TestGenerationEvent.StepCompleted) {
@@ -402,10 +402,11 @@ public class TestGenerationStateMachine {
     }
     
     /**
-     * Update progress for current state
+     * Log activity during execution (replaces progress updates)
      */
-    public void updateProgress(int percent, @NotNull String message) {
-        fireEvent(new TestGenerationEvent.ProgressUpdated(sessionId, currentState, percent, message));
+    public void logActivity(@NotNull String message) {
+        LOG.info("[" + sessionId + "] " + message);
+        fireEvent(new TestGenerationEvent.ActivityLogged(sessionId, currentState, message, System.currentTimeMillis()));
     }
     
     @NotNull

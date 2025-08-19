@@ -27,7 +27,7 @@ public class InitializationHandler extends AbstractStateHandler {
                 "Preparing workflow"
             };
             
-            executeWithProgress(stateMachine, steps, (stepIndex, stepDescription) -> {
+            executeWithActivityLogging(stateMachine, steps, (stepIndex, stepDescription) -> {
                 switch (stepIndex) {
                     case 0:
                         validateRequest(stateMachine);

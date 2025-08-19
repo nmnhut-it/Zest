@@ -63,21 +63,21 @@ public abstract class TestGenerationEvent {
     }
     
     /**
-     * Progress update event
+     * Activity logged event (replaces progress updates with detailed activity tracking)
      */
-    public static class ProgressUpdated extends TestGenerationEvent {
-        private final int progressPercent;
+    public static class ActivityLogged extends TestGenerationEvent {
         private final String message;
         private final TestGenerationState currentState;
+        private final long timestamp;
         
-        public ProgressUpdated(@NotNull String sessionId, 
-                              @NotNull TestGenerationState currentState,
-                              int progressPercent, 
-                              @NotNull String message) {
+        public ActivityLogged(@NotNull String sessionId, 
+                             @NotNull TestGenerationState currentState,
+                             @NotNull String message,
+                             long timestamp) {
             super(sessionId);
             this.currentState = currentState;
-            this.progressPercent = Math.max(0, Math.min(100, progressPercent));
             this.message = message;
+            this.timestamp = timestamp;
         }
         
         @NotNull
@@ -85,13 +85,13 @@ public abstract class TestGenerationEvent {
             return currentState;
         }
         
-        public int getProgressPercent() {
-            return progressPercent;
-        }
-        
         @NotNull
         public String getMessage() {
             return message;
+        }
+        
+        public long getActivityTimestamp() {
+            return timestamp;
         }
     }
     

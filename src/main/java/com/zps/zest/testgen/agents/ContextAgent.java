@@ -344,6 +344,10 @@ Stop when you can test the code without making assumptions about external resour
             if (contextAgent != null) {
                 ContextDisplayData contextData = createContextDisplayData(filePathOrClassName, result);
                 contextAgent.sendContextFileAnalyzed(contextData);
+                
+                // Also use the logToolResult method for enhanced logging
+                String summary = result.length() > 200 ? result.substring(0, 200) + "..." : result;
+                contextAgent.logToolResult("analyzeClass", summary, "Class: " + filePathOrClassName);
             }
             
             notifyContextUpdate();
@@ -381,10 +385,14 @@ Stop when you can test the code without making assumptions about external resour
             notifyTool("readFile", filePath);
             String result = readFileTool.readFile(filePath);
             
-            // Also send file read as context update
+            // Send file read results to context tab through StreamingBaseAgent methods
             if (contextAgent != null && result != null && !result.isEmpty()) {
                 ContextDisplayData contextData = createContextDisplayData(filePath, result);
                 contextAgent.sendContextFileAnalyzed(contextData);
+                
+                // Also use the logToolResult method for enhanced logging
+                String summary = result.length() > 200 ? result.substring(0, 200) + "..." : result;
+                contextAgent.logToolResult("readFile", summary, "File: " + filePath);
             }
             
             notifyContextUpdate();

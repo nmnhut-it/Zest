@@ -141,6 +141,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         REMEMBER:
         
         - Avoid testing implementation details instead of behavior
+        - Avoid repeating the implementation - test the actual method. 
         - Avoid fitting tests to implementation 
         
         EXAMPLE RESPONSE:
@@ -155,7 +156,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         [Tool: addTeardownMethod with methodName="tearDown", methodBody="// Clean up resources", annotations=["AfterEach"], accessModifier="public"]
         [Tool: addMultipleTestMethods with test methods including annotations]
         
-        The examples above are just illustrating how you should utilize your tools, not tool syntax. 
+        The examples above are just illustrating how you should utilize your tools, not tool syntax. You need to strictly follow tool call syntax given to you. 
         
         IMPORTANT: 
         - Setup/teardown methods: Provide structured parameters separately (methodName, methodBody, annotations list, accessModifier)

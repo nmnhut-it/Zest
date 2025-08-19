@@ -99,10 +99,44 @@ public abstract class StreamingBaseAgent {
     }
     
     /**
-     * Notify about tool calls with special formatting.
+     * Notify about tool calls with detailed logging and special formatting.
      */
     protected void notifyToolCall(@NotNull String toolName) {
-        sendToUI("\n🔧 Tool Call: " + toolName + "\n");
+        notifyToolCall(toolName, null, null);
+    }
+    
+    /**
+     * Notify about tool calls with parameters and results.
+     */
+    protected void notifyToolCall(@NotNull String toolName, @Nullable String parameters, @Nullable String result) {
+        StringBuilder logMessage = new StringBuilder();
+        logMessage.append("\n🔧 Tool Call: ").append(toolName);
+        
+        if (parameters != null && !parameters.isEmpty()) {
+            logMessage.append("\n   Parameters: ").append(parameters);
+        }
+        
+        if (result != null && !result.isEmpty()) {
+            String truncatedResult = result.length() > 200 ? result.substring(0, 200) + "..." : result;
+            logMessage.append("\n   Result: ").append(truncatedResult);
+        }
+        
+        logMessage.append("\n");
+        sendToUI(logMessage.toString());
+        
+        // Also log to IntelliJ's log
+        LOG.info("[" + agentName + "] Tool call: " + toolName + 
+                (parameters != null ? " with params: " + parameters : ""));
+    }
+    
+    /**
+     * Log tool call execution with timing information.
+     */
+    protected void logToolExecution(@NotNull String toolName, long durationMs, boolean success) {
+        String status = success ? "✅" : "❌";
+        String message = String.format("\n%s Tool %s completed in %dms\n", status, toolName, durationMs);
+        sendToUI(message);
+        LOG.info("[" + agentName + "] Tool " + toolName + " executed in " + durationMs + "ms, success: " + success);
     }
     
     /**
@@ -160,11 +194,48 @@ public abstract class StreamingBaseAgent {
     }
     
     /**
-     * Send progress update to UI.
+     * Send context information from tool calls to UI.
+     * Replaces progress updates with contextual information about tool execution.
      */
-    protected void sendProgressUpdate(int percent, @NotNull String message) {
+    protected void sendContextInfo(@NotNull String toolName, @NotNull String contextInfo) {
         if (eventListener != null) {
-            SwingUtilities.invokeLater(() -> eventListener.onProgressChanged(percent, message));
+            ContextDisplayData contextData = new ContextDisplayData(
+                toolName + " Context",
+                toolName, 
+                ContextDisplayData.AnalysisStatus.COMPLETED,
+                contextInfo,
+                contextInfo,
+                java.util.Collections.emptyList(),
+                java.util.Collections.emptyList(),
+                java.util.Collections.emptyList(),
+                System.currentTimeMillis()
+            );
+            SwingUtilities.invokeLater(() -> eventListener.onFileAnalyzed(contextData));
+        }
+        
+        // Also send to streaming UI
+        sendToUI("\n📋 Context from " + toolName + ": " + contextInfo + "\n");
+    }
+    
+    /**
+     * Log tool call results with context information instead of progress.
+     */
+    protected void logToolResult(@NotNull String toolName, @NotNull String result, @Nullable String contextHint) {
+        // Send detailed tool result to UI
+        StringBuilder message = new StringBuilder();
+        message.append("\n📊 ").append(toolName).append(" Result:\n");
+        message.append("   ").append(result.length() > 300 ? result.substring(0, 300) + "..." : result);
+        
+        if (contextHint != null && !contextHint.isEmpty()) {
+            message.append("\n   Context: ").append(contextHint);
+        }
+        
+        message.append("\n");
+        sendToUI(message.toString());
+        
+        // Send context information to structured UI if available
+        if (contextHint != null) {
+            sendContextInfo(toolName, contextHint);
         }
     }
     

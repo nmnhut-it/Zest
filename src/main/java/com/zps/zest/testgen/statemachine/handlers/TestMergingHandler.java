@@ -45,7 +45,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             TestGenerationResult result = (TestGenerationResult) getSessionData(stateMachine, "testGenerationResult");
             TestContext context = (TestContext) getSessionData(stateMachine, "context");
             
-            updateProgress(stateMachine, 10, "Preparing test merging");
+            logToolActivity(stateMachine, "TestMerger", "Preparing test merging");
             
             // Send initial streaming update
             if (streamingCallback != null) {
@@ -101,7 +101,7 @@ public class TestMergingHandler extends AbstractStateHandler {
                                             @NotNull TestGenerationResult result,
                                             @NotNull TestContext context) throws Exception {
         
-        updateProgress(stateMachine, 20, "Using PSI-based merger (fast)");
+        logToolActivity(stateMachine, "PSITestMerger", "Using PSI-based merger (fast)");
         
         PSITestMergerAgent psiMerger = new PSITestMergerAgent(getProject(stateMachine));
         
@@ -118,7 +118,7 @@ public class TestMergingHandler extends AbstractStateHandler {
                                             @NotNull TestGenerationResult result,
                                             @NotNull TestContext context) throws Exception {
         
-        updateProgress(stateMachine, 20, "Using LLM-based merger (with conflict resolution)");
+        logToolActivity(stateMachine, "TestMergerAgent", "Using LLM-based merger (with conflict resolution)");
         
         ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
         LLMService llmService = getProject(stateMachine).getService(LLMService.class);
@@ -151,7 +151,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             waitedSeconds += 2;
             progressPercent = Math.min(90, 30 + (waitedSeconds * 60 / maxWaitSeconds));
             
-            updateProgress(stateMachine, progressPercent, 
+            logToolActivity(stateMachine, "TestMerger", 
                 String.format("%s in progress...", mergerType));
             
             Thread.sleep(2000); // Wait 2 seconds between progress updates
@@ -162,7 +162,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             throw new RuntimeException(mergerType + " timed out after " + maxWaitSeconds + " seconds");
         }
         
-        updateProgress(stateMachine, 100, mergerType + " completed");
+        logToolActivity(stateMachine, "TestMerger", mergerType + " completed");
         return future.join();
     }
     

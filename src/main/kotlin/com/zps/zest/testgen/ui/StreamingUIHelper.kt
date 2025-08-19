@@ -58,7 +58,7 @@ class StreamingUIHelper(
     
     private var currentAgent: String? = null
     private var currentPhase: Phase = Phase.IDLE
-    private var progressPercent: Int = 0
+    // Removed progressPercent - using only phase tracking now
     
     // Temporary storage for building test plan
     private var targetClass: String? = null
@@ -97,26 +97,10 @@ class StreamingUIHelper(
                 // Check for status updates
                 checkStatusUpdate(text)
                 
-                // Update progress based on phase and text content
-                when (currentPhase) {
-                    Phase.CONTEXT_GATHERING -> {
-                        if (text.contains("takeNote")) progressPercent = minOf(progressPercent + 2, 25)
-                        if (text.contains("analyzeClass")) progressPercent = minOf(progressPercent + 5, 25)
-                    }
-                    Phase.TEST_PLANNING -> {
-                        if (text.contains("addTestScenarios")) progressPercent = minOf(progressPercent + 5, 40)
-                    }
-                    Phase.TEST_GENERATION -> {
-                        if (text.contains("addMultipleTestMethods")) progressPercent = minOf(progressPercent + 10, 80)
-                    }
-                    Phase.VALIDATION -> {
-                        if (text.contains("✅") && text.contains("validation")) progressPercent = 95
-                    }
-                    else -> {}
-                }
+                // Track phase changes only (no progress calculation)
                 
-                // Update progress
-                updateProgress()
+                // Update status
+                updateStatus()
                 
             } catch (e: Exception) {
                 LOG.warn("Error processing streaming text", e)
@@ -157,14 +141,13 @@ class StreamingUIHelper(
         val endMatcher = AGENT_FOOTER_PATTERN.matcher(text)
         if (endMatcher.find()) {
             when (currentAgent) {
-                "ContextAgent" -> progressPercent = 25
+                "ContextAgent" -> currentPhase = Phase.CONTEXT_GATHERING
                 "CoordinatorAgent" -> {
-                    progressPercent = 40
+                    currentPhase = Phase.TEST_PLANNING
                     // Test plan will be sent directly by the agent
                 }
-                "TestWriterAgent" -> progressPercent = 80
+                "TestWriterAgent" -> currentPhase = Phase.TEST_GENERATION
                 "ValidatorAgent" -> {
-                    progressPercent = 100
                     currentPhase = Phase.COMPLETE
                     eventListener.onStatusChanged("✨ Test generation complete!")
                 }
@@ -197,19 +180,19 @@ class StreamingUIHelper(
     
     
     /**
-     * Update progress based on current phase.
+     * Update status based on current phase (no progress calculation).
      */
-    private fun updateProgress() {
+    private fun updateStatus() {
         val message = when (currentPhase) {
-            Phase.CONTEXT_GATHERING -> "Gathering context... ($progressPercent%)"
-            Phase.TEST_PLANNING -> "Planning scenarios... ($progressPercent%)"
+            Phase.CONTEXT_GATHERING -> "Gathering context..."
+            Phase.TEST_PLANNING -> "Planning scenarios..."
             Phase.USER_SELECTION -> "Waiting for user selection..."
-            Phase.TEST_GENERATION -> "Generating tests... ($progressPercent%)"
-            Phase.VALIDATION -> "Validating... ($progressPercent%)"
+            Phase.TEST_GENERATION -> "Generating tests..."
+            Phase.VALIDATION -> "Validating..."
             Phase.COMPLETE -> "Complete!"
             Phase.IDLE -> "Ready"
         }
-        eventListener.onProgressChanged(progressPercent, message)
+        eventListener.onProgressChanged(0, message) // Always 0 progress since we don't track it
     }
     
     /**
@@ -218,7 +201,7 @@ class StreamingUIHelper(
     fun reset() {
         currentAgent = null
         currentPhase = Phase.IDLE
-        progressPercent = 0
+        // Reset phase only - no progress tracking
         targetClass = null
         targetMethods.clear()
         scenarios.clear()

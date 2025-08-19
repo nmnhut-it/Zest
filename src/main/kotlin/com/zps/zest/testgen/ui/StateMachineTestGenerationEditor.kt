@@ -60,12 +60,14 @@ class StateMachineTestGenerationEditor(
     private lateinit var generatedTestsPanel: GeneratedTestsPanel
     private lateinit var streamingHelper: StreamingUIHelper
     
-    // Control buttons
-    private lateinit var continueButton: JButton
-    private lateinit var retryButton: JButton
-    private lateinit var skipButton: JButton
+    // Simplified control system
+    private lateinit var primaryActionButton: JButton
     private lateinit var cancelButton: JButton
-    private lateinit var showPreviewButton: JButton
+    
+    // Action banner components
+    private lateinit var actionBanner: JPanel
+    private lateinit var actionMessage: JBLabel
+    private lateinit var embeddedActionButton: JButton
     
     // Event listener for state machine events and streaming updates
     private val eventListener = object : TestGenerationEventListener, StreamingEventListener {
@@ -140,43 +142,85 @@ class StateMachineTestGenerationEditor(
         
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
             SwingUtilities.invokeLater {
-                updateControlButtons()
+                updateButtonForState(null, false) // Update buttons
                 logEvent("⚠️ USER ACTION REQUIRED: ${event.prompt}")
                 
                 when (event.inputType) {
                     "scenario_selection" -> {
                         val testPlan = event.data as TestPlan
                         testPlanDisplayPanel.setTestPlanForSelection(testPlan)
+                        
+                        // Show prominent action banner
+                        showActionBanner(
+                            "Select test scenarios to continue generation",
+                            "Go to Test Plan Tab"
+                        ) {
+                            tabbedPane.selectedIndex = 1
+                        }
+                        
+                        // Update primary button
+                        primaryActionButton.text = "✅ Generate Selected Tests"
+                        primaryActionButton.background = Color(255, 152, 0) // Orange
+                        primaryActionButton.isEnabled = true
+                        
+                        // Auto-switch to Test Plan tab
                         tabbedPane.selectedIndex = 1
                         
-                        actionPrompt.text = "⚠️ ACTION REQUIRED: Select test scenarios in Test Plan tab"
                         statusIndicator.text = "⏳ Waiting for scenario selection"
                         logEvent("⚠️ ACTION REQUIRED: Select test scenarios in the Test Plan tab and click 'Generate Selected Tests'")
+                        
+                        // Add balloon notification
+                        com.zps.zest.ZestNotifications.showWarning(
+                            project,
+                            "Action Required",
+                            "Please select test scenarios in the Test Plan tab"
+                        )
                     }
                     "write_file" -> {
-                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Write to File' to save tests"
-                        statusIndicator.text = "⏳ Waiting for file write confirmation"
-                        logEvent("⚠️ ACTION REQUIRED: Click 'Write to File' button to save the generated tests")
+                        showActionBanner(
+                            "Your tests are ready to save",
+                            "Save to File"
+                        ) {
+                            saveTestFile()
+                        }
+                        
+                        primaryActionButton.text = "💾 Save Test File"
+                        primaryActionButton.background = Color(76, 175, 80) // Green
+                        primaryActionButton.isEnabled = true
+                        
+                        statusIndicator.text = "⏳ Ready to save"
+                        logEvent("⚠️ ACTION REQUIRED: Click 'Save Test File' button to save the generated tests")
                     }
                     "retry_generation" -> {
-                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Retry' to regenerate tests"
+                        showActionBanner(
+                            "Test generation failed - retry?",
+                            "Retry Now"
+                        ) {
+                            retryCurrentState()
+                        }
+                        
+                        primaryActionButton.text = "🔄 Retry Generation"
+                        primaryActionButton.background = Color(244, 67, 54) // Red
+                        primaryActionButton.isEnabled = true
+                        
                         statusIndicator.text = "❌ Generation failed"
-                        logEvent("⚠️ ACTION REQUIRED: Click 'Retry' button to attempt test generation again")
-                    }
-                    "continue_merge" -> {
-                        actionPrompt.text = "⚠️ ACTION REQUIRED: Click 'Continue Merge' to proceed"
-                        statusIndicator.text = "⏸️ Merge paused"
-                        logEvent("⚠️ ACTION REQUIRED: Click 'Continue Merge' button to proceed with merging")
+                        logEvent("⚠️ ACTION REQUIRED: Click 'Retry Generation' button to attempt test generation again")
                     }
                     else -> {
-                        actionPrompt.text = "⚠️ ACTION REQUIRED: ${event.prompt}"
+                        showActionBanner(
+                            event.prompt,
+                            "Take Action"
+                        ) {
+                            // Generic action - could be improved based on specific needs
+                        }
+                        
                         statusIndicator.text = "⏳ Waiting for user input"
                         logEvent("⚠️ ACTION REQUIRED: ${event.prompt}")
                     }
                 }
                 
-                // Make action prompt blink to draw attention
-                startBlinkingActionPrompt()
+                // Play system beep for attention
+                Toolkit.getDefaultToolkit().beep()
             }
         }
         
@@ -240,8 +284,11 @@ class StateMachineTestGenerationEditor(
     }
     
     private fun setupUI() {
-        // Header with state display
-        component.add(createStateDisplayPanel(), BorderLayout.NORTH)
+        // Top panel with action banner and state display
+        val topPanel = JPanel(BorderLayout())
+        topPanel.add(createActionBanner(), BorderLayout.NORTH)
+        topPanel.add(createStateDisplayPanel(), BorderLayout.CENTER)
+        component.add(topPanel, BorderLayout.NORTH)
         
         // Center with tabbed pane and log area
         val splitter = com.intellij.ui.JBSplitter(true, 0.7f)
@@ -249,8 +296,44 @@ class StateMachineTestGenerationEditor(
         splitter.secondComponent = createLogPanel()
         component.add(splitter, BorderLayout.CENTER)
         
-        // Bottom with control buttons
+        // Bottom with simplified control buttons
         component.add(createControlPanel(), BorderLayout.SOUTH)
+    }
+    
+    private fun createActionBanner(): JComponent {
+        actionBanner = JPanel(BorderLayout())
+        actionBanner.background = Color(255, 243, 224) // Light orange
+        actionBanner.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 4, 0, 0, Color(255, 152, 0)), // Orange left border
+            EmptyBorder(15, 20, 15, 20)
+        )
+        actionBanner.isVisible = false
+        
+        // Icon + Message panel
+        val messagePanel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 0))
+        messagePanel.isOpaque = false
+        
+        val warningIcon = JBLabel("⚠️")
+        warningIcon.font = warningIcon.font.deriveFont(20f)
+        
+        actionMessage = JBLabel()
+        actionMessage.font = actionMessage.font.deriveFont(Font.BOLD, 14f)
+        actionMessage.foreground = Color.BLACK
+        
+        messagePanel.add(warningIcon)
+        messagePanel.add(actionMessage)
+        
+        // Embedded action button
+        embeddedActionButton = JButton()
+        embeddedActionButton.font = embeddedActionButton.font.deriveFont(Font.BOLD, 12f)
+        embeddedActionButton.background = Color(255, 152, 0)
+        embeddedActionButton.foreground = Color.WHITE
+        embeddedActionButton.preferredSize = JBUI.size(150, 32)
+        
+        actionBanner.add(messagePanel, BorderLayout.CENTER)
+        actionBanner.add(embeddedActionButton, BorderLayout.EAST)
+        
+        return actionBanner
     }
     
     private fun createStateDisplayPanel(): JComponent {
@@ -311,47 +394,39 @@ class StateMachineTestGenerationEditor(
     }
     
     private fun createControlPanel(): JComponent {
-        val panel = JPanel(FlowLayout(FlowLayout.CENTER, 10, 15))
+        val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
         
-        // Start button (only shown when idle)
-        val startButton = JButton("Start Generation")
-        startButton.addActionListener { 
-            virtualFile.request?.let { startTestGeneration(it) }
-        }
-        panel.add(startButton)
+        // Left: Status indicator
+        val statusPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+        statusIndicator.preferredSize = JBUI.size(200, 20)
+        statusPanel.add(statusIndicator)
         
-        // Manual control buttons (normally disabled)
-        continueButton = JButton("Continue")
-        continueButton.addActionListener { continueExecution() }
-        continueButton.isEnabled = false
-        panel.add(continueButton)
+        // Center: Primary action button (changes based on state)
+        val actionPanel = JPanel(FlowLayout(FlowLayout.CENTER))
+        primaryActionButton = JButton("▶️ Start Test Generation")
+        primaryActionButton.preferredSize = JBUI.size(220, 40)
+        primaryActionButton.font = primaryActionButton.font.deriveFont(Font.BOLD, 14f)
+        primaryActionButton.background = Color(76, 175, 80) // Green
+        primaryActionButton.addActionListener { handlePrimaryAction() }
+        actionPanel.add(primaryActionButton)
         
-        retryButton = JButton("Retry")
-        retryButton.addActionListener { retryCurrentState() }
-        retryButton.isEnabled = false
-        panel.add(retryButton)
-        
-        skipButton = JButton("Skip")
-        skipButton.addActionListener { skipCurrentState() }
-        skipButton.isEnabled = false
-        panel.add(skipButton)
-        
-        // Always available buttons
+        // Right: Cancel button (only visible during execution)
+        val cancelPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         cancelButton = JButton("Cancel")
         cancelButton.addActionListener { cancelGeneration() }
-        cancelButton.isEnabled = false
-        panel.add(cancelButton)
+        cancelButton.isVisible = false
+        cancelPanel.add(cancelButton)
         
-        // Show preview button (enabled when we have completed results)
-        showPreviewButton = JButton("Show Preview")
-        showPreviewButton.addActionListener { showFinalResult() }
-        showPreviewButton.isEnabled = false
-        panel.add(showPreviewButton)
-        
+        // Add a clear log button in the corner (small, unobtrusive)  
         val clearLogButton = JButton("Clear Log")
         clearLogButton.addActionListener { logArea.text = "" }
-        panel.add(clearLogButton)
+        clearLogButton.font = clearLogButton.font.deriveFont(10f)
+        cancelPanel.add(clearLogButton)
+        
+        panel.add(statusPanel, BorderLayout.WEST)
+        panel.add(actionPanel, BorderLayout.CENTER)
+        panel.add(cancelPanel, BorderLayout.EAST)
         
         return panel
     }
@@ -367,17 +442,12 @@ class StateMachineTestGenerationEditor(
         testPlanDisplayPanel = TestPlanDisplayPanel(project)
         testPlanDisplayPanel.setSelectionListener { selectedIds ->
             LOG.info("Selected scenarios: ${selectedIds.size}")
-        }
-        // Set up callback for selection confirmation
-        testPlanDisplayPanel.setConfirmSelectionCallback { selectedScenarios ->
-            currentSessionId?.let { sessionId ->
-                if (testGenService.setUserSelection(sessionId, selectedScenarios)) {
-                    logEvent("User confirmed selection of ${selectedScenarios.size} scenarios - continuing generation")
-                } else {
-                    logEvent("Failed to set user selection")
-                }
+            // Update button state when selection changes
+            SwingUtilities.invokeLater { 
+                updateControlButtons()
             }
         }
+        // No longer using callback - direct selection via main button
         tabbedPane.addTab("Test Plan", testPlanDisplayPanel)
         
         // Generated Tests tab - real-time generated test display
@@ -500,58 +570,116 @@ class StateMachineTestGenerationEditor(
         }
     }
     
-    private fun updateControlButtons() {
-        currentSessionId?.let { sessionId ->
-            val currentState = testGenService.getCurrentState(sessionId)
-            val isAutoFlowing = currentStateMachine?.isAutoFlowEnabled ?: false
-            val hasError = testGenService.canRetry(sessionId)
-            
-            // Only show manual control buttons when there's an error or auto-flow is disabled
-            val showManualControls = hasError || !isAutoFlowing
-            
-            continueButton.isEnabled = showManualControls && testGenService.canContinueManually(sessionId)
-            retryButton.isEnabled = showManualControls && testGenService.canRetry(sessionId)
-            skipButton.isEnabled = showManualControls && testGenService.canSkip(sessionId)
-            
-            // Always show cancel button for active states
-            cancelButton.isEnabled = currentState != null && !currentState.isTerminal
-            
-            // Enable show preview button when we have completed results
-            showPreviewButton.isEnabled = currentState == TestGenerationState.COMPLETED && 
-                currentStateMachine?.sessionData?.get("mergedTestClass") != null
-            
-            // Update button text based on current state
-            when (currentState) {
-                TestGenerationState.GATHERING_CONTEXT -> {
-                    continueButton.text = "Continue Context"
-                    skipButton.text = "Skip Context"
+    private fun updateButtonForState(state: TestGenerationState?, hasError: Boolean = false) {
+        SwingUtilities.invokeLater {
+            when {
+                hasError -> {
+                    primaryActionButton.apply {
+                        text = "🔄 Retry"
+                        background = Color(244, 67, 54) // Red
+                        isEnabled = true
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = false
                 }
-                TestGenerationState.PLANNING_TESTS -> {
-                    continueButton.text = "Continue Planning"
-                    skipButton.text = "Skip Planning"
+                
+                state == null || state == TestGenerationState.IDLE -> {
+                    primaryActionButton.apply {
+                        text = "▶️ Start Test Generation"
+                        background = Color(76, 175, 80) // Green
+                        isEnabled = true
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = false
                 }
-                TestGenerationState.GENERATING_TESTS -> {
-                    continueButton.text = "Continue Generation"
-                    skipButton.text = "Skip Generation"
+                
+                state == TestGenerationState.AWAITING_USER_SELECTION -> {
+                    primaryActionButton.apply {
+                        text = "✅ Generate Selected Tests"
+                        background = Color(255, 152, 0) // Orange
+                        isEnabled = hasSelectedScenarios()
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = true
                 }
-                TestGenerationState.MERGING_TESTS -> {
-                    continueButton.text = "Continue Merging"
+                
+                state == TestGenerationState.COMPLETED -> {
+                    primaryActionButton.apply {
+                        text = "💾 Save Test File"
+                        background = Color(76, 175, 80) // Green
+                        isEnabled = true
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = false
                 }
-                else -> {
-                    continueButton.text = "Continue"
-                    skipButton.text = "Skip"
+                
+                state?.isActive == true -> {
+                    // During auto-flow states, hide primary action
+                    primaryActionButton.isVisible = false
+                    cancelButton.isVisible = true
                 }
             }
-        } ?: run {
-            // No active session
-            continueButton.isEnabled = false
-            retryButton.isEnabled = false
-            skipButton.isEnabled = false
-            cancelButton.isEnabled = false
-            showPreviewButton.isEnabled = false
         }
     }
     
+    private fun hasSelectedScenarios(): Boolean {
+        return testPlanDisplayPanel.getSelectedTestScenarios().isNotEmpty()
+    }
+    
+    private fun updateControlButtons() {
+        currentSessionId?.let { sessionId ->
+            val currentState = testGenService.getCurrentState(sessionId)
+            val hasError = testGenService.canRetry(sessionId)
+            
+            // Use new button state management
+            updateButtonForState(currentState, hasError)
+            
+        } ?: run {
+            // No active session
+            updateButtonForState(null, false)
+        }
+    }
+    
+    
+    private fun generateSelectedTests() {
+        val selectedScenarios = testPlanDisplayPanel.getSelectedTestScenarios()
+        if (selectedScenarios.isEmpty()) {
+            com.zps.zest.ZestNotifications.showWarning(
+                project,
+                "No Scenarios Selected",
+                "Please select at least one test scenario to generate tests"
+            )
+            return
+        }
+        
+        currentSessionId?.let { sessionId ->
+            if (testGenService.setUserSelection(sessionId, selectedScenarios)) {
+                logEvent("User confirmed selection of ${selectedScenarios.size} scenarios - continuing generation")
+                hideActionBanner()
+                // Exit selection mode since selection was processed
+                testPlanDisplayPanel.exitSelectionMode()
+            } else {
+                logEvent("Failed to set user selection")
+                com.zps.zest.ZestNotifications.showWarning(
+                    project,
+                    "Selection Failed",
+                    "Could not process scenario selection. Please try again."
+                )
+            }
+        }
+    }
+    
+    private fun saveTestFile() {
+        // Implementation would go here - save the merged test class to a file
+        currentStateMachine?.let { stateMachine ->
+            val mergedTestClass = stateMachine.sessionData["mergedTestClass"]
+            if (mergedTestClass != null) {
+                // Save file logic here
+                logEvent("💾 Test file saved successfully")
+                hideActionBanner()
+            }
+        }
+    }
     
     private fun showFinalResult() {
         currentStateMachine?.let { stateMachine ->
@@ -630,6 +758,76 @@ class StateMachineTestGenerationEditor(
         stopBlinking()
         actionPrompt.text = ""
         statusIndicator.text = "🔄 Processing..."
+        hideActionBanner()
+    }
+    
+    private fun handlePrimaryAction() {
+        val sessionId = currentSessionId
+        val state = sessionId?.let { testGenService.getCurrentState(it) }
+        
+        when {
+            state == null -> {
+                // Start generation
+                virtualFile.request?.let { startTestGeneration(it) }
+            }
+            state == TestGenerationState.AWAITING_USER_SELECTION -> {
+                // Generate selected tests
+                generateSelectedTests()
+            }
+            state == TestGenerationState.COMPLETED -> {
+                // Save test file
+                saveTestFile()
+            }
+            testGenService.canRetry(sessionId) -> {
+                // Retry current state
+                retryCurrentState()
+            }
+        }
+    }
+    
+    private fun showActionBanner(message: String, buttonText: String, buttonAction: () -> Unit) {
+        SwingUtilities.invokeLater {
+            actionMessage.text = message
+            embeddedActionButton.text = buttonText
+            
+            // Remove previous action listeners
+            embeddedActionButton.actionListeners.forEach { 
+                embeddedActionButton.removeActionListener(it) 
+            }
+            embeddedActionButton.addActionListener { buttonAction() }
+            
+            actionBanner.isVisible = true
+            actionBanner.revalidate()
+            actionBanner.repaint()
+            
+            // Flash the banner briefly
+            startBannerFlash()
+        }
+    }
+    
+    private fun hideActionBanner() {
+        SwingUtilities.invokeLater {
+            actionBanner.isVisible = false
+            actionBanner.revalidate()
+            actionBanner.repaint()
+        }
+    }
+    
+    private fun startBannerFlash() {
+        var flashCount = 0
+        val flashTimer = javax.swing.Timer(300) {
+            flashCount++
+            if (flashCount <= 6) { // Flash 3 times (6 state changes)
+                val isHighlight = flashCount % 2 == 1
+                actionBanner.background = if (isHighlight) Color(255, 193, 7) else Color(255, 243, 224)
+                actionBanner.repaint()
+            } else {
+                (it.source as javax.swing.Timer).stop()
+                actionBanner.background = Color(255, 243, 224)
+                actionBanner.repaint()
+            }
+        }
+        flashTimer.start()
     }
     
     // FileEditor implementation

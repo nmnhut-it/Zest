@@ -19,8 +19,7 @@ import java.util.function.Consumer;
  */
 public class TestMergingHandler extends AbstractStateHandler {
     
-    // Configuration for merger type (could be made configurable)
-    private static final boolean USE_PSI_MERGER = true;
+    // Always try PSI first, then fallback to LLM automatically
     
     private final Consumer<String> streamingCallback;
     
@@ -52,21 +51,48 @@ public class TestMergingHandler extends AbstractStateHandler {
                 streamingCallback.accept("🔗 Merging generated tests into final test class...\n");
             }
             
-            MergedTestClass mergedTestClass;
+            MergedTestClass mergedTestClass = null;
+            String mergerUsed = "PSI";
             
-            if (USE_PSI_MERGER) {
+            // Always try PSI merger first (it's fast)
+            try {
+                logToolActivity(stateMachine, "PSITestMerger", "Attempting fast PSI-based merge");
                 mergedTestClass = executePSIMerging(stateMachine, result, context);
-            } else {
-                mergedTestClass = executeLLMMerging(stateMachine, result, context);
+                logToolActivity(stateMachine, "PSITestMerger", "✅ PSI merge successful");
+            } catch (Exception psiException) {
+                // PSI failed, try LLM merger as fallback
+                LOG.warn("PSI merger failed, attempting LLM-based merger", psiException);
+                logToolActivity(stateMachine, "TestMerger", 
+                    "⚠️ PSI merger failed: " + psiException.getMessage() + " - trying LLM merger");
+                
+                try {
+                    mergedTestClass = executeLLMMerging(stateMachine, result, context);
+                    mergerUsed = "LLM (PSI fallback)";
+                    logToolActivity(stateMachine, "TestMergerAgent", "✅ LLM merge successful");
+                } catch (Exception llmException) {
+                    // Both failed - this is still recoverable (user can retry)
+                    LOG.error("Both PSI and LLM mergers failed", llmException);
+                    return StateResult.failure(
+                        new Exception("Both mergers failed. PSI: " + psiException.getMessage() + 
+                                     ", LLM: " + llmException.getMessage()),
+                        true,  // recoverable = true (allows retry without FAILED state)
+                        "Test merging failed with both PSI and LLM approaches"
+                    );
+                }
             }
             
             if (mergedTestClass == null) {
-                return StateResult.failure("Test merging returned null result", true);
+                return StateResult.failure(
+                    new Exception("Merger returned null result"), 
+                    true, 
+                    "Test merging returned null result"
+                );
             }
             
             // Store merged result in session data
             setSessionData(stateMachine, "mergedTestClass", mergedTestClass);
             setSessionData(stateMachine, "workflowPhase", "merging");
+            setSessionData(stateMachine, "mergerUsed", mergerUsed);  // Track which merger succeeded
             
             // Update session with final result
             TestGenerationSession session = (TestGenerationSession) getSessionData(stateMachine, "session");
@@ -75,10 +101,10 @@ public class TestMergingHandler extends AbstractStateHandler {
                 session.setStatus(TestGenerationSession.Status.COMPLETED);
             }
             
-            String summary = String.format("Test merging completed: %s with %d methods (%s)", 
+            String summary = String.format("Test merging completed: %s with %d methods (using %s)", 
                 mergedTestClass.getClassName(), 
                 mergedTestClass.getMethodCount(),
-                USE_PSI_MERGER ? "PSI merger" : "LLM merger");
+                mergerUsed);
             LOG.info(summary);
             
             return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
@@ -86,10 +112,8 @@ public class TestMergingHandler extends AbstractStateHandler {
         } catch (Exception e) {
             LOG.error("Test merging failed", e);
             
-            // Check if this is a recoverable error
-            boolean recoverable = isRecoverableError(e);
-            
-            return StateResult.failure(e, recoverable, 
+            // Always mark as recoverable to avoid FAILED state - user can retry
+            return StateResult.failure(e, true, 
                 "Failed to merge tests: " + e.getMessage());
         }
     }
@@ -138,7 +162,8 @@ public class TestMergingHandler extends AbstractStateHandler {
                                          @NotNull String mergerType) throws Exception {
         
         int progressPercent = 30;
-        int maxWaitSeconds = USE_PSI_MERGER ? 30 : 120; // PSI is much faster
+        // Determine timeout based on merger type
+        int maxWaitSeconds = mergerType.contains("PSI") ? 30 : 120; // PSI is much faster
         int waitedSeconds = 0;
         
         while (!future.isDone() && waitedSeconds < maxWaitSeconds) {
@@ -168,13 +193,12 @@ public class TestMergingHandler extends AbstractStateHandler {
     
     /**
      * Determine if an error during test merging is recoverable
+     * NOTE: This method is now unused since we always return recoverable=true
+     * to avoid FAILED state transitions and use automatic fallback instead.
      */
     private boolean isRecoverableError(@NotNull Exception e) {
-        // PSI errors are usually not recoverable (file system issues)
-        if (USE_PSI_MERGER && e.getMessage() != null && 
-            (e.getMessage().contains("PSI") || e.getMessage().contains("file"))) {
-            return false;
-        }
+        // This method is kept for compatibility but not used
+        // We now handle PSI failures by automatically falling back to LLM merger
         
         // JSON parsing errors from LLM responses are recoverable (switch to PSI merger)
         if (e.getCause() instanceof com.google.gson.JsonSyntaxException) {

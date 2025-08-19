@@ -150,30 +150,25 @@ class StateMachineTestGenerationEditor(
                         val testPlan = event.data as TestPlan
                         testPlanDisplayPanel.setTestPlanForSelection(testPlan)
                         
-                        // Show prominent action banner
+                        // Show prominent action banner with dynamic text
                         showActionBanner(
-                            "Select test scenarios to continue generation",
-                            "Go to Test Plan Tab"
+                            "Select test scenarios from ${testPlan.scenarioCount} available scenarios",
+                            "View Test Plan"
                         ) {
                             tabbedPane.selectedIndex = 1
                         }
-                        
-                        // Update primary button
-                        primaryActionButton.text = "✅ Generate Selected Tests"
-                        primaryActionButton.background = Color(255, 152, 0) // Orange
-                        primaryActionButton.isEnabled = true
                         
                         // Auto-switch to Test Plan tab
                         tabbedPane.selectedIndex = 1
                         
                         statusIndicator.text = "⏳ Waiting for scenario selection"
-                        logEvent("⚠️ ACTION REQUIRED: Select test scenarios in the Test Plan tab and click 'Generate Selected Tests'")
+                        logEvent("⚠️ ACTION REQUIRED: Select test scenarios in the Test Plan tab")
                         
-                        // Add balloon notification
+                        // Add balloon notification with count
                         com.zps.zest.ZestNotifications.showWarning(
                             project,
                             "Action Required",
-                            "Please select test scenarios in the Test Plan tab"
+                            "Please select test scenarios from ${testPlan.scenarioCount} available scenarios"
                         )
                     }
                     "write_file" -> {
@@ -442,9 +437,19 @@ class StateMachineTestGenerationEditor(
         testPlanDisplayPanel = TestPlanDisplayPanel(project)
         testPlanDisplayPanel.setSelectionListener { selectedIds ->
             LOG.info("Selected scenarios: ${selectedIds.size}")
-            // Update button state when selection changes
+            // Update button state and action banner when selection changes
             SwingUtilities.invokeLater { 
                 updateControlButtons()
+                
+                // Update action banner message if visible
+                if (actionBanner.isVisible) {
+                    val totalScenarios = testPlanDisplayPanel.getTotalScenarioCount()
+                    actionMessage.text = if (selectedIds.isNotEmpty()) {
+                        "Great! ${selectedIds.size} of $totalScenarios scenarios selected - click the button below"
+                    } else {
+                        "Select test scenarios from $totalScenarios available scenarios"
+                    }
+                }
             }
         }
         // No longer using callback - direct selection via main button
@@ -594,10 +599,30 @@ class StateMachineTestGenerationEditor(
                 }
                 
                 state == TestGenerationState.AWAITING_USER_SELECTION -> {
+                    val selectedScenarios = testPlanDisplayPanel.getSelectedTestScenarios()
+                    val selectedCount = selectedScenarios.size
+                    
                     primaryActionButton.apply {
-                        text = "✅ Generate Selected Tests"
-                        background = Color(255, 152, 0) // Orange
-                        isEnabled = hasSelectedScenarios()
+                        text = if (selectedCount > 0) {
+                            "✅ Generate $selectedCount Selected Test${if (selectedCount == 1) "" else "s"}"
+                        } else {
+                            "⚠️ Select Test Scenarios First"
+                        }
+                        
+                        // Color coding based on selection state
+                        background = if (selectedCount > 0) {
+                            Color(76, 175, 80) // Green when scenarios are selected
+                        } else {
+                            Color(156, 156, 156) // Gray when no selection
+                        }
+                        
+                        foreground = if (selectedCount > 0) {
+                            Color.WHITE // White text on green
+                        } else {
+                            Color.WHITE // White text on gray
+                        }
+                        
+                        isEnabled = selectedCount > 0
                         isVisible = true
                     }
                     cancelButton.isVisible = true
@@ -624,6 +649,10 @@ class StateMachineTestGenerationEditor(
     
     private fun hasSelectedScenarios(): Boolean {
         return testPlanDisplayPanel.getSelectedTestScenarios().isNotEmpty()
+    }
+    
+    private fun getSelectedScenarioCount(): Int {
+        return testPlanDisplayPanel.getSelectedTestScenarios().size
     }
     
     private fun updateControlButtons() {

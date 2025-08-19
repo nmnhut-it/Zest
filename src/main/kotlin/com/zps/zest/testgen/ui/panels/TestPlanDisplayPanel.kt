@@ -244,6 +244,13 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     }
     
     /**
+     * Get total number of scenarios available for selection
+     */
+    fun getTotalScenarioCount(): Int {
+        return scenarioCheckboxes.size
+    }
+    
+    /**
      * Set selection change listener
      */
     fun setSelectionListener(listener: (Set<String>) -> Unit) {

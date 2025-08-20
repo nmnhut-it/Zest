@@ -345,11 +345,19 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                                     } else {
                                         println("[DEBUG] No custom prompt found for shortcut $numberPressed")
                                     }
-                                } else if (!e.isShiftDown && numberPressed in 1..4) {
-                                    // Regular number for built-in prompts (now supports 1-4)
+                                } else if (!e.isShiftDown && numberPressed >= 1) {
+                                    // Regular number for built-in prompts (supports all available options)
                                     val optionIndex = numberPressed - 1
                                     if (optionIndex < builtInOptions.size) {
-                                        executeSelectionAndClose(builtInOptions[optionIndex].instruction)
+                                        val instruction = builtInOptions[optionIndex].instruction
+                                        // For special actions (test generation and code explanation), close dialog immediately
+                                        if (instruction == "__WRITE_TEST__" || instruction == "__EXPLAIN_CODE__") {
+                                            close(OK_EXIT_CODE)
+                                            onInstructionSelected?.invoke(instruction)
+                                        } else {
+                                            // For regular rewrites, switch to progress view
+                                            executeSelectionAndClose(instruction)
+                                        }
                                         e.consume()
                                     }
                                 }
@@ -378,7 +386,15 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
                             KeyEvent.VK_ENTER -> {
                                 if (!e.isShiftDown && currentSelection < builtInOptions.size) {
-                                    executeSelectionAndClose(builtInOptions[currentSelection].instruction)
+                                    val instruction = builtInOptions[currentSelection].instruction
+                                    // For special actions (test generation and code explanation), close dialog immediately
+                                    if (instruction == "__WRITE_TEST__" || instruction == "__EXPLAIN_CODE__") {
+                                        close(OK_EXIT_CODE)
+                                        onInstructionSelected?.invoke(instruction)
+                                    } else {
+                                        // For regular rewrites, switch to progress view
+                                        executeSelectionAndClose(instruction)
+                                    }
                                 } else if (e.isShiftDown && currentSelection < customPrompts.size) {
                                     executeSelectionAndClose(customPrompts[currentSelection].prompt)
                                 }
@@ -653,8 +669,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
-                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
 
                 hasTodoComment(methodContent) -> {
@@ -664,8 +680,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                         RewriteOption("", "Implement TODO", todoInstruction),
                         RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                         RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                        RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
-                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
+                        RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                     )
                 }
 
@@ -673,16 +689,16 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Optimize performance", "Optimize this method for better performance"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
-                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
 
                 else -> listOf(
                     RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
-                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
             }
         }
@@ -1288,6 +1304,145 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 project,
                 "Failed to start test generation: ${e.message}",
                 "Test Generation Error"
+            )
+        }
+    }
+
+    /**
+     * Trigger code explanation for the given method
+     */
+    private fun explainCodeForMethod(
+        project: Project,
+        editor: com.intellij.openapi.editor.Editor,
+        methodContext: ZestMethodContextCollector.MethodContext
+    ) {
+        logger.info("=== STARTING CODE EXPLANATION FOR METHOD: ${methodContext.methodName} ===")
+        try {
+            // Get the method code content from the method context
+            val codeContent = methodContext.methodContent
+            if (codeContent.isBlank()) {
+                Messages.showWarningDialog(
+                    project,
+                    "Could not extract code content for explanation",
+                    "Code Explanation Error"
+                )
+                return
+            }
+
+            // Find the PsiFile to determine language and file path
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+            if (psiFile == null) {
+                logger.warn("Could not find PsiFile for current editor")
+                Messages.showWarningDialog(
+                    project,
+                    "Could not find the source file for code explanation",
+                    "Code Explanation Error"
+                )
+                return
+            }
+
+            // Determine the programming language
+            val language = when {
+                psiFile.name.endsWith(".java") -> "Java"
+                psiFile.name.endsWith(".kt") -> "Kotlin"
+                psiFile.name.endsWith(".js") -> "JavaScript"
+                psiFile.name.endsWith(".ts") -> "TypeScript"
+                psiFile.name.endsWith(".py") -> "Python"
+                psiFile.name.endsWith(".cpp") || psiFile.name.endsWith(".cc") -> "C++"
+                psiFile.name.endsWith(".c") -> "C"
+                psiFile.name.endsWith(".cs") -> "C#"
+                psiFile.name.endsWith(".go") -> "Go"
+                psiFile.name.endsWith(".rs") -> "Rust"
+                psiFile.name.endsWith(".php") -> "PHP"
+                psiFile.name.endsWith(".rb") -> "Ruby"
+                else -> "Unknown"
+            }
+
+            val filePath = psiFile.virtualFile.path
+
+            // Create and trigger the ZestExplainCodeAction
+            val explainAction = com.zps.zest.completion.actions.ZestExplainCodeAction()
+            
+            // Since we can't directly call the action, we'll create a fake action event
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    val langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService::class.java)
+                    val llmService = project.getService(com.zps.zest.langchain4j.util.LLMService::class.java)
+                    
+                    if (langChainService == null || llmService == null) {
+                        ApplicationManager.getApplication().invokeLater {
+                            Messages.showErrorDialog(
+                                project,
+                                "LangChain4j or LLM service not available. Please check your configuration.",
+                                "Service Unavailable"
+                            )
+                        }
+                        return@executeOnPooledThread
+                    }
+
+                    // Show progress dialog
+                    ApplicationManager.getApplication().invokeLater {
+                        val progressDialog = com.zps.zest.explanation.ui.CodeExplanationDialog.showProgressDialog(project, filePath)
+                        
+                        // Start explanation in background
+                        ApplicationManager.getApplication().executeOnPooledThread {
+                            try {
+                                // Create the explanation agent
+                                val explanationAgent = com.zps.zest.explanation.agents.CodeExplanationAgent(project, langChainService, llmService)
+
+                                // Start the explanation process
+                                val resultFuture = explanationAgent.explainCode(filePath, codeContent, language, null)
+
+                                // Handle the result
+                                resultFuture.whenComplete { result, throwable ->
+                                    ApplicationManager.getApplication().invokeLater {
+                                        progressDialog.close(0)
+                                        
+                                        if (throwable != null) {
+                                            Messages.showErrorDialog(
+                                                project,
+                                                "Code explanation failed: ${throwable.message}",
+                                                "Explanation Error"
+                                            )
+                                        } else {
+                                            // Show the detailed explanation dialog
+                                            val explanationDialog = com.zps.zest.explanation.ui.CodeExplanationDialog(project, result)
+                                            explanationDialog.show()
+                                        }
+                                    }
+                                }
+                            } catch (ex: Exception) {
+                                ApplicationManager.getApplication().invokeLater {
+                                    progressDialog.close(0)
+                                    Messages.showErrorDialog(
+                                        project,
+                                        "Failed to initialize code explanation: ${ex.message}",
+                                        "Initialization Error"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                } catch (ex: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        Messages.showErrorDialog(
+                            project,
+                            "Failed to start code explanation: ${ex.message}",
+                            "Code Explanation Error"
+                        )
+                    }
+                }
+            }
+
+            logger.info("Successfully triggered code explanation for method: ${methodContext.methodName}")
+            
+        } catch (e: Exception) {
+            logger.error("Failed to trigger code explanation for method ${methodContext.methodName}", e)
+            Messages.showErrorDialog(
+                project,
+                "Failed to start code explanation: ${e.message}",
+                "Code Explanation Error"
             )
         }
     }

@@ -188,13 +188,10 @@ class MergedTestPreviewDialog(
                 appendLine("Framework: ${mergedTest.framework}")
             }
             
-            Messages.showInfoMessage(
-                project,
-                message,
-                "Test Generation Complete"
-            )
+            // Open the saved file in IntelliJ editor instead of showing message
+            openFileInEditor(filePath)
             
-            // Close the dialog after successful write
+            // Close the dialog after successful write and opening file
             doCancelAction()
             
         } catch (e: Exception) {
@@ -254,6 +251,37 @@ class MergedTestPreviewDialog(
         targetFile.writeText(mergedTest.fullContent)
         
         return targetFile.absolutePath
+    }
+    
+    /**
+     * Open the saved test file in IntelliJ's editor
+     */
+    private fun openFileInEditor(filePath: String) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
+                if (virtualFile != null) {
+                    // Refresh the file system to ensure the file is recognized
+                    virtualFile.refresh(false, false)
+                    
+                    // Open the file in editor
+                    com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(virtualFile, true)
+                } else {
+                    // If file not found, show error
+                    Messages.showErrorDialog(
+                        project,
+                        "Could not find the saved file: $filePath",
+                        "File Not Found"
+                    )
+                }
+            } catch (e: Exception) {
+                Messages.showErrorDialog(
+                    project,
+                    "Failed to open file in editor: ${e.message}",
+                    "Open Error"
+                )
+            }
+        }
     }
     
     private fun copyToClipboard() {

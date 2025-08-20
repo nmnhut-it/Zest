@@ -210,7 +210,7 @@ public class GenerateTestAction extends AnAction {
         return methods;
     }
     
-    private void createTestGenerationRequest(@NotNull Project project,
+    public void createTestGenerationRequest(@NotNull Project project,
                                             @NotNull PsiFile psiFile,
                                             @Nullable String selectedCode,
                                             @Nullable PsiMethod targetMethod) {

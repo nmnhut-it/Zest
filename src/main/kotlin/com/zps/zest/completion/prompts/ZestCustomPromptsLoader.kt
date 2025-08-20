@@ -171,27 +171,28 @@ Optimize this code for better performance
 
 ## Shift+3: Add Error Handling
 Add comprehensive error handling
-
-## Shift+4: Add Unit Tests
-Generate unit tests for this method
-
-## Shift+5: Make Thread Safe
-Make this code thread-safe
-
-## Shift+6: Follow Best Practices
-Refactor to follow coding best practices
-
-## Shift+7: Add Documentation
-Add comprehensive documentation
-
-## Shift+8: Simplify Logic
-Simplify and make more readable
-
-## Shift+9: Add Logging
-Add appropriate logging statements
         """.trimIndent()
     }
 
+    /**
+     * Force update the custom prompts file with the new defaults (removes old prompts)
+     */
+    fun forceUpdateToNewDefaults(): Boolean {
+        try {
+            val configManager = ConfigurationManager.getInstance(project)
+            configManager.ensureZestFolderExists()
+            
+            // Write the new default content, overwriting any existing content
+            return configManager.writeZestConfigFile(
+                "custom_prompts.md",
+                getDefaultCustomPromptsContent()
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to force update custom prompts", e)
+            return false
+        }
+    }
+    
     companion object {
         fun getInstance(project: Project): ZestCustomPromptsLoader {
             return ZestCustomPromptsLoader(project)

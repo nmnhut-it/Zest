@@ -18,6 +18,8 @@ import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
+import com.zps.zest.testgen.actions.GenerateTestAction
+import com.intellij.psi.*
 import java.awt.*
 import java.awt.event.KeyEvent
 import java.awt.event.KeyListener
@@ -84,12 +86,14 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
             logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
 
             // Check if this is the test generation option
-            var finalInstruction = instruction
             if (instruction == "__WRITE_TEST__") {
-                // Test generation functionality has been removed - convert to test writing instruction
-                logger.info("Test generation functionality has been removed - treating as regular rewrite for method ${methodContext.methodName}")
-                finalInstruction = "Write comprehensive unit tests for this method using appropriate testing framework"
+                // Trigger actual test generation system for this method
+                logger.info("Triggering test generation for method ${methodContext.methodName}")
+                triggerTestGenerationForMethod(project, editor, methodContext)
+                return@SmartRewriteDialog
             }
+            
+            var finalInstruction = instruction
 
             // Get status bar widget for progress updates
             val statusBarWidget = getStatusBarWidget(project)
@@ -147,8 +151,13 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
 
         // Context-aware options
         private val builtInOptions = generateContextOptions()
-        private val customPrompts = ZestCustomPromptsLoader.getInstance(project).loadCustomPrompts().also { prompts ->
-            println("[DEBUG] Loaded ${prompts.size} custom prompts: ${prompts.map { "${it.shortcut}: ${it.title}" }}")
+        private val customPrompts = run {
+            val loader = ZestCustomPromptsLoader.getInstance(project)
+            // Force update to new defaults to remove old duplicated prompts
+            loader.forceUpdateToNewDefaults()
+            loader.loadCustomPrompts().also { prompts ->
+                println("[DEBUG] Loaded ${prompts.size} custom prompts: ${prompts.map { "${it.shortcut}: ${it.title}" }}")
+            }
         }
         private val builtInLabels = mutableListOf<JLabel>()
         private val customLabels = mutableListOf<JLabel>()
@@ -330,7 +339,7 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
                     RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
                 )
 
                 hasTodoComment(methodContent) -> {
@@ -340,7 +349,7 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
                         RewriteOption("", "Implement TODO", todoInstruction),
                         RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                         RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                        RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
+                        RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
                     )
                 }
 
@@ -348,14 +357,14 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
                     RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Optimize performance", "Optimize this method for better performance"),
-                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
                 )
 
                 else -> listOf(
                     RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Write test for method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
                 )
             }
         }
@@ -731,4 +740,71 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
     }
 
     override val priority: Int = 17
+    
+    /**
+     * Trigger test generation for a specific method using the actual test generation system
+     */
+    private fun triggerTestGenerationForMethod(
+        project: Project,
+        editor: com.intellij.openapi.editor.Editor,
+        methodContext: ZestMethodContextCollector.MethodContext
+    ) {
+        try {
+            // Find the PsiMethod at the current cursor position
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+            if (psiFile == null) {
+                logger.warn("Could not find PsiFile for current editor")
+                Messages.showWarningDialog(
+                    project,
+                    "Could not find the source file for test generation",
+                    "Test Generation Error"
+                )
+                return
+            }
+            
+            // Find the method containing the cursor position
+            var targetMethod: PsiMethod? = null
+            val offset = editor.caretModel.offset
+            
+            psiFile.accept(object : PsiRecursiveElementVisitor() {
+                override fun visitElement(element: PsiElement) {
+                    if (element is PsiMethod) {
+                        val methodStart = element.textRange.startOffset
+                        val methodEnd = element.textRange.endOffset
+                        if (offset >= methodStart && offset <= methodEnd) {
+                            if (element.name == methodContext.methodName) {
+                                targetMethod = element
+                                return // Found the method, stop searching
+                            }
+                        }
+                    }
+                    super.visitElement(element)
+                }
+            })
+            
+            if (targetMethod == null) {
+                logger.warn("Could not find PsiMethod for ${methodContext.methodName}")
+                Messages.showWarningDialog(
+                    project,
+                    "Could not find the method '${methodContext.methodName}' for test generation",
+                    "Method Not Found"
+                )
+                return
+            }
+            
+            // Use the GenerateTestAction to create test generation request for this single method
+            val generateTestAction = GenerateTestAction()
+            generateTestAction.createTestGenerationRequest(project, psiFile, null, targetMethod)
+            
+            logger.info("Successfully triggered test generation for method: ${methodContext.methodName}")
+            
+        } catch (e: Exception) {
+            logger.error("Failed to trigger test generation for method ${methodContext.methodName}", e)
+            Messages.showErrorDialog(
+                project,
+                "Failed to start test generation: ${e.message}",
+                "Test Generation Error"
+            )
+        }
+    }
 }

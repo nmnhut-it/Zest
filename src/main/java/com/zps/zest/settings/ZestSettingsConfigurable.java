@@ -930,17 +930,6 @@ public class ZestSettingsConfigurable implements Configurable {
             "Optimize this code for better performance\n\n" +
             "## Shift+3: Add Error Handling\n" +
             "Add comprehensive error handling\n\n" +
-            "## Shift+4: Add Unit Tests\n" +
-            "Generate unit tests for this method\n\n" +
-            "## Shift+5: Make Thread Safe\n" +
-            "Make this code thread-safe\n\n" +
-            "## Shift+6: Follow Best Practices\n" +
-            "Refactor to follow coding best practices\n\n" +
-            "## Shift+7: Add Documentation\n" +
-            "Add comprehensive documentation\n\n" +
-            "## Shift+8: Simplify Logic\n" +
-            "Simplify and make more readable\n\n" +
-            "## Shift+9: Add Logging\n" +
-            "Add appropriate logging statements\n";
+            "";
     }
 }

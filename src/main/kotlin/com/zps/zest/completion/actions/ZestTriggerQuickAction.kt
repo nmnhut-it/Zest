@@ -104,7 +104,15 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 return@SmartRewriteDialog // Exit early - don't continue to rewrite service
             }
             
-            // Only continue with rewrite service if not test generation
+            // Check if this is the code explanation option
+            if (instruction == "__EXPLAIN_CODE__") {
+                // Trigger code explanation for this method
+                logger.info("*** DETECTED CODE EXPLANATION REQUEST - CALLING explainCodeForMethod ***")
+                explainCodeForMethod(project, editor, methodContext)
+                return@SmartRewriteDialog // Exit early - don't continue to rewrite service
+            }
+            
+            // Only continue with rewrite service if not test generation or explanation
             logger.info("Proceeding with method rewrite for instruction: $instruction")
             
             // Get status bar widget for progress updates
@@ -645,7 +653,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
+                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
                 )
 
                 hasTodoComment(methodContent) -> {
@@ -655,7 +664,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                         RewriteOption("", "Implement TODO", todoInstruction),
                         RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                         RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                        RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                        RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
+                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
                     )
                 }
 
@@ -663,14 +673,16 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Optimize performance", "Optimize this method for better performance"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
+                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
                 )
 
                 else -> listOf(
                     RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
                     RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
                     RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
+                    RewriteOption("", "Test for this method", "__WRITE_TEST__"), // Special marker for test generation
+                    RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation
                 )
             }
         }

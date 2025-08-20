@@ -126,14 +126,23 @@ ${buildSurroundingMethodsContext(context)}
 **Improvement Guidelines:**
 1. **Maintain Interface:** Keep the same method signature: `${context.methodSignature}`
 
-2. **Class Integration:** 
+2. **Preserve Existing Style:** 
+   - Keep existing code patterns and style UNLESS specifically told to change them
+   - Preserve for loop style (for vs forEach vs while) unless improvement is needed
+   - Maintain variable declaration style (let vs var vs const) 
+   - Keep existing logging/debugging patterns and frameworks
+   - Preserve naming conventions and formatting choices
+   - Maintain existing error handling patterns unless enhancement is needed
+   - Only modernize syntax if explicitly requested or if it significantly improves functionality
+
+3. **Class Integration:** 
    - Utilize available class fields appropriately
    - Consider interactions with other class methods
    - Follow established patterns in the class
    - Maintain consistency with class design principles
    ${if (context.relatedClasses.isNotEmpty()) "- Use the related classes shown above correctly" else ""}
 
-3. **Code Quality Improvements:**
+4. **Code Quality Improvements:**
    - Add comprehensive error handling and validation
    - Improve readability with clear variable names and structure
    - Follow ${context.language} best practices and idioms
@@ -142,14 +151,14 @@ ${buildSurroundingMethodsContext(context)}
    - Ensure null safety and type safety
    - Handle edge cases appropriately
 
-4. **Best Practices:**
+5. **Best Practices:**
    - Use appropriate data structures and algorithms
    - Minimize side effects where possible
    - Follow SOLID principles
    - Ensure thread safety if applicable
    - Add appropriate logging/debugging aids if beneficial
 
-5. **Integration Requirements:**
+6. **Integration Requirements:**
    - Maintain compatibility with surrounding methods
    - Respect class invariants and contracts
    - Consider the method's role in the overall class design
@@ -425,10 +434,11 @@ ${customInstruction}
 
 **General Guidelines:**
 1. Follow the custom instructions as the primary requirement
-2. Maintain the method signature unless specifically asked to change it
-3. Consider class context and integration with other methods
-4. Follow ${context.language} best practices while meeting custom requirements
-5. Ensure the code remains functional and integrates well with the class
+2. **Preserve Existing Style:** Keep existing code patterns, loop styles, variable declarations, and logging patterns UNLESS the custom instruction specifically asks to change them
+3. Maintain the method signature unless specifically asked to change it
+4. Consider class context and integration with other methods
+5. Follow ${context.language} best practices while meeting custom requirements
+6. Ensure the code remains functional and integrates well with the class
 
 ${buildCocos2dxSpecificGuidelines(context)}
 
@@ -494,7 +504,7 @@ ${context.cocosCompletionHints.joinToString("\n") { "- $it" }}
         if (!context.isCocos2dx) return ""
         
         val guidelines = StringBuilder()
-        guidelines.appendLine("6. **Cocos2d-x Framework Guidelines:**")
+        guidelines.appendLine("7. **Cocos2d-x Framework Guidelines:**")
         
         when (context.cocosContextType) {
             ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION -> {

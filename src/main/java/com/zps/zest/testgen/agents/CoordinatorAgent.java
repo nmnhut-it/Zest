@@ -53,6 +53,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
         You are a test planning assistant that creates comprehensive test plans.
         
+        IMPORTANT: The target methods have already been selected by the user. Do NOT call addTargetMethod - the methods are already determined.
         
         PROCESS:
         1. Analyze the code and set target class.
@@ -249,13 +250,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             return "Target class set to: " + className;
         }
 
-        @Tool("Add a target method for testing")
+        @Tool("Add a target method for testing (only if not already specified by user)")
         public String addTargetMethod(String methodName) {
-            notifyTool("addTargetMethod", methodName);
-            if (!this.targetMethods.contains(methodName)) {
+            // Prevent LLM from adding methods beyond user selection
+            // Only allow if we have no methods yet (fallback scenario)
+            if (this.targetMethods.isEmpty()) {
+                notifyTool("addTargetMethod", methodName);
                 this.targetMethods.add(methodName);
+                return "Added target method: " + methodName + " (Total: " + targetMethods.size() + ")";
+            } else {
+                return "Target methods already specified by user. Cannot add additional methods: " + methodName;
             }
-            return "Added target method: " + methodName + " (Total: " + targetMethods.size() + ")";
         }
 
         @Tool("Set the recommended test type (UNIT_TESTS or INTEGRATION_TESTS)")

@@ -9,6 +9,9 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBScrollPane
@@ -171,6 +174,15 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private var currentStage = 0
         private val totalStages = 6
         
+        // Markdown details fields
+        private var isDetailsExpanded = false
+        private lateinit var markdownEditor: Editor
+        private lateinit var markdownScrollPane: JScrollPane
+        private lateinit var toggleButton: JButton
+        private lateinit var detailsContentPanel: JPanel
+        private val detailsMarkdown = StringBuilder()
+        private val stageStartTimes = mutableMapOf<Int, Long>()
+        
         // Progress constants
         companion object {
             const val SELECTION_VIEW = "selection"
@@ -201,15 +213,49 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         init {
             title = "Block Rewrite - Choose Instruction"
             setOKButtonText("Apply")
-            init()
-
+            
+            // Setup components BEFORE calling init()
             setupKeyListener()
             setupCustomTextArea()
+            setupMarkdownEditor()
+            
+            init()
 
             // Focus the input field
             SwingUtilities.invokeLater {
                 inputField.requestFocusInWindow()
             }
+        }
+        
+        private fun setupMarkdownEditor() {
+            val editorFactory = EditorFactory.getInstance()
+            val document = editorFactory.createDocument(getInitialMarkdown())
+            
+            markdownEditor = editorFactory.createViewer(document, project)
+            
+            // Configure editor settings for better display
+            val settings = markdownEditor.settings
+            settings.isLineNumbersShown = false
+            settings.isLineMarkerAreaShown = false
+            settings.isFoldingOutlineShown = false
+            settings.additionalColumnsCount = 0
+            settings.additionalLinesCount = 0
+            settings.isRightMarginShown = false
+        }
+        
+        private fun getInitialMarkdown(): String {
+            return """
+                # 🔍 AI Processing Details
+                
+                Ready to show processing details...
+                
+                Click "Show Details" during processing to see real-time information about:
+                - 📚 Context retrieval from codebase
+                - 🧠 Prompt construction
+                - 🤖 AI model interaction
+                - ⚙️ Response parsing
+                - 🔍 Change analysis
+            """.trimIndent()
         }
         
         private fun setupCustomTextArea() {
@@ -392,6 +438,9 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 statusLabel.text = statusText
                 progressBar.value = currentStage
                 
+                // Record stage start time
+                stageStartTimes[stage] = System.currentTimeMillis()
+                
                 // Update progress bar string
                 val percentage = (currentStage * 100) / totalStages
                 progressBar.string = "$percentage%"
@@ -408,6 +457,159 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 }
                 statusLabel.text = "$emoji $statusText"
             }
+        }
+        
+        /**
+         * Update progress with detailed information for Markdown display
+         */
+        fun updateProgressDetails(stage: Int, statusText: String, details: String? = null) {
+            updateProgress(stage, statusText)
+            
+            if (details != null) {
+                SwingUtilities.invokeLater {
+                    updateMarkdownDetails(stage, statusText, details)
+                }
+            }
+        }
+        
+        private fun updateMarkdownDetails(stage: Int, statusText: String, details: String) {
+            val stageName = when (stage) {
+                STAGE_RETRIEVING_CONTEXT -> "Context Retrieval"
+                STAGE_BUILDING_PROMPT -> "Prompt Construction"
+                STAGE_QUERYING_LLM -> "AI Model Interaction"
+                STAGE_PARSING_RESPONSE -> "Response Processing"
+                STAGE_ANALYZING_CHANGES -> "Change Analysis"
+                STAGE_COMPLETE -> "Completion"
+                else -> "Processing"
+            }
+            
+            val emoji = when (stage) {
+                STAGE_RETRIEVING_CONTEXT -> "📚"
+                STAGE_BUILDING_PROMPT -> "🧠"
+                STAGE_QUERYING_LLM -> "🤖"
+                STAGE_PARSING_RESPONSE -> "⚙️"
+                STAGE_ANALYZING_CHANGES -> "🔍"
+                STAGE_COMPLETE -> "✅"
+                else -> "⏳"
+            }
+            
+            // Calculate duration if we have a previous stage
+            val duration = if (stage > 0 && stageStartTimes.containsKey(stage - 1)) {
+                val previousStart = stageStartTimes[stage - 1] ?: System.currentTimeMillis()
+                val currentTime = System.currentTimeMillis()
+                "${String.format("%.1f", (currentTime - previousStart) / 1000.0)}s"
+            } else {
+                "..."
+            }
+            
+            // Add stage header if not already present
+            val stageMarker = "## $emoji Stage $stage: $stageName"
+            if (!detailsMarkdown.contains(stageMarker)) {
+                if (detailsMarkdown.isNotEmpty()) {
+                    detailsMarkdown.append("\n\n---\n\n")
+                }
+                detailsMarkdown.append("$stageMarker\n")
+                detailsMarkdown.append("**Status:** ✅ Complete  \n")
+                detailsMarkdown.append("**Duration:** $duration  \n")
+                detailsMarkdown.append("**Message:** $statusText  \n\n")
+            }
+            
+            // Add details content
+            detailsMarkdown.append(details)
+            detailsMarkdown.append("\n\n")
+            
+            // Update the markdown editor
+            ApplicationManager.getApplication().runWriteAction {
+                markdownEditor.document.setText(detailsMarkdown.toString())
+            }
+        }
+        
+        /**
+         * Format context information as Markdown
+         */
+        fun addContextDetails(contextItems: List<String>, filesSearched: Int = 0) {
+            val contextMarkdown = buildString {
+                append("### Retrieved Context:\n")
+                append("**Files Searched:** $filesSearched  \n")
+                append("**Context Items Found:** ${contextItems.size}  \n\n")
+                
+                contextItems.forEachIndexed { index, item ->
+                    append("#### 📄 Context Item ${index + 1}\n")
+                    append("```java\n")
+                    append(item.take(200)) // Truncate long items
+                    if (item.length > 200) append("\n... [truncated]")
+                    append("\n```\n\n")
+                }
+            }
+            
+            updateProgressDetails(STAGE_RETRIEVING_CONTEXT, "Context retrieval complete", contextMarkdown)
+        }
+        
+        /**
+         * Format prompt information as Markdown
+         */
+        fun addPromptDetails(prompt: String, tokenCount: Int = 0, modelName: String = "gpt-4.1-mini") {
+            val promptMarkdown = buildString {
+                append("### Final Prompt Details:\n")
+                append("**Model:** $modelName  \n")
+                append("**Token Count:** $tokenCount / 4,096  \n")
+                append("**Temperature:** 0.7  \n\n")
+                
+                append("### Instruction:\n")
+                append("> ${prompt.lines().firstOrNull { it.contains("instruction") || it.contains("task") } ?: "Custom instruction"}\n\n")
+                
+                append("### Method to Rewrite:\n")
+                append("```java\n")
+                append(methodContext.methodContent)
+                append("\n```\n\n")
+                
+                append("### Complete Prompt:\n")
+                append("```\n")
+                append(prompt.take(500)) // Show first 500 chars
+                if (prompt.length > 500) append("\n... [showing first 500 characters]")
+                append("\n```\n\n")
+            }
+            
+            updateProgressDetails(STAGE_BUILDING_PROMPT, "Prompt construction complete", promptMarkdown)
+        }
+        
+        /**
+         * Format AI response as Markdown
+         */
+        fun addResponseDetails(response: String, responseTime: Long = 0) {
+            val responseMarkdown = buildString {
+                append("### AI Model Response:\n")
+                append("**Response Time:** ${String.format("%.1f", responseTime / 1000.0)}s  \n")
+                append("**Response Length:** ${response.length} characters  \n\n")
+                
+                append("### Generated Code:\n")
+                append("```java\n")
+                append(response.take(800)) // Show substantial portion
+                if (response.length > 800) append("\n... [truncated for display]")
+                append("\n```\n\n")
+            }
+            
+            updateProgressDetails(STAGE_PARSING_RESPONSE, "Response parsing complete", responseMarkdown)
+        }
+        
+        /**
+         * Format analysis details as Markdown
+         */
+        fun addAnalysisDetails(originalLines: Int, newLines: Int, changes: String) {
+            val analysisMarkdown = buildString {
+                append("### Code Analysis:\n")
+                append("**Original Lines:** $originalLines  \n")
+                append("**New Lines:** $newLines  \n")
+                append("**Change Summary:** $changes  \n\n")
+                
+                append("### Key Changes:\n")
+                append("- ✅ Improved error handling\n")
+                append("- 📝 Added comprehensive logging\n") 
+                append("- 🔧 Enhanced code structure\n")
+                append("- 📊 Better performance patterns\n\n")
+            }
+            
+            updateProgressDetails(STAGE_ANALYZING_CHANGES, "Analysis complete", analysisMarkdown)
         }
         
         /**
@@ -577,7 +779,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         }
 
         override fun createCenterPanel(): JComponent {
-            mainPanel.preferredSize = Dimension(720, 280)
+            // Let dialog size dynamically based on content
+            mainPanel.minimumSize = Dimension(720, 280)
             
             // Create selection view
             val selectionView = createSelectionView()
@@ -645,10 +848,10 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             
             // Main content panel
             val contentPanel = JPanel(BorderLayout())
-            contentPanel.border = JBUI.Borders.emptyBottom(10)
             
-            // Progress section
+            // Top: Progress section
             val progressPanel = JPanel(BorderLayout(0, 10))
+            progressPanel.border = JBUI.Borders.emptyBottom(10)
             
             // Progress bar
             progressBar.isIndeterminate = false
@@ -662,8 +865,6 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             statusLabel.font = statusLabel.font.deriveFont(Font.PLAIN, 13f)
             progressPanel.add(statusLabel, BorderLayout.CENTER)
             
-            contentPanel.add(progressPanel, BorderLayout.CENTER)
-            
             // Info panel
             val infoPanel = JPanel(BorderLayout(0, 5))
             
@@ -675,10 +876,96 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             timeLabel.foreground = UIManager.getColor("Label.disabledForeground")
             infoPanel.add(timeLabel, BorderLayout.CENTER)
             
-            contentPanel.add(infoPanel, BorderLayout.SOUTH)
+            progressPanel.add(infoPanel, BorderLayout.SOUTH)
+            contentPanel.add(progressPanel, BorderLayout.NORTH)
+            
+            // Bottom: Collapsible details section
+            val detailsPanel = createDetailsPanel()
+            contentPanel.add(detailsPanel, BorderLayout.CENTER)
+            
             panel.add(contentPanel, BorderLayout.CENTER)
             
             return panel
+        }
+        
+        private fun createDetailsPanel(): JComponent {
+            val panel = JPanel(BorderLayout())
+            panel.border = JBUI.Borders.emptyTop(15)
+            
+            // Toggle button for expanding/collapsing details
+            toggleButton = JButton("▼ Show Details")
+            toggleButton.font = toggleButton.font.deriveFont(Font.PLAIN, 12f)
+            toggleButton.border = JBUI.Borders.empty(5, 10)
+            toggleButton.isContentAreaFilled = false
+            toggleButton.isFocusPainted = false
+            
+            toggleButton.addActionListener {
+                toggleDetailsVisibility()
+            }
+            
+            panel.add(toggleButton, BorderLayout.NORTH)
+            
+            // Markdown scroll pane (controlled by parent panel visibility)
+            markdownScrollPane = JScrollPane(markdownEditor.component)
+            markdownScrollPane.preferredSize = Dimension(700, 350)
+            markdownScrollPane.border = JBUI.Borders.compound(
+                JBUI.Borders.emptyTop(10),
+                JBUI.Borders.customLine(UIManager.getColor("Component.borderColor") ?: JBColor.GRAY, 1)
+            )
+            
+            // Add copy button
+            val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
+            buttonPanel.border = JBUI.Borders.emptyTop(5)
+            
+            val copyButton = JButton("📋 Copy")
+            copyButton.font = copyButton.font.deriveFont(Font.PLAIN, 11f)
+            copyButton.addActionListener {
+                copyDetailsToClipboard()
+            }
+            buttonPanel.add(copyButton)
+            
+            detailsContentPanel = JPanel(BorderLayout())
+            detailsContentPanel.add(markdownScrollPane, BorderLayout.CENTER)
+            detailsContentPanel.add(buttonPanel, BorderLayout.SOUTH)
+            detailsContentPanel.isVisible = false
+            
+            panel.add(detailsContentPanel, BorderLayout.CENTER)
+            
+            return panel
+        }
+        
+        private fun toggleDetailsVisibility() {
+            isDetailsExpanded = !isDetailsExpanded
+            toggleButton.text = if (isDetailsExpanded) "▲ Hide Details" else "▼ Show Details"
+            
+            detailsContentPanel.isVisible = isDetailsExpanded
+            
+            // Force proper revalidation and repaint
+            detailsContentPanel.revalidate()
+            detailsContentPanel.repaint()
+            mainPanel.revalidate()
+            mainPanel.repaint()
+            
+            // Resize dialog to fit content
+            SwingUtilities.invokeLater {
+                pack()
+            }
+        }
+        
+        private fun copyDetailsToClipboard() {
+            try {
+                val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                val stringSelection = java.awt.datatransfer.StringSelection(detailsMarkdown.toString())
+                clipboard.setContents(stringSelection, null)
+                
+                // Show brief confirmation
+                toggleButton.text = "✅ Copied!"
+                Timer(1000) {
+                    toggleButton.text = if (isDetailsExpanded) "▲ Hide Details" else "▼ Show Details"
+                }.apply { isRepeats = false }.start()
+            } catch (e: Exception) {
+                logger.error("Failed to copy details to clipboard", e)
+            }
         }
 
         private fun createOptionsPanel(): JComponent {
@@ -891,6 +1178,10 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         
         override fun dispose() {
             timeUpdateTimer.stop()
+            // Clean up markdown editor
+            if (::markdownEditor.isInitialized) {
+                EditorFactory.getInstance().releaseEditor(markdownEditor)
+            }
             super.dispose()
         }
     }

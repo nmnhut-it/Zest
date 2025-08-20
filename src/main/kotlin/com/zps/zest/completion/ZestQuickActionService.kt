@@ -278,9 +278,16 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             } else {
                 promptBuilder.buildMethodRewritePrompt(methodContext)
             }
-
+            
             // Track rewrite request
             val actualModel = llmService.getConfigStatus().model ?: "local-model-mini"
+            
+            // Add prompt details to dialog
+            smartDialog?.addPromptDetails(
+                prompt = prompt,
+                tokenCount = prompt.length / 3, // Rough token estimate
+                modelName = actualModel
+            )
             rewriteId?.let {
                 metricsService.trackRewriteRequested(
                     rewriteId = it,
@@ -326,6 +333,12 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             }
 
             System.out.println("[ZestMethodRewrite] LLM response received in ${responseTime}ms")
+            
+            // Add response details to dialog
+            smartDialog?.addResponseDetails(
+                response = response,
+                responseTime = responseTime
+            )
             
             // Track response received
             rewriteId?.let {
@@ -381,6 +394,17 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             )
             currentDiffResult = diffResult
             currentRewrittenMethod = parseResult.rewrittenMethod
+            
+            // Add analysis details to dialog
+            val originalLines = methodContext.methodContent.lines().size
+            val newLines = parseResult.rewrittenMethod.lines().size
+            val changesDescription = "Lines: $originalLines → $newLines (${if (newLines > originalLines) "+" else ""}${newLines - originalLines})"
+            
+            smartDialog?.addAnalysisDetails(
+                originalLines = originalLines,
+                newLines = newLines,
+                changes = changesDescription
+            )
 
             // Final check
             if (activeRewriteId != requestId) {

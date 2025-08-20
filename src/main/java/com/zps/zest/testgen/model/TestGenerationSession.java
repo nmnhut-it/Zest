@@ -18,7 +18,6 @@ public class TestGenerationSession {
     private TestContext context;
     private TestGenerationResult testGenerationResult;
     private MergedTestClass mergedTestClass; // Complete merged test class
-    private ValidationResult validationResult;
     private final List<String> errors;
     private LocalDateTime endTime;
     
@@ -132,16 +131,7 @@ public class TestGenerationSession {
     public void setTestGenerationResult(@NotNull TestGenerationResult result) {
         this.testGenerationResult = result;
     }
-    
-    @Nullable
-    public ValidationResult getValidationResult() {
-        return validationResult;
-    }
-    
-    public void setValidationResult(@NotNull ValidationResult validationResult) {
-        this.validationResult = validationResult;
-    }
-    
+
     @Nullable
     public MergedTestClass getMergedTestClass() {
         return mergedTestClass;

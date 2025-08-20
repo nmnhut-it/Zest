@@ -127,7 +127,7 @@ class ZestCompletionProvider(private val project: Project) {
     private val leanResponseParser = ZestLeanResponseParser()
 
     // Method rewrite strategy components
-    private val methodRewriteService by lazy {
+    private val quickActionService by lazy {
         project.getService(ZestQuickActionService::class.java)
     }
 
@@ -703,7 +703,7 @@ class ZestCompletionProvider(private val project: Project) {
             // Make sure to trigger on EDT and don't wait for result
             ApplicationManager.getApplication().invokeLater {
                 try {
-                    methodRewriteService.rewriteCurrentMethod(editor, context.offset)
+                    quickActionService.rewriteCurrentMethod(editor, context.offset)
 
                     // Track completion time for method rewrite
                     val rewriteTime = System.currentTimeMillis() - rewriteStartTime

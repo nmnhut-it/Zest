@@ -109,7 +109,7 @@ ${buildSurroundingMethodsContext(context)}
 ${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
-Provide ONLY the improved method code without any explanations, markdown formatting, or additional text.
+Provide the COMPLETE improved method including the method signature. Start with the method declaration/signature and include the entire method body with closing braces. Do not provide any explanations, markdown formatting, or additional text.
 
 **Improved Method:**
         """.trimIndent()
@@ -382,7 +382,7 @@ ${customInstruction}
 ${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
-Provide ONLY the rewritten method code without any explanations or markdown formatting. Make sure you include method signature. 
+Provide the COMPLETE rewritten method including the method signature. Start with the method declaration/signature and include the entire method body with closing braces. Do not provide any explanations or markdown formatting. 
 
 **Rewritten Method:**
         """.trimIndent()

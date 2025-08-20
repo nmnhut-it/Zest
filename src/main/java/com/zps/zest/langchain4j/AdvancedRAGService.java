@@ -13,6 +13,8 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.rag.query.transformer.CompressingQueryTransformer;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -140,7 +142,7 @@ public class AdvancedRAGService {
      * Ultra-fast retrieval with progress reporting and LLM-based keyword extraction
      */
     public CompletableFuture<List<ContextualResult>> retrieveFastWithProgress(
-            String query, int maxResults, String excludeFileName, RetrievalProgressListener progressListener) {
+            String codeContent, String userPrompt, int maxResults, String excludeFileName, RetrievalProgressListener progressListener) {
         return CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             
@@ -149,8 +151,8 @@ public class AdvancedRAGService {
                     progressListener.onStageUpdate("COMPRESS", "Extracting keywords from query...");
                 }
                 
-                // Stage 1: Compress query to extract keywords with timeout
-                List<String> extractedKeywords = compressQueryWithTimeout(query, 3000);
+                // Stage 1: Compress user prompt to extract keywords with timeout
+                List<String> extractedKeywords = compressQueryWithTimeout(userPrompt, codeContent, 3000);
                 if (progressListener != null) {
                     progressListener.onKeywordsExtracted(extractedKeywords);
                 }
@@ -159,8 +161,8 @@ public class AdvancedRAGService {
                     progressListener.onStageUpdate("SEARCH", "Searching codebase...");
                 }
                 
-                // Stage 2: Direct semantic search with original query
-                Embedding queryEmbedding = embeddingModel.embed(query).content();
+                // Stage 2: Direct semantic search with code content
+                Embedding queryEmbedding = embeddingModel.embed(codeContent).content();
                 var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(maxResults * 3) // Get more candidates
@@ -197,7 +199,7 @@ public class AdvancedRAGService {
                         match.embedded().text(),
                         match.embedded().text(), 
                         match.embedded().text(), 
-                        new QueryAnalysis(query)
+                        new QueryAnalysis(userPrompt)
                     ));
                 }
                 
@@ -220,18 +222,35 @@ public class AdvancedRAGService {
     }
     
     /**
-     * Compress query using LLM with timeout to extract keywords
+     * Compress user prompt using LLM with timeout to extract keywords, using code content as context
      */
-    private List<String> compressQueryWithTimeout(String query, int timeoutMs) {
+    private List<String> compressQueryWithTimeout(String userPrompt, String codeContent, int timeoutMs) {
         try {
-            // Limit query length for performance
-            String limitedQuery = query.length() > 2000 
-                ? query.substring(0, 2000) + "..." 
-                : query;
+            // Limit code content length for performance
+            String limitedCodeContent = codeContent.length() > 2000 
+                ? codeContent.substring(0, 2000) + "..." 
+                : codeContent;
             
-            // Use CompressingQueryTransformer with custom timeout
+            // Use CompressingQueryTransformer with custom timeout and chat memory
             CompletableFuture<Collection<Query>> compressionFuture = CompletableFuture.supplyAsync(() -> {
-                return compressingTransformer.transform(Query.from(limitedQuery));
+                // Create current chat message with user's actual prompt/intent
+                ChatMessage currentMessage = UserMessage.from(userPrompt);
+                
+                // Create chat memory containing the actual code as context
+                List<ChatMessage> chatMemory = new ArrayList<>();
+                chatMemory.add(UserMessage.from(limitedCodeContent)); // The code content as context
+                
+                // Create Query with metadata containing chat message and chat memory
+                dev.langchain4j.rag.query.Metadata metadata = dev.langchain4j.rag.query.Metadata.from(
+                    currentMessage,  // user's intent/prompt
+                    "default",       // chat memory id
+                    chatMemory       // the actual code content as context
+                );
+                
+                // The query should be the user's prompt
+                Query queryWithMemory = Query.from(userPrompt, metadata);
+                
+                return compressingTransformer.transform(queryWithMemory);
             });
             
             Collection<Query> compressedQueries = compressionFuture
@@ -253,11 +272,11 @@ public class AdvancedRAGService {
             }
             
             LOG.debug("LLM extracted keywords: " + keywords);
-            return keywords.isEmpty() ? extractKeywordsFallback(query) : keywords;
+            return keywords.isEmpty() ? extractKeywordsFallback(userPrompt + " " + codeContent) : keywords;
             
         } catch (Exception e) {
             LOG.warn("LLM keyword extraction failed, using fallback: " + e.getMessage());
-            return extractKeywordsFallback(query);
+            return extractKeywordsFallback(userPrompt + " " + codeContent);
         }
     }
     

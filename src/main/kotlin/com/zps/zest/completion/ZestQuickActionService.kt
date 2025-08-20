@@ -324,7 +324,10 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                         }
                     }
                     
-                    val retrievalResult = ragService.retrieveContextWithProgress(query, 5, 0.7, currentFileName, progressListener)
+                    // Determine user intent for RAG context
+                    val userIntent = customInstruction ?: "Help me understand and improve this code"
+                    
+                    val retrievalResult = ragService.retrieveContextWithProgress(query, userIntent, 5, 0.7, currentFileName, progressListener)
                         .get(30, java.util.concurrent.TimeUnit.SECONDS)
                     
                     if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {

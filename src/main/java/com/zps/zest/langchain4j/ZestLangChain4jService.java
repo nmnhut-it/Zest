@@ -484,20 +484,21 @@ public final class ZestLangChain4jService {
      * Retrieve context with progress reporting and LLM-based keyword extraction
      */
     @NotNull
-    public CompletableFuture<RetrievalResult> retrieveContextWithProgress(@NotNull String query, int maxResults, double threshold, 
-                                                                         String excludeFileName, RetrievalProgressListener progressListener) {
+    public CompletableFuture<RetrievalResult> retrieveContextWithProgress(@NotNull String codeContent, @NotNull String userPrompt, 
+                                                                         int maxResults, double threshold, String excludeFileName, 
+                                                                         RetrievalProgressListener progressListener) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (!isIndexed) {
                     LOG.warn("Codebase not yet indexed, results may be incomplete");
                 }
                 
-                LOG.info("Using Fast RAG with progress reporting and LLM keyword extraction for: " + 
-                    query.substring(0, Math.min(100, query.length())) + "...");
+                LOG.info("Using Fast RAG with progress reporting and LLM keyword extraction for user prompt: " + 
+                    userPrompt.substring(0, Math.min(100, userPrompt.length())) + "...");
                 
-                // Use fast RAG with progress reporting
+                // Use fast RAG with progress reporting - pass both user prompt and code content
                 List<AdvancedRAGService.ContextualResult> results = advancedRAGService
-                    .retrieveFastWithProgress(query, maxResults, excludeFileName, progressListener).get();
+                    .retrieveFastWithProgress(codeContent, userPrompt, maxResults, excludeFileName, progressListener).get();
                 
                 List<ContextItem> contextItems = results.stream()
                     .map(result -> new ContextItem(

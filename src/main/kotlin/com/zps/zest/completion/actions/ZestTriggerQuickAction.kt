@@ -12,12 +12,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
+import java.awt.CardLayout
+import javax.swing.JProgressBar
+import javax.swing.Timer
+import kotlin.math.min
 import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
-import com.zps.zest.completion.ui.ZestQuickActionProgressDialog
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
@@ -30,7 +34,7 @@ import javax.swing.*
  * Action to trigger method rewrite with dialog for prompt selection + status bar progress
  * Hybrid approach: Dialog for user choice, status bar for progress updates
  */
-class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
+class ZestTriggerQuickAction : AnAction(), HasPriority {
     companion object {
         private val logger = Logger.getInstance(ZestTriggerQuickAction::class.java)
     }
@@ -83,7 +87,10 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
         methodContext: ZestMethodContextCollector.MethodContext,
         methodRewriteService: ZestQuickActionService
     ) {
-        val dialog = SmartRewriteDialog(project, methodContext) { instruction ->
+        // Create dialog first so we can reference it in the callback
+        lateinit var dialog: SmartRewriteDialog
+        
+        dialog = SmartRewriteDialog(project, methodContext) { instruction ->
             logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
 
             // Check if this is the test generation option
@@ -97,34 +104,23 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
             // Only continue with rewrite service if not test generation
             logger.info("Proceeding with method rewrite for instruction: $instruction")
             
-            // Create and show progress dialog
-            val progressDialog = ZestQuickActionProgressDialog(
-                project = project,
-                methodName = methodContext.methodName,
-                onCancel = {
-                    logger.info("User cancelled quick action for method: ${methodContext.methodName}")
-                    methodRewriteService.cancelCurrentRewrite()
-                }
-            )
-            progressDialog.show()
-            
             // Get status bar widget for progress updates
             val statusBarWidget = getStatusBarWidget(project)
 
-            // Start background processing with both dialog and status bar progress
+            // Start background processing with dialog progress and status bar updates
             statusBarWidget?.updateMethodRewriteState(
                 ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
                 "Starting method rewrite..."
             )
 
-            // Start rewrite with both progress dialog and status bar updates
+            // Start rewrite with dialog progress updates
             methodRewriteService.rewriteCurrentMethodWithStatusCallback(
                 editor = editor,
                 methodContext = methodContext,
                 customInstruction = instruction,
-                progressDialog = progressDialog,
+                smartDialog = dialog, // Pass dialog for progress updates
                 statusCallback = { status ->
-                    // Update both status bar and progress dialog
+                    // Update status bar
                     statusBarWidget?.updateMethodRewriteStatus(status)
                 }
             )
@@ -148,9 +144,9 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
     }
 
     /**
-     * Dialog for smart method rewrite prompt selection (closes immediately after selection)
+     * Dialog for smart method rewrite prompt selection and progress display
      */
-    private class SmartRewriteDialog(
+    class SmartRewriteDialog(
         private val project: Project,
         private val methodContext: ZestMethodContextCollector.MethodContext,
         private val onInstructionSelected: ((String) -> Unit)? = null
@@ -161,6 +157,33 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
         private var isCustomMode = false
         private var currentSelection = 0
         private var isShiftPressed = false
+        
+        // Progress-related fields
+        private var isProcessing = false
+        private val cardLayout = CardLayout()
+        private val mainPanel = JPanel(cardLayout)
+        private val progressBar = JProgressBar()
+        private val statusLabel = JBLabel("Initializing...")
+        private val methodLabel = JBLabel("Method: ${methodContext.methodName}()")
+        private val timeLabel = JBLabel("Elapsed: 0.0s")
+        private val startTime = System.currentTimeMillis()
+        private val timeUpdateTimer = Timer(100) { updateElapsedTime() }
+        private var currentStage = 0
+        private val totalStages = 6
+        
+        // Progress constants
+        companion object {
+            const val SELECTION_VIEW = "selection"
+            const val PROGRESS_VIEW = "progress"
+            
+            const val STAGE_INITIALIZING = 0
+            const val STAGE_RETRIEVING_CONTEXT = 1
+            const val STAGE_BUILDING_PROMPT = 2
+            const val STAGE_QUERYING_LLM = 3
+            const val STAGE_PARSING_RESPONSE = 4
+            const val STAGE_ANALYZING_CHANGES = 5
+            const val STAGE_COMPLETE = 6
+        }
 
         // Context-aware options
         private val builtInOptions = generateContextOptions()
@@ -334,14 +357,82 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
         }
 
         /**
-         * Execute selection and close dialog immediately
+         * Execute selection and switch to progress view
          */
         private fun executeSelectionAndClose(instruction: String) {
-            // Trigger callback immediately
+            // Switch to progress view instead of closing
+            switchToProgressView()
+            
+            // Trigger callback to start processing
             onInstructionSelected?.invoke(instruction)
-
-            // Close dialog immediately - progress will be shown via status bar
-            close(OK_EXIT_CODE)
+        }
+        
+        /**
+         * Switch to progress view and start timer
+         */
+        fun switchToProgressView() {
+            isProcessing = true
+            cardLayout.show(mainPanel, PROGRESS_VIEW)
+            timeUpdateTimer.start()
+            
+            // Update dialog title and disable close button temporarily
+            title = "Processing - ${methodContext.methodName}()"
+            
+            // Refresh dialog to show progress view
+            mainPanel.revalidate()
+            mainPanel.repaint()
+        }
+        
+        /**
+         * Update progress stage and status
+         */
+        fun updateProgress(stage: Int, statusText: String) {
+            SwingUtilities.invokeLater {
+                currentStage = min(stage, totalStages)
+                statusLabel.text = statusText
+                progressBar.value = currentStage
+                
+                // Update progress bar string
+                val percentage = (currentStage * 100) / totalStages
+                progressBar.string = "$percentage%"
+                
+                // Add emoji indicators based on stage
+                val emoji = when (stage) {
+                    STAGE_RETRIEVING_CONTEXT -> "📚"
+                    STAGE_BUILDING_PROMPT -> "🧠"
+                    STAGE_QUERYING_LLM -> "🤖"
+                    STAGE_PARSING_RESPONSE -> "⚙️"
+                    STAGE_ANALYZING_CHANGES -> "🔍"
+                    STAGE_COMPLETE -> "✅"
+                    else -> "⏳"
+                }
+                statusLabel.text = "$emoji $statusText"
+            }
+        }
+        
+        /**
+         * Update elapsed time display
+         */
+        private fun updateElapsedTime() {
+            val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
+            timeLabel.text = "Elapsed: ${String.format("%.1f", elapsed)}s"
+        }
+        
+        /**
+         * Complete processing and show completion status
+         */
+        fun completeProcessing() {
+            SwingUtilities.invokeLater {
+                updateProgress(STAGE_COMPLETE, "Processing complete! Review changes and press TAB to accept, ESC to reject")
+                timeUpdateTimer.stop()
+                
+                // Close after a brief delay or wait for user to close
+                Timer(1500) {
+                    if (isShowing && isProcessing) {
+                        close(OK_EXIT_CODE)
+                    }
+                }.apply { isRepeats = false }.start()
+            }
         }
 
         private fun generateContextOptions(): List<RewriteOption> {
@@ -486,8 +577,24 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
         }
 
         override fun createCenterPanel(): JComponent {
+            mainPanel.preferredSize = Dimension(720, 280)
+            
+            // Create selection view
+            val selectionView = createSelectionView()
+            mainPanel.add(selectionView, SELECTION_VIEW)
+            
+            // Create progress view  
+            val progressView = createProgressView()
+            mainPanel.add(progressView, PROGRESS_VIEW)
+            
+            // Start with selection view
+            cardLayout.show(mainPanel, SELECTION_VIEW)
+            
+            return mainPanel
+        }
+        
+        private fun createSelectionView(): JComponent {
             val panel = JPanel(BorderLayout())
-            panel.preferredSize = Dimension(720, 280)
 
             // Header
             val headerPanel = JPanel(BorderLayout())
@@ -521,6 +628,56 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
                 panel.add(createOptionsPanel(), BorderLayout.CENTER)
             }
 
+            return panel
+        }
+        
+        private fun createProgressView(): JComponent {
+            val panel = JPanel(BorderLayout())
+            panel.border = JBUI.Borders.empty(15)
+            
+            // Header with method info
+            val headerPanel = JPanel(BorderLayout())
+            val headerLabel = JLabel("Processing Method: ${methodContext.methodName}()")
+            headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 16f)
+            headerPanel.add(headerLabel, BorderLayout.CENTER)
+            headerPanel.border = JBUI.Borders.emptyBottom(15)
+            panel.add(headerPanel, BorderLayout.NORTH)
+            
+            // Main content panel
+            val contentPanel = JPanel(BorderLayout())
+            contentPanel.border = JBUI.Borders.emptyBottom(10)
+            
+            // Progress section
+            val progressPanel = JPanel(BorderLayout(0, 10))
+            
+            // Progress bar
+            progressBar.isIndeterminate = false
+            progressBar.minimum = 0
+            progressBar.maximum = totalStages
+            progressBar.value = currentStage
+            progressBar.isStringPainted = true
+            progressPanel.add(progressBar, BorderLayout.NORTH)
+            
+            // Status text
+            statusLabel.font = statusLabel.font.deriveFont(Font.PLAIN, 13f)
+            progressPanel.add(statusLabel, BorderLayout.CENTER)
+            
+            contentPanel.add(progressPanel, BorderLayout.CENTER)
+            
+            // Info panel
+            val infoPanel = JPanel(BorderLayout(0, 5))
+            
+            methodLabel.font = methodLabel.font.deriveFont(Font.BOLD, 12f)
+            methodLabel.foreground = UIManager.getColor("Label.disabledForeground")
+            infoPanel.add(methodLabel, BorderLayout.NORTH)
+            
+            timeLabel.font = timeLabel.font.deriveFont(Font.PLAIN, 11f)
+            timeLabel.foreground = UIManager.getColor("Label.disabledForeground")
+            infoPanel.add(timeLabel, BorderLayout.CENTER)
+            
+            contentPanel.add(infoPanel, BorderLayout.SOUTH)
+            panel.add(contentPanel, BorderLayout.CENTER)
+            
             return panel
         }
 
@@ -726,6 +883,16 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
 
         // Hide the bottom button panel since we're using keyboard-only interaction
         override fun createSouthPanel(): JComponent? = null
+        
+        override fun doCancelAction() {
+            timeUpdateTimer.stop()
+            super.doCancelAction()
+        }
+        
+        override fun dispose() {
+            timeUpdateTimer.stop()
+            super.dispose()
+        }
     }
 
     override fun update(e: AnActionEvent) {

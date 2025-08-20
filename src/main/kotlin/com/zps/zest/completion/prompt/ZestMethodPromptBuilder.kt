@@ -5,6 +5,7 @@ import com.zps.zest.completion.context.ZestCocos2dxContextCollector
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.rules.ZestRulesLoader
 import com.zps.zest.completion.experience.ZestExperienceTracker
+import com.zps.zest.langchain4j.ZestLangChain4jService
 
 /**
  * Enhanced prompt builder for method-level code rewrites with better class context
@@ -13,6 +14,50 @@ class ZestMethodPromptBuilder(private val project: Project? = null) {
     
     private val rulesLoader: ZestRulesLoader? = project?.let { ZestRulesLoader(it) }
     private val experienceTracker: ZestExperienceTracker? = project?.let { ZestExperienceTracker.getInstance(it) }
+    private val ragService: ZestLangChain4jService? = project?.getService(ZestLangChain4jService::class.java)
+    
+    /**
+     * Retrieve relevant context from RAG service
+     */
+    private fun retrieveRAGContext(methodContext: ZestMethodContextCollector.MethodContext): String {
+        if (ragService == null) return ""
+        
+        try {
+            // Create query from method context
+            val query = buildRAGQuery(methodContext)
+            
+            // Retrieve context synchronously (with timeout)
+            val retrievalResult = ragService.retrieveContext(query, 5, 0.7)
+                .get(3, java.util.concurrent.TimeUnit.SECONDS)
+            
+            if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
+                val contextItems = retrievalResult.items.take(3) // Limit to top 3 results
+                return """
+**RELEVANT CODEBASE CONTEXT:**
+${contextItems.joinToString("\n\n") { "- ${it.content}" }}
+                """.trimIndent()
+            }
+        } catch (e: Exception) {
+            // Silently fail - don't let RAG failures break the prompt building
+            println("RAG context retrieval failed: ${e.message}")
+        }
+        
+        return ""
+    }
+    
+    /**
+     * Build a query for RAG based on method context
+     * Uses the whole method content to find similar patterns and usage examples
+     */
+    private fun buildRAGQuery(methodContext: ZestMethodContextCollector.MethodContext): String {
+        // Use the complete method content as query - it contains:
+        // - Variable names and types
+        // - API calls and method invocations  
+        // - Import statements and class references
+        // - Logic patterns and control structures
+        // - Comments and documentation
+        return methodContext.methodContent
+    }
     
     /**
      * Load custom rules and prepend them to the prompt if available
@@ -51,6 +96,7 @@ ${patterns.joinToString("\n") { "- $it" }}
     fun buildMethodRewritePrompt(context: ZestMethodContextCollector.MethodContext): String {
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
+        val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
 You are an expert ${context.language} developer. Improve this method while maintaining its core functionality and class design principles.
@@ -61,6 +107,8 @@ ${cocosGuidance}
 ${buildClassContextSection(context, classInfo)}
 
 ${if (context.relatedClasses.isNotEmpty()) buildRelatedClassesSection(context.relatedClasses) else ""}
+
+${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
 **Target Method to Improve:**
 ```${context.language.lowercase()}
@@ -348,6 +396,7 @@ ${classInfo.classSignature}
     ): String {
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
+        val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
 You are an expert ${context.language} developer. Rewrite this method according to the specific instructions while maintaining class design principles.
@@ -356,6 +405,8 @@ ${cocosGuidance}
 
 **Class Context:**
 ${buildClassContextSection(context, classInfo)}
+
+${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
 **Target Method:**
 ```${context.language.lowercase()}

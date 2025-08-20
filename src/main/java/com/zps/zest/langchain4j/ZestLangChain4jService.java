@@ -483,19 +483,32 @@ public final class ZestLangChain4jService {
                     LOG.warn("Codebase not yet indexed, results may be incomplete");
                 }
                 
-                LOG.info("Using Advanced RAG techniques for query: " + query);
+                LOG.info("Using Advanced RAG with query compression/expansion for: " + query.substring(0, Math.min(100, query.length())) + "...");
                 
-                // Use the AdvancedRAGService for retrieval
-                List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
-                    .retrieveAdvanced(query, maxResults).join();
+                // Stage 1: Query Transformation using compression and expansion
+                List<Query> transformedQueries = performMethodQueryTransformation(query, maxResults);
+                LOG.info("Query transformation generated " + transformedQueries.size() + " queries from original");
                 
-                // Convert AdvancedRAGService results to ContextItems
-                List<ContextItem> contextItems = advancedResults.stream()
-                    .map(this::convertToContextItem)
-                    .collect(Collectors.toList());
+                // Stage 2: Retrieve with all transformed queries
+                List<AdvancedRAGService.ContextualResult> allResults = new ArrayList<>();
                 
-                LOG.info("Advanced RAG retrieved " + contextItems.size() + " contextual results with enhanced techniques");
-                return new RetrievalResult(true, "Advanced RAG retrieved " + contextItems.size() + " results with multi-technique approach", contextItems);
+                for (Query transformedQuery : transformedQueries) {
+                    try {
+                        List<AdvancedRAGService.ContextualResult> queryResults = advancedRAGService
+                            .retrieveAdvanced(transformedQuery.text(), maxResults).join();
+                        allResults.addAll(queryResults);
+                        LOG.debug("Query '" + transformedQuery.text().substring(0, Math.min(50, transformedQuery.text().length())) 
+                            + "...' found " + queryResults.size() + " results");
+                    } catch (Exception e) {
+                        LOG.warn("Query transformation failed for: " + transformedQuery.text().substring(0, Math.min(50, transformedQuery.text().length())), e);
+                    }
+                }
+                
+                // Stage 3: Deduplicate and rank results
+                List<ContextItem> contextItems = deduplicateAndRankResults(allResults, maxResults);
+                
+                LOG.info("Advanced RAG with query transformation retrieved " + contextItems.size() + " deduplicated results");
+                return new RetrievalResult(true, "Advanced RAG with compression/expansion retrieved " + contextItems.size() + " results", contextItems);
                 
             } catch (Exception e) {
                 LOG.error("Advanced RAG retrieval failed, falling back to hybrid search", e);
@@ -503,6 +516,146 @@ public final class ZestLangChain4jService {
                 return retrieveContextLegacyHybrid(query, maxResults, threshold).join();
             }
         });
+    }
+    
+    /**
+     * Perform method-specific query transformation using compression and expansion
+     */
+    private List<Query> performMethodQueryTransformation(@NotNull String methodContent, int maxResults) {
+        List<Query> queries = new ArrayList<>();
+        
+        try {
+            // Always include the original query (but limit its length for performance)
+            String originalQuery = methodContent.length() > 2000 
+                ? methodContent.substring(0, 2000) + "..." 
+                : methodContent;
+            queries.add(Query.from(originalQuery));
+            
+            // Stage 1: Compress the method content to extract key programming elements
+            String compressedQuery = compressMethodContent(methodContent);
+            if (compressedQuery != null && !compressedQuery.trim().isEmpty() && !compressedQuery.equals(originalQuery)) {
+                queries.add(Query.from(compressedQuery));
+                LOG.debug("Compressed query: " + compressedQuery);
+                
+                // Stage 2: Expand the compressed query for semantic variations
+                Collection<Query> expandedQueries = expandingTransformer.transform(Query.from(compressedQuery));
+                for (Query expandedQuery : expandedQueries) {
+                    if (!expandedQuery.text().equals(compressedQuery) && expandedQuery.text().length() > 5) {
+                        queries.add(expandedQuery);
+                        LOG.debug("Expanded query: " + expandedQuery.text());
+                    }
+                }
+            }
+            
+            // Limit total queries to prevent overload (max 6 queries)
+            if (queries.size() > 6) {
+                queries = queries.subList(0, 6);
+            }
+            
+        } catch (Exception e) {
+            LOG.warn("Query transformation failed, using original query only", e);
+            queries.clear();
+            queries.add(Query.from(methodContent.length() > 1000 ? methodContent.substring(0, 1000) : methodContent));
+        }
+        
+        return queries;
+    }
+    
+    /**
+     * Compress method content to extract key programming identifiers and patterns
+     */
+    private String compressMethodContent(@NotNull String methodContent) {
+        try {
+            if (methodContent.length() < 50) {
+                // Too short to compress meaningfully
+                return methodContent;
+            }
+            
+            // Create a specialized prompt for method content compression
+            String prompt = """
+                Extract only the most important programming keywords, identifiers, and API calls from this code. 
+                Include method names, class names, important variables, and library calls.
+                Output only keywords separated by spaces, no explanations.
+                
+                Code:
+                """ + methodContent.substring(0, Math.min(1500, methodContent.length()));
+                
+            // Use the chat model via compressing transformer for intelligent compression
+            Query originalQuery = Query.from(methodContent);
+            Collection<Query> compressedQueries = compressingTransformer.transform(originalQuery);
+            
+            // If compression worked, use the first result
+            if (!compressedQueries.isEmpty()) {
+                String compressed = compressedQueries.iterator().next().text();
+                if (compressed.length() < methodContent.length() && compressed.length() > 10) {
+                    return compressed;
+                }
+            }
+            
+            // Fallback: extract keywords manually if LLM compression failed
+            return extractKeywordsManually(methodContent);
+            
+        } catch (Exception e) {
+            LOG.warn("Method content compression failed", e);
+            return extractKeywordsManually(methodContent);
+        }
+    }
+    
+    /**
+     * Manual keyword extraction as fallback for method content
+     */
+    private String extractKeywordsManually(@NotNull String methodContent) {
+        Set<String> keywords = new HashSet<>();
+        
+        // Extract method names (patterns like "methodName(")
+        java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(");
+        java.util.regex.Matcher methodMatcher = methodPattern.matcher(methodContent);
+        while (methodMatcher.find() && keywords.size() < 20) {
+            String method = methodMatcher.group(1);
+            if (method.length() > 2 && !method.equals("if") && !method.equals("for") && !method.equals("while")) {
+                keywords.add(method);
+            }
+        }
+        
+        // Extract class names (patterns like "ClassName.")
+        java.util.regex.Pattern classPattern = java.util.regex.Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*)\\.");
+        java.util.regex.Matcher classMatcher = classPattern.matcher(methodContent);
+        while (classMatcher.find() && keywords.size() < 20) {
+            keywords.add(classMatcher.group(1));
+        }
+        
+        // Extract important types
+        String[] importantTypes = {"String", "List", "Map", "Set", "BigDecimal", "Integer", "Boolean", "Long", "Double"};
+        for (String type : importantTypes) {
+            if (methodContent.contains(type)) {
+                keywords.add(type);
+            }
+        }
+        
+        return keywords.isEmpty() ? methodContent.substring(0, Math.min(200, methodContent.length())) 
+            : String.join(" ", keywords);
+    }
+    
+    /**
+     * Deduplicate and rank results from multiple queries
+     */
+    private List<ContextItem> deduplicateAndRankResults(List<AdvancedRAGService.ContextualResult> allResults, int maxResults) {
+        // Use a map to deduplicate by file path + line number
+        Map<String, ContextItem> uniqueResults = new LinkedHashMap<>();
+        
+        for (AdvancedRAGService.ContextualResult result : allResults) {
+            ContextItem item = convertToContextItem(result);
+            String key = item.title + ":" + item.content.hashCode(); // Simple deduplication key
+            
+            // Keep the item with the best score (first occurrence should be best due to ranking)
+            if (!uniqueResults.containsKey(key)) {
+                uniqueResults.put(key, item);
+            }
+        }
+        
+        // Convert to list and limit results
+        List<ContextItem> deduplicated = new ArrayList<>(uniqueResults.values());
+        return deduplicated.size() > maxResults ? deduplicated.subList(0, maxResults) : deduplicated;
     }
     
     /**

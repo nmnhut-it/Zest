@@ -17,6 +17,7 @@ import com.intellij.util.ui.JBUI
 import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
+import com.zps.zest.completion.ui.ZestQuickActionProgressDialog
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
@@ -96,23 +97,34 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
             // Only continue with rewrite service if not test generation
             logger.info("Proceeding with method rewrite for instruction: $instruction")
             
+            // Create and show progress dialog
+            val progressDialog = ZestQuickActionProgressDialog(
+                project = project,
+                methodName = methodContext.methodName,
+                onCancel = {
+                    logger.info("User cancelled quick action for method: ${methodContext.methodName}")
+                    methodRewriteService.cancelCurrentRewrite()
+                }
+            )
+            progressDialog.show()
+            
             // Get status bar widget for progress updates
             val statusBarWidget = getStatusBarWidget(project)
 
-            // Start background processing with status bar progress
+            // Start background processing with both dialog and status bar progress
             statusBarWidget?.updateMethodRewriteState(
                 ZestCompletionStatusBarWidget.MethodRewriteState.ANALYZING,
                 "Starting method rewrite..."
             )
 
-            // Start rewrite with status bar updates
+            // Start rewrite with both progress dialog and status bar updates
             methodRewriteService.rewriteCurrentMethodWithStatusCallback(
                 editor = editor,
                 methodContext = methodContext,
                 customInstruction = instruction,
-                dialog = null,  // No dialog updates needed
+                progressDialog = progressDialog,
                 statusCallback = { status ->
-                    // All progress updates go to status bar widget
+                    // Update both status bar and progress dialog
                     statusBarWidget?.updateMethodRewriteStatus(status)
                 }
             )

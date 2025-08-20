@@ -55,15 +55,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         
         IMPORTANT: The target methods have already been selected by the user. Do NOT call addTargetMethod - the methods are already determined.
         
+        CRITICAL: Generate test scenarios ONLY for the methods that were selected by the user. Do NOT generate tests for other methods you see in the code, even if they seem related or important. Focus exclusively on the user-selected methods.
+        
         PROCESS:
         1. Analyze the code and set target class.
         2. Set recommended test type.
-        3. Add multiple test scenarios at once using addTestScenarios (note: plural)
+        3. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
         
-        Prefer quality over quantity. Keep the test focused, aimed at preventing potential bugs. Make sure all paths and branches are tested. 
+        Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested. 
         If it cannot be unit-tested, go for integration test with test containers and give clear comments with TODO and FIXME on the problems.
 
-        You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call, stop when you find it is enough, or you have exceed 10 test cases per method.
+        You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only, stop when you find it is enough, or you have exceed 10 test cases per selected method.
         """)
         @dev.langchain4j.agentic.Agent
         String planTests(String request);
@@ -165,6 +167,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         // File information
         prompt.append("File: ").append(request.getTargetFile().getName()).append("\n");
         
+        // Explicitly list the selected methods to test
+        prompt.append("SELECTED METHODS TO TEST (generate scenarios ONLY for these methods):\n");
+        for (var method : request.getTargetMethods()) {
+            prompt.append("• ").append(method.getName()).append("()\n");
+        }
+        prompt.append("\n");
+        
         // Add code (selected or full)
         String code = request.hasSelection() ? request.getSelectedCode() : request.getTargetFile().getText();
         if (code != null && !code.isEmpty()) {
@@ -196,8 +205,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             }
         }
         
-        prompt.append("\nGenerate 8-15 comprehensive test scenarios covering all aspects.");
-        prompt.append("\nUse the addTestScenarios tool to add all scenarios at once.");
+        prompt.append("\nGenerate 8-15 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");
+        prompt.append("\nDo NOT create scenarios for any methods that are not in the 'SELECTED METHODS TO TEST' list above.");
+        prompt.append("\nUse the addTestScenarios tool to add all scenarios at once for the selected methods.");
         
         return prompt.toString();
     }

@@ -131,9 +131,9 @@ public class ZestChatLanguageModel implements ChatModel {
         if (apiUrl.contains("openwebui.zingplay"))
             apiUrl = "https://openwebui.zingplay.com/api";
         String apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
-//        String modelName = "local-model"; // Use code model setting
+        String modelName = "local-model"; // Use code model setting
 //        String modelName = "gpt-4.1"; // Use code model setting
-        String modelName = "gpt-4.1-mini"; // Use code model setting
+//        String modelName = "gpt-4.1-mini"; // Use code model setting
 
 //        // Default values if not configured
 //        if (apiUrl == null || apiUrl.isEmpty()) {
@@ -146,26 +146,24 @@ public class ZestChatLanguageModel implements ChatModel {
 //            modelName = "llama3.2"; // Default model
 //        }
 
-//        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-//            apiUrl = "https://litellm.zingplay.com/v1";
-//            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
-//        }
-//        if (apiUrl.contains("talk.zingplay")) {
-//            apiUrl = "https://litellm-internal.zingplay.com/v1";
-//            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
-//        }
+        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+            apiUrl = "https://litellm.zingplay.com/v1";
+            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+        }
+        if (apiUrl.contains("talk.zingplay")) {
+            apiUrl = "https://litellm-internal.zingplay.com/v1";
+            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+        }
 
-        // Ensure the URL ends with /v1 for OpenAI compatibility
-//        if (!apiUrl.endsWith("/v1") && !apiUrl.contains("/v1/")) {
-//            if (!apiUrl.endsWith("/")) {
-//                apiUrl += "/";
+//         Ensure the URL ends with /v1 for OpenAI compatibility
+        if (!apiUrl.endsWith("/v1") && !apiUrl.contains("/v1/")) {
+            if (!apiUrl.endsWith("/")) {
+                apiUrl += "/";
 
 
-//            }
-//            apiUrl += "v1";
-//        }
-        apiUrl = "https://api.openai.com/v1";
-        apiKey = "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";
+            }
+            apiUrl += "v1";
+        }
         LOG.info("Creating OpenAI model with URL: " + apiUrl + ", Model: " + modelName);
 
         final String finalApiUrl = apiUrl;
@@ -190,7 +188,7 @@ public class ZestChatLanguageModel implements ChatModel {
     @Override
     public ChatResponse chat(ChatRequest chatRequest) {
         applyRateLimit();
-        return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
+         return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
     }
 
     @Override

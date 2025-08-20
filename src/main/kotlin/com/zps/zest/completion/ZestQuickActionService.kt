@@ -12,6 +12,7 @@ import com.intellij.psi.codeStyle.CodeStyleManager
 import com.zps.zest.completion.context.ZestMethodContextCollector
 import com.zps.zest.completion.prompt.ZestMethodPromptBuilder
 import com.zps.zest.completion.parser.ZestMethodResponseParser
+import com.zps.zest.completion.ui.ZestQuickActionProgressDialog
 import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
@@ -79,7 +80,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         editor: Editor,
         methodContext: ZestMethodContextCollector.MethodContext,
         customInstruction: String? = null,
-        dialog: Any? = null,  // Ignored - no dialog support
+        progressDialog: ZestQuickActionProgressDialog? = null,
         statusCallback: ((String) -> Unit)? = null
     ) {
         System.out.println("[ZestMethodRewrite] rewriteCurrentMethodWithStatusCallback called:")
@@ -128,7 +129,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         // Start method rewrite process immediately in background
         System.out.println("[ZestMethodRewrite] Starting background performMethodRewrite job...")
         currentRewriteJob = scope.launch(Dispatchers.IO) {
-            performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, rewriteId, statusCallback)
+            performMethodRewriteWithCallback(editor, methodContext, customInstruction, requestId, rewriteId, progressDialog, statusCallback)
         }
     }
 
@@ -216,7 +217,8 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                         methodContext,
                         customInstruction,
                         requestId,
-                        rewriteId
+                        rewriteId,
+                        null, // No progress dialog for legacy method
                     ) { status ->
                         // Convert status updates to log messages for legacy compatibility
                         System.out.println("[ZestMethodRewrite] Status: $status")
@@ -249,6 +251,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         customInstruction: String?,
         requestId: Int,
         rewriteId: String?,  // Unique ID for metrics tracking
+        progressDialog: ZestQuickActionProgressDialog? = null,
         statusCallback: ((String) -> Unit)?
     ) {
         System.out.println("[ZestMethodRewrite] performMethodRewriteWithCallback started for request $requestId")
@@ -260,8 +263,16 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 return
             }
 
-            // Build prompt immediately
-            statusCallback?.invoke("🧠 Building AI prompt...")
+            // Retrieve RAG context first
+            val retrievingContextMsg = "Retrieving relevant context from codebase..."
+            statusCallback?.invoke("📚 $retrievingContextMsg")
+            progressDialog?.updateStage(ZestQuickActionProgressDialog.STAGE_RETRIEVING_CONTEXT, retrievingContextMsg)
+            
+            // Build prompt with RAG context
+            val buildingPromptMsg = "Building AI prompt with context..."
+            statusCallback?.invoke("🧠 $buildingPromptMsg")
+            progressDialog?.updateStage(ZestQuickActionProgressDialog.STAGE_BUILDING_PROMPT, buildingPromptMsg)
+            
             val prompt = if (customInstruction != null) {
                 promptBuilder.buildCustomMethodPrompt(methodContext, customInstruction)
             } else {
@@ -287,7 +298,9 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             
             // Call LLM service immediately
             System.out.println("[ZestMethodRewrite] Calling LLM service...")
-            statusCallback?.invoke("🤖 Querying AI model...")
+            val queryingMsg = "Querying AI model..."
+            statusCallback?.invoke("🤖 $queryingMsg")
+            progressDialog?.updateStage(ZestQuickActionProgressDialog.STAGE_QUERYING_LLM, queryingMsg)
 
             val startTime = System.currentTimeMillis()
 
@@ -330,7 +343,9 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 return
             }
 
-            statusCallback?.invoke("⚙️ Parsing AI response...")
+            val parsingMsg = "Parsing AI response..."
+            statusCallback?.invoke("⚙️ $parsingMsg")
+            progressDialog?.updateStage(ZestQuickActionProgressDialog.STAGE_PARSING_RESPONSE, parsingMsg)
 
             // Parse response
             val parseResult = responseParser.parseMethodRewriteResponse(
@@ -349,7 +364,9 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             }
 
             // Calculate diff
-            statusCallback?.invoke("🔍 Analyzing changes...")
+            val analyzingMsg = "Analyzing changes..."
+            statusCallback?.invoke("🔍 $analyzingMsg")
+            progressDialog?.updateStage(ZestQuickActionProgressDialog.STAGE_ANALYZING_CHANGES, analyzingMsg)
 
             val enhancedDiffResult = calculateLanguageSpecificDiff(
                 originalCode = methodContext.methodContent,
@@ -382,7 +399,9 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             }
             
             // Show diff - this will update status bar to "Review Ready"
-            statusCallback?.invoke("✅ Rewrite complete! Review changes and press TAB to accept, ESC to reject")
+            val completeMsg = "Rewrite complete! Review changes and press TAB to accept, ESC to reject"
+            statusCallback?.invoke("✅ $completeMsg")
+            progressDialog?.complete() // Close the progress dialog
 
             ApplicationManager.getApplication().invokeLater {
                 showLanguageAwareDiff(
@@ -402,6 +421,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         } catch (e: CancellationException) {
             System.out.println("[ZestMethodRewrite] Method rewrite was cancelled")
             statusCallback?.invoke("❌ Rewrite cancelled")
+            progressDialog?.doCancelAction() // Close progress dialog
             rewriteId?.let {
                 metricsService.trackRewriteCancelled(it, "user_cancelled")
             }
@@ -412,6 +432,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             logger.error("Method rewrite failed", e)
 
             statusCallback?.invoke("❌ Rewrite failed: ${e.message}")
+            progressDialog?.doCancelAction() // Close progress dialog on error
             
             rewriteId?.let {
                 metricsService.trackRewriteCancelled(it, "error: ${e.message}")

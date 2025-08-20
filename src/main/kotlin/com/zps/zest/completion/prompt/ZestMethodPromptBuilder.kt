@@ -26,9 +26,9 @@ class ZestMethodPromptBuilder(private val project: Project? = null) {
             // Create query from method context
             val query = buildRAGQuery(methodContext)
             
-            // Retrieve context synchronously (with timeout)
-            val retrievalResult = ragService.retrieveContext(query, 5, 0.7)
-                .get(3, java.util.concurrent.TimeUnit.SECONDS)
+            // Retrieve context synchronously (fast focused search)
+            val retrievalResult = ragService.retrieveContext(query, 3, 0.7)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS)
             
             if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
                 val contextItems = retrievalResult.items.take(3) // Limit to top 3 results

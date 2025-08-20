@@ -268,6 +268,87 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             statusCallback?.invoke("📚 $retrievingContextMsg")
             smartDialog?.updateProgress(1, retrievingContextMsg) // STAGE_RETRIEVING_CONTEXT = 1
             
+            // Actually perform RAG retrieval and show results to user
+            val contextItems = mutableListOf<String>()
+            var filesSearched = 0
+            
+            try {
+                // Get LangChain4j service for RAG
+                val ragService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService::class.java)
+                if (ragService != null) {
+                    // Use method content as query for RAG retrieval
+                    val query = methodContext.methodContent
+                    val currentFileName = methodContext.fileName
+                    
+                    // Create progress listener to show detailed progress
+                    val progressListener = object : com.zps.zest.langchain4j.RetrievalProgressListener {
+                        override fun onStageUpdate(stage: String, message: String) {
+                            when (stage) {
+                                "COMPRESS" -> {
+                                    statusCallback?.invoke("🔍 $message")
+                                    smartDialog?.updateProgress(1, message)
+                                }
+                                "SEARCH" -> {
+                                    statusCallback?.invoke("📚 $message")
+                                    smartDialog?.updateProgress(1, message)
+                                }
+                                "BOOST" -> {
+                                    statusCallback?.invoke("⚡ $message")
+                                    smartDialog?.updateProgress(1, message)
+                                }
+                                "COMPLETE" -> {
+                                    statusCallback?.invoke("✅ $message")
+                                    smartDialog?.updateProgress(1, message)
+                                }
+                                "ERROR" -> {
+                                    statusCallback?.invoke("❌ $message")
+                                }
+                            }
+                        }
+                        
+                        override fun onKeywordsExtracted(keywords: List<String>) {
+                            val keywordStr = keywords.take(5).joinToString(", ")
+                            statusCallback?.invoke("🔑 Keywords: $keywordStr")
+                            smartDialog?.updateProgress(1, "Extracted keywords: $keywordStr")
+                        }
+                        
+                        override fun onSearchComplete(candidatesFound: Int, filteredCount: Int) {
+                            val msg = "Found $candidatesFound candidates, filtered to $filteredCount"
+                            statusCallback?.invoke("📊 $msg")
+                            smartDialog?.updateProgress(1, msg)
+                        }
+                        
+                        override fun onComplete(resultsCount: Int, totalTimeMs: Long) {
+                            val msg = "Completed in ${totalTimeMs}ms: $resultsCount results"
+                            statusCallback?.invoke("🎯 $msg")
+                        }
+                    }
+                    
+                    val retrievalResult = ragService.retrieveContextWithProgress(query, 5, 0.7, currentFileName, progressListener)
+                        .get(30, java.util.concurrent.TimeUnit.SECONDS)
+                    
+                    if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
+                        filesSearched = retrievalResult.items.size
+                        contextItems.addAll(retrievalResult.items.take(3).map { item ->
+                            val source = if (item.filePath != null) " (${item.filePath}:${item.lineNumber ?: "?"})" else ""
+                            "${item.title}$source: ${item.content.take(150)}${if (item.content.length > 150) "..." else ""}"
+                        })
+                        
+                        // Show RAG results in dialog
+                        smartDialog?.addContextDetails(contextItems, filesSearched)
+                    } else {
+                        contextItems.add("No relevant context found in codebase")
+                        smartDialog?.addContextDetails(contextItems, 0)
+                    }
+                } else {
+                    contextItems.add("RAG service not available")
+                    smartDialog?.addContextDetails(contextItems, 0)
+                }
+            } catch (e: Exception) {
+                contextItems.add("RAG retrieval failed: ${e.message}")
+                smartDialog?.addContextDetails(contextItems, 0)
+            }
+            
             // Build prompt with RAG context
             val buildingPromptMsg = "Building AI prompt with context..."
             statusCallback?.invoke("🧠 $buildingPromptMsg")
@@ -893,6 +974,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             else -> "unknown"
         }
     }
+
 
     companion object {
         private const val METHOD_REWRITE_TIMEOUT_MS = 200000L // 20 seconds

@@ -61,7 +61,7 @@ public final class ZestLangChain4jService {
     
     // Advanced RAG components
     private final ContentRetriever primaryRetriever;
-    private final QueryTransformer compressingTransformer;
+    private final CompressingQueryTransformer compressingTransformer;
     private final QueryTransformer expandingTransformer;
     private final List<ContentRetriever> multipleRetrievers;
     private final AdvancedRAGService advancedRAGService;
@@ -114,7 +114,7 @@ public final class ZestLangChain4jService {
         this.astChunker = new ASTChunker(1500); // 1500 characters per chunk (optimal for embeddings)
         
         // Initialize Advanced RAG service
-        this.advancedRAGService = new AdvancedRAGService(project, llmService, embeddingModel, embeddingStore);
+        this.advancedRAGService = new AdvancedRAGService(project, llmService, embeddingModel, embeddingStore, compressingTransformer);
         
         LOG.info("ZestLangChain4jService initialized with in-memory vector store and advanced RAG techniques for project: " + project.getName());
         LOG.info("Project base path: " + project.getBasePath());
@@ -473,42 +473,89 @@ public final class ZestLangChain4jService {
     }
     
     /**
-     * New primary retrieval method using Advanced RAG techniques
+     * Retrieve context excluding results from a specific file
      */
     @NotNull
-    public CompletableFuture<RetrievalResult> retrieveContextUsingAdvancedRAG(@NotNull String query, int maxResults, double threshold) {
+    public CompletableFuture<RetrievalResult> retrieveContextExcludingFile(@NotNull String query, int maxResults, double threshold, String excludeFileName) {
+        return retrieveContextUsingAdvancedRAG(query, maxResults, threshold, excludeFileName);
+    }
+    
+    /**
+     * Retrieve context with progress reporting and LLM-based keyword extraction
+     */
+    @NotNull
+    public CompletableFuture<RetrievalResult> retrieveContextWithProgress(@NotNull String query, int maxResults, double threshold, 
+                                                                         String excludeFileName, RetrievalProgressListener progressListener) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (!isIndexed) {
                     LOG.warn("Codebase not yet indexed, results may be incomplete");
                 }
                 
-                LOG.info("Using Advanced RAG with query compression/expansion for: " + query.substring(0, Math.min(100, query.length())) + "...");
+                LOG.info("Using Fast RAG with progress reporting and LLM keyword extraction for: " + 
+                    query.substring(0, Math.min(100, query.length())) + "...");
                 
-                // Stage 1: Query Transformation using compression and expansion
-                List<Query> transformedQueries = performMethodQueryTransformation(query, maxResults);
-                LOG.info("Query transformation generated " + transformedQueries.size() + " queries from original");
+                // Use fast RAG with progress reporting
+                List<AdvancedRAGService.ContextualResult> results = advancedRAGService
+                    .retrieveFastWithProgress(query, maxResults, excludeFileName, progressListener).get();
                 
-                // Stage 2: Retrieve with all transformed queries
-                List<AdvancedRAGService.ContextualResult> allResults = new ArrayList<>();
+                List<ContextItem> contextItems = results.stream()
+                    .map(result -> new ContextItem(
+                        result.getId(),
+                        result.getTitle(),
+                        result.getContent(),
+                        result.getFilePath(),
+                        result.getLineNumber(),
+                        result.getScore()
+                    ))
+                    .collect(Collectors.toList());
                 
-                for (Query transformedQuery : transformedQueries) {
-                    try {
-                        List<AdvancedRAGService.ContextualResult> queryResults = advancedRAGService
-                            .retrieveAdvanced(transformedQuery.text(), maxResults).join();
-                        allResults.addAll(queryResults);
-                        LOG.debug("Query '" + transformedQuery.text().substring(0, Math.min(50, transformedQuery.text().length())) 
-                            + "...' found " + queryResults.size() + " results");
-                    } catch (Exception e) {
-                        LOG.warn("Query transformation failed for: " + transformedQuery.text().substring(0, Math.min(50, transformedQuery.text().length())), e);
-                    }
+                String message = String.format("Found %d relevant code sections using fast semantic search with LLM keywords", contextItems.size());
+                LOG.info(message);
+                return new RetrievalResult(true, message, contextItems);
+                
+            } catch (Exception e) {
+                LOG.error("Advanced RAG retrieval with progress failed", e);
+                return new RetrievalResult(false, "RAG retrieval failed: " + e.getMessage(), Collections.emptyList());
+            }
+        });
+    }
+    
+    /**
+     * New primary retrieval method using Advanced RAG techniques
+     */
+    @NotNull
+    public CompletableFuture<RetrievalResult> retrieveContextUsingAdvancedRAG(@NotNull String query, int maxResults, double threshold) {
+        return retrieveContextUsingAdvancedRAG(query, maxResults, threshold, null);
+    }
+    
+    @NotNull
+    public CompletableFuture<RetrievalResult> retrieveContextUsingAdvancedRAG(@NotNull String query, int maxResults, double threshold, String excludeFileName) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!isIndexed) {
+                    LOG.warn("Codebase not yet indexed, results may be incomplete");
                 }
                 
-                // Stage 3: Deduplicate and rank results
-                List<ContextItem> contextItems = deduplicateAndRankResults(allResults, maxResults);
+                LOG.info("Using Fast RAG (bypassing query transformation due to timeout issues) for: " + query.substring(0, Math.min(100, query.length())) + "...");
                 
-                LOG.info("Advanced RAG with query transformation retrieved " + contextItems.size() + " deduplicated results");
-                return new RetrievalResult(true, "Advanced RAG with compression/expansion retrieved " + contextItems.size() + " results", contextItems);
+                // Use fast RAG directly to avoid network timeouts from query transformation
+                List<AdvancedRAGService.ContextualResult> results = advancedRAGService.retrieveFast(query, maxResults, excludeFileName).get();
+                
+                List<ContextItem> contextItems = results.stream()
+                    .map(result -> new ContextItem(
+                        result.getId(),
+                        result.getTitle(),
+                        result.getContent(),
+                        result.getFilePath(),
+                        result.getLineNumber(),
+                        result.getScore()
+                    ))
+                    .collect(Collectors.toList());
+                
+                String message = String.format("Found %d relevant code sections using fast semantic search", contextItems.size());
+                LOG.info(message);
+                return new RetrievalResult(true, message, contextItems);
                 
             } catch (Exception e) {
                 LOG.error("Advanced RAG retrieval failed, falling back to hybrid search", e);
@@ -516,124 +563,6 @@ public final class ZestLangChain4jService {
                 return retrieveContextLegacyHybrid(query, maxResults, threshold).join();
             }
         });
-    }
-    
-    /**
-     * Perform method-specific query transformation using compression and expansion
-     */
-    private List<Query> performMethodQueryTransformation(@NotNull String methodContent, int maxResults) {
-        List<Query> queries = new ArrayList<>();
-        
-        try {
-            // Always include the original query (but limit its length for performance)
-            String originalQuery = methodContent.length() > 2000 
-                ? methodContent.substring(0, 2000) + "..." 
-                : methodContent;
-            queries.add(Query.from(originalQuery));
-            
-            // Stage 1: Compress the method content to extract key programming elements
-            String compressedQuery = compressMethodContent(methodContent);
-            if (compressedQuery != null && !compressedQuery.trim().isEmpty() && !compressedQuery.equals(originalQuery)) {
-                queries.add(Query.from(compressedQuery));
-                LOG.debug("Compressed query: " + compressedQuery);
-                
-                // Stage 2: Expand the compressed query for semantic variations
-                Collection<Query> expandedQueries = expandingTransformer.transform(Query.from(compressedQuery));
-                for (Query expandedQuery : expandedQueries) {
-                    if (!expandedQuery.text().equals(compressedQuery) && expandedQuery.text().length() > 5) {
-                        queries.add(expandedQuery);
-                        LOG.debug("Expanded query: " + expandedQuery.text());
-                    }
-                }
-            }
-            
-            // Limit total queries to prevent overload (max 6 queries)
-            if (queries.size() > 6) {
-                queries = queries.subList(0, 6);
-            }
-            
-        } catch (Exception e) {
-            LOG.warn("Query transformation failed, using original query only", e);
-            queries.clear();
-            queries.add(Query.from(methodContent.length() > 1000 ? methodContent.substring(0, 1000) : methodContent));
-        }
-        
-        return queries;
-    }
-    
-    /**
-     * Compress method content to extract key programming identifiers and patterns
-     */
-    private String compressMethodContent(@NotNull String methodContent) {
-        try {
-            if (methodContent.length() < 50) {
-                // Too short to compress meaningfully
-                return methodContent;
-            }
-            
-            // Create a specialized prompt for method content compression
-            String prompt = """
-                Extract only the most important programming keywords, identifiers, and API calls from this code. 
-                Include method names, class names, important variables, and library calls.
-                Output only keywords separated by spaces, no explanations.
-                
-                Code:
-                """ + methodContent.substring(0, Math.min(1500, methodContent.length()));
-                
-            // Use the chat model via compressing transformer for intelligent compression
-            Query originalQuery = Query.from(methodContent);
-            Collection<Query> compressedQueries = compressingTransformer.transform(originalQuery);
-            
-            // If compression worked, use the first result
-            if (!compressedQueries.isEmpty()) {
-                String compressed = compressedQueries.iterator().next().text();
-                if (compressed.length() < methodContent.length() && compressed.length() > 10) {
-                    return compressed;
-                }
-            }
-            
-            // Fallback: extract keywords manually if LLM compression failed
-            return extractKeywordsManually(methodContent);
-            
-        } catch (Exception e) {
-            LOG.warn("Method content compression failed", e);
-            return extractKeywordsManually(methodContent);
-        }
-    }
-    
-    /**
-     * Manual keyword extraction as fallback for method content
-     */
-    private String extractKeywordsManually(@NotNull String methodContent) {
-        Set<String> keywords = new HashSet<>();
-        
-        // Extract method names (patterns like "methodName(")
-        java.util.regex.Pattern methodPattern = java.util.regex.Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(");
-        java.util.regex.Matcher methodMatcher = methodPattern.matcher(methodContent);
-        while (methodMatcher.find() && keywords.size() < 20) {
-            String method = methodMatcher.group(1);
-            if (method.length() > 2 && !method.equals("if") && !method.equals("for") && !method.equals("while")) {
-                keywords.add(method);
-            }
-        }
-        
-        // Extract class names (patterns like "ClassName.")
-        java.util.regex.Pattern classPattern = java.util.regex.Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*)\\.");
-        java.util.regex.Matcher classMatcher = classPattern.matcher(methodContent);
-        while (classMatcher.find() && keywords.size() < 20) {
-            keywords.add(classMatcher.group(1));
-        }
-        
-        // Extract important types
-        String[] importantTypes = {"String", "List", "Map", "Set", "BigDecimal", "Integer", "Boolean", "Long", "Double"};
-        for (String type : importantTypes) {
-            if (methodContent.contains(type)) {
-                keywords.add(type);
-            }
-        }
-        
-        return keywords.isEmpty() ? methodContent.substring(0, Math.min(200, methodContent.length())) 
-            : String.join(" ", keywords);
     }
     
     /**
@@ -811,7 +740,7 @@ public final class ZestLangChain4jService {
                 if (useRetrieval && isIndexed) {
                     // Use Advanced RAG for better retrieval
                     List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
-                        .retrieveAdvanced(taskDescription, 5).join();
+                        .retrieveFast(taskDescription, 5).join();
                         
                     List<EmbeddingMatch<TextSegment>> matches = advancedResults.stream()
                         .map(result -> new EmbeddingMatch<>(
@@ -917,7 +846,7 @@ public final class ZestLangChain4jService {
                 if (isIndexed) {
                     // Use Advanced RAG for better context retrieval
                     List<AdvancedRAGService.ContextualResult> advancedResults = advancedRAGService
-                        .retrieveAdvanced(message, 3).join();
+                        .retrieveFast(message, 3).join();
                         
                     contextItems = advancedResults.stream()
                         .map(this::convertToContextItem)

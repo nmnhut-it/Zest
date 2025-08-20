@@ -11,6 +11,8 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.rag.query.Query;
+import dev.langchain4j.rag.query.transformer.CompressingQueryTransformer;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -33,6 +35,7 @@ public class AdvancedRAGService {
     private final LLMService llmService;
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
+    private final CompressingQueryTransformer compressingTransformer;
     
     // Advanced RAG configuration
     private static final int SENTENCE_WINDOW_SIZE = 3; // Sentences before/after
@@ -52,18 +55,344 @@ public class AdvancedRAGService {
     private int totalDocuments = 0;
     private double avgDocLength = 0.0;
     
+    // File content cache to avoid repeated I/O
+    private final Map<String, String> fileContentCache = new HashMap<>();
+    private static final int MAX_CACHE_SIZE = 50; // Limit cache size
+    private static final long CACHE_TTL_MS = 300000; // 5 minutes TTL
+    private final Map<String, Long> cacheTimestamps = new HashMap<>();
+    
     public AdvancedRAGService(Project project, LLMService llmService, EmbeddingModel embeddingModel, 
-                             EmbeddingStore<TextSegment> embeddingStore) {
+                             EmbeddingStore<TextSegment> embeddingStore, 
+                             CompressingQueryTransformer compressingTransformer) {
         this.project = project;
         this.llmService = llmService;
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
+        this.compressingTransformer = compressingTransformer;
         
         LOG.info("Advanced RAG Service initialized with cutting-edge techniques");
     }
     
     /**
-     * Advanced retrieval using multiple techniques
+     * Ultra-fast retrieval using direct semantic search with keyword filtering
+     */
+    public CompletableFuture<List<ContextualResult>> retrieveFast(String query, int maxResults) {
+        return retrieveFast(query, maxResults, null);
+    }
+    
+    /**
+     * Ultra-fast retrieval with file exclusion
+     */
+    public CompletableFuture<List<ContextualResult>> retrieveFast(String query, int maxResults, String excludeFileName) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                LOG.info("Starting ultra-fast semantic search for query length: " + query.length());
+                
+                // Direct semantic search - no analysis overhead
+                Embedding queryEmbedding = embeddingModel.embed(query).content();
+                var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
+                    .queryEmbedding(queryEmbedding)
+                    .maxResults(maxResults * 3) // Get more candidates
+                    .minScore(0.3) // Much lower threshold to find more results
+                    .build();
+                List<EmbeddingMatch<TextSegment>> semanticMatches = embeddingStore.search(request).matches();
+                LOG.info("Found " + semanticMatches.size() + " semantic matches");
+                
+                // Filter out current file if specified
+                if (excludeFileName != null && !excludeFileName.isEmpty()) {
+                    semanticMatches = semanticMatches.stream()
+                        .filter(match -> {
+                            String filePath = match.embedded().metadata().getString("file");
+                            return filePath == null || !filePath.endsWith(excludeFileName);
+                        })
+                        .collect(Collectors.toList());
+                    LOG.info("After excluding " + excludeFileName + ": " + semanticMatches.size() + " matches");
+                }
+                
+                // Simple keyword boost (no complex BM25)
+                List<EmbeddingMatch<TextSegment>> filteredMatches = applySimpleKeywordBoost(semanticMatches, query, maxResults);
+                LOG.info("After keyword boost: " + filteredMatches.size() + " matches");
+                
+                // Create minimal results
+                List<ContextualResult> results = new ArrayList<>();
+                for (EmbeddingMatch<TextSegment> match : filteredMatches) {
+                    results.add(new ContextualResult(
+                        match.embedded(),
+                        match.score(),
+                        match.embedded().text(), // Use original content everywhere
+                        match.embedded().text(), 
+                        match.embedded().text(), 
+                        new QueryAnalysis(query) // Minimal analysis
+                    ));
+                }
+                
+                LOG.info("Ultra-fast search completed: " + results.size() + " results");
+                return results;
+                
+            } catch (Exception e) {
+                LOG.error("Ultra-fast search failed", e);
+                return Collections.emptyList();
+            }
+        });
+    }
+    
+    /**
+     * Ultra-fast retrieval with progress reporting and LLM-based keyword extraction
+     */
+    public CompletableFuture<List<ContextualResult>> retrieveFastWithProgress(
+            String query, int maxResults, String excludeFileName, RetrievalProgressListener progressListener) {
+        return CompletableFuture.supplyAsync(() -> {
+            long startTime = System.currentTimeMillis();
+            
+            try {
+                if (progressListener != null) {
+                    progressListener.onStageUpdate("COMPRESS", "Extracting keywords from query...");
+                }
+                
+                // Stage 1: Compress query to extract keywords with timeout
+                List<String> extractedKeywords = compressQueryWithTimeout(query, 3000);
+                if (progressListener != null) {
+                    progressListener.onKeywordsExtracted(extractedKeywords);
+                }
+                
+                if (progressListener != null) {
+                    progressListener.onStageUpdate("SEARCH", "Searching codebase...");
+                }
+                
+                // Stage 2: Direct semantic search with original query
+                Embedding queryEmbedding = embeddingModel.embed(query).content();
+                var request = dev.langchain4j.store.embedding.EmbeddingSearchRequest.builder()
+                    .queryEmbedding(queryEmbedding)
+                    .maxResults(maxResults * 3) // Get more candidates
+                    .minScore(0.3) // Lower threshold to find more results
+                    .build();
+                List<EmbeddingMatch<TextSegment>> semanticMatches = embeddingStore.search(request).matches();
+                
+                // Stage 3: Filter out excluded file
+                int candidatesFound = semanticMatches.size();
+                if (excludeFileName != null && !excludeFileName.isEmpty()) {
+                    semanticMatches = semanticMatches.stream()
+                        .filter(match -> {
+                            String filePath = match.embedded().metadata().getString("file");
+                            return filePath == null || !filePath.endsWith(excludeFileName);
+                        })
+                        .collect(Collectors.toList());
+                }
+                
+                if (progressListener != null) {
+                    progressListener.onSearchComplete(candidatesFound, semanticMatches.size());
+                    progressListener.onStageUpdate("BOOST", "Ranking results...");
+                }
+                
+                // Stage 4: Apply intelligent keyword boosting
+                List<EmbeddingMatch<TextSegment>> filteredMatches = 
+                    applyIntelligentKeywordBoost(semanticMatches, extractedKeywords, maxResults);
+                
+                // Stage 5: Create final results
+                List<ContextualResult> results = new ArrayList<>();
+                for (EmbeddingMatch<TextSegment> match : filteredMatches) {
+                    results.add(new ContextualResult(
+                        match.embedded(),
+                        match.score(),
+                        match.embedded().text(),
+                        match.embedded().text(), 
+                        match.embedded().text(), 
+                        new QueryAnalysis(query)
+                    ));
+                }
+                
+                long totalTime = System.currentTimeMillis() - startTime;
+                if (progressListener != null) {
+                    progressListener.onComplete(results.size(), totalTime);
+                }
+                
+                LOG.info("Fast retrieval with progress completed: " + results.size() + " results in " + totalTime + "ms");
+                return results;
+                
+            } catch (Exception e) {
+                LOG.error("Fast retrieval with progress failed", e);
+                if (progressListener != null) {
+                    progressListener.onStageUpdate("ERROR", "Retrieval failed: " + e.getMessage());
+                }
+                return Collections.emptyList();
+            }
+        });
+    }
+    
+    /**
+     * Compress query using LLM with timeout to extract keywords
+     */
+    private List<String> compressQueryWithTimeout(String query, int timeoutMs) {
+        try {
+            // Limit query length for performance
+            String limitedQuery = query.length() > 2000 
+                ? query.substring(0, 2000) + "..." 
+                : query;
+            
+            // Use CompressingQueryTransformer with custom timeout
+            CompletableFuture<Collection<Query>> compressionFuture = CompletableFuture.supplyAsync(() -> {
+                return compressingTransformer.transform(Query.from(limitedQuery));
+            });
+            
+            Collection<Query> compressedQueries = compressionFuture
+                .get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            
+            // Extract keywords from compressed query
+            List<String> keywords = new ArrayList<>();
+            for (Query compressedQuery : compressedQueries) {
+                String compressed = compressedQuery.text();
+                if (compressed != null && !compressed.trim().isEmpty()) {
+                    // Extract keywords from compressed text
+                    for (String word : compressed.split("\\s+")) {
+                        if (word.length() > 2 && !keywords.contains(word)) {
+                            keywords.add(word);
+                        }
+                    }
+                }
+                if (keywords.size() >= 10) break; // Limit keywords
+            }
+            
+            LOG.debug("LLM extracted keywords: " + keywords);
+            return keywords.isEmpty() ? extractKeywordsFallback(query) : keywords;
+            
+        } catch (Exception e) {
+            LOG.warn("LLM keyword extraction failed, using fallback: " + e.getMessage());
+            return extractKeywordsFallback(query);
+        }
+    }
+    
+    /**
+     * Fallback keyword extraction using simple rules
+     */
+    private List<String> extractKeywordsFallback(String query) {
+        List<String> keywords = new ArrayList<>();
+        
+        // Extract method names, class names, and important terms
+        Pattern methodPattern = Pattern.compile("\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(");
+        Matcher methodMatcher = methodPattern.matcher(query);
+        while (methodMatcher.find() && keywords.size() < 10) {
+            String method = methodMatcher.group(1);
+            if (method.length() > 2) {
+                keywords.add(method);
+            }
+        }
+        
+        // Extract camelCase identifiers
+        Pattern camelCasePattern = Pattern.compile("\\b([A-Z][a-zA-Z0-9_]*|[a-z][a-zA-Z0-9_]*[A-Z][a-zA-Z0-9_]*)\\b");
+        Matcher camelMatcher = camelCasePattern.matcher(query);
+        while (camelMatcher.find() && keywords.size() < 15) {
+            String identifier = camelMatcher.group(1);
+            if (identifier.length() > 3 && !keywords.contains(identifier)) {
+                keywords.add(identifier);
+            }
+        }
+        
+        return keywords;
+    }
+    
+    /**
+     * Apply intelligent keyword boosting using LLM-extracted keywords
+     */
+    private List<EmbeddingMatch<TextSegment>> applyIntelligentKeywordBoost(
+            List<EmbeddingMatch<TextSegment>> matches, List<String> keywords, int maxResults) {
+        
+        if (keywords.isEmpty()) {
+            return matches.stream().limit(maxResults).collect(Collectors.toList());
+        }
+        
+        // Boost matches that contain LLM-extracted keywords
+        List<ScoredMatch> scoredMatches = new ArrayList<>();
+        for (EmbeddingMatch<TextSegment> match : matches) {
+            double semanticScore = match.score();
+            double keywordBoost = calculateIntelligentKeywordBoost(match.embedded().text(), keywords);
+            double finalScore = semanticScore + keywordBoost;
+            
+            scoredMatches.add(new ScoredMatch(match.embedded(), finalScore, semanticScore, keywordBoost));
+        }
+        
+        // Sort and return top results
+        return scoredMatches.stream()
+            .sorted((a, b) -> Double.compare(b.finalScore, a.finalScore))
+            .limit(maxResults)
+            .map(sm -> new EmbeddingMatch<>(sm.finalScore, "boost_" + System.nanoTime(), null, sm.textSegment))
+            .collect(Collectors.toList());
+    }
+    
+    /**
+     * Calculate intelligent keyword boost based on LLM-extracted keywords
+     */
+    private double calculateIntelligentKeywordBoost(String text, List<String> keywords) {
+        if (keywords.isEmpty()) return 0.0;
+        
+        String lowerText = text.toLowerCase();
+        int matches = 0;
+        double boost = 0.0;
+        
+        for (String keyword : keywords) {
+            String lowerKeyword = keyword.toLowerCase();
+            if (lowerText.contains(lowerKeyword)) {
+                matches++;
+                // Higher boost for longer, more specific keywords
+                boost += 0.05 + (keyword.length() * 0.01);
+            }
+        }
+        
+        // Cap the boost at 0.4 to prevent overwhelming semantic score
+        return Math.min(boost, 0.4);
+    }
+    
+    /**
+     * Simple keyword boosting without complex BM25
+     */
+    private List<EmbeddingMatch<TextSegment>> applySimpleKeywordBoost(
+            List<EmbeddingMatch<TextSegment>> matches, String query, int maxResults) {
+        
+        // Extract simple keywords from query (just split and lowercase)
+        Set<String> keywords = new HashSet<>();
+        for (String word : query.toLowerCase().split("\\W+")) {
+            if (word.length() > 2) { // Skip very short words
+                keywords.add(word);
+            }
+        }
+        
+        // Boost matches that contain query keywords
+        List<ScoredMatch> scoredMatches = new ArrayList<>();
+        for (EmbeddingMatch<TextSegment> match : matches) {
+            double semanticScore = match.score();
+            double keywordBoost = calculateSimpleKeywordBoost(match.embedded().text(), keywords);
+            double finalScore = semanticScore + keywordBoost;
+            
+            scoredMatches.add(new ScoredMatch(match.embedded(), finalScore, semanticScore, keywordBoost));
+        }
+        
+        // Sort and return top results
+        return scoredMatches.stream()
+            .sorted((a, b) -> Double.compare(b.finalScore, a.finalScore))
+            .limit(maxResults)
+            .map(sm -> new EmbeddingMatch<>(sm.finalScore, "boost_" + System.nanoTime(), null, sm.textSegment))
+            .collect(Collectors.toList());
+    }
+    
+    /**
+     * Simple keyword boost calculation
+     */
+    private double calculateSimpleKeywordBoost(String text, Set<String> keywords) {
+        if (keywords.isEmpty()) return 0.0;
+        
+        String lowerText = text.toLowerCase();
+        int matches = 0;
+        for (String keyword : keywords) {
+            if (lowerText.contains(keyword)) {
+                matches++;
+            }
+        }
+        
+        // Simple boost: 0.1 for each keyword match, max 0.3
+        return Math.min(matches * 0.1, 0.3);
+    }
+    
+    /**
+     * Advanced retrieval using multiple techniques (slower but more comprehensive)
      */
     public CompletableFuture<List<ContextualResult>> retrieveAdvanced(String query, int maxResults) {
         return CompletableFuture.supplyAsync(() -> {
@@ -434,6 +763,45 @@ public class AdvancedRAGService {
             this.contextualContent = contextualContent;
             this.queryAnalysis = queryAnalysis;
         }
+        
+        // Getter methods for compatibility with ContextItem
+        public String getId() {
+            return originalSegment.metadata().getString("id");
+        }
+        
+        public String getTitle() {
+            String fileName = getFilePath();
+            if (fileName != null) {
+                // Extract just the filename from the path
+                int lastSlash = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+                return lastSlash >= 0 ? fileName.substring(lastSlash + 1) : fileName;
+            }
+            return "Code Segment";
+        }
+        
+        public String getContent() {
+            return contextualContent != null ? contextualContent : originalSegment.text();
+        }
+        
+        public double getScore() {
+            return score;
+        }
+        
+        public String getFilePath() {
+            return originalSegment.metadata().getString("file");
+        }
+        
+        public Integer getLineNumber() {
+            String lineStr = originalSegment.metadata().getString("startLine");
+            if (lineStr != null) {
+                try {
+                    return Integer.parseInt(lineStr);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+            return null;
+        }
     }
     
     // Implementation of helper methods
@@ -473,6 +841,15 @@ public class AdvancedRAGService {
     }
     
     private String getFullFileContent(String filePath) {
+        // Check cache first
+        String cachedContent = fileContentCache.get(filePath);
+        Long timestamp = cacheTimestamps.get(filePath);
+        
+        if (cachedContent != null && timestamp != null && 
+            (System.currentTimeMillis() - timestamp) < CACHE_TTL_MS) {
+            return cachedContent;
+        }
+        
         try {
             // Convert relative path to virtual file
             VirtualFile virtualFile = VirtualFileManager.getInstance().findFileByUrl(
@@ -480,12 +857,53 @@ public class AdvancedRAGService {
             );
             
             if (virtualFile != null && virtualFile.exists()) {
-                return new String(virtualFile.contentsToByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                String content = new String(virtualFile.contentsToByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                
+                // Cache the content
+                cacheFileContent(filePath, content);
+                
+                return content;
             }
         } catch (Exception e) {
             LOG.debug("Failed to read full file content for: " + filePath + ": " + e.getMessage());
         }
         return null;
+    }
+    
+    private void cacheFileContent(String filePath, String content) {
+        // Clean cache if too large
+        if (fileContentCache.size() >= MAX_CACHE_SIZE) {
+            cleanCache();
+        }
+        
+        fileContentCache.put(filePath, content);
+        cacheTimestamps.put(filePath, System.currentTimeMillis());
+    }
+    
+    private void cleanCache() {
+        long now = System.currentTimeMillis();
+        
+        // Remove expired entries
+        cacheTimestamps.entrySet().removeIf(entry -> {
+            boolean expired = (now - entry.getValue()) > CACHE_TTL_MS;
+            if (expired) {
+                fileContentCache.remove(entry.getKey());
+            }
+            return expired;
+        });
+        
+        // If still too large, remove oldest entries
+        if (fileContentCache.size() >= MAX_CACHE_SIZE) {
+            String oldestKey = cacheTimestamps.entrySet().stream()
+                .min(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+                
+            if (oldestKey != null) {
+                fileContentCache.remove(oldestKey);
+                cacheTimestamps.remove(oldestKey);
+            }
+        }
     }
     
     private int findSentenceIndex(String[] sentences, int charPosition) {

@@ -88,13 +88,14 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
             // Check if this is the test generation option
             if (instruction == "__WRITE_TEST__") {
                 // Trigger actual test generation system for this method
-                logger.info("Triggering test generation for method ${methodContext.methodName}")
+                logger.info("*** DETECTED TEST GENERATION REQUEST - CALLING triggerTestGenerationForMethod ***")
                 triggerTestGenerationForMethod(project, editor, methodContext)
-                return@SmartRewriteDialog
+                return@SmartRewriteDialog // Exit early - don't continue to rewrite service
             }
             
-            var finalInstruction = instruction
-
+            // Only continue with rewrite service if not test generation
+            logger.info("Proceeding with method rewrite for instruction: $instruction")
+            
             // Get status bar widget for progress updates
             val statusBarWidget = getStatusBarWidget(project)
 
@@ -108,7 +109,7 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
             methodRewriteService.rewriteCurrentMethodWithStatusCallback(
                 editor = editor,
                 methodContext = methodContext,
-                customInstruction = finalInstruction,
+                customInstruction = instruction,
                 dialog = null,  // No dialog updates needed
                 statusCallback = { status ->
                     // All progress updates go to status bar widget
@@ -749,6 +750,7 @@ class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
         editor: com.intellij.openapi.editor.Editor,
         methodContext: ZestMethodContextCollector.MethodContext
     ) {
+        logger.info("=== STARTING TEST GENERATION FOR METHOD: ${methodContext.methodName} ===")
         try {
             // Find the PsiMethod at the current cursor position
             val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)

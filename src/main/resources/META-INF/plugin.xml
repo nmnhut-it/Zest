@@ -112,15 +112,6 @@
                     description="Gợi ý code thông minh tại vị trí con trỏ">
             </action>
 
-            <!-- Temporarily disabled - needs reimplementation
-            <action id="Zest.InlineCompletion.ImmediateTrigger"
-                    class="com.zps.zest.completion.actions.ZestTriggerBlockRewriteAction"
-                    text="Immediate Inline Completion"
-                    description="Gợi ý code nhanh với khả năng viết lại block (Ctrl+Space)">
-                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
-            </action>
-            -->
-
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
                     text="Accept Completion (Tab)"
@@ -158,6 +149,15 @@
                     text="Dismiss Completion"
                     description="Hủy gợi ý (Escape)">
                 <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
+            </action>
+
+            <action id="Zest.TriggerQuickAction"
+                    class="com.zps.zest.completion.actions.ZestTriggerQuickAction"
+                    text="Trigger Block Rewrite"
+                    description="Choose rewrite instruction (progress shown in status bar)">
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X"/>
+                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>
             </action>
         </group>
 

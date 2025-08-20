@@ -183,7 +183,7 @@ class StateMachineTestGenerationEditor(
                         primaryActionButton.background = Color(76, 175, 80) // Green
                         primaryActionButton.isEnabled = true
                         
-                        statusIndicator.text = "⏳ Ready to save"
+                        statusIndicator.text = "⏳ Tests ready to save"
                         logEvent("⚠️ ACTION REQUIRED: Click 'Save Test File' button to save the generated tests")
                     }
                     "retry_generation" -> {
@@ -270,10 +270,13 @@ class StateMachineTestGenerationEditor(
         setupUI()
         initializeStreamingHelper()
         
-        // Auto-start if we have a request
+        // Auto-start if we have a request (but not if already running)
         virtualFile.request?.let { request ->
             SwingUtilities.invokeLater {
-                startTestGeneration(request)
+                // Only auto-start if no active session
+                if (currentSessionId == null || currentStateMachine?.currentState?.isActive != true) {
+                    startTestGeneration(request)
+                }
             }
         }
     }
@@ -341,11 +344,11 @@ class StateMachineTestGenerationEditor(
         stateInfoPanel.layout = BoxLayout(stateInfoPanel, BoxLayout.Y_AXIS)
         stateInfoPanel.isOpaque = false
         
-        stateLabel = JBLabel("Ready")
+        stateLabel = JBLabel("Idle")
         stateLabel.font = stateLabel.font.deriveFont(Font.BOLD, 16f)
         stateInfoPanel.add(stateLabel)
         
-        stateDescription = JBLabel("Click Start to begin test generation")
+        stateDescription = JBLabel("No test generation in progress")
         stateDescription.foreground = UIUtil.getContextHelpForeground()
         stateInfoPanel.add(stateDescription)
         
@@ -356,7 +359,7 @@ class StateMachineTestGenerationEditor(
         statusPanel.layout = BoxLayout(statusPanel, BoxLayout.Y_AXIS)
         statusPanel.isOpaque = false
         
-        statusIndicator = JBLabel("Ready")
+        statusIndicator = JBLabel("")
         statusIndicator.font = statusIndicator.font.deriveFont(Font.BOLD)
         statusIndicator.foreground = UIUtil.getContextHelpForeground()
         statusPanel.add(statusIndicator)
@@ -379,7 +382,7 @@ class StateMachineTestGenerationEditor(
         logArea.isEditable = false
         logArea.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
         logArea.background = UIUtil.getTextFieldBackground()
-        logArea.text = "Ready to start test generation...\n"
+        logArea.text = "Test generation editor initialized\n"
         
         val scrollPane = JBScrollPane(logArea)
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
@@ -483,7 +486,22 @@ class StateMachineTestGenerationEditor(
     }
     
     private fun startTestGeneration(request: com.zps.zest.testgen.model.TestGenerationRequest) {
+        // Check if already running
+        if (currentSessionId != null && currentStateMachine != null) {
+            val currentState = currentStateMachine?.currentState
+            if (currentState != null && currentState.isActive) {
+                logEvent("Warning: Test generation already in progress (${currentState.displayName})")
+                Messages.showWarningDialog(project, 
+                    "Test generation is already in progress.\n\nCurrent state: ${currentState.displayName}", 
+                    "Already Running")
+                return
+            }
+        }
+        
         logEvent("Starting test generation...")
+        
+        // Disable button immediately to prevent double-click
+        primaryActionButton.isEnabled = false
         
         // Clear all panels
         contextDisplayPanel.clear()
@@ -639,8 +657,13 @@ class StateMachineTestGenerationEditor(
                 }
                 
                 state?.isActive == true -> {
-                    // During auto-flow states, hide primary action
-                    primaryActionButton.isVisible = false
+                    // During auto-flow states, show disabled button with current state
+                    primaryActionButton.apply {
+                        text = "⏳ ${state.displayName}..."
+                        background = Color(156, 156, 156) // Gray
+                        isEnabled = false
+                        isVisible = true
+                    }
                     cancelButton.isVisible = true
                 }
             }

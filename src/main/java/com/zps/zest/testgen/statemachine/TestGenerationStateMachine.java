@@ -218,6 +218,12 @@ public class TestGenerationStateMachine {
                     // Clear executing flag before auto-transition
                     isExecuting = false;
                     
+                    // Re-enable auto-flow if this was a successful retry
+                    if (lastError != null && !autoFlowEnabled) {
+                        autoFlowEnabled = true;
+                        LOG.info("Re-enabled auto-flow after successful retry of state: " + currentState);
+                    }
+                    
                     // Auto-transition to next state if specified
                     if (result.getNextState() != null) {
                         transitionTo(result.getNextState(), "State completed successfully");

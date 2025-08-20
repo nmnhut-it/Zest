@@ -27,9 +27,9 @@ import javax.swing.*
  * Action to trigger method rewrite with dialog for prompt selection + status bar progress
  * Hybrid approach: Dialog for user choice, status bar for progress updates
  */
-class ZestTriggerBlockRewriteAction : AnAction("Trigger Block Rewrite"), HasPriority {
+class ZestTriggerQuickAction : AnAction("Trigger QuickAction"), HasPriority {
     companion object {
-        private val logger = Logger.getInstance(ZestTriggerBlockRewriteAction::class.java)
+        private val logger = Logger.getInstance(ZestTriggerQuickAction::class.java)
     }
 
     override fun actionPerformed(e: AnActionEvent) {

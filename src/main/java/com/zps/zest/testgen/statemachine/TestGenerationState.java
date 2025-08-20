@@ -8,7 +8,7 @@ public enum TestGenerationState {
     /**
      * Initial state - no generation in progress
      */
-    IDLE("Idle", "Ready to start test generation"),
+    IDLE("Idle", "No test generation in progress"),
     
     /**
      * Setting up the generation session

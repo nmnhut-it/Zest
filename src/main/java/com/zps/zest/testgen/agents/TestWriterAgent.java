@@ -146,21 +146,28 @@ public class TestWriterAgent extends StreamingBaseAgent {
         
         EXAMPLE RESPONSE:
         "Analyzing project structure and generating complete test class...
-        
-        [Tool: setPackageName with "com.example.service"]
-        [Tool: setTestClassName with "UserServiceTest", "src/test/java/com/example/service/UserServiceTest.java"]
-        [Tool: setTestFramework with "JUnit5"]
-        [Tool: addMultipleImports with JUnit5 imports]
-        [Tool: addMultipleFieldDeclarations with @Mock fields]
-        [Tool: addSetupMethod with methodName="setUp", methodBody="MockitoAnnotations.openMocks(this);\nuserService = new UserService(userRepository);", annotations=["BeforeEach"], accessModifier="public"]
-        [Tool: addTeardownMethod with methodName="tearDown", methodBody="// Clean up resources", annotations=["AfterEach"], accessModifier="public"]
-        [Tool: addMultipleTestMethods with test methods including annotations]
-        
-        The examples above are just illustrating how you should utilize your tools, not tool syntax. You need to strictly follow tool call syntax given to you. 
-        
+
+        Now I'll generate the test class using the available tools.
+
+        IMPORTANT RULES FOR ANNOTATIONS:
+        - When providing annotations, use the name WITHOUT the @ symbol
+        - For test methods: use "Test" not "@Test"  
+        - For setup methods: use "BeforeEach" not "@BeforeEach"
+        - For teardown: use "AfterEach" not "@AfterEach"
+        - For parameterized tests: use "ParameterizedTest" not "@ParameterizedTest"
+
+        BATCHING RULES FOR addMultipleTestMethods:
+        - Generate 3-5 test methods per call for optimal efficiency
+        - Each TestMethodInput needs:
+          * methodName - the name of the test method (e.g., "testUserCreation")
+          * methodBody - just the code inside the method body, not the signature
+          * scenarioName - optional, can be empty string
+          * requiredImports - list of additional imports needed for this specific test
+          * annotations - list of annotation names WITHOUT @ prefix
+
         IMPORTANT: 
         - Setup/teardown methods: Provide structured parameters separately (methodName, methodBody, annotations list, accessModifier)
-        - Test methods: Include appropriate annotations (@Test, @ParameterizedTest, etc.)
+        - Test methods: Include appropriate annotations (Test, ParameterizedTest, etc.)
         - Choose framework-appropriate annotations based on detected dependencies
         - Annotations should be provided as list without @ prefix (e.g., ["BeforeEach"] not ["@BeforeEach"])
         

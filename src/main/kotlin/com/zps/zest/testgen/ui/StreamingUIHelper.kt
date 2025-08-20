@@ -190,7 +190,7 @@ class StreamingUIHelper(
             Phase.TEST_GENERATION -> "Generating tests..."
             Phase.VALIDATION -> "Validating..."
             Phase.COMPLETE -> "Complete!"
-            Phase.IDLE -> "Ready"
+            Phase.IDLE -> "Idle"
         }
         eventListener.onProgressChanged(0, message) // Always 0 progress since we don't track it
     }

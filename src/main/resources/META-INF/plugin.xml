@@ -214,12 +214,7 @@
 
 
 
-        <action id="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction"
-                class="com.zps.zest.langchain4j.agent.network.StartAgentProxyAction" text="Start Tools"
-                description="Khởi động tools để dùng trong chat">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <!-- Removed from ToolsMenu - available in ZestGroup -->
-        </action>
+        <!-- Removed Start Tools action - proxy server is now controlled via settings -->
         
         <!-- Test Generation Action -->
         <action id="Zest.GenerateTests"
@@ -237,11 +232,7 @@
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <!-- Removed from ToolsMenu - available in ZestGroup -->
             
-            <action id="Zest.CheckCodeHealth"
-                    class="com.zps.zest.codehealth.CheckHealthAction"
-                    text="🏥 Code Health Check / Kiểm Tra Sức Khỏe Code"
-                    description="AI analysis for bugs, performance &amp; security / Phân tích AI tìm lỗi, hiệu năng &amp; bảo mật">
-            </action>
+            <!-- Removed non-functional "Activate Code Health" action -->
             
             <action id="Zest.AddMethodAtCaret"
                     class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"

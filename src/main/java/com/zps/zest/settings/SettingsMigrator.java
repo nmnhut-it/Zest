@@ -98,51 +98,7 @@ public class SettingsMigrator {
                 }
             }
             
-            // Migrate project settings
-            String knowledgeId = props.getProperty("knowledgeId");
-            if (knowledgeId != null && !knowledgeId.isEmpty()) {
-                projectSettings.knowledgeId = knowledgeId;
-            }
-            
-            String contextInjectionStr = props.getProperty("contextInjectionEnabled");
-            if (contextInjectionStr != null) {
-                projectSettings.contextInjectionEnabled = Boolean.parseBoolean(contextInjectionStr);
-            }
-            
-            String projectIndexStr = props.getProperty("projectIndexEnabled");
-            if (projectIndexStr != null) {
-                projectSettings.projectIndexEnabled = Boolean.parseBoolean(projectIndexStr);
-            }
-            
-            // Enforce mutual exclusion
-            if (projectSettings.contextInjectionEnabled && projectSettings.projectIndexEnabled) {
-                projectSettings.projectIndexEnabled = false;
-            }
-            
-            String docsPath = props.getProperty("docsPath");
-            if (docsPath != null && !docsPath.isEmpty()) {
-                projectSettings.docsPath = docsPath;
-            }
-            
-            String docsSearchEnabledStr = props.getProperty("docsSearchEnabled");
-            if (docsSearchEnabledStr != null) {
-                projectSettings.docsSearchEnabled = Boolean.parseBoolean(docsSearchEnabledStr);
-            }
-            
-            String ragEnabledStr = props.getProperty("ragEnabled");
-            if (ragEnabledStr != null) {
-                projectSettings.ragEnabled = Boolean.parseBoolean(ragEnabledStr);
-            }
-            
-            String mcpEnabledStr = props.getProperty("mcpEnabled");
-            if (mcpEnabledStr != null) {
-                projectSettings.mcpEnabled = Boolean.parseBoolean(mcpEnabledStr);
-            }
-            
-            String mcpServerUri = props.getProperty("mcpServerUri");
-            if (mcpServerUri != null && !mcpServerUri.isEmpty()) {
-                projectSettings.mcpServerUri = mcpServerUri;
-            }
+            // Removed migration code for unused settings (context injection, docs search, RAG, MCP)
             
             String maxIterationsStr = props.getProperty("maxIterations");
             if (maxIterationsStr != null) {

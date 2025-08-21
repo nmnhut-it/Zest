@@ -18,18 +18,11 @@ import org.jetbrains.annotations.Nullable;
 )
 public class ZestProjectSettings implements PersistentStateComponent<ZestProjectSettings> {
     
-    // Project-specific Integration
-    public String knowledgeId = "";
-    public boolean contextInjectionEnabled = false;
-    public boolean projectIndexEnabled = false;
-    public String docsPath = "docs";
-    public boolean docsSearchEnabled = false;
-    
-    // Advanced Features
-    public boolean ragEnabled = false;
-    public boolean mcpEnabled = false;
-    public String mcpServerUri = "http://localhost:8080/mcp";
+    // Removed unused settings (context injection, docs search, RAG, MCP)
     public int maxIterations = 3;
+    
+    // Agent Proxy Server
+    public boolean proxyServerEnabled = false;
     
     // Migration tracking
     public int promptVersion = 0;

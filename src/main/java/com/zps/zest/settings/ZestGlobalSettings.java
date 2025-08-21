@@ -24,7 +24,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     
     // Model Settings (defaults)
     public String testModel = "unit_test_generator";
-    public String codeModel = "code-expert";
+    public String codeModel = "local-model";
     
     // Feature Toggles
     public boolean inlineCompletionEnabled = true;  // Changed to true by default

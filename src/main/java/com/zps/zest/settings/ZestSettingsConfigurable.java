@@ -12,6 +12,7 @@ import com.intellij.util.ui.UIUtil;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.validation.CommitTemplateValidator;
 import com.zps.zest.git.CommitTemplateExamples;
+import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,10 +37,7 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBTextField codeModelField;
     private JSpinner maxIterationsSpinner;
     
-    // Feature Toggles
-    private JBCheckBox ragEnabledCheckbox;
-    private JBCheckBox mcpEnabledCheckbox;
-    private JBTextField mcpServerUriField;
+    // Feature Toggles (removed unused settings)
     
     // Inline Completion Settings
     private JBCheckBox inlineCompletionCheckbox;
@@ -53,14 +51,11 @@ public class ZestSettingsConfigurable implements Configurable {
     private JSpinner maxRagContextSizeSpinner;
     private JSpinner embeddingCacheSizeSpinner;
     
-    // Context Settings
-    private JBRadioButton contextInjectionRadio;
-    private JBRadioButton projectIndexRadio;
-    private JBTextField knowledgeIdField;
+    // Context Settings (removed unused settings)
     
-    // Documentation Search Settings
-    private JBTextField docsPathField;
-    private JBCheckBox docsSearchEnabledCheckbox;
+    // Agent Proxy Server Settings
+    private JBCheckBox proxyServerEnabledCheckbox;
+    private JLabel proxyDescLabel;
     
     // System Prompts
     private JBTextArea systemPromptArea;
@@ -114,55 +109,7 @@ public class ZestSettingsConfigurable implements Configurable {
         authTokenField.setColumns(30); // Limit width
         builder.addLabeledComponent("Auth Token:", authTokenField);
         
-        // Context Settings
-        builder.addSeparator();
-        builder.addComponent(new TitledSeparator("Context Mode"));
-        
-        ButtonGroup contextGroup = new ButtonGroup();
-        JPanel contextPanel = new JPanel(new GridLayout(2, 1, 0, 5));
-        
-        contextInjectionRadio = new JBRadioButton("Context injection (includes file contents in prompts)", 
-                                                  config.isContextInjectionEnabled());
-        contextGroup.add(contextInjectionRadio);
-        contextPanel.add(contextInjectionRadio);
-        
-        projectIndexRadio = new JBRadioButton("Project index (uses knowledge base)", 
-                                              config.isProjectIndexEnabled());
-        contextGroup.add(projectIndexRadio);
-        contextPanel.add(projectIndexRadio);
-        
-        // Add "None" state handling
-        if (!config.isContextInjectionEnabled() && !config.isProjectIndexEnabled()) {
-            contextGroup.clearSelection();
-        }
-        
-        builder.addComponent(contextPanel);
-        
-        knowledgeIdField = new JBTextField(config.getKnowledgeId() != null ? config.getKnowledgeId() : "");
-        knowledgeIdField.setColumns(30); // Limit width
-        knowledgeIdField.setEnabled(config.isProjectIndexEnabled());
-        builder.addLabeledComponent("Knowledge ID:", knowledgeIdField);
-        
-        // Enable knowledge ID field only when project index is selected
-        projectIndexRadio.addItemListener(e -> {
-            knowledgeIdField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
-        });
-        
-        // Documentation Search
-        builder.addSeparator();
-        builder.addComponent(new TitledSeparator("Documentation Search"));
-        
-        docsSearchEnabledCheckbox = new JBCheckBox("Enable documentation search", config.isDocsSearchEnabled());
-        builder.addComponent(docsSearchEnabledCheckbox);
-        
-        docsPathField = new JBTextField(config.getDocsPath());
-        docsPathField.setColumns(30); // Limit width
-        docsPathField.setEnabled(config.isDocsSearchEnabled());
-        builder.addLabeledComponent("Docs folder:", docsPathField);
-        
-        docsSearchEnabledCheckbox.addItemListener(e -> {
-            docsPathField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
-        });
+        // Removed unused context and documentation search settings
         
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(builder.getPanel(), BorderLayout.NORTH);
@@ -265,27 +212,34 @@ public class ZestSettingsConfigurable implements Configurable {
             embeddingCacheSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
         });
         
-        // RAG Settings
+        // Agent Proxy Server Settings
         builder.addSeparator();
-        builder.addComponent(new TitledSeparator("RAG (Retrieval-Augmented Generation)"));
+        builder.addComponent(new TitledSeparator("Agent Proxy Server"));
         
-        ragEnabledCheckbox = new JBCheckBox("Enable RAG", config.isRagEnabled());
-        builder.addComponent(ragEnabledCheckbox);
+        proxyServerEnabledCheckbox = new JBCheckBox("Enable agent proxy server", config.isProxyServerEnabled());
+        builder.addComponent(proxyServerEnabledCheckbox);
         
-        // MCP Settings
-        builder.addSeparator();
-        builder.addComponent(new TitledSeparator("MCP (Model Context Protocol)"));
+        proxyDescLabel = createDescriptionLabel("Automatically start proxy server for tool integration with MCP/OpenWebUI");
+        builder.addComponent(proxyDescLabel);
         
-        mcpEnabledCheckbox = new JBCheckBox("Enable MCP", config.isMcpEnabled());
-        builder.addComponent(mcpEnabledCheckbox);
-        
-        mcpServerUriField = new JBTextField(config.getMcpServerUri());
-        mcpServerUriField.setColumns(30); // Limit width
-        mcpServerUriField.setEnabled(config.isMcpEnabled());
-        builder.addLabeledComponent("MCP Server URI:", mcpServerUriField);
-        
-        mcpEnabledCheckbox.addItemListener(e -> {
-            mcpServerUriField.setEnabled(e.getStateChange() == ItemEvent.SELECTED);
+        // Add listener to immediately start/stop proxy when checkbox is toggled
+        proxyServerEnabledCheckbox.addItemListener(e -> {
+            boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
+            ProjectProxyManager manager = ProjectProxyManager.getInstance();
+            
+            if (enabled) {
+                // Start proxy server immediately
+                int port = manager.startProxyForProject(project);
+                if (port > 0) {
+                    proxyDescLabel.setText("✅ Proxy server running on port " + port + " for MCP/OpenWebUI integration");
+                } else {
+                    proxyDescLabel.setText("❌ Failed to start proxy server");
+                }
+            } else {
+                // Stop proxy server immediately
+                manager.stopProxyForProject(project);
+                proxyDescLabel.setText("Automatically start proxy server for tool integration with MCP/OpenWebUI");
+            }
         });
         
         JPanel panel = new JPanel(new BorderLayout());
@@ -459,17 +413,12 @@ public class ZestSettingsConfigurable implements Configurable {
                astPatternMatchingCheckbox.isSelected() != config.isAstPatternMatchingEnabled() ||
                !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
                !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
-               ragEnabledCheckbox.isSelected() != config.isRagEnabled() ||
-               mcpEnabledCheckbox.isSelected() != config.isMcpEnabled() ||
-               !mcpServerUriField.getText().equals(config.getMcpServerUri()) ||
-               contextInjectionRadio.isSelected() != config.isContextInjectionEnabled() ||
-               projectIndexRadio.isSelected() != config.isProjectIndexEnabled() ||
-               !knowledgeIdField.getText().equals(config.getKnowledgeId() != null ? config.getKnowledgeId() : "") ||
+               proxyServerEnabledCheckbox.isSelected() != config.isProxyServerEnabled() ||
+               // Removed unused setting comparisons
                !systemPromptArea.getText().equals(config.getSystemPrompt()) ||
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
                !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate()) ||
-               !docsPathField.getText().equals(config.getDocsPath()) ||
-               docsSearchEnabledCheckbox.isSelected() != config.isDocsSearchEnabled() ||
+               // Removed unused docs settings comparison
                isProjectConfigurationModified();
     }
     
@@ -501,29 +450,13 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setAstPatternMatchingEnabled(astPatternMatchingCheckbox.isSelected());
         config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
         config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
-        config.setRagEnabled(ragEnabledCheckbox.isSelected());
-        config.setMcpEnabled(mcpEnabledCheckbox.isSelected());
-        config.setMcpServerUri(mcpServerUriField.getText().trim());
-        
-        // Handle mutual exclusion for context settings
-        if (contextInjectionRadio.isSelected()) {
-            config.setContextInjectionEnabled(true);
-        } else if (projectIndexRadio.isSelected()) {
-            config.setProjectIndexEnabled(true);
-        } else {
-            // Neither selected - disable both
-            config.setContextInjectionEnabled(false);
-            config.setProjectIndexEnabled(false);
-        }
-        
-        String knowledgeId = knowledgeIdField.getText().trim();
-        config.setKnowledgeId(knowledgeId.isEmpty() ? null : knowledgeId);
+        config.setProxyServerEnabled(proxyServerEnabledCheckbox.isSelected());
+        // Removed unused setting assignments
         
         config.setSystemPrompt(systemPromptArea.getText());
         config.setCodeSystemPrompt(codeSystemPromptArea.getText());
         config.setCommitPromptTemplate(newCommitTemplate);
-        config.setDocsPath(docsPathField.getText().trim());
-        config.setDocsSearchEnabled(docsSearchEnabledCheckbox.isSelected());
+        // Removed unused docs settings
         
         // Save project configuration
         saveProjectConfiguration();
@@ -557,24 +490,29 @@ public class ZestSettingsConfigurable implements Configurable {
         embeddingCacheSizeSpinner.setValue(config.getEmbeddingCacheSize());
         embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
         
-        ragEnabledCheckbox.setSelected(config.isRagEnabled());
-        mcpEnabledCheckbox.setSelected(config.isMcpEnabled());
-        mcpServerUriField.setText(config.getMcpServerUri());
-        mcpServerUriField.setEnabled(config.isMcpEnabled());
+        proxyServerEnabledCheckbox.setSelected(config.isProxyServerEnabled());
         
-        // Reset context mode
-        contextInjectionRadio.setSelected(config.isContextInjectionEnabled());
-        projectIndexRadio.setSelected(config.isProjectIndexEnabled());
-        knowledgeIdField.setText(config.getKnowledgeId() != null ? config.getKnowledgeId() : "");
-        knowledgeIdField.setEnabled(config.isProjectIndexEnabled());
+        // Update proxy description label to show current status
+        if (config.isProxyServerEnabled()) {
+            ProjectProxyManager manager = ProjectProxyManager.getInstance();
+            String proxyUrl = manager.getProxyUrlForProject(project);
+            if (proxyUrl != null && proxyDescLabel != null) {
+                try {
+                    int port = Integer.parseInt(proxyUrl.split(":")[2]);
+                    proxyDescLabel.setText("✅ Proxy server running on port " + port + " for MCP/OpenWebUI integration");
+                } catch (Exception ex) {
+                    proxyDescLabel.setText("✅ Proxy server running for MCP/OpenWebUI integration");
+                }
+            }
+        }
+        
+        // Removed unused setting resets
         
         systemPromptArea.setText(config.getSystemPrompt());
         codeSystemPromptArea.setText(config.getCodeSystemPrompt());
         commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
         
-        docsPathField.setText(config.getDocsPath());
-        docsSearchEnabledCheckbox.setSelected(config.isDocsSearchEnabled());
-        docsPathField.setEnabled(config.isDocsSearchEnabled());
+        // Removed unused docs setting resets
         
         // Reset project configuration
         resetProjectConfiguration();

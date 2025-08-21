@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j.agent.network;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupActivity;
+import com.zps.zest.ConfigurationManager;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -15,6 +16,13 @@ public class ProxyStartupActivity implements StartupActivity {
     public void runActivity(@NotNull Project project) {
         // Skip for default project
         if (project.isDefault()) {
+            return;
+        }
+        
+        // Check if proxy server is enabled in settings
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+        if (!config.isProxyServerEnabled()) {
+            LOG.info("Proxy server disabled for project: " + project.getName());
             return;
         }
         

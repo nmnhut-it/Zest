@@ -28,7 +28,7 @@ import java.util.concurrent.*;
  */
 public class ConfigurationManager {
     private static final Logger LOG = Logger.getInstance(ConfigurationManager.class);
-    public static final String CODE_EXPERT = "code-expert";
+    public static final String CODE_EXPERT = "local-model";
     private static final String DEFAULT_API_URL = "https://chat.zingplay.com/api/chat/completions";
     private static final String DEFAULT_API_URL_2 = "https://talk.zingplay.com/api/chat/completions";
     private static final int CONNECTION_TIMEOUT = 3000; // 3 seconds
@@ -192,28 +192,14 @@ public class ConfigurationManager {
         }
     }
 
-    public boolean isRagEnabled() {
-        return projectSettings.ragEnabled;
+    // Removed unused RAG and MCP methods
+    
+    public boolean isProxyServerEnabled() {
+        return projectSettings.proxyServerEnabled;
     }
-
-    public void setRagEnabled(boolean value) {
-        projectSettings.ragEnabled = value;
-    }
-
-    public boolean isMcpEnabled() {
-        return projectSettings.mcpEnabled;
-    }
-
-    public void setMcpEnabled(boolean value) {
-        projectSettings.mcpEnabled = value;
-    }
-
-    public String getMcpServerUri() {
-        return projectSettings.mcpServerUri;
-    }
-
-    public void setMcpServerUri(String uri) {
-        projectSettings.mcpServerUri = uri;
+    
+    public void setProxyServerEnabled(boolean enabled) {
+        projectSettings.proxyServerEnabled = enabled;
     }
 
     public String getSystemPrompt() {
@@ -249,51 +235,7 @@ public class ConfigurationManager {
         globalSettings.commitPromptTemplate = commitPromptTemplate;
     }
 
-    public String getKnowledgeId() {
-        return projectSettings.knowledgeId.isEmpty() ? null : projectSettings.knowledgeId;
-    }
-
-    public void setKnowledgeId(String knowledgeId) {
-        projectSettings.knowledgeId = knowledgeId != null ? knowledgeId : "";
-    }
-
-    public boolean isContextInjectionEnabled() {
-        return projectSettings.contextInjectionEnabled;
-    }
-
-    public void setContextInjectionEnabled(boolean enabled) {
-        projectSettings.contextInjectionEnabled = enabled;
-        if (enabled && projectSettings.projectIndexEnabled) {
-            projectSettings.projectIndexEnabled = false;
-        }
-    }
-
-    public boolean isProjectIndexEnabled() {
-        return projectSettings.projectIndexEnabled;
-    }
-
-    public void setProjectIndexEnabled(boolean enabled) {
-        projectSettings.projectIndexEnabled = enabled;
-        if (enabled && projectSettings.contextInjectionEnabled) {
-            projectSettings.contextInjectionEnabled = false;
-        }
-    }
-
-    public String getDocsPath() {
-        return projectSettings.docsPath;
-    }
-
-    public void setDocsPath(String docsPath) {
-        projectSettings.docsPath = docsPath;
-    }
-
-    public boolean isDocsSearchEnabled() {
-        return projectSettings.docsSearchEnabled;
-    }
-
-    public void setDocsSearchEnabled(boolean docsSearchEnabled) {
-        projectSettings.docsSearchEnabled = docsSearchEnabled;
-    }
+    // Removed unused context and documentation search methods
 
     public boolean isInlineCompletionEnabled() {
         if (globalSettings == null) {

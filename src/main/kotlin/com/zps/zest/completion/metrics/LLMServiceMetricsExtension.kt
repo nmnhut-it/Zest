@@ -115,14 +115,15 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                 }
             }
         }
-        
+
+        println("Metrics - RequestBody: " + requestBody);
         // Print curl command for debugging
         val curlCommand = buildString {
             append("curl -X POST '${apiUrl}' \\\n")
             append("  -H 'Content-Type: application/json' \\\n")
             append("  -H 'Accept: application/json' \\\n")
             authToken?.takeIf { it.isNotEmpty() }?.let {
-                append("  -H 'Authorization: Bearer ${it}' \\\n")
+                append("  -H 'Authorization: ${it}' \\\n")
             }
             append("  -d '")
             // Pretty print JSON for readability
@@ -181,9 +182,9 @@ suspend fun LLMService.sendInlineCompletionMetrics(
                 "Error reading response: ${e.message}"
             }
             
-//            println("[ZestMetrics] Response body:")
-//            println(responseBody)
-//            println()
+            println("[ZestMetrics] Response body:")
+            println(responseBody)
+            println()
             
             success
         } finally {

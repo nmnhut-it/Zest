@@ -273,7 +273,7 @@ class ZestCompletionOverlapDetector {
     }
 
     /**
-     * Remove duplicate lines from completion
+     * Remove duplicate lines from completion - only checks current line context
      */
     private fun removeLineDuplicates(
         completionText: String,
@@ -281,29 +281,31 @@ class ZestCompletionOverlapDetector {
         cursorOffset: Int
     ): LineDeduplicationResult {
 
-        // Get document lines around cursor (larger context for line matching)
-        val startOffset = maxOf(0, cursorOffset - 1000)
-        val endOffset = minOf(documentText.length, cursorOffset + 1000)
-        val contextText = documentText.substring(startOffset, endOffset)
-
-        val docLines = contextText.lines()
         val completionLines = completionText.lines()
-
         if (completionLines.isEmpty()) {
             return LineDeduplicationResult(completionText, 0, 0, 0)
         }
 
-        // Create normalized version of document lines for comparison
-        val normalizedDocLines = mutableSetOf<String>()
-        for (i in docLines.indices) {
-            val nextLine = if (i + 1 < docLines.size) docLines[i + 1] else null
-            val normalized = normalizeLineForComparison(docLines[i], nextLine)
-            if (normalized.isNotEmpty()) {
-                normalizedDocLines.add(normalized)
-            }
+        // Get the current line where cursor is located
+        val currentLineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
+        val currentLineEnd = documentText.indexOf('\n', cursorOffset).let { 
+            if (it == -1) documentText.length else it 
+        }
+        val currentLine = if (currentLineStart <= currentLineEnd) {
+            documentText.substring(currentLineStart, currentLineEnd)
+        } else ""
+
+        // If we're on a blank line (only whitespace), skip duplicate removal entirely
+        if (currentLine.trim().isEmpty()) {
+            System.out.println("Cursor on blank line - skipping duplicate removal for new insertion")
+            return LineDeduplicationResult(completionText, 0, 0, 0)
         }
 
-        // Check each completion line
+        // Only check current line for duplicates
+        val normalizedCurrentLine = normalizeLineForComparison(currentLine, null)
+        System.out.println("Checking duplicates against current line: '$currentLine' (normalized: '$normalizedCurrentLine')")
+
+        // Check each completion line against current line only
         val linesToKeep = mutableListOf<String>()
         var removedLines = 0
         var removedPrefixChars = 0
@@ -315,12 +317,12 @@ class ZestCompletionOverlapDetector {
             val nextLine = if (i + 1 < completionLines.size) completionLines[i + 1] else null
             val normalizedLine = normalizeLineForComparison(line, nextLine)
 
-            // Keep empty lines and non-duplicate lines
-            if (normalizedLine.isEmpty() || !normalizedDocLines.contains(normalizedLine)) {
+            // Keep empty lines and lines that don't duplicate the current line
+            if (normalizedLine.isEmpty() || normalizedLine != normalizedCurrentLine) {
                 linesToKeep.add(line)
                 inPrefixRemoval = false
             } else {
-                // Line is a duplicate
+                // Line duplicates the current line
                 removedLines++
                 val lineLength = line.length + 1 // +1 for newline
 
@@ -330,7 +332,7 @@ class ZestCompletionOverlapDetector {
                     removedSuffixChars += lineLength
                 }
 
-                System.out.println("Removing duplicate line: '$line'")
+                System.out.println("Removing duplicate of current line: '$line'")
             }
         }
 

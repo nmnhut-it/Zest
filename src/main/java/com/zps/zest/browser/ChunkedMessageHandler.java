@@ -56,7 +56,13 @@ public class ChunkedMessageHandler {
     private ProcessResult handleChunkedMessage(String query) {
         try {
             // Parse chunk format: __CHUNK__sessionId|chunkIndex|totalChunks|data
-            String[] parts = query.substring("__CHUNK__".length()).split("\\|", 4);
+            int prefixLength = "__CHUNK__".length();
+            if (query.length() <= prefixLength) {
+                LOG.error("Chunk message too short: " + query);
+                return new ProcessResult(false, "Invalid chunk format - message too short");
+            }
+            
+            String[] parts = query.substring(prefixLength).split("\\|", 4);
             if (parts.length != 4) {
                 LOG.error("Invalid chunk format: " + query);
                 return new ProcessResult(false, "Invalid chunk format");

@@ -233,7 +233,8 @@ public class ConfigurationManager {
     }
 
     public String getCommitPromptTemplate() {
-        return globalSettings.commitPromptTemplate;
+        // Always return the default template to ensure consistent constraints
+        return ZestGlobalSettings.DEFAULT_COMMIT_PROMPT_TEMPLATE;
     }
 
     public void setCommitPromptTemplate(String commitPromptTemplate) {

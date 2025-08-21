@@ -35,7 +35,7 @@ import com.intellij.psi.PsiFile
  */
 object CodeHealthNotification {
 
-    private const val NOTIFICATION_GROUP_ID = "Zest Code Guardian"
+    private const val NOTIFICATION_GROUP_ID = "Zest Code Health"
 
     fun showHealthReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>, isGitTriggered: Boolean = false) {
         if (results.isEmpty()) {

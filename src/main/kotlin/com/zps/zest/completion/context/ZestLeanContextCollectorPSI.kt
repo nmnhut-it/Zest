@@ -46,6 +46,7 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
     private val chunker = ASTChunker()
     private val relevanceService = ContextRelevanceService(project)
     private val intentDetector = QueryIntentDetector()
+    private val cache = project.getService(LeanContextCache::class.java)
 
     data class LeanContext(
         val fileName: String,
@@ -111,7 +112,14 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         val text = document.text
         val virtualFile = FileDocumentManager.getInstance().getFile(document)
         val fileName = virtualFile?.name ?: "unknown"
+        val filePath = virtualFile?.path ?: "unknown"
+        val modificationTime = virtualFile?.timeStamp ?: 0L
         val language = detectLanguage(fileName)
+        
+        // Try cache first for immediate context
+        cache.getCachedContext(filePath, modificationTime, offset)?.let { cachedContext ->
+            return cachedContext
+        }
 
         // Check for Cocos2d-x JavaScript project
         if (language == "javascript" && isCocos2dxProject(text)) {
@@ -119,31 +127,58 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             return ZestCocos2dxContextCollector(project).collectCocos2dxContext(editor, offset)
         }
 
-        // Insert cursor marker
-        val markedContent = text.substring(0, offset) + "[CURSOR]" + text.substring(offset)
+        // Defer marked content creation until needed
         val cursorLine = document.getLineNumber(offset)
+        
+        // Lazy marked content creation
+        fun createMarkedContent(): String = text.substring(0, offset) + "[CURSOR]" + text.substring(offset)
 
         // Get PSI file for Java analysis
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
         
+        // Try to get PSI analysis from cache for Java files
+        val psiAnalysis = if (psiFile is PsiJavaFile) {
+            cache.getCachedPsiAnalysis(filePath, modificationTime) ?: run {
+                // Cache miss - analyze PSI and cache
+                println("PSI analysis cache MISS - analyzing file structure")
+                val analysis = PsiFileAnalyzer.analyzePsiFile(psiFile)
+                cache.cachePsiAnalysis(filePath, modificationTime, analysis)
+                analysis
+            }
+        } else null
+        
         val contextType = when {
+            psiAnalysis != null -> {
+                // Use cached PSI analysis for fast context type detection
+                psiAnalysis.getContextTypeForOffset(offset)
+            }
             psiFile is PsiJavaFile -> detectJavaContextWithPSI(psiFile, offset)
             language == "javascript" -> detectJavaScriptContext(text, offset)
             else -> CursorContextType.UNKNOWN
         }
 
-        // Apply truncation if needed
+        // Apply truncation if needed (only create marked content if truncation is needed)
         val (finalContent, finalMarkedContent, isTruncated, preservedMethods) = when {
-            psiFile is PsiJavaFile && markedContent.length > MAX_CONTEXT_LENGTH -> {
+            psiAnalysis != null && text.length > MAX_CONTEXT_LENGTH -> {
+                // Use cached PSI analysis for fast truncation
+                val preservedMethods = psiAnalysis.getPreservedMethodsForOffset(offset)
+                println("Using cached PSI analysis for truncation - preserving ${preservedMethods.size} methods")
+                // For now, return the content as-is with preserved methods info
+                // TODO: Implement smart truncation using cached method info
+                Tuple4(text, createMarkedContent(), true, preservedMethods)
+            }
+            psiFile is PsiJavaFile && text.length > MAX_CONTEXT_LENGTH -> {
+                val markedContent = createMarkedContent()
                 truncateJavaWithPSI(psiFile, text, markedContent, offset)
             }
-            markedContent.length > MAX_CONTEXT_LENGTH -> {
+            text.length > MAX_CONTEXT_LENGTH -> {
                 // Fallback to regex-based truncation for non-Java files
+                val markedContent = createMarkedContent()
                 val (content, marked, truncated) = truncateWithRegex(text, markedContent)
                 Tuple4(content, marked, truncated, emptySet())
             }
             else -> {
-                Tuple4(text, markedContent, false, emptySet())
+                Tuple4(text, createMarkedContent(), false, emptySet())
             }
         }
 
@@ -169,7 +204,17 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         // Extract pattern at cursor for AST matching (if enabled)
         val cursorPattern = if (config.isAstPatternMatchingEnabled) {
             try {
-                patternMatcher.extractPatternAtCursor(text, offset, language)
+                val filePath = virtualFile?.path ?: "unknown"
+                val modificationTime = virtualFile?.timeStamp ?: 0L
+                val offsetRange = (offset - 50)..(offset + 50)
+                
+                // Try cache first
+                cache.getCachedAstPattern(filePath, modificationTime, offsetRange) ?: run {
+                    // Cache miss - extract and cache
+                    val pattern = patternMatcher.extractPatternAtCursor(text, offset, language)
+                    cache.cacheAstPattern(filePath, modificationTime, offsetRange, pattern)
+                    pattern
+                }
             } catch (e: Exception) {
                 println("Failed to extract AST pattern: ${e.message}")
                 null
@@ -184,7 +229,14 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             try {
                 val query = extractQueryFromContext(text, offset, contextType)
                 val maxChunks = config.maxRagContextSize / 300 // Estimate chunks based on size
-                ragService.retrieveRelevantChunks(query, minOf(maxChunks, 3))
+                
+                // Try cache first
+                cache.getCachedRagChunks(query) ?: run {
+                    // Cache miss - retrieve and cache
+                    val chunks = ragService.retrieveRelevantChunks(query, minOf(maxChunks, 3))
+                    cache.cacheRagChunks(query, chunks)
+                    chunks
+                }
             } catch (e: Exception) {
                 println("Failed to retrieve RAG chunks: ${e.message}")
                 emptyList()
@@ -193,7 +245,7 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             emptyList()
         }
 
-        return LeanContext(
+        val context = LeanContext(
             fileName = fileName,
             language = language,
             fullContent = finalContent,
@@ -208,6 +260,11 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
             ragChunks = ragChunks,
             astPatternMatches = findAstPatternMatchesIfEnabled(psiFile, text, offset, language, cursorPattern)
         )
+        
+        // Cache the result
+        cache.cacheContext(filePath, modificationTime, offset, context)
+        
+        return context
     }
 
     /**
@@ -1074,7 +1131,14 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         // Extract surrounding context (100 chars before and after)
         val contextStart = maxOf(0, offset - 100)
         val contextEnd = minOf(text.length, offset + 100)
-        val contextWindow = text.substring(contextStart, contextEnd)
+        
+        // Ensure contextStart is not greater than contextEnd
+        val safeContextStart = minOf(contextStart, contextEnd)
+        val contextWindow = if (safeContextStart < contextEnd) {
+            text.substring(safeContextStart, contextEnd)
+        } else {
+            ""
+        }
         
         // Extract meaningful tokens
         val tokens = contextWindow.split(Regex("\\W+"))

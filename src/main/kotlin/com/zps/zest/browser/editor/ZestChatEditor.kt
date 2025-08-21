@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
@@ -60,6 +61,8 @@ class ZestChatEditor(
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
     
     override fun getCurrentLocation(): FileEditorLocation? = null
+    
+    override fun getFile(): VirtualFile = virtualFile
     
     override fun dispose() {
         LOG.info("Disposing ZestChatEditor for session: $sessionId")

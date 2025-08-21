@@ -94,21 +94,21 @@ object MetricsUtils {
         
         fun buildInlineRequest(fileType: String, strategy: CompletionStrategy): InlineRequestMetadata {
             return InlineRequestMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 fileType, strategy
             )
         }
         
         fun buildInlineResponse(fileType: String, strategy: CompletionStrategy, responseTimeMs: Long): InlineResponseMetadata {
             return InlineResponseMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 fileType, strategy, responseTimeMs
             )
         }
         
         fun buildInlineView(completionLength: Int, completionLineCount: Int, confidence: Float): InlineViewMetadata {
             return InlineViewMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 completionLength, completionLineCount, confidence
             )
         }
@@ -124,7 +124,7 @@ object MetricsUtils {
             viewToAcceptTimeMs: Long
         ): InlineAcceptMetadata {
             return InlineAcceptMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 acceptType, userAction, strategy, fileType, isPartial, 
                 partialAcceptCount, totalAcceptedLength, viewToAcceptTimeMs
             )
@@ -132,14 +132,14 @@ object MetricsUtils {
         
         fun buildInlineReject(reason: RejectReason): InlineRejectMetadata {
             return InlineRejectMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 reason
             )
         }
         
         fun buildInlineDismiss(reason: String, partialAcceptCount: Int, totalAcceptedLength: Int): InlineDismissMetadata {
             return InlineDismissMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 reason, partialAcceptCount, totalAcceptedLength
             )
         }
@@ -152,7 +152,7 @@ object MetricsUtils {
             hasCustomInstruction: Boolean
         ): QuickActionRequestMetadata {
             return QuickActionRequestMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, language, fileType, hasCustomInstruction
             )
         }
@@ -164,7 +164,7 @@ object MetricsUtils {
             contentLength: Int
         ): QuickActionResponseMetadata {
             return QuickActionResponseMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, language, responseTimeMs, contentLength
             )
         }
@@ -176,7 +176,7 @@ object MetricsUtils {
             confidence: Float
         ): QuickActionViewMetadata {
             return QuickActionViewMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, language, diffChanges, confidence
             )
         }
@@ -189,21 +189,21 @@ object MetricsUtils {
             userAction: UserAction
         ): QuickActionAcceptMetadata {
             return QuickActionAcceptMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, language, viewToAcceptTimeMs, contentLength, userAction
             )
         }
         
         fun buildQuickActionReject(methodName: String, reason: RejectReason): QuickActionRejectMetadata {
             return QuickActionRejectMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, reason
             )
         }
         
         fun buildQuickActionDismiss(methodName: String, reason: String, wasViewed: Boolean): QuickActionDismissMetadata {
             return QuickActionDismissMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 methodName, reason, wasViewed
             )
         }
@@ -211,7 +211,7 @@ object MetricsUtils {
         // Code Health builder
         fun buildCodeHealth(eventType: String, analysisData: Map<String, Any>): CodeHealthMetadata {
             return CodeHealthMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 eventType, analysisData
             )
         }
@@ -219,7 +219,7 @@ object MetricsUtils {
         // Custom event builder
         fun buildCustom(customTool: String, additionalData: Map<String, Any>): CustomEventMetadata {
             return CustomEventMetadata(
-                token, model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
                 customTool, additionalData
             )
         }

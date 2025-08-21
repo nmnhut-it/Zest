@@ -153,7 +153,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                 impactedCallers = emptyList(),
                 healthScore = 100,
                 modificationCount = method.modificationCount,
-                summary = "Error analyzing method: ${e.message}"
+                summary = "Error analyzing method: ${e.message}",
+                annotatedCode = "",
+                originalCode = ""
             )
         }
     }
@@ -176,7 +178,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                 impactedCallers = emptyList(),
                 healthScore = 100,
                 modificationCount = method.modificationCount,
-                summary = "Error analyzing region: ${e.message}"
+                summary = "Error analyzing region: ${e.message}",
+                annotatedCode = "",
+                originalCode = ""
             )
         }
     }
@@ -222,7 +226,9 @@ class CodeHealthAnalyzer(private val project: Project) {
         val modificationCount: Int,
         val codeContext: String = "",
         val summary: String = "",  // Overall method health summary
-        val actualModel: String = "local-model-mini"  // Model used for analysis
+        val actualModel: String = "local-model-mini",  // Model used for analysis
+        val annotatedCode: String = "",  // Code with inline LLM comments
+        val originalCode: String = ""  // Original method code without annotations
     )
 
     /**
@@ -313,7 +319,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ApplicationManager.getApplication().invokeLater {
                     if (!project.isDisposed) {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Guardian")
+                            .getNotificationGroup("Zest Code Health")
                             .createNotification(
                                 "⏱️ Zest Guardian: Partial Results",
                                 "⚡ Got ${partialResults.size} of ${methodsToAnalyze.size} results. Still valuable insights!",
@@ -597,7 +603,9 @@ class CodeHealthAnalyzer(private val project: Project) {
             modificationCount = method.modificationCount,
             codeContext = context,
             summary = "Analysis failed",
-            actualModel = actualModel
+            actualModel = actualModel,
+            annotatedCode = context,
+            originalCode = context
         )
     }
 
@@ -621,6 +629,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             {
                 "summary": "1-line assessment",
                 "healthScore": 85,
+                "originalCode": "The original method code exactly as provided",
+                "annotatedCode": "The same method code with your review comments inserted as inline comments using // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION: prefixes",
                 "issues": [
                     {
                         "category": "Category",
@@ -630,10 +640,18 @@ class CodeHealthAnalyzer(private val project: Project) {
                         "impact": "Real consequences",
                         "suggestedFix": "How to fix",
                         "confidence": 0.9,
-                        "priority": 1
+                        "priority": 1,
+                        "lineNumber": 15,
+                        "problematicCode": "exact line of code with the issue"
                     }
                 ]
             }
+            
+            For annotatedCode:
+            - Add inline comments with severity indicators (🔴 CRITICAL, 🟠 WARNING, 🟡 SUGGESTION)
+            - Place comments directly above or at the end of problematic lines
+            - Keep the original code structure intact
+            - Use descriptive but concise comments
             
             Find up to 3 issues but ORDER them by real-world impact.
             First issue should be the MOST CRITICAL one.
@@ -702,6 +720,10 @@ class CodeHealthAnalyzer(private val project: Project) {
             val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
             val healthScore = jsonObject.get("healthScore")?.asInt ?: 85
             
+            // Parse code fields
+            val originalCode = jsonObject.get("originalCode")?.asString ?: context
+            val annotatedCode = jsonObject.get("annotatedCode")?.asString ?: context
+            
             // Parse issues - AI returns up to 3 ordered by criticality, but we only show the first (most critical) one
             val issues = mutableListOf<HealthIssue>()
             val issuesArray = jsonObject.getAsJsonArray("issues")
@@ -722,7 +744,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                 modificationCount = modificationCount,
                 codeContext = context,
                 summary = summary,
-                actualModel = actualModel
+                actualModel = actualModel,
+                annotatedCode = annotatedCode,
+                originalCode = originalCode
             )
         } catch (e: Exception) {
             println("[CodeHealthAnalyzer] Error parsing detection response: ${e.message}")
@@ -849,7 +873,9 @@ class CodeHealthAnalyzer(private val project: Project) {
             modificationCount = modificationCount,
             codeContext = context,
             summary = "Unable to perform detailed analysis",
-            actualModel = actualModel
+            actualModel = actualModel,
+            annotatedCode = context,
+            originalCode = context
         )
     }
 
@@ -1402,7 +1428,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                         modificationCount = 1, // Default
                         codeContext = "", // Already in context
                         summary = summary,
-                        actualModel = actualModel
+                        actualModel = actualModel,
+                        annotatedCode = "",
+                        originalCode = ""
                     ))
                 }
             }
@@ -1558,7 +1586,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                     modificationCount = modificationCount,
                     codeContext = regionContext?.content ?: "",
                     summary = summary,
-                    actualModel = actualModel
+                    actualModel = actualModel,
+                    annotatedCode = "",
+                    originalCode = ""
                 ))
             }
             

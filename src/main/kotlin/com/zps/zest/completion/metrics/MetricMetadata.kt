@@ -5,7 +5,7 @@ package com.zps.zest.completion.metrics
  * No optional fields - everything must be provided
  */
 sealed class MetricMetadata {
-    abstract val token: String
+//    abstract val token: String
     abstract val model: String
     abstract val projectId: String
     abstract val userId: String
@@ -65,7 +65,7 @@ enum class CodeHealthTrigger {
 
 // Inline Completion Metadata Classes
 data class InlineRequestMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -77,7 +77,7 @@ data class InlineRequestMetadata(
 ) : MetricMetadata()
 
 data class InlineResponseMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -90,7 +90,7 @@ data class InlineResponseMetadata(
 ) : MetricMetadata()
 
 data class InlineViewMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -103,7 +103,7 @@ data class InlineViewMetadata(
 ) : MetricMetadata()
 
 data class InlineAcceptMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -121,7 +121,7 @@ data class InlineAcceptMetadata(
 ) : MetricMetadata()
 
 data class InlineRejectMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -132,7 +132,7 @@ data class InlineRejectMetadata(
 ) : MetricMetadata()
 
 data class InlineDismissMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -146,7 +146,7 @@ data class InlineDismissMetadata(
 
 // Quick Action Metadata Classes
 data class QuickActionRequestMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -160,7 +160,7 @@ data class QuickActionRequestMetadata(
 ) : MetricMetadata()
 
 data class QuickActionResponseMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -174,7 +174,7 @@ data class QuickActionResponseMetadata(
 ) : MetricMetadata()
 
 data class QuickActionViewMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -188,7 +188,7 @@ data class QuickActionViewMetadata(
 ) : MetricMetadata()
 
 data class QuickActionAcceptMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -203,7 +203,7 @@ data class QuickActionAcceptMetadata(
 ) : MetricMetadata()
 
 data class QuickActionRejectMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -215,7 +215,7 @@ data class QuickActionRejectMetadata(
 ) : MetricMetadata()
 
 data class QuickActionDismissMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -229,7 +229,7 @@ data class QuickActionDismissMetadata(
 
 // Code Health Metadata
 data class CodeHealthMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,
@@ -242,7 +242,7 @@ data class CodeHealthMetadata(
 
 // Custom Event Metadata (for backwards compatibility)
 data class CustomEventMetadata(
-    override val token: String,
+//    override val token: String,
     override val model: String,
     override val projectId: String,
     override val userId: String,

@@ -142,8 +142,13 @@ class CodeHealthIssueDetailDialog(
         val codePanel = JPanel(BorderLayout())
         codePanel.background = UIUtil.getPanelBackground()
         
-        // Header
-        val headerLabel = JBLabel("📝 Code Preview")
+        // Header - show what type of code preview we're displaying
+        val headerText = when {
+            method.annotatedCode.isNotBlank() -> "📝 Code Preview (with AI comments)"
+            method.originalCode.isNotBlank() -> "📝 Code Preview (original)"
+            else -> "📝 Code Preview"
+        }
+        val headerLabel = JBLabel(headerText)
         headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 14f)
         headerLabel.border = EmptyBorder(10, 10, 10, 10)
         codePanel.add(headerLabel, BorderLayout.NORTH)
@@ -268,20 +273,13 @@ class CodeHealthIssueDetailDialog(
     }
     
     private fun loadMethodCode(): String? {
-        // Try to load the actual method code
-        // This is a simplified version - you might want to enhance this
-        return """
-            |public void ${extractMethodName(method.fqn)}() {
-            |    // Sample code preview
-            |    try {
-            |        // This line might have the issue
-            |        performOperation();  // <-- Problematic line
-            |        processResult();
-            |    } catch (Exception e) {
-            |        e.printStackTrace(); // Issue: Direct stack trace printing
-            |    }
-            |}
-        """.trimMargin()
+        // Use LLM-provided annotated code if available, otherwise fall back to original code
+        return when {
+            method.annotatedCode.isNotBlank() -> method.annotatedCode
+            method.originalCode.isNotBlank() -> method.originalCode
+            method.codeContext.isNotBlank() -> method.codeContext
+            else -> "// Code preview not available\n// The code analysis was performed but no code content was provided"
+        }
     }
     
     private fun displayCodeWithHighlight(textPane: JTextPane, code: String) {
@@ -291,21 +289,47 @@ class CodeHealthIssueDetailDialog(
         val keywordStyle = doc.getStyle("keyword")
         val commentStyle = doc.getStyle("comment")
         
+        // Create styles for LLM comments with different severity levels
+        val criticalStyle = doc.addStyle("critical", defaultStyle)
+        StyleConstants.setBackground(criticalStyle, JBColor(Color(255, 235, 235), Color(80, 30, 30)))
+        StyleConstants.setForeground(criticalStyle, JBColor(Color(139, 0, 0), Color(255, 100, 100)))
+        StyleConstants.setBold(criticalStyle, true)
+        
+        val warningStyle = doc.addStyle("warning", defaultStyle)
+        StyleConstants.setBackground(warningStyle, JBColor(Color(255, 248, 225), Color(80, 65, 20)))
+        StyleConstants.setForeground(warningStyle, JBColor(Color(204, 85, 0), Color(255, 180, 100)))
+        StyleConstants.setBold(warningStyle, true)
+        
+        val suggestionStyle = doc.addStyle("suggestion", defaultStyle)
+        StyleConstants.setBackground(suggestionStyle, JBColor(Color(240, 255, 240), Color(20, 60, 20)))
+        StyleConstants.setForeground(suggestionStyle, JBColor(Color(107, 142, 35), Color(150, 255, 150)))
+        StyleConstants.setBold(suggestionStyle, true)
+        
         try {
-            // Insert code with basic syntax highlighting
+            // Insert code with enhanced syntax highlighting including LLM comments
             val lines = code.split("\n")
-            for ((index, line) in lines.withIndex()) {
+            for (line in lines) {
                 val style = when {
-                    line.contains("printStackTrace") -> errorStyle // Highlight problematic line
+                    // LLM Critical comments
+                    line.trim().startsWith("// 🔴 CRITICAL:") || line.contains("🔴 CRITICAL:") -> criticalStyle
+                    // LLM Warning comments  
+                    line.trim().startsWith("// 🟠 WARNING:") || line.contains("🟠 WARNING:") -> warningStyle
+                    // LLM Suggestion comments
+                    line.trim().startsWith("// 🟡 SUGGESTION:") || line.contains("🟡 SUGGESTION:") -> suggestionStyle
+                    // Regular comments
                     line.trim().startsWith("//") -> commentStyle
-                    line.contains("public") || line.contains("void") || 
-                    line.contains("try") || line.contains("catch") -> keywordStyle
+                    // Keywords
+                    line.contains("public") || line.contains("void") || line.contains("private") ||
+                    line.contains("try") || line.contains("catch") || line.contains("if") ||
+                    line.contains("for") || line.contains("while") || line.contains("return") -> keywordStyle
+                    // Default code
                     else -> defaultStyle
                 }
                 doc.insertString(doc.length, line + "\n", style)
             }
         } catch (e: BadLocationException) {
-            // Handle error
+            // Handle error gracefully
+            println("Error highlighting code: ${e.message}")
         }
     }
     

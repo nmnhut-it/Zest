@@ -17,8 +17,9 @@ class SimplifiedTriggerManager(
     private val logger = Logger.getInstance(SimplifiedTriggerManager::class.java)
     
     // Configuration
-    private var primaryDelayMs = 300L
-    private var secondaryDelayMs = 800L
+    private var primaryDelayMs = 2000L
+    private var secondaryDelayMs = 3000L
+    private var inactiveDelay = 30000L
     private var autoTriggerEnabled = true
     
     // Timer jobs
@@ -42,8 +43,8 @@ class SimplifiedTriggerManager(
     
     fun setConfiguration(
         autoTriggerEnabled: Boolean,
-        primaryDelayMs: Long = 300L,
-        secondaryDelayMs: Long = 800L
+        primaryDelayMs: Long = 2000L,
+        secondaryDelayMs: Long = 3000L
     ) {
         this.autoTriggerEnabled = autoTriggerEnabled
         this.primaryDelayMs = primaryDelayMs
@@ -54,11 +55,21 @@ class SimplifiedTriggerManager(
      * Schedule completion after user activity (typing, caret movement)
      */
     fun scheduleCompletionAfterActivity(editor: Editor, reason: String = "user_activity") {
+        val timeSinceTyping = System.currentTimeMillis() - lastTypingTimestamp
+
+        if (timeSinceTyping > this.inactiveDelay){
+            lastTypingTimestamp = System.currentTimeMillis();
+            return;
+        }
+
         lastTypingTimestamp = System.currentTimeMillis()
-        
+
+
         if (!autoTriggerEnabled) {
             return
         }
+
+
         
         // Cancel existing timers
         cancelAllTimers()

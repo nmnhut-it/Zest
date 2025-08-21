@@ -91,26 +91,33 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "{FILES_LIST}\n\n" +
             "## File changes:\n" +
             "{DIFFS}\n\n" +
+            "## IMPORTANT CONSTRAINTS:\n" +
+            "- Use only common, simple words (avoid technical jargon)\n" +
+            "- Each line in the body: maximum 50 words\n" +
+            "- Each bullet point: maximum 50 words\n" +
+            "- Write in plain, clear English\n" +
+            "- Use simple verbs: add, fix, remove, update, change\n" +
+            "- Keep sentences short and direct\n\n" +
             "## Instructions:\n" +
             "Please follow this structure for the commit message:\n\n" +
-            "1. First line: Short summary (50-72 chars) following conventional commit format\n" +
+            "1. First line: Short summary (50 chars max) following conventional commit format\n" +
             "   - format: <type>(<scope>): <subject>\n" +
-            "   - example: feat(auth): implement OAuth2 login\n\n" +
-            "2. Body: Detailed explanation of what changed and why\n" +
+            "   - example: feat(auth): add login feature\n\n" +
+            "2. Body: Clear explanation of what changed and why\n" +
             "   - Separated from summary by a blank line\n" +
             "   - Explain what and why, not how\n" +
-            "   - Wrap at 72 characters\n\n" +
+            "   - Maximum 50 words per line\n\n" +
             "3. Footer (optional):\n" +
             "   - Breaking changes (BREAKING CHANGE: description)\n\n" +
             "Example output:\n" +
-            "feat(user-profile): implement password reset functionality\n\n" +
-            "Add secure password reset flow with email verification and rate limiting.\n" +
-            "This change improves security by requiring email confirmation before\n" +
-            "allowing password changes.\n\n" +
-            "- Added PasswordResetController with email verification\n" +
-            "- Implemented rate limiting to prevent brute force attacks\n" +
-            "- Added unit and integration tests\n\n" +
-            "BREAKING CHANGE: Password reset API endpoint changed from /reset to /users/reset\n\n" +
+            "feat(user): add password reset\n\n" +
+            "Add password reset with email check and rate limits.\n" +
+            "This change makes login more secure by needing email\n" +
+            "confirmation before password changes.\n\n" +
+            "- Added password reset with email check\n" +
+            "- Added rate limits to stop attacks\n" +
+            "- Added tests\n\n" +
+            "BREAKING CHANGE: Password reset moved from /reset to /users/reset\n\n" +
             "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
     
     // System Prompts (instance fields initialized with defaults)

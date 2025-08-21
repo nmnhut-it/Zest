@@ -61,7 +61,7 @@ class AddMethodAtCaretAction : AnAction() {
     
     private fun showNotification(project: com.intellij.openapi.project.Project, content: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Guardian")
+            .getNotificationGroup("Zest Code Health")
             .createNotification(content, type)
             .notify(project)
     }

@@ -382,7 +382,7 @@ class ProjectChangesTracker(private val project: Project) :
         if (!isAnalysisRunning.compareAndSet(false, true)) {
             ApplicationManager.getApplication().invokeLater {
                 NotificationGroupManager.getInstance()
-                    .getNotificationGroup("Zest Code Guardian")
+                    .getNotificationGroup("Zest Code Health")
                     .createNotification(
                         "⚡ Zest Guardian Already Working",
                         "🔍 Analysis in progress... Results coming soon!",
@@ -401,7 +401,7 @@ class ProjectChangesTracker(private val project: Project) :
         // Show starting notification
         ApplicationManager.getApplication().invokeLater {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Guardian")
+                .getNotificationGroup("Zest Code Health")
                 .createNotification(
                     "🚀 Zest Code Guardian Activated",
                     "🔍 Scanning your code for improvement opportunities...",
@@ -424,7 +424,7 @@ class ProjectChangesTracker(private val project: Project) :
 //                    println("[CodeHealth] No methods to analyze")
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Guardian")
+                            .getNotificationGroup("Zest Code Health")
                             .createNotification(
                                 "🤔 Zest Guardian: Nothing to Analyze",
                                 "💡 Start coding! I'll watch for issues as you work.",
@@ -475,7 +475,7 @@ class ProjectChangesTracker(private val project: Project) :
                     if (limitedUnits.size < needsReviewUnits.size) {
                         ApplicationManager.getApplication().invokeLater {
                             NotificationGroupManager.getInstance()
-                                .getNotificationGroup("Zest Code Guardian")
+                                .getNotificationGroup("Zest Code Health")
                                 .createNotification(
                                     "⚡ Analysis Optimized",
                                     "🎯 Focusing on ${limitedUnits.size} of ${needsReviewUnits.size} code units for faster results.",
@@ -533,7 +533,7 @@ class ProjectChangesTracker(private val project: Project) :
                             // Add tip notification (show occasionally)
                             if (shouldShowTip()) {
                                 NotificationGroupManager.getInstance()
-                                    .getNotificationGroup("Zest Code Guardian")
+                                    .getNotificationGroup("Zest Code Health")
                                     .createNotification(
                                         "💡 Tip: View Report Anytime",
                                         "Left-click the Guardian widget in the status bar to view this report again today!",
@@ -546,7 +546,7 @@ class ProjectChangesTracker(private val project: Project) :
                 } else {
                     ApplicationManager.getApplication().invokeLater {
                         NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Zest Code Guardian")
+                            .getNotificationGroup("Zest Code Health")
                             .createNotification(
                                 "✨ Zest Guardian: All Clear!",
                                 "🏆 Your code is clean - no issues detected!",
@@ -570,7 +570,7 @@ class ProjectChangesTracker(private val project: Project) :
                 
                 ApplicationManager.getApplication().invokeLater {
                     NotificationGroupManager.getInstance()
-                        .getNotificationGroup("Zest Code Guardian")
+                        .getNotificationGroup("Zest Code Health")
                         .createNotification(
                             "😔 Zest Guardian: Analysis Failed",
                             "💔 Something went wrong: ${e.message}. Let's try again!",

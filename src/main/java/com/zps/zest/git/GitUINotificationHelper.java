@@ -105,7 +105,7 @@ public class GitUINotificationHelper {
     public static void showNotification(Project project, String title, String content, NotificationType type) {
         ApplicationManager.getApplication().invokeLater(() -> {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Guardian")
+                .getNotificationGroup("Zest Code Health")
                 .createNotification(title, content, type)
                 .notify(project);
         });

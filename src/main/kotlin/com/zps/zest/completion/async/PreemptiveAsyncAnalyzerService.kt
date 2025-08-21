@@ -13,6 +13,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
+import com.zps.zest.completion.context.LeanContextCache
+import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
+import com.zps.zest.completion.rag.InlineCompletionRAG
+import com.zps.zest.ConfigurationManager
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -35,8 +39,11 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
     )
     
     private val asyncAnalyzer = AsyncClassAnalyzer(project)
+    private val ragService = InlineCompletionRAG(project)
+    private val cache = project.getService(LeanContextCache::class.java)
     private val analysisCache = ConcurrentHashMap<ClassKey, AnalysisCache>()
     private val activeAnalysis = ConcurrentHashMap<ClassKey, Boolean>()
+    private val activeRagPreloading = ConcurrentHashMap<String, Boolean>()
     
     // Cache expiry time (5 minutes)
     private val CACHE_EXPIRY_MS = TimeUnit.MINUTES.toMillis(5)
@@ -129,6 +136,9 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
                 // Start analysis for the whole class
 //                println("PreemptiveAnalyzer: Starting analysis for class: ${classKey.className}")
                 lastAnalysisTime = currentTime
+                
+                // Also preemptively load RAG chunks for this context
+                preloadRagForContext(editor, offset, method, containingClass)
                 
                 // Create initial cache entry
                 val cache = AnalysisCache(
@@ -267,8 +277,110 @@ class PreemptiveAsyncAnalyzerService(private val project: Project) : Disposable 
         activeAnalysis.clear()
     }
     
+    /**
+     * Preemptively load RAG chunks for the current context in background
+     */
+    private fun preloadRagForContext(editor: Editor, offset: Int, method: PsiMethod?, containingClass: PsiClass) {
+        // Check if RAG is enabled
+        val config = ConfigurationManager.getInstance(project)
+        if (!config.isInlineCompletionRagEnabled) {
+            return
+        }
+        
+        // Extract necessary data within the current read action
+        val document = editor.document
+        val text = document.text
+        val methodName = method?.name
+        val className = containingClass.name
+        val methodParams = try {
+            method?.parameterList?.parameters?.joinToString(" ") { it.type.presentableText }
+        } catch (e: Exception) {
+            null
+        }
+        
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // Generate potential queries using extracted data (no PSI access here)
+                val queries = generateRagQueriesFromData(text, offset, methodName, className, methodParams)
+                
+                queries.forEach { query ->
+                    // Check if already cached or being processed
+                    if (cache.getCachedRagChunks(query) == null && 
+                        activeRagPreloading.putIfAbsent(query, true) == null) {
+                        
+                        try {
+                            println("Preemptively loading RAG for query: '${query.take(50)}...'")
+                            val maxChunks = config.maxRagContextSize / 300
+                            val chunks = ragService.retrieveRelevantChunks(query, minOf(maxChunks, 3))
+                            cache.cacheRagChunks(query, chunks)
+                            println("Preloaded ${chunks.size} RAG chunks for query")
+                        } catch (e: Exception) {
+                            println("Failed to preload RAG chunks: ${e.message}")
+                        } finally {
+                            activeRagPreloading.remove(query)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                println("Error in RAG preloading: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Generate potential RAG queries using extracted data (no PSI access)
+     */
+    private fun generateRagQueriesFromData(
+        text: String, 
+        offset: Int, 
+        methodName: String?, 
+        className: String?, 
+        methodParams: String?
+    ): List<String> {
+        val queries = mutableListOf<String>()
+        
+        try {
+            // Query based on current method context
+            if (methodName != null && className != null) {
+                queries.add("method implementation $methodName in $className")
+                
+                // Add method signature query if we have parameters
+                if (methodParams != null) {
+                    queries.add("method $methodName with parameters $methodParams")
+                }
+            }
+            
+            // Query based on surrounding context (like extractQueryFromContext but simpler)
+            val contextStart = maxOf(0, offset - 100)
+            val contextEnd = minOf(text.length, offset + 100)
+            val safeContextStart = minOf(contextStart, contextEnd)
+            if (safeContextStart < contextEnd) {
+                val contextWindow = text.substring(safeContextStart, contextEnd)
+                val tokens = contextWindow.split(Regex("\\W+"))
+                    .filter { it.isNotEmpty() && it.length > 2 }
+                    .distinct()
+                    .take(5) // Limit tokens
+                
+                if (tokens.isNotEmpty()) {
+                    queries.add("code completion ${tokens.joinToString(" ")}")
+                }
+            }
+            
+            // Query based on class context
+            if (className != null) {
+                queries.add("class implementation $className")
+            }
+            
+        } catch (e: Exception) {
+            println("Error generating RAG queries: ${e.message}")
+        }
+        
+        return queries.take(3) // Limit to 3 queries to avoid overloading
+    }
+    
     override fun dispose() {
         asyncAnalyzer.shutdown()
         clearCache()
+        activeRagPreloading.clear()
     }
 }

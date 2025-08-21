@@ -11,8 +11,8 @@ import com.intellij.notification.NotificationType
  */
 class CheckHealthAction : AnAction() {
     init {
-        templatePresentation.text = "🚀 Activate Zest Guardian"
-        templatePresentation.description = "AI-powered code analysis to find bugs, performance issues, and security risks"
+        templatePresentation.text = "🏥 Code Health Check / Kiểm Tra Sức Khỏe Code"
+        templatePresentation.description = "AI analysis for bugs, performance & security / Phân tích AI tìm lỗi, hiệu năng & bảo mật"
     }
     
     override fun actionPerformed(e: AnActionEvent) {
@@ -23,9 +23,9 @@ class CheckHealthAction : AnAction() {
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Guardian")
+                .getNotificationGroup("Zest Code Health")
                 .createNotification(
-                    "⚡ Zest Guardian Already Working",
+                    "⚡ Code Health Check Running",
                     "🔍 Analysis in progress... Results coming soon!",
                     NotificationType.WARNING
                 )
@@ -49,9 +49,9 @@ class CheckHealthAction : AnAction() {
             val tracker = ProjectChangesTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
             if (tracker.isAnalysisRunning.get()) {
-                e.presentation.text = "🔄 Zest Guardian Analyzing..."
+                e.presentation.text = "🔄 Code Health Analyzing..."
             } else {
-                e.presentation.text = "🚀 Activate Zest Guardian"
+                e.presentation.text = "🏥 Code Health Check / Kiểm Tra Sức Khỏe Code"
             }
         }
     }

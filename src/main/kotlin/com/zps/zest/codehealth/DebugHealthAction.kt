@@ -8,7 +8,7 @@ import com.intellij.notification.NotificationType
 /**
  * Debug action for testing code health
  */
-class DebugHealthAction : AnAction("🔧 Debug Zest Guardian") {
+class DebugHealthAction : AnAction("🧪 Test Mode / Chế Độ Thử Nghiệm") {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -22,10 +22,10 @@ class DebugHealthAction : AnAction("🔧 Debug Zest Guardian") {
         
         // Show notification
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Guardian")
+            .getNotificationGroup("Zest Code Health")
             .createNotification(
-                "🔧 Debug Mode Activated",
-                "✅ Test method added. Click 'Activate Zest Guardian' to analyze!",
+                "🧪 Test Mode Activated",
+                "✅ Test method added. Click 'Code Health Check' to analyze!",
                 NotificationType.INFORMATION
             )
             .notify(project)

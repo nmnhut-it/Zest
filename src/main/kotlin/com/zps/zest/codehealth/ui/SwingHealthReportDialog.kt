@@ -659,7 +659,7 @@ class SwingHealthReportDialog(
             }
         } else {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Guardian")
+                .getNotificationGroup("Zest Code Health")
                 .createNotification(
                     "Unable to open chat",
                     "Please open the ZPS Chat tool window first",

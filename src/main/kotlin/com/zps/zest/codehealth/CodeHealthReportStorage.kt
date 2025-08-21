@@ -181,7 +181,9 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
                 },
                 impactedCallers = result.impactedCallers,
                 codeContext = "", // Not stored for space reasons
-                actualModel = "local-model-mini" // Default
+                actualModel = "local-model-mini", // Default
+                annotatedCode = "",
+                originalCode = ""
             )
         }
     }
@@ -237,7 +239,9 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
                 },
                 impactedCallers = result.impactedCallers,
                 codeContext = "", // Not stored for space reasons
-                actualModel = "local-model-mini" // Default
+                actualModel = "local-model-mini", // Default
+                annotatedCode = "",
+                originalCode = ""
             )
         }
     }

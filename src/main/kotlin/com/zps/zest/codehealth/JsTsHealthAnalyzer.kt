@@ -167,7 +167,9 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 modificationCount = region.modificationCount,
                 codeContext = context.regionContext.markedText,
                 summary = summary,
-                actualModel = actualModel
+                actualModel = actualModel,
+                annotatedCode = "",
+                originalCode = ""
             )
             
         } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
@@ -211,7 +213,9 @@ class JsTsHealthAnalyzer(private val project: Project) {
             modificationCount = region.modificationCount,
             codeContext = "",
             summary = "Analysis failed or no issues found",
-            actualModel = actualModel
+            actualModel = actualModel,
+            annotatedCode = "",
+            originalCode = ""
         )
     }
     

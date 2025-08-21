@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.891</version>
+    <version>1.9.892</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -58,7 +58,7 @@
                 
         <projectConfigurable
                 instance="com.zps.zest.codehealth.CodeHealthConfigurable"
-                displayName="Code Guardian"
+                displayName="Code Health"
                 id="zest.codeguardian"
                 parentId="zest.settings"
                 nonDefaultProject="true"/>
@@ -72,13 +72,13 @@
         <statusBarWidgetFactory id="ZestCompletionStatus" 
                                implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" 
                                order="last"/>
-        <statusBarWidgetFactory id="CodeGuardianStatusBarWidget" 
-                               implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" 
+        <statusBarWidgetFactory id="CodeHealthStatusBarWidget" 
+                               implementation="com.zps.zest.codehealth.ui.CodeHealthStatusBarWidgetFactory" 
                                order="last"/>
 
         
-        <!-- Code Guardian Notification Group -->
-        <notificationGroup id="Zest Code Guardian" displayType="BALLOON" isLogByDefault="false"/>
+        <!-- Code Health Notification Group -->
+        <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>
         
         <!-- Code Health Editor Provider -->
         <fileEditorProvider implementation="com.zps.zest.codehealth.ui.editor.CodeHealthEditorProvider"/>
@@ -98,7 +98,7 @@
         <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
         
         <!-- Test Generation Service -->
-        <projectService serviceImplementation="com.zps.zest.testgen.TestGenerationService"/>
+        <projectService serviceImplementation="com.zps.zest.testgen.StateMachineTestGenerationService"/>
         
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
@@ -233,57 +233,57 @@
         </action>
         
         <!-- Code Health Group -->
-        <group id="Zest.CodeHealth" text="Code Health Review" popup="true">
+        <group id="Zest.CodeHealth" text="Code Health / Sức Khỏe Code" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <!-- Removed from ToolsMenu - available in ZestGroup -->
             
             <action id="Zest.CheckCodeHealth"
                     class="com.zps.zest.codehealth.CheckHealthAction"
-                    text="Activate Code Health Review"
-                    description="Phân tích code đã thay đổi trong ngày để phát hiện lỗi tiềm ẩn">
+                    text="🏥 Code Health Check / Kiểm Tra Sức Khỏe Code"
+                    description="AI analysis for bugs, performance &amp; security / Phân tích AI tìm lỗi, hiệu năng &amp; bảo mật">
             </action>
             
             <action id="Zest.AddMethodAtCaret"
                     class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
-                    text="Review This Method"
-                    description="Theo dõi method này để kiểm tra chất lượng">
+                    text="🎯 Track This Method / Theo Dõi Method Này"
+                    description="Add method to quality monitoring queue / Thêm method vào hàng đợi giám sát chất lượng">
             </action>
             
             <action id="Zest.TriggerBackgroundReview"
                     class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
-                    text="Start Health Review"
-                    description="Bắt đầu kiểm tra tự động tất cả method đang theo dõi">
+                    text="🔄 Process Review Queue / Xử Lý Hàng Đợi"
+                    description="Review all pending methods in background / Đánh giá các method đang chờ">
             </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="Health Daily Report"
-                    description="Tạo báo cáo tổng hợp chất lượng code hàng ngày">
+                    text="📊 Daily Health Report / Báo Cáo Hàng Ngày"
+                    description="Generate comprehensive daily code quality report / Tạo báo cáo tổng hợp chất lượng code">
             </action>
         </group>
         
         <!-- Code Health Debug Actions Group -->
-        <group id="Zest.CodeHealthDebug" text="Health Review Debug Tools" popup="true">
+        <group id="Zest.CodeHealthDebug" text="Debug Tools / Công Cụ Debug" popup="true">
             <add-to-group group-id="Zest.CodeHealth" anchor="last"/>
             
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="Health Watch List"
-                    description="Xem danh sách method đang được theo dõi">
+                    text="📋 Review Queue Status / Trạng Thái Hàng Đợi"
+                    description="View methods being monitored and their status / Xem các method đang theo dõi và trạng thái">
             </action>
             
             <action id="Zest.DebugHealthAction"
                     class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="Health Test Mode"
-                    description="Chế độ test với dữ liệu mẫu">
+                    text="🧪 Test Mode / Chế Độ Thử Nghiệm"
+                    description="Reset and add test data for debugging / Đặt lại và thêm dữ liệu thử nghiệm">
             </action>
             
             <separator/>
             
             <action id="Zest.ShowGuardianHelp"
                     class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
-                    text="Health Review Help"
-                    description="Xem hướng dẫn sử dụng">
+                    text="❓ Help / Trợ Giúp"
+                    description="View Code Health usage guide / Xem hướng dẫn sử dụng Code Health">
             </action>
         </group>
         

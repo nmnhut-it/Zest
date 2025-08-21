@@ -21,9 +21,9 @@ class TriggerFinalReviewAction : AnAction() {
         // Check if analysis is already running
         if (tracker.isAnalysisRunning.get()) {
             NotificationGroupManager.getInstance()
-                .getNotificationGroup("Zest Code Guardian")
+                .getNotificationGroup("Zest Code Health")
                 .createNotification(
-                    "⚡ Zest Guardian Already Working",
+                    "⚡ Code Health Check Running",
                     "🔍 Analysis in progress... Results coming soon!",
                     NotificationType.WARNING
                 )
@@ -35,9 +35,9 @@ class TriggerFinalReviewAction : AnAction() {
         tracker.checkAndNotify()
         
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("Zest Code Guardian")
+            .getNotificationGroup("Zest Code Health")
             .createNotification(
-                "🚀 Final Review Started",
+                "🚀 Daily Report Started",
                 "📊 Analyzing all today's code changes... Report incoming!",
                 NotificationType.INFORMATION
             )
@@ -52,9 +52,9 @@ class TriggerFinalReviewAction : AnAction() {
             val tracker = ProjectChangesTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
             e.presentation.text = if (tracker.isAnalysisRunning.get()) {
-                "🔄 Final Review Running..."
+                "🔄 Daily Report Running..."
             } else {
-                "📊 Trigger Daily Summary Report"
+                "📊 Daily Health Report / Báo Cáo Hàng Ngày"
             }
         }
     }

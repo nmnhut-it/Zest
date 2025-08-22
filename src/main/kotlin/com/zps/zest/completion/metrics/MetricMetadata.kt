@@ -1,5 +1,8 @@
 package com.zps.zest.completion.metrics
 
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+
 /**
  * Base class for all metric metadata
  * No optional fields - everything must be provided
@@ -13,6 +16,20 @@ sealed class MetricMetadata {
     abstract val ideVersion: String
     abstract val pluginVersion: String
     abstract val timestamp: Long
+    
+    // Each metadata type knows how to serialize itself
+    abstract fun toJsonObject(): JsonObject
+    
+    // Common fields that all types share
+    protected fun addCommonFields(json: JsonObject) {
+        json.addProperty("user", user)
+        json.addProperty("userId", userId)
+        json.addProperty("projectId", projectId)
+        json.addProperty("model", model)
+        json.addProperty("ideVersion", ideVersion)
+        json.addProperty("pluginVersion", pluginVersion)
+        json.addProperty("timestamp", timestamp)
+    }
 }
 
 // Enums for type safety
@@ -76,7 +93,16 @@ data class InlineRequestMetadata(
     override val timestamp: Long,
     val fileType: String,
     val strategy: CompletionStrategy
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "request")
+            addCommonFields(this)
+            addProperty("fileType", fileType)
+            addProperty("strategy", strategy.name)
+        }
+    }
+}
 
 data class InlineResponseMetadata(
 //    override val token: String,
@@ -90,7 +116,17 @@ data class InlineResponseMetadata(
     val fileType: String,
     val strategy: CompletionStrategy,
     val responseTimeMs: Long
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "response")
+            addCommonFields(this)
+            addProperty("fileType", fileType)
+            addProperty("strategy", strategy.name)
+            addProperty("responseTimeMs", responseTimeMs)
+        }
+    }
+}
 
 data class InlineViewMetadata(
 //    override val token: String,
@@ -104,7 +140,17 @@ data class InlineViewMetadata(
     val completionLength: Int,
     val completionLineCount: Int,
     val confidence: Float
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "view")
+            addCommonFields(this)
+            addProperty("completionLength", completionLength)
+            addProperty("completionLineCount", completionLineCount)
+            addProperty("confidence", confidence)
+        }
+    }
+}
 
 data class InlineAcceptMetadata(
 //    override val token: String,
@@ -123,7 +169,22 @@ data class InlineAcceptMetadata(
     val partialAcceptCount: Int,
     val totalAcceptedLength: Int,
     val viewToAcceptTimeMs: Long
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "accept")
+            addCommonFields(this)
+            addProperty("acceptType", acceptType.name)
+            addProperty("userAction", userAction.name)
+            addProperty("strategy", strategy.name)
+            addProperty("fileType", fileType)
+            addProperty("isPartial", isPartial)
+            addProperty("partialAcceptCount", partialAcceptCount)
+            addProperty("totalAcceptedLength", totalAcceptedLength)
+            addProperty("viewToAcceptTimeMs", viewToAcceptTimeMs)
+        }
+    }
+}
 
 data class InlineRejectMetadata(
 //    override val token: String,
@@ -135,7 +196,15 @@ data class InlineRejectMetadata(
     override val pluginVersion: String,
     override val timestamp: Long,
     val reason: RejectReason
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "reject")
+            addCommonFields(this)
+            addProperty("reason", reason.name)
+        }
+    }
+}
 
 data class InlineDismissMetadata(
 //    override val token: String,
@@ -149,7 +218,17 @@ data class InlineDismissMetadata(
     val reason: String,
     val partialAcceptCount: Int,
     val totalAcceptedLength: Int
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "dismiss")
+            addCommonFields(this)
+            addProperty("reason", reason)
+            addProperty("partialAcceptCount", partialAcceptCount)
+            addProperty("totalAcceptedLength", totalAcceptedLength)
+        }
+    }
+}
 
 // Quick Action Metadata Classes
 data class QuickActionRequestMetadata(
@@ -165,7 +244,18 @@ data class QuickActionRequestMetadata(
     val language: String,
     val fileType: String,
     val hasCustomInstruction: Boolean
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "request")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("language", language)
+            addProperty("fileType", fileType)
+            addProperty("hasCustomInstruction", hasCustomInstruction)
+        }
+    }
+}
 
 data class QuickActionResponseMetadata(
 //    override val token: String,
@@ -180,7 +270,18 @@ data class QuickActionResponseMetadata(
     val language: String,
     val responseTimeMs: Long,
     val contentLength: Int
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "response")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("language", language)
+            addProperty("responseTimeMs", responseTimeMs)
+            addProperty("contentLength", contentLength)
+        }
+    }
+}
 
 data class QuickActionViewMetadata(
 //    override val token: String,
@@ -195,7 +296,18 @@ data class QuickActionViewMetadata(
     val language: String,
     val diffChanges: Int,
     val confidence: Float
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "view")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("language", language)
+            addProperty("diffChanges", diffChanges)
+            addProperty("confidence", confidence)
+        }
+    }
+}
 
 data class QuickActionAcceptMetadata(
 //    override val token: String,
@@ -211,7 +323,19 @@ data class QuickActionAcceptMetadata(
     val viewToAcceptTimeMs: Long,
     val contentLength: Int,
     val userAction: UserAction
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "accept")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("language", language)
+            addProperty("viewToAcceptTimeMs", viewToAcceptTimeMs)
+            addProperty("contentLength", contentLength)
+            addProperty("userAction", userAction.name)
+        }
+    }
+}
 
 data class QuickActionRejectMetadata(
 //    override val token: String,
@@ -224,7 +348,16 @@ data class QuickActionRejectMetadata(
     override val timestamp: Long,
     val methodName: String,
     val reason: RejectReason
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "reject")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("reason", reason.name)
+        }
+    }
+}
 
 data class QuickActionDismissMetadata(
 //    override val token: String,
@@ -238,7 +371,17 @@ data class QuickActionDismissMetadata(
     val methodName: String,
     val reason: String,
     val wasViewed: Boolean
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "dismiss")
+            addCommonFields(this)
+            addProperty("methodName", methodName)
+            addProperty("reason", reason)
+            addProperty("wasViewed", wasViewed)
+        }
+    }
+}
 
 // Code Health Metadata
 data class CodeHealthMetadata(
@@ -252,18 +395,13 @@ data class CodeHealthMetadata(
     override val timestamp: Long,
     val eventType: String,
     val analysisData: Map<String, Any>  // Keep this flexible for now
-) : MetricMetadata()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", eventType)
+            addCommonFields(this)
+            add("analysis_data", Gson().toJsonTree(analysisData))
+        }
+    }
+}
 
-// Custom Event Metadata (for backwards compatibility)
-data class CustomEventMetadata(
-//    override val token: String,
-    override val model: String,
-    override val projectId: String,
-    override val userId: String,
-    override val user: String,
-    override val ideVersion: String,
-    override val pluginVersion: String,
-    override val timestamp: Long,
-    val customTool: String,
-    val additionalData: Map<String, Any>
-) : MetricMetadata()

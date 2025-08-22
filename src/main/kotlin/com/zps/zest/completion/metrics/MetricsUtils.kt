@@ -232,12 +232,5 @@ object MetricsUtils {
             )
         }
         
-        // Custom event builder
-        fun buildCustom(customTool: String, additionalData: Map<String, Any>): CustomEventMetadata {
-            return CustomEventMetadata(
-                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
-                customTool, additionalData
-            )
-        }
     }
 }

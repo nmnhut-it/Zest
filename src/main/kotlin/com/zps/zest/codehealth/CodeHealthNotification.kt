@@ -100,7 +100,8 @@ object CodeHealthNotification {
         }
         
         // Send metrics for the health check
-        sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore, actualModel)
+        val trigger = if (isGitTriggered) "git_commit" else "manual"
+        sendHealthCheckMetrics(project, results, totalIssues, criticalIssues, highIssues, averageScore, actualModel, trigger)
     }
     
     /**
@@ -342,7 +343,8 @@ object CodeHealthNotification {
         criticalIssues: Int,
         highIssues: Int,
         averageScore: Int,
-        actualModel: String
+        actualModel: String,
+        trigger: String = "unknown"
     ) {
         try {
             val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
@@ -356,21 +358,22 @@ object CodeHealthNotification {
                 .groupBy { it.issueCategory }
                 .mapValues { it.value.size }
             
-            val metadata = mutableMapOf<String, Any>(
-                "critical_issues" to criticalIssues,
-                "high_issues" to highIssues,
-                "total_issues" to totalIssues,
-                "methods_analyzed" to results.size,
-                "average_health_score" to averageScore,
-                "issues_by_category" to issuesByCategory
+            // Create strongly-typed analysis data
+            val analysisData = com.zps.zest.completion.metrics.CodeHealthAnalysisData(
+                trigger = trigger,
+                criticalIssues = criticalIssues,
+                highIssues = highIssues,
+                totalIssues = totalIssues,
+                methodsAnalyzed = results.size,
+                averageHealthScore = averageScore,
+                issuesByCategory = issuesByCategory
             )
             
-            // Send view event (report shown)
-            metricsService.trackCustomEvent(
+            // Send view event (report shown) using new method
+            metricsService.trackCodeHealthEvent(
                 eventId = healthCheckId,
-                eventType = "CODE_HEALTH_LOGGING|response",
-                actualModel = actualModel,
-                metadata = metadata
+                eventType = "response",
+                analysisData = analysisData
             )
             
             println("[CodeHealthNotification] Sent health check metrics: critical=$criticalIssues, total=$totalIssues")
@@ -402,17 +405,22 @@ object CodeHealthNotification {
             
             val healthCheckId = "health_check_view_${System.currentTimeMillis()}"
             
-            val metadata = mapOf(
-                "critical_issues" to criticalIssues,
-                "methods_with_issues" to results.count { it.issues.any { issue -> issue.verified && !issue.falsePositive } },
-                "user_action" to "fix_now_clicked"
+            // Create strongly-typed analysis data for user action
+            val analysisData = com.zps.zest.completion.metrics.CodeHealthAnalysisData(
+                trigger = "manual", // Fix now is a manual trigger
+                criticalIssues = criticalIssues,
+                highIssues = 0, // Not provided in this context
+                totalIssues = criticalIssues, // Assume all are critical for this flow
+                methodsAnalyzed = results.size,
+                averageHealthScore = 0, // Not calculated in this context
+                issuesByCategory = emptyMap(), // Not needed for view action
+                userAction = "fix_now_clicked"
             )
             
-            metricsService.trackCustomEvent(
+            metricsService.trackCodeHealthEvent(
                 eventId = healthCheckId,
-                eventType = "CODE_HEALTH_LOGGING|view",
-                actualModel = "local-model-mini",
-                metadata = metadata
+                eventType = "view",
+                analysisData = analysisData
             )
             
         } catch (e: Exception) {
@@ -844,18 +852,26 @@ object CodeHealthNotification {
             try {
                 val metricsService = ZestInlineCompletionMetricsService.getInstance(project)
                 
-                val metadata = mapOf(
-                    "issue_category" to issue.issueCategory,
-                    "severity" to issue.severity,
-                    "issue_title" to issue.title,
-                    "user_action" to "fix_now_clicked"
+                // Create strongly-typed analysis data for fix action
+                val analysisData = com.zps.zest.completion.metrics.CodeHealthAnalysisData(
+                    trigger = "manual_fix", // User clicked fix
+                    criticalIssues = if (issue.severity >= 4) 1 else 0,
+                    highIssues = if (issue.severity == 3) 1 else 0,
+                    totalIssues = 1,
+                    methodsAnalyzed = 1,
+                    averageHealthScore = 0, // Not relevant for individual fix
+                    issuesByCategory = mapOf(issue.issueCategory to 1),
+                    userAction = "fix_now_clicked",
+                    additionalContext = mapOf(
+                        "issue_title" to issue.title,
+                        "severity" to issue.severity
+                    )
                 )
                 
-                metricsService.trackCustomEvent(
+                metricsService.trackCodeHealthEvent(
                     eventId = "health_fix_${System.currentTimeMillis()}",
-                    eventType = "CODE_HEALTH_LOGGING|fix",
-                    actualModel = "local-model-mini",
-                    metadata = metadata
+                    eventType = "fix",
+                    analysisData = analysisData
                 )
                 
             } catch (e: Exception) {

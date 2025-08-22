@@ -134,14 +134,6 @@ sealed class MetricEvent {
         override val eventType = metadata.eventType
     }
     
-    data class Custom(
-        override val completionId: String,
-        override val actualModel: String,
-        override val elapsed: Long,
-        val metadata: CustomEventMetadata
-    ) : MetricEvent() {
-        override val eventType = metadata.customTool.substringAfterLast("|")
-    }
 }
 
 /**

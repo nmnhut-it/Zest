@@ -376,25 +376,30 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             log("Updated session model for $completionId to $actualModel")
         }
     }
-    fun trackCustomEvent(
+    
+    /**
+     * Track Code Health events with strongly-typed data
+     */
+    fun trackCodeHealthEvent(
         eventId: String,
-        eventType: String,
-        actualModel: String ,
-        metadata: Map<String, Any> = emptyMap()
+        eventType: String,  // "request", "response", "view", "fix"
+        analysisData: CodeHealthAnalysisData
     ) {
         if (!isEnabled.get()) return
         
-        log("Tracking custom event: $eventType for $eventId")
+        log("Tracking code health event: $eventType for $eventId")
         
-        val baseBuilder = MetricsUtils.createBaseMetadata(project, actualModel)
-        sendEvent(MetricEvent.Custom(
+        val baseBuilder = MetricsUtils.createBaseMetadata(project, "local-model-mini")
+        val metadata = baseBuilder.buildCodeHealth(
+            eventType = eventType,
+            analysisData = analysisData.toMap()
+        )
+        
+        sendEvent(MetricEvent.CodeHealthEvent(
             completionId = eventId,
-            actualModel = actualModel,
-            elapsed = 0,
-            metadata = baseBuilder.buildCustom(
-                customTool = eventType,
-                additionalData = metadata
-            )
+            actualModel = "local-model-mini",
+            elapsed = analysisData.elapsedMs ?: 0,
+            metadata = metadata
         ))
     }
     
@@ -450,20 +455,11 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 is MetricEvent.InlineCompletionResponse -> log("  - content length: ${event.completionContent.length}")
                 is MetricEvent.QuickActionSelect -> log("  - content length: ${event.completionContent.length}")
                 is MetricEvent.QuickActionResponse -> log("  - content length: ${event.completionContent.length}")
-                is MetricEvent.Custom -> log("  - custom tool: ${event.metadata.customTool}")
                 else -> {}
             }
             
             // Determine the enum usage based on event type
             val enumUsage = when (event) {
-                is MetricEvent.Custom -> {
-                    // For custom events, extract the enum usage from the custom tool
-                    if (event.metadata.customTool.contains("CODE_HEALTH_LOGGING")) {
-                        "CODE_HEALTH_LOGGING"
-                    } else {
-                        "INLINE_COMPLETION_LOGGING"
-                    }
-                }
                 is MetricEvent.InlineCompletionRequest,
                 is MetricEvent.InlineCompletionResponse,
                 is MetricEvent.InlineView,

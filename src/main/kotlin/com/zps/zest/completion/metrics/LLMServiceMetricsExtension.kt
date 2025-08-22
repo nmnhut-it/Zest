@@ -34,16 +34,11 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             return@withContext false
         }
         
-        // Determine the log name based on enumUsage
-        val logName = when (enumUsage) {
-            "INLINE_COMPLETION_LOGGING" -> "autocomplete"
-            "CODE_HEALTH_LOGGING" -> "code_health"
-            "BLOCK_REWRITE_LOGGING" -> "quick_action"
-            else -> null // Use legacy endpoint
-        }
+        // Use enum to determine endpoint
+        val endpoint = MetricsEndpoint.fromUsage(enumUsage)
         
-        // Build URL based on log name
-        val apiUrl = if (logName != null) {
+        // Build URL based on endpoint
+        val apiUrl = if (endpoint != MetricsEndpoint.LEGACY) {
             // Check if the original URL is internal (contains talk.zingplay)
             val originalUrl = configStatus.apiUrl ?: ""
             val isInternal = originalUrl.contains("talk.zingplay")
@@ -53,68 +48,18 @@ suspend fun LLMService.sendInlineCompletionMetrics(
             } else {
                 "https://zest.zingplay.com"
             }
-            "$baseUrl/$logName/$eventType"
+            "$baseUrl/${endpoint.path}/$eventType"
         } else {
-            // Use existing LiteLLM endpoint for other usage types
+            // Use existing LiteLLM endpoint for legacy types
             configStatus.apiUrl ?: return@withContext false
         }
         
         val authToken = ConfigurationManager.getInstance(project).authToken
         
-        // Build request body based on log type
-        val requestBody = when (logName) {
-            "autocomplete", "quick_action" -> {
-                // New format for autocomplete and quick_action endpoints
-                JsonObject().apply {
-                    addProperty("event_type", eventType)
-                    addProperty("completion_id", completionId)
-                    addProperty("timestamp", System.currentTimeMillis())
-                    addProperty("elapsed_ms", elapsed)
-                    completionContent?.let { addProperty("completion_text", it) }
-                    
-                    // Add metadata as nested object
-                    add("metadata", Gson().toJsonTree(metadata))
-                }
-            }
-            "code_health" -> {
-                // New format for code_health endpoint
-                JsonObject().apply {
-                    addProperty("event_type", eventType)
-                    addProperty("timestamp", System.currentTimeMillis())
-                    
-                    // Add analysis data from metadata
-                    if (metadata is CodeHealthMetadata) {
-                        add("analysis_data", Gson().toJsonTree(metadata.analysisData))
-                    } else {
-                        add("analysis_data", Gson().toJsonTree(metadata))
-                    }
-                }
-            }
-            else -> {
-                // Legacy format for LiteLLM
-                val dummyMsg = JsonParser.parseString(
-                    """
-                        [
-                {
-                  "role": "user",
-                  "content": "dummy"
-                }
-              ]
-                    """.trimIndent()
-                )
-                
-                JsonObject().apply {
-                    addProperty("model", actualModel)
-                    addProperty("stream", false)
-                    addProperty("custom_tool", "Zest|$enumUsage|$eventType")
-                    addProperty("completion_id", completionId)
-                    add("messages", dummyMsg)
-                    addProperty("elapsed", elapsed)
-                    completionContent?.let { addProperty("completion_content", it) }
-                    add("metadata", Gson().toJsonTree(metadata))
-                }
-            }
-        }
+        // Let the endpoint and metadata handle serialization (OOP approach)
+        val requestBody = endpoint.buildRequestBody(
+            metadata, eventType, completionId, elapsed, completionContent
+        )
 
         println("Metrics - RequestBody: " + requestBody);
         // Print curl command for debugging
@@ -228,7 +173,6 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): B
         is MetricEvent.QuickActionDecline -> event.metadata
         is MetricEvent.QuickActionDismiss -> event.metadata
         is MetricEvent.CodeHealthEvent -> event.metadata
-        is MetricEvent.Custom -> event.metadata
     }
     
     return sendInlineCompletionMetrics(

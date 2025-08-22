@@ -127,6 +127,20 @@ public class ChatboxUtilities {
         // Quick Action
         QUICK_ACTION_LOGGING,         // Quick Action Metrics Logging
 
+        // LangChain4j specific usages
+        LANGCHAIN_TEST_GENERATION,    // LangChain4j test generation (generic)
+        LANGCHAIN_CONTEXT_AGENT,      // LangChain4j context analysis
+        LANGCHAIN_EMBEDDING,          // LangChain4j embedding generation
+        LANGCHAIN_RETRIEVAL,          // LangChain4j RAG retrieval
+        LANGCHAIN_GENERAL,            // LangChain4j general purpose
+        
+        // Specific agent usages
+        AGENT_TEST_WRITER,            // TestWriterAgent - writes unit tests
+        AGENT_CONTEXT_ANALYZER,       // ContextAgent - analyzes code context
+        AGENT_COORDINATOR,            // CoordinatorAgent - coordinates multiple agents
+        AGENT_TEST_MERGER,            // TestMergerAgent - merges test results
+        AGENT_QUERY_TRANSFORMER,      // Query transformer agents (compressing/expanding)
+
         EXPLORE_TOOL, // Developer tools
 //        TOGGLE_DEV_TOOLS              // Toggle ZPS Chat Developer Tools
          LLM_SERVICE

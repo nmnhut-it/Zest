@@ -51,6 +51,9 @@ public final class StreamingLLMService {
         this.config = ConfigurationManager.getInstance(project);
         LOG.info("Initialized StreamingLLMService for project: " + project.getName());
         
+        // Fetch username on service initialization
+        LLMService.fetchAndStoreUsername(project);
+        
         // Ensure log directory exists
         ensureLogDirectoryExists();
     }
@@ -322,6 +325,17 @@ public final class StreamingLLMService {
         
         if (isOpenWebUIApi(apiUrl)) {
             root.addProperty("custom_tool", "Zest|STREAMING_LLM_SERVICE");
+            
+            // Add user metadata if available
+            String username = config.getUsername();
+            if (username != null && !username.isEmpty()) {
+                JsonObject metadata = new JsonObject();
+                metadata.addProperty("user", username);
+                metadata.addProperty("usage", "STREAMING_LLM_SERVICE");
+                metadata.addProperty("tool", "Zest");
+                metadata.addProperty("service", "StreamingLLMService");
+                root.add("metadata", metadata);
+            }
             
             JsonObject message = new JsonObject();
             message.addProperty("role", "user");

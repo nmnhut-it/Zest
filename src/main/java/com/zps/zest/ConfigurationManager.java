@@ -192,6 +192,14 @@ public class ConfigurationManager {
         }
     }
 
+    public String getUsername() {
+        return globalSettings.username;
+    }
+
+    public void setUsername(String username) {
+        globalSettings.username = username;
+    }
+
     // Removed unused RAG and MCP methods
     
     public boolean isProxyServerEnabled() {

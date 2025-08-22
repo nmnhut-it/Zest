@@ -94,6 +94,9 @@ public final class LLMService implements Disposable {
             
         LOG.info("Initialized LLMService with connection pooling for project: " + project.getName());
         
+        // Fetch username on service initialization
+        fetchAndStoreUsername(project);
+        
         // Warm up connections (new)
         warmUpConnections();
     }
@@ -529,6 +532,20 @@ public final class LLMService implements Disposable {
         String usage = enumUsage.name();
         root.addProperty("custom_tool", "Zest|" + usage);
 
+        // Add user metadata if available
+        String username = config.getUsername();
+        if (username != null && !username.isEmpty()) {
+            JsonObject metadata = new JsonObject();
+            metadata.addProperty("user", username);
+            metadata.addProperty("usage", usage);
+            metadata.addProperty("tool", "Zest");
+            metadata.addProperty("service", "LLMService");
+            root.add("metadata", metadata);
+            LOG.info("Added metadata with user: " + username + ", usage: " + usage);
+        } else {
+            LOG.warn("No username available for metadata - username: " + username);
+        }
+
         // Add params object with max_tokens, temperature, and stop sequences
         JsonObject paramsObj = new JsonObject();
         paramsObj.addProperty("max_tokens", params.getMaxTokens());
@@ -719,6 +736,70 @@ public final class LLMService implements Disposable {
      */
     public ConnectionStats getConnectionStats() {
         return connectionStats;
+    }
+    
+    /**
+     * Fetches and stores username from Zingplay auth endpoint
+     */
+    public static void fetchAndStoreUsername(Project project) {
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+        
+        // Skip if already have username
+        if (config.getUsername() != null && !config.getUsername().isEmpty()) {
+            return;
+        }
+        
+        String authToken = config.getAuthTokenNoPrompt();
+        if (authToken == null || authToken.isEmpty()) {
+            return;
+        }
+        
+        // Determine auth endpoint from API URL
+        String apiUrl = config.getApiUrl();
+        String authEndpoint = null;
+        
+        if (apiUrl.contains("chat.zingplay.com")) {
+            authEndpoint = "https://chat.zingplay.com/api/v1/auths/";
+        } else if (apiUrl.contains("talk.zingplay.com")) {
+            authEndpoint = "https://talk.zingplay.com/api/v1/auths/";
+        }
+        
+        if (authEndpoint == null) {
+            return;
+        }
+        
+        // Fetch asynchronously
+        final String endpoint = authEndpoint;
+        CompletableFuture.runAsync(() -> {
+            try {
+                URL url = new URL(endpoint);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Authorization", "Bearer " + authToken);
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                
+                if (conn.getResponseCode() == 200) {
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
+                        }
+                        
+                        JsonObject json = JsonParser.parseString(response.toString()).getAsJsonObject();
+                        String email = json.get("email").getAsString();
+                        config.setUsername(email);
+                        LOG.info("Fetched Zingplay username: " + email);
+                    }
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                LOG.warn("Failed to fetch username from Zingplay: " + e.getMessage());
+            }
+        });
     }
     
     /**

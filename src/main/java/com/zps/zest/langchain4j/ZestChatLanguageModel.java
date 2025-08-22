@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
@@ -32,6 +33,8 @@ public class ZestChatLanguageModel implements ChatModel {
     private static final Logger LOG = Logger.getInstance(ZestChatLanguageModel.class);
     private final OpenAiChatModel delegateModel;
     private final LLMService llmService; // Keep for backward compatibility if needed
+    private final ChatboxUtilities.EnumUsage usage;
+    private final ConfigurationManager config;
 //    private final TokenUsageTracker tokenTracker;
     
     // Rate limiting configuration
@@ -108,9 +111,14 @@ public class ZestChatLanguageModel implements ChatModel {
 //        }
     }
 
-    public ZestChatLanguageModel(LLMService llmService) {
+    public ZestChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage) {
         this.llmService = llmService;
-        this.delegateModel = createOpenAiModel(llmService);
+        this.usage = usage;
+        this.config = ConfigurationManager.getInstance(llmService.getProject());
+        this.delegateModel = createOpenAiModel(llmService.getProject());
+        
+        // Trigger username fetch
+        LLMService.fetchAndStoreUsername(llmService.getProject());
     }
 
     private OpenAiChatModel createOpenAiModel(LLMService llmService) {
@@ -170,13 +178,27 @@ public class ZestChatLanguageModel implements ChatModel {
         final String finalApiKey = apiKey;
         final String finalModelName = modelName;
 
+        // Get username for tracking
+        String username = config.getUsername();
+        
+        // Create metadata map with both user and usage
+        java.util.Map<String, String> metadata = new java.util.HashMap<>();
+        if (username != null && !username.isEmpty()) {
+            metadata.put("user", username);
+        }
+        metadata.put("usage", usage.name());
+        metadata.put("tool", "Zest");
+        metadata.put("service", "ZestChatLanguageModel");
+
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
         return executeWithPluginClassLoader(() ->
             OpenAiChatModel.builder()
                 .baseUrl(finalApiUrl)
                 .apiKey(finalApiKey)
                 .modelName(finalModelName)
-                    .parallelToolCalls(true)
+                .parallelToolCalls(true)
+                .user(username != null && !username.isEmpty() ? username : null)
+                .metadata(metadata)
                 .logRequests(true)
                 .logResponses(true)
                 .timeout(Duration.ofSeconds(120))

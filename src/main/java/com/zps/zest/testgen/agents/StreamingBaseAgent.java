@@ -44,10 +44,33 @@ public abstract class StreamingBaseAgent {
         this.llmService = llmService;
         this.agentName = agentName;
         
-        // Create chat model using ZestChatLanguageModel
-        this.chatModel = new ZestChatLanguageModel(llmService);
+        // Create chat model using ZestChatLanguageModel with agent-specific usage
+        com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage usage = determineUsageForAgent(agentName);
+        this.chatModel = new ZestChatLanguageModel(llmService, usage);
         
-        LOG.info("[" + agentName + "] Initialized with LangChain4j chat model");
+        LOG.info("[" + agentName + "] Initialized with LangChain4j chat model using " + usage.name());
+    }
+    
+    /**
+     * Determine the appropriate EnumUsage based on agent name for tracking
+     */
+    private com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage determineUsageForAgent(String agentName) {
+        String lowerName = agentName.toLowerCase();
+        
+        if (lowerName.contains("testwriter") || lowerName.equals("test writer agent")) {
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_TEST_WRITER;
+        } else if (lowerName.contains("context") && lowerName.contains("agent")) {
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_CONTEXT_ANALYZER;
+        } else if (lowerName.contains("coordinator")) {
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_COORDINATOR;
+        } else if (lowerName.contains("merger") || lowerName.contains("merge")) {
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_TEST_MERGER;
+        } else if (lowerName.contains("test")) {
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_TEST_WRITER;
+        } else {
+            // Fallback for unknown agent types
+            return com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.LANGCHAIN_TEST_GENERATION;
+        }
     }
     
     /**

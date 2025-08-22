@@ -99,7 +99,14 @@ ${patterns.joinToString("\n") { "- $it" }}
         val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
-You are an expert ${context.language} developer. Improve this method while maintaining its core functionality and class design principles.
+You are a code modification assistant. Execute the requested task on this method while preserving all unrelated code.
+
+TASK-SPECIFIC RULES:
+1. **FOCUS ON THE REQUESTED TASK ONLY** - Do not make unrelated changes
+2. **PRESERVE EXISTING CODE STYLE** - Keep formatting, patterns, and conventions as-is
+3. **MAINTAIN METHOD SIGNATURE** - Keep `${context.methodSignature}` exactly as-is
+4. **DO NOT REFACTOR** unless specifically implementing a method or completing TODO
+5. **PRESERVE ALL UNRELATED CODE** - Every line not part of the task stays unchanged
 
 ${cocosGuidance}
 
@@ -110,7 +117,7 @@ ${if (context.relatedClasses.isNotEmpty()) buildRelatedClassesSection(context.re
 
 ${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
-**Target Method to Improve:**
+**Method to Modify:**
 ```${context.language.lowercase()}
 ${context.methodContent}
 ```
@@ -123,52 +130,19 @@ ${context.methodContent}
 
 ${buildSurroundingMethodsContext(context)}
 
-**Improvement Guidelines:**
-1. **Maintain Interface:** Keep the same method signature: `${context.methodSignature}`
-
-2. **Preserve Existing Style:** 
-   - Keep existing code patterns and style UNLESS specifically told to change them
-   - Preserve for loop style (for vs forEach vs while) unless improvement is needed
-   - Maintain variable declaration style (let vs var vs const) 
-   - Keep existing logging/debugging patterns and frameworks
-   - Preserve naming conventions and formatting choices
-   - Maintain existing error handling patterns unless enhancement is needed
-   - Only modernize syntax if explicitly requested or if it significantly improves functionality
-
-3. **Class Integration:** 
-   - Utilize available class fields appropriately
-   - Consider interactions with other class methods
-   - Follow established patterns in the class
-   - Maintain consistency with class design principles
-   ${if (context.relatedClasses.isNotEmpty()) "- Use the related classes shown above correctly" else ""}
-
-4. **Code Quality Improvements:**
-   - Add comprehensive error handling and validation
-   - Improve readability with clear variable names and structure
-   - Follow ${context.language} best practices and idioms
-   - Add meaningful comments for complex logic
-   - Optimize performance while maintaining clarity
-   - Ensure null safety and type safety
-   - Handle edge cases appropriately
-
-5. **Best Practices:**
-   - Use appropriate data structures and algorithms
-   - Minimize side effects where possible
-   - Follow SOLID principles
-   - Ensure thread safety if applicable
-   - Add appropriate logging/debugging aids if beneficial
-
-6. **Integration Requirements:**
-   - Maintain compatibility with surrounding methods
-   - Respect class invariants and contracts
-   - Consider the method's role in the overall class design
+**TASK EXECUTION RULES:**
+- If task is "Add logging": ONLY add log statements, change nothing else
+- If task is "Add error handling": ONLY add try-catch blocks, change nothing else  
+- If task is "Complete implementation": Implement functionality while preserving existing patterns
+- If task is "Fix issue": ONLY fix the specific problem, change nothing else
+- If task is "Optimize performance": ONLY apply optimizations, preserve logic and style
 
 ${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
-Provide the COMPLETE improved method including the method signature. Start with the method declaration/signature and include the entire method body with closing braces. Do not provide any explanations, markdown formatting, or additional text.
+Provide the COMPLETE method including the method signature. Start with the method declaration and include the entire method body with closing braces. Do not provide explanations or markdown formatting.
 
-**Improved Method:**
+**Modified Method:**
         """.trimIndent()
         
         return prependCustomRules(basePrompt)
@@ -408,16 +382,20 @@ ${classInfo.classSignature}
         val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
-You are an expert ${context.language} developer. Rewrite this method according to the specific instructions while maintaining class design principles.
+You are a precise code modification assistant. Your ONLY job is to execute the EXACT task requested.
+
+CRITICAL EXECUTION RULES:
+1. **DO ONLY WHAT IS EXPLICITLY REQUESTED** - Nothing more, nothing less
+2. **PRESERVE ALL EXISTING CODE** that is not part of the requested task
+3. **DO NOT** refactor, rename, optimize, or "improve" anything unless specifically instructed
+4. **MAINTAIN** exact formatting, style, and patterns of the original code
+5. **KEEP EVERY LINE UNCHANGED** unless the task specifically requires changing it
+6. **DO NOT** add comments, logging, or error handling unless explicitly requested
+7. **FOLLOW INSTRUCTIONS LITERALLY** - Do not interpret or enhance the request
 
 ${cocosGuidance}
 
-**Class Context:**
-${buildClassContextSection(context, classInfo)}
-
-${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
-
-**Target Method:**
+**Method to Modify:**
 ```${context.language.lowercase()}
 ${context.methodContent}
 ```
@@ -425,27 +403,27 @@ ${context.methodContent}
 **Method Information:**
 - Signature: `${context.methodSignature}`
 - Class: ${context.containingClass ?: "unknown"}
-- Role: ${inferMethodRole(context)}
+
+${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
 ${buildSurroundingMethodsContext(context)}
 
-**Custom Instructions:**
+**TASK TO EXECUTE:**
 ${customInstruction}
 
-**General Guidelines:**
-1. Follow the custom instructions as the primary requirement
-2. **Preserve Existing Style:** Keep existing code patterns, loop styles, variable declarations, and logging patterns UNLESS the custom instruction specifically asks to change them
-3. Maintain the method signature unless specifically asked to change it
-4. Consider class context and integration with other methods
-5. Follow ${context.language} best practices while meeting custom requirements
-6. Ensure the code remains functional and integrates well with the class
+**EXECUTION REQUIREMENTS:**
+- Execute ONLY the task described above
+- Do NOT modify any other part of the code
+- Keep the method signature exactly as-is unless task specifically requires changing it
+- Preserve all existing patterns, styles, and formatting
+- Do NOT add "improvements" or "best practices" unless explicitly requested
 
 ${buildCocos2dxSpecificGuidelines(context)}
 
 **Output Format:**
-Provide the COMPLETE rewritten method including the method signature. Start with the method declaration/signature and include the entire method body with closing braces. Do not provide any explanations or markdown formatting. 
+Provide the COMPLETE modified method including the method signature. Start with the method declaration and include the entire method body with closing braces. Do not provide explanations or markdown formatting.
 
-**Rewritten Method:**
+**Modified Method:**
         """.trimIndent()
         
         return prependCustomRules(basePrompt)

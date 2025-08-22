@@ -153,8 +153,8 @@
 
             <action id="Zest.TriggerQuickAction"
                     class="com.zps.zest.completion.actions.ZestTriggerQuickAction"
-                    text="Trigger Block Rewrite"
-                    description="Choose rewrite instruction (progress shown in status bar)">
+                    text="Quick Action..."
+                    description="Perform specific task on selected code (progress shown in status bar)">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X"/>
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>

@@ -36,9 +36,9 @@ import java.util.concurrent.atomic.AtomicLong
 class CodeHealthAnalyzer(private val project: Project) {
 
     companion object {
-        private const val LLM_DELAY_MS = 2000L // Delay between LLM calls
+        private const val LLM_DELAY_MS = 20000L // Delay between LLM calls
         const val MAX_METHODS_PER_ANALYSIS = 20 // Hard limit to prevent excessive LLM calls
-        private const val MAX_LLM_RETRIES = 3 // Allow 3 attempts total for actual retries
+        private const val MAX_LLM_RETRIES = 1 // Allow 3 attempts total for actual retries
         private const val LLM_TIMEOUT_MS = 30000L // 30 second timeout per LLM call
         
         // Feature flags

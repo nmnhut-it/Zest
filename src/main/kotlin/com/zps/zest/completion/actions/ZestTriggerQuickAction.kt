@@ -219,7 +219,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private val customLabels = mutableListOf<JLabel>()
 
         init {
-            title = "Block Rewrite - Choose Instruction"
+            title = "Quick Action - Select Task"
             setOKButtonText("Apply")
             
             // Setup components BEFORE calling init()
@@ -446,7 +446,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             timeUpdateTimer.start()
             
             // Update dialog title and disable close button temporarily
-            title = "Processing - ${methodContext.methodName}()"
+            title = "Executing Task - ${methodContext.methodName}()"
             
             // Refresh dialog to show progress view
             mainPanel.revalidate()
@@ -666,39 +666,39 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
             return when {
                 isEmptyOrMinimalMethod(methodContent) -> listOf(
-                    RewriteOption("", "Implement method", "Implement this ${methodContext.methodName} method with proper functionality"),
-                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements to track execution"),
-                    RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
-                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
+                    RewriteOption("", "➕ Complete implementation", "Implement this ${methodContext.methodName} method with proper functionality"),
+                    RewriteOption("", "📝 Add logging only", "Add logging statements to track method execution"),
+                    RewriteOption("", "⚠️ Add error handling only", "Add try-catch blocks and input validation"),
+                    RewriteOption("", "✅ Write unit test", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "💬 Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
 
                 hasTodoComment(methodContent) -> {
                     val todoText = extractTodoText(methodContent)
-                    val todoInstruction = if (todoText.isNotEmpty()) "Implement the TODO: $todoText" else "Implement the TODO functionality"
+                    val todoInstruction = if (todoText.isNotEmpty()) "Complete TODO: $todoText" else "Complete TODO functionality"
                     listOf(
-                        RewriteOption("", "Implement TODO", todoInstruction),
-                        RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                        RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                        RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
-                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
+                        RewriteOption("", "📝 Complete TODO", todoInstruction),
+                        RewriteOption("", "📊 Add logging only", "Add logging statements to track execution"),
+                        RewriteOption("", "⚠️ Add error handling only", "Add try-catch blocks and input validation"),
+                        RewriteOption("", "✅ Write unit test", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "💬 Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                     )
                 }
 
                 isComplexMethod(methodContent) -> listOf(
-                    RewriteOption("", "Refactor & simplify", "Refactor this method for better readability and maintainability"),
-                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("", "Optimize performance", "Optimize this method for better performance"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
-                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
+                    RewriteOption("", "✂️ Split into smaller methods", "Break this method into smaller, focused methods"),
+                    RewriteOption("", "📝 Add debug logging", "Add detailed logging statements for debugging"),
+                    RewriteOption("", "⚡ Optimize performance only", "Apply performance optimizations without changing logic"),
+                    RewriteOption("", "✅ Write unit test", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "💬 Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
 
                 else -> listOf(
-                    RewriteOption("", "Improve method", "Improve code quality, readability, and add proper error handling"),
-                    RewriteOption("", "Add logging & monitoring", "Add logging and debug statements"),
-                    RewriteOption("", "Add error handling", "Add input validation and error handling"),
-                    RewriteOption("", "Test for this method", "__WRITE_TEST__") // Special marker for test generation
-                    // RewriteOption("", "Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
+                    RewriteOption("", "🔧 Fix specific issue", "Fix bugs or issues in this method"),
+                    RewriteOption("", "📝 Add logging statements", "Add logging to track method execution"),
+                    RewriteOption("", "⚠️ Add try-catch blocks", "Add error handling with try-catch statements"),
+                    RewriteOption("", "✅ Write unit test", "__WRITE_TEST__") // Special marker for test generation
+                    // RewriteOption("", "💬 Explain this code", "__EXPLAIN_CODE__") // Special marker for code explanation - TEMPORARILY DISABLED
                 )
             }
         }
@@ -868,7 +868,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             
             // Header with method info
             val headerPanel = JPanel(BorderLayout())
-            val headerLabel = JLabel("Processing Method: ${methodContext.methodName}()")
+            val headerLabel = JLabel("Executing Task on: ${methodContext.methodName}()")
             headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 16f)
             headerPanel.add(headerLabel, BorderLayout.CENTER)
             headerPanel.border = JBUI.Borders.emptyBottom(15)
@@ -1011,7 +1011,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 JBUI.Borders.empty(10)
             )
             
-            val leftHeader = JLabel("Built-in Prompts (1-4)")
+            val leftHeader = JLabel("Quick Tasks (1-4)")
             leftHeader.font = leftHeader.font.deriveFont(Font.BOLD, 14f)
             leftHeader.alignmentX = Component.LEFT_ALIGNMENT
             leftPanel.add(leftHeader)
@@ -1035,7 +1035,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 JBUI.Borders.empty(10)
             )
             
-            val rightHeader = JLabel("Custom Prompts (Shift+1-9)")
+            val rightHeader = JLabel("Custom Tasks (Shift+1-9)")
             rightHeader.font = rightHeader.font.deriveFont(Font.BOLD, 14f)
             rightHeader.alignmentX = Component.LEFT_ALIGNMENT
             rightPanel.add(rightHeader)
@@ -1043,7 +1043,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             
             customLabels.clear()
             if (customPrompts.isEmpty()) {
-                val emptyLabel = JLabel("No custom prompts defined")
+                val emptyLabel = JLabel("No custom tasks defined")
                 emptyLabel.font = emptyLabel.font.deriveFont(Font.ITALIC)
                 emptyLabel.foreground = JBColor.GRAY
                 emptyLabel.alignmentX = Component.LEFT_ALIGNMENT
@@ -1068,7 +1068,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             bottomPanel.layout = BoxLayout(bottomPanel, BoxLayout.Y_AXIS)
             bottomPanel.border = JBUI.Borders.empty(10, 5, 0, 5)
             
-            val instructionLabel = JLabel("Press number for built-in, Shift+number for custom, or type your own prompt")
+            val instructionLabel = JLabel("Press number for quick task, Shift+number for custom, or type specific task")
             instructionLabel.font = instructionLabel.font.deriveFont(Font.PLAIN, 11f)
             instructionLabel.foreground = JBColor.GRAY
             instructionLabel.alignmentX = Component.CENTER_ALIGNMENT
@@ -1076,7 +1076,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             
             bottomPanel.add(Box.createVerticalStrut(5))
             
-            val progressNote = JLabel("Progress will be shown in the status bar →")
+            val progressNote = JLabel("Task progress will be shown in the status bar →")
             progressNote.font = progressNote.font.deriveFont(Font.ITALIC, 10f)
             progressNote.foreground = JBColor(0x0064C8, 0x4A90E2)
             progressNote.alignmentX = Component.CENTER_ALIGNMENT
@@ -1102,15 +1102,22 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             val headerPanel = JPanel()
             headerPanel.layout = BoxLayout(headerPanel, BoxLayout.Y_AXIS)
             
-            val label = JLabel("Custom instruction:")
+            val label = JLabel("Custom Task:")
             label.font = label.font.deriveFont(Font.BOLD)
             headerPanel.add(label)
             headerPanel.add(Box.createVerticalStrut(5))
             
-            val infoLabel = JLabel("Type your custom instruction (will be saved for future use)")
+            val infoLabel = JLabel("Describe exactly what to do (e.g., 'add null check for parameter x')")
             infoLabel.font = infoLabel.font.deriveFont(Font.ITALIC, 11f)
             infoLabel.foreground = JBColor.GRAY
             headerPanel.add(infoLabel)
+            
+            headerPanel.add(Box.createVerticalStrut(3))
+            
+            val precisionLabel = JLabel("Be specific - the AI will do ONLY what you ask")
+            precisionLabel.font = precisionLabel.font.deriveFont(Font.ITALIC, 10f)
+            precisionLabel.foreground = JBColor(0x007800, 0x6BA644)
+            headerPanel.add(precisionLabel)
             
             panel.add(headerPanel, BorderLayout.NORTH)
 
@@ -1224,12 +1231,12 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         e.presentation.isEnabledAndVisible = isAvailable
 
         if (methodRewriteService?.isRewriteInProgress() == true) {
-            e.presentation.text = "Block Rewrite (In Progress...)"
-            e.presentation.description = "A block rewrite is currently in progress - check status bar"
+            e.presentation.text = "Quick Action (In Progress...)"
+            e.presentation.description = "A task is currently in progress - check status bar"
             e.presentation.isEnabled = false
         } else {
-            e.presentation.text = "Trigger Block Rewrite"
-            e.presentation.description = "Choose rewrite instruction (progress shown in status bar)"
+            e.presentation.text = "Quick Action..."
+            e.presentation.description = "Perform specific task on selected code (progress shown in status bar)"
             e.presentation.isEnabled = isAvailable
         }
     }

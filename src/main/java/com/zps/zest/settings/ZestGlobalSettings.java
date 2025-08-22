@@ -21,6 +21,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     // API Settings
     public String apiUrl = "https://chat.zingplay.com/api/chat/completions";
     public String authToken = "";
+    public String username = "";  // Authenticated user email from Zingplay
     
     // Model Settings (defaults)
     public String testModel = "unit_test_generator";

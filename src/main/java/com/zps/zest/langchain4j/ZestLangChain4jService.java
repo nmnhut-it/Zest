@@ -3,13 +3,10 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.codehealth.ProjectChangesTracker;
 import com.zps.zest.langchain4j.util.LLMService;
 
-import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -104,8 +101,8 @@ public final class ZestLangChain4jService {
             .build();
             
         // Initialize query transformers for advanced RAG
-        this.compressingTransformer = new CompressingQueryTransformer(createChatLanguageModel());
-        this.expandingTransformer = new ExpandingQueryTransformer(createChatLanguageModel(), 3);
+        this.compressingTransformer = new CompressingQueryTransformer(createChatLanguageModel(ChatboxUtilities.EnumUsage.AGENT_QUERY_TRANSFORMER));
+        this.expandingTransformer = new ExpandingQueryTransformer(createChatLanguageModel(ChatboxUtilities.EnumUsage.AGENT_QUERY_TRANSFORMER), 3);
         
         // Initialize multiple retrievers for different content types
         this.multipleRetrievers = initializeMultipleRetrievers();
@@ -1095,10 +1092,11 @@ public final class ZestLangChain4jService {
     
     /**
      * Create a ChatLanguageModel for query transformers using our existing LLMService
+     * @param enumUsage
      */
-    private dev.langchain4j.model.chat.ChatModel createChatLanguageModel() {
+    private dev.langchain4j.model.chat.ChatModel createChatLanguageModel(ChatboxUtilities.EnumUsage enumUsage) {
         // Create a chat model directly
-        return new ZestChatLanguageModel(llmService);
+        return new ZestChatLanguageModel(llmService, enumUsage);
     }
     
     /**

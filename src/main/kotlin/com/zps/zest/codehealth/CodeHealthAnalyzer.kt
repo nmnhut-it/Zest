@@ -611,7 +611,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun buildDetectionPrompt(fqn: String, context: String, callers: List<String>, callerSnippets: List<CallerSnippet>): String {
         return """
-            Analyze this method and identify up to 3 potential issues, then rank them by criticality.
+            Phân tích method này và xác định tối đa 3 vấn đề tiềm tàng, sau đó sắp xếp theo mức độ nghiêm trọng.
             
             Method: $fqn
             
@@ -619,44 +619,44 @@ class CodeHealthAnalyzer(private val project: Project) {
             $context
             ```
             
-            Think carefully about:
-            - What could actually break or cause bugs?
-            - What security vulnerabilities exist?
-            - What could leak resources or memory?
-            - What performance problems are severe?
+            Hãy xem xét kỹ:
+            - Điều gì có thể thực sự gây lỗi hoặc bugs?
+            - Có lỗ hổng security nào không?
+            - Điều gì có thể leak resources hoặc memory?
+            - Vấn đề performance nào nghiêm trọng?
             
-            Return ONLY valid JSON with issues ordered by criticality (most critical first):
+            Trả về CHỈ valid JSON với các issues được sắp xếp theo độ nghiêm trọng (critical nhất trước):
             {
-                "summary": "1-line assessment",
+                "summary": "Đánh giá 1 dòng",
                 "healthScore": 85,
-                "originalCode": "The original method code exactly as provided",
-                "annotatedCode": "The same method code with your review comments inserted as inline comments using // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION: prefixes",
+                "originalCode": "Code method gốc chính xác như được cung cấp",
+                "annotatedCode": "Cùng code method với các comment review được chèn dưới dạng inline comments sử dụng prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
                 "issues": [
                     {
                         "category": "Category",
                         "severity": 4,
-                        "title": "Short title",
-                        "description": "What's wrong",
-                        "impact": "Real consequences",
-                        "suggestedFix": "How to fix",
+                        "title": "Tiêu đề ngắn",
+                        "description": "Vấn đề gì",
+                        "impact": "Hậu quả thực tế",
+                        "suggestedFix": "Cách fix",
                         "confidence": 0.9,
                         "priority": 1,
                         "lineNumber": 15,
-                        "problematicCode": "exact line of code with the issue"
+                        "problematicCode": "dòng code chính xác có vấn đề"
                     }
                 ]
             }
             
-            For annotatedCode:
-            - Add inline comments with severity indicators (🔴 CRITICAL, 🟠 WARNING, 🟡 SUGGESTION)
-            - Place comments directly above or at the end of problematic lines
-            - Keep the original code structure intact
-            - Use descriptive but concise comments
+            Đối với annotatedCode:
+            - Thêm inline comments với severity indicators (🔴 CRITICAL, 🟠 WARNING, 🟡 SUGGESTION)
+            - Đặt comments trực tiếp trên hoặc cuối các dòng có vấn đề
+            - Giữ nguyên cấu trúc code gốc
+            - Sử dụng comments mô tả nhưng ngắn gọn
             
-            Find up to 3 issues but ORDER them by real-world impact.
-            First issue should be the MOST CRITICAL one.
-            Ignore: naming, formatting, minor optimizations, style preferences.
-            Only report issues with severity 3+ that could cause real problems.
+            Tìm tối đa 3 issues nhưng SẮP XẾP theo tác động thực tế.
+            Issue đầu tiên phải là CRITICAL NHẤT.
+            Bỏ qua: naming, formatting, optimizations nhỏ, style preferences.
+            Chỉ báo cáo issues với severity 3+ có thể gây vấn đề thực sự.
         """.trimIndent()
     }
 
@@ -720,9 +720,9 @@ class CodeHealthAnalyzer(private val project: Project) {
             val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
             val healthScore = jsonObject.get("healthScore")?.asInt ?: 85
             
-            // Parse code fields
-            val originalCode = jsonObject.get("originalCode")?.asString ?: context
-            val annotatedCode = jsonObject.get("annotatedCode")?.asString ?: context
+            // Parse code fields - ensure we always have the context if LLM didn't provide code
+            val originalCode = jsonObject.get("originalCode")?.asString?.takeIf { it.isNotBlank() } ?: context
+            val annotatedCode = jsonObject.get("annotatedCode")?.asString?.takeIf { it.isNotBlank() } ?: context
             
             // Parse issues - AI returns up to 3 ordered by criticality, but we only show the first (most critical) one
             val issues = mutableListOf<HealthIssue>()
@@ -787,7 +787,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun buildVerificationPrompt(result: MethodHealthResult): String {
         return """
-            Verify if these issues are REAL problems or FALSE POSITIVES. Be skeptical.
+            Xác minh xem các issues này là VẤN ĐỀ THỰC SỰ hay FALSE POSITIVES. Hãy hoài nghi.
             
             Method: ${result.fqn}
             
@@ -796,18 +796,18 @@ class CodeHealthAnalyzer(private val project: Project) {
             ${result.codeContext.take(1000)}${if (result.codeContext.length > 1000) "..." else ""}
             ```
             
-            Issues to verify:
+            Issues cần verify:
             ${result.issues.take(5).mapIndexed { index, issue ->
                 "$index. [${issue.issueCategory}] ${issue.title} - ${issue.description}"
             }.joinToString("\n")}
             
-            Return ONLY valid JSON:
+            Trả về CHỈ valid JSON:
             {
                 "verifications": [
                     {
                         "issueIndex": 0,
                         "verified": true,
-                        "verificationReason": "Why real or false positive"
+                        "verificationReason": "Tại sao thực sự hay false positive"
                     }
                 ]
             }
@@ -1246,39 +1246,39 @@ class CodeHealthAnalyzer(private val project: Project) {
         println("[CodeHealthAnalyzer] Analyzing whole file: ${unit.className}")
         
         val prompt = """
-            Analyze this Java file and find up to 3 issues per method, ordered by criticality.
+            Phân tích Java file này và tìm tối đa 3 issues mỗi method, sắp xếp theo độ nghiêm trọng.
             
             File: ${unit.className}
             Modified methods: ${unit.methods.joinToString(", ")}
             
             ${context.toPromptContext()}
             
-            For each method:
-            1. Find up to 3 potential issues
-            2. Order them by real-world impact (most critical first)
-            3. Include only issues that could cause actual problems
+            Đối với mỗi method:
+            1. Tìm tối đa 3 vấn đề tiềm tàng
+            2. Sắp xếp theo tác động thực tế (critical nhất trước)
+            3. Chỉ bao gồm issues có thể gây vấn đề thực sự
             
-            Focus on issues that could:
-            - Cause crashes or data loss
-            - Create security vulnerabilities
-            - Leak resources or memory
-            - Severely impact performance
+            Tập trung vào issues có thể:
+            - Gây crashes hoặc mất dữ liệu
+            - Tạo lỗ hổng security
+            - Leak resources hoặc memory
+            - Ảnh hưởng nghiêm trọng đến performance
             
-            Return ONLY valid JSON (put most critical issue first for each method):
+            Trả về CHỈ valid JSON (đặt critical issue đầu tiên cho mỗi method):
             {
                 "methods": [
                     {
                         "fqn": "full.class.Name.methodName",
-                        "summary": "Brief assessment",
+                        "summary": "Đánh giá ngắn",
                         "healthScore": 85,
                         "issues": [
                             {
                                 "category": "Category",
                                 "severity": 4,
-                                "title": "Issue title",
-                                "description": "What's wrong",
-                                "impact": "Real consequences",
-                                "suggestedFix": "How to fix",
+                                "title": "Tiêu đề issue",
+                                "description": "Vấn đề gì",
+                                "impact": "Hậu quả thực tế",
+                                "suggestedFix": "Cách fix",
                                 "confidence": 0.9,
                                 "priority": 1
                             }
@@ -1287,9 +1287,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ]
             }
             
-            Skip methods with no critical issues.
-            Ignore style, naming, minor optimizations.
-            Order issues by criticality within each method.
+            Bỏ qua methods không có critical issues.
+            Bỏ qua style, naming, optimizations nhỏ.
+            Sắp xếp issues theo độ nghiêm trọng trong mỗi method.
         """.trimIndent()
         
         return callLLMForFileAnalysis(unit, context, prompt)
@@ -1305,38 +1305,38 @@ class CodeHealthAnalyzer(private val project: Project) {
         println("[CodeHealthAnalyzer] Analyzing method group: ${unit.className} - ${unit.methods.size} methods")
         
         val prompt = """
-            Analyze these Java methods and find up to 3 issues per method, ordered by criticality.
+            Phân tích các Java methods này và tìm tối đa 3 issues mỗi method, sắp xếp theo độ nghiêm trọng.
             
             Class: ${unit.className}
             Methods: ${unit.methods.joinToString(", ")}
             
             ${context.toPromptContext()}
             
-            For each method:
-            1. Identify up to 3 critical issues
-            2. Order them by real-world impact (most critical first)
-            3. The first issue should be the MOST URGENT to fix
+            Đối với mỗi method:
+            1. Xác định tối đa 3 critical issues
+            2. Sắp xếp theo tác động thực tế (critical nhất trước)
+            3. Issue đầu tiên phải là CẦN KHUYẾN CÁO NHẤT để fix
             
-            Issues must be things that could:
-            - Cause crashes, data corruption, or security breaches
-            - Leak resources or create memory problems
-            - Severely impact performance or stability
+            Issues phải là những thứ có thể:
+            - Gây crashes, data corruption, hoặc security breaches
+            - Leak resources hoặc tạo vấn đề memory
+            - Ảnh hưởng nghiêm trọng đến performance hoặc stability
             
-            Return ONLY valid JSON (most critical issue first per method):
+            Trả về CHỈ valid JSON (critical issue đầu tiên mỗi method):
             {
                 "methods": [
                     {
                         "fqn": "full.class.Name.methodName",
-                        "summary": "Brief assessment",
+                        "summary": "Đánh giá ngắn",
                         "healthScore": 85,
                         "issues": [
                             {
                                 "category": "Category",
                                 "severity": 4,
-                                "title": "Issue title",
-                                "description": "What's wrong",
-                                "impact": "Real consequences",
-                                "suggestedFix": "How to fix",
+                                "title": "Tiêu đề issue",
+                                "description": "Vấn đề gì",
+                                "impact": "Hậu quả thực tế",
+                                "suggestedFix": "Cách fix",
                                 "confidence": 0.9,
                                 "priority": 1
                             }
@@ -1345,8 +1345,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ]
             }
             
-            Skip trivial issues. Only report severity 3+ issues.
-            Put the MOST CRITICAL issue first in the array.
+            Bỏ qua trivial issues. Chỉ report severity 3+ issues.
+            Đặt MOST CRITICAL issue đầu tiên trong array.
         """.trimIndent()
         
         return callLLMForFileAnalysis(unit, context, prompt)
@@ -1420,17 +1420,25 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 // Only add result if there are critical issues or it's a healthy method
                 if (issues.isNotEmpty() || healthScore >= 80) {
+                    // Extract method context from unit if available
+                    val methodInfo = context.methods.find { "${unit.className}.${it.name}" == fqn }
+                    val methodContext = if (methodInfo != null) {
+                        "${methodInfo.signature}\n${methodInfo.body}"
+                    } else {
+                        context.fileContent ?: ""
+                    }
+                    
                     results.add(MethodHealthResult(
                         fqn = fqn,
                         issues = issues,
                         impactedCallers = emptyList(), // Could be filled later if needed
                         healthScore = healthScore,
                         modificationCount = 1, // Default
-                        codeContext = "", // Already in context
+                        codeContext = methodContext,
                         summary = summary,
                         actualModel = actualModel,
-                        annotatedCode = "",
-                        originalCode = ""
+                        annotatedCode = methodContext, // Use method context for code preview
+                        originalCode = methodContext
                     ))
                 }
             }
@@ -1462,42 +1470,42 @@ class CodeHealthAnalyzer(private val project: Project) {
         }
         
         val prompt = """
-            Analyze these JavaScript/TypeScript code regions for potential issues.
+            Phân tích các JavaScript/TypeScript code regions này để tìm vấn đề tiềm tàng.
             
             File: ${unit.className}
             Language: ${context.language}
-            Regions analyzed: ${context.regionContexts.size}
+            Số regions được phân tích: ${context.regionContexts.size}
             
             ${context.toPromptContext()}
             
-            IMPORTANT: You're seeing PARTIAL views of the file (±20 lines around changes).
-            - DON'T flag missing imports or undefined variables that might exist elsewhere
-            - DON'T assume architectural issues you can't fully see
-            - DO focus on issues clearly visible in these code fragments
-            - BE CONSERVATIVE - only flag issues you're confident about
+            QUAN TRỌNG: Bạn đang xem PARTIAL views của file (±20 dòng xung quanh thay đổi).
+            - KHÔNG flag missing imports hoặc undefined variables có thể tồn tại ở nơi khác
+            - KHÔNG giả định architectural issues bạn không thể thấy đầy đủ
+            - Tập trung vào issues thấy rõ trong các code fragments này
+            - THẬN TRọNG - chỉ flag issues bạn tự tin
             
-            Analyze for:
-            - Obvious syntax errors or bugs visible in fragments
-            - Clear logic errors
-            - Performance issues in visible code
-            - Security concerns (eval, innerHTML, etc.)
-            - Framework-specific issues if applicable
+            Phân tích để tìm:
+            - Lỗi syntax rõ ràng hoặc bugs thấy được trong fragments
+            - Lỗi logic rõ ràng
+            - Vấn đề performance trong code thấy được
+            - Mối lo ngại security (eval, innerHTML, etc.)
+            - Vấn đề framework-specific nếu có
             
-            Return ONLY valid JSON with results for EACH region:
+            Trả về CHỈ valid JSON với kết quả cho MỐI region:
             {
                 "regions": [
                     {
                         "regionId": "filename.js:lineNumber",
-                        "summary": "Brief assessment",
+                        "summary": "Đánh giá ngắn",
                         "healthScore": 85,
                         "issues": [
                             {
                                 "category": "Category",
                                 "severity": 3,
-                                "title": "Issue title",
-                                "description": "What's wrong in this fragment",
-                                "impact": "Consequences",
-                                "suggestedFix": "How to fix",
+                                "title": "Tiêu đề issue",
+                                "description": "Vấn đề gì trong fragment này",
+                                "impact": "Hậu quả",
+                                "suggestedFix": "Cách fix",
                                 "confidence": 0.9
                             }
                         ]
@@ -1577,6 +1585,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 // Find the region context
                 val regionContext = context.regionContexts.find { it.regionId == regionId }
                 val modificationCount = unit.methods.count { it == regionId }
+                val regionCode = regionContext?.content ?: ""
                 
                 results.add(MethodHealthResult(
                     fqn = regionId,
@@ -1584,11 +1593,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                     impactedCallers = emptyList(), // JS/TS doesn't track callers
                     healthScore = healthScore,
                     modificationCount = modificationCount,
-                    codeContext = regionContext?.content ?: "",
+                    codeContext = regionCode,
                     summary = summary,
                     actualModel = actualModel,
-                    annotatedCode = "",
-                    originalCode = ""
+                    annotatedCode = regionCode, // Include region code for preview
+                    originalCode = regionCode
                 ))
             }
             

@@ -23,6 +23,21 @@ object MetricsUtils {
         return hashString("$userName-$machineName")
     }
     
+    fun getActualUsername(project: Project): String {
+        // Get authenticated username from ConfigurationManager
+        val configManager = com.zps.zest.ConfigurationManager.getInstance(project)
+        val authenticatedUser = configManager.username
+        
+        // If authenticated username exists, use it
+        if (!authenticatedUser.isNullOrBlank()) {
+            return authenticatedUser
+        }
+        
+        // Fallback to system username if not authenticated
+        val systemUser = System.getProperty("user.name", "unknown")
+        return systemUser
+    }
+    
     fun getProjectHash(project: Project): String {
         return hashString(project.basePath ?: project.name)
     }
@@ -88,27 +103,28 @@ object MetricsUtils {
         private val token = getAuthToken(project)
         private val projectId = getProjectHash(project)
         private val userId = getUserHash(project)
+        private val user = getActualUsername(project)
         private val ideVersion = getIdeVersion()
         private val pluginVersion = getPluginVersion()
         private val timestamp = System.currentTimeMillis()
         
         fun buildInlineRequest(fileType: String, strategy: CompletionStrategy): InlineRequestMetadata {
             return InlineRequestMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 fileType, strategy
             )
         }
         
         fun buildInlineResponse(fileType: String, strategy: CompletionStrategy, responseTimeMs: Long): InlineResponseMetadata {
             return InlineResponseMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 fileType, strategy, responseTimeMs
             )
         }
         
         fun buildInlineView(completionLength: Int, completionLineCount: Int, confidence: Float): InlineViewMetadata {
             return InlineViewMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 completionLength, completionLineCount, confidence
             )
         }
@@ -124,7 +140,7 @@ object MetricsUtils {
             viewToAcceptTimeMs: Long
         ): InlineAcceptMetadata {
             return InlineAcceptMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 acceptType, userAction, strategy, fileType, isPartial, 
                 partialAcceptCount, totalAcceptedLength, viewToAcceptTimeMs
             )
@@ -132,14 +148,14 @@ object MetricsUtils {
         
         fun buildInlineReject(reason: RejectReason): InlineRejectMetadata {
             return InlineRejectMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 reason
             )
         }
         
         fun buildInlineDismiss(reason: String, partialAcceptCount: Int, totalAcceptedLength: Int): InlineDismissMetadata {
             return InlineDismissMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 reason, partialAcceptCount, totalAcceptedLength
             )
         }
@@ -152,7 +168,7 @@ object MetricsUtils {
             hasCustomInstruction: Boolean
         ): QuickActionRequestMetadata {
             return QuickActionRequestMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, language, fileType, hasCustomInstruction
             )
         }
@@ -164,7 +180,7 @@ object MetricsUtils {
             contentLength: Int
         ): QuickActionResponseMetadata {
             return QuickActionResponseMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, language, responseTimeMs, contentLength
             )
         }
@@ -176,7 +192,7 @@ object MetricsUtils {
             confidence: Float
         ): QuickActionViewMetadata {
             return QuickActionViewMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, language, diffChanges, confidence
             )
         }
@@ -189,21 +205,21 @@ object MetricsUtils {
             userAction: UserAction
         ): QuickActionAcceptMetadata {
             return QuickActionAcceptMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, language, viewToAcceptTimeMs, contentLength, userAction
             )
         }
         
         fun buildQuickActionReject(methodName: String, reason: RejectReason): QuickActionRejectMetadata {
             return QuickActionRejectMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, reason
             )
         }
         
         fun buildQuickActionDismiss(methodName: String, reason: String, wasViewed: Boolean): QuickActionDismissMetadata {
             return QuickActionDismissMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 methodName, reason, wasViewed
             )
         }
@@ -211,7 +227,7 @@ object MetricsUtils {
         // Code Health builder
         fun buildCodeHealth(eventType: String, analysisData: Map<String, Any>): CodeHealthMetadata {
             return CodeHealthMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 eventType, analysisData
             )
         }
@@ -219,7 +235,7 @@ object MetricsUtils {
         // Custom event builder
         fun buildCustom(customTool: String, additionalData: Map<String, Any>): CustomEventMetadata {
             return CustomEventMetadata(
-                 model, projectId, userId, ideVersion, pluginVersion, timestamp,
+                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
                 customTool, additionalData
             )
         }

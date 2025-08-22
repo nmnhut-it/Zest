@@ -168,8 +168,8 @@ class JsTsHealthAnalyzer(private val project: Project) {
                 codeContext = context.regionContext.markedText,
                 summary = summary,
                 actualModel = actualModel,
-                annotatedCode = "",
-                originalCode = ""
+                annotatedCode = context.regionContext.markedText, // Include the region code
+                originalCode = context.regionContext.markedText
             )
             
         } catch (e: com.intellij.openapi.progress.ProcessCanceledException) {
@@ -214,7 +214,7 @@ class JsTsHealthAnalyzer(private val project: Project) {
             codeContext = "",
             summary = "Analysis failed or no issues found",
             actualModel = actualModel,
-            annotatedCode = "",
+            annotatedCode = "", // Will be populated by region context when available
             originalCode = ""
         )
     }

@@ -625,12 +625,14 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Điều gì có thể leak resources hoặc memory?
             - Vấn đề performance nào nghiêm trọng?
             
+            QUAN TRỌNG: Bạn PHẢI bao gồm originalCode và annotatedCode trong response.
+            
             Trả về CHỈ valid JSON với các issues được sắp xếp theo độ nghiêm trọng (critical nhất trước):
             {
                 "summary": "Đánh giá 1 dòng",
                 "healthScore": 85,
-                "originalCode": "Code method gốc chính xác như được cung cấp",
-                "annotatedCode": "Cùng code method với các comment review được chèn dưới dạng inline comments sử dụng prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
+                "originalCode": "COPY CHÍNH XÁC toàn bộ code từ java block trên - không được thay đổi gì",
+                "annotatedCode": "COPY TOÀN BỘ code từ java block trên NHƯNG thêm inline comments review với prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
                 "issues": [
                     {
                         "category": "Category",
@@ -647,7 +649,16 @@ class CodeHealthAnalyzer(private val project: Project) {
                 ]
             }
             
+            Ví dụ originalCode và annotatedCode:
+            
+            originalCode: (copy chính xác từ java block)
+            "public void processData(String input) {\n    Connection conn = null;\n    try {\n        conn = getConnection();\n        // process logic here\n    } catch (Exception e) {\n        e.printStackTrace();\n    }\n}"
+            
+            annotatedCode: (cùng code nhưng có inline comments)
+            "public void processData(String input) {\n    Connection conn = null;\n    try {\n        conn = getConnection();\n        // process logic here\n    } catch (Exception e) {\n        e.printStackTrace(); // 🔴 CRITICAL: Exception swallowed without proper handling\n    } // 🟠 WARNING: Connection not closed in finally block\n}"
+            
             Đối với annotatedCode:
+            - PHẢI bao gồm TOÀN BỘ code gốc
             - Thêm inline comments với severity indicators (🔴 CRITICAL, 🟠 WARNING, 🟡 SUGGESTION)
             - Đặt comments trực tiếp trên hoặc cuối các dòng có vấn đề
             - Giữ nguyên cấu trúc code gốc
@@ -720,9 +731,16 @@ class CodeHealthAnalyzer(private val project: Project) {
             val summary = jsonObject.get("summary")?.asString ?: "Analysis completed"
             val healthScore = jsonObject.get("healthScore")?.asInt ?: 85
             
-            // Parse code fields - ensure we always have the context if LLM didn't provide code
-            val originalCode = jsonObject.get("originalCode")?.asString?.takeIf { it.isNotBlank() } ?: context
-            val annotatedCode = jsonObject.get("annotatedCode")?.asString?.takeIf { it.isNotBlank() } ?: context
+            // Parse code fields - get raw values to see what LLM actually returns
+            val originalCodeRaw = jsonObject.get("originalCode")?.asString
+            val annotatedCodeRaw = jsonObject.get("annotatedCode")?.asString
+            
+            println("[CodeHealthAnalyzer] LLM Response Debug for $fqn:")
+            println("  originalCode provided: ${originalCodeRaw != null}, length: ${originalCodeRaw?.length ?: 0}")
+            println("  annotatedCode provided: ${annotatedCodeRaw != null}, length: ${annotatedCodeRaw?.length ?: 0}")
+            
+            val originalCode = originalCodeRaw ?: ""
+            val annotatedCode = annotatedCodeRaw ?: ""
             
             // Parse issues - AI returns up to 3 ordered by criticality, but we only show the first (most critical) one
             val issues = mutableListOf<HealthIssue>()
@@ -1257,6 +1275,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             1. Tìm tối đa 3 vấn đề tiềm tàng
             2. Sắp xếp theo tác động thực tế (critical nhất trước)
             3. Chỉ bao gồm issues có thể gây vấn đề thực sự
+            4. PHẢI bao gồm originalCode và annotatedCode cho mỗi method
             
             Tập trung vào issues có thể:
             - Gây crashes hoặc mất dữ liệu
@@ -1271,6 +1290,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                         "fqn": "full.class.Name.methodName",
                         "summary": "Đánh giá ngắn",
                         "healthScore": 85,
+                        "originalCode": "COPY CHÍNH XÁC toàn bộ method code từ context - không được thay đổi gì",
+                        "annotatedCode": "COPY TOÀN BỘ method code từ context NHƯNG thêm inline comments review với prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
                         "issues": [
                             {
                                 "category": "Category",
@@ -1286,6 +1307,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                     }
                 ]
             }
+            
+            Đối với originalCode và annotatedCode:
+            - originalCode: Copy chính xác method code từ context
+            - annotatedCode: Cùng method code nhưng thêm inline review comments
+            - PHẢI bao gồm cả hai fields này cho mỗi method
             
             Bỏ qua methods không có critical issues.
             Bỏ qua style, naming, optimizations nhỏ.
@@ -1316,6 +1342,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             1. Xác định tối đa 3 critical issues
             2. Sắp xếp theo tác động thực tế (critical nhất trước)
             3. Issue đầu tiên phải là CẦN KHUYẾN CÁO NHẤT để fix
+            4. PHẢI bao gồm originalCode và annotatedCode cho mỗi method
             
             Issues phải là những thứ có thể:
             - Gây crashes, data corruption, hoặc security breaches
@@ -1329,6 +1356,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                         "fqn": "full.class.Name.methodName",
                         "summary": "Đánh giá ngắn",
                         "healthScore": 85,
+                        "originalCode": "COPY CHÍNH XÁC toàn bộ method code từ context - không được thay đổi gì",
+                        "annotatedCode": "COPY TOÀN BỘ method code từ context NHƯNG thêm inline comments review với prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
                         "issues": [
                             {
                                 "category": "Category",
@@ -1344,6 +1373,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                     }
                 ]
             }
+            
+            Đối với originalCode và annotatedCode:
+            - originalCode: Copy chính xác method code từ context
+            - annotatedCode: Cùng method code nhưng thêm inline review comments
+            - PHẢI bao gồm cả hai fields này cho mỗi method
             
             Bỏ qua trivial issues. Chỉ report severity 3+ issues.
             Đặt MOST CRITICAL issue đầu tiên trong array.
@@ -1418,6 +1452,14 @@ class CodeHealthAnalyzer(private val project: Project) {
                     }
                 }
                 
+                // Parse code fields from LLM response
+                val originalCodeRaw = methodObject.get("originalCode")?.asString
+                val annotatedCodeRaw = methodObject.get("annotatedCode")?.asString
+                
+                println("[CodeHealthAnalyzer] LLM File Analysis Response Debug for $fqn:")
+                println("  originalCode provided: ${originalCodeRaw != null}, length: ${originalCodeRaw?.length ?: 0}")
+                println("  annotatedCode provided: ${annotatedCodeRaw != null}, length: ${annotatedCodeRaw?.length ?: 0}")
+                
                 // Only add result if there are critical issues or it's a healthy method
                 if (issues.isNotEmpty() || healthScore >= 80) {
                     // Extract method context from unit if available
@@ -1428,6 +1470,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                         context.fileContent ?: ""
                     }
                     
+                    val originalCode = originalCodeRaw ?: ""
+                    val annotatedCode = annotatedCodeRaw ?: ""
+                    
                     results.add(MethodHealthResult(
                         fqn = fqn,
                         issues = issues,
@@ -1437,8 +1482,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                         codeContext = methodContext,
                         summary = summary,
                         actualModel = actualModel,
-                        annotatedCode = methodContext, // Use method context for code preview
-                        originalCode = methodContext
+                        annotatedCode = annotatedCode,
+                        originalCode = originalCode
                     ))
                 }
             }
@@ -1483,6 +1528,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             - KHÔNG giả định architectural issues bạn không thể thấy đầy đủ
             - Tập trung vào issues thấy rõ trong các code fragments này
             - THẬN TRọNG - chỉ flag issues bạn tự tin
+            - PHẢI bao gồm originalCode và annotatedCode cho mỗi region
             
             Phân tích để tìm:
             - Lỗi syntax rõ ràng hoặc bugs thấy được trong fragments
@@ -1491,13 +1537,15 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Mối lo ngại security (eval, innerHTML, etc.)
             - Vấn đề framework-specific nếu có
             
-            Trả về CHỈ valid JSON với kết quả cho MỐI region:
+            Trả về CHỈ valid JSON với kết quả cho MỖI region:
             {
                 "regions": [
                     {
                         "regionId": "filename.js:lineNumber",
                         "summary": "Đánh giá ngắn",
                         "healthScore": 85,
+                        "originalCode": "COPY CHÍNH XÁC toàn bộ code từ region context - không được thay đổi gì",
+                        "annotatedCode": "COPY TOÀN BỘ code từ region context NHƯNG thêm inline comments review với prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
                         "issues": [
                             {
                                 "category": "Category",
@@ -1512,6 +1560,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                     }
                 ]
             }
+            
+            Đối với originalCode và annotatedCode:
+            - originalCode: Copy chính xác code từ region context
+            - annotatedCode: Cùng code nhưng thêm inline review comments
+            - PHẢI bao gồm cả hai fields này cho mỗi region
         """.trimIndent()
         
         return callLLMForJsTsAnalysis(unit, context, prompt)
@@ -1582,10 +1635,21 @@ class CodeHealthAnalyzer(private val project: Project) {
                     }
                 }
                 
-                // Find the region context
+                // Parse code fields from LLM response
+                val originalCodeRaw = regionObject.get("originalCode")?.asString
+                val annotatedCodeRaw = regionObject.get("annotatedCode")?.asString
+                
+                println("[CodeHealthAnalyzer] LLM JS/TS Response Debug for $regionId:")
+                println("  originalCode provided: ${originalCodeRaw != null}, length: ${originalCodeRaw?.length ?: 0}")
+                println("  annotatedCode provided: ${annotatedCodeRaw != null}, length: ${annotatedCodeRaw?.length ?: 0}")
+                
+                // Find the region context as fallback
                 val regionContext = context.regionContexts.find { it.regionId == regionId }
                 val modificationCount = unit.methods.count { it == regionId }
                 val regionCode = regionContext?.content ?: ""
+                
+                val originalCode = originalCodeRaw ?: ""
+                val annotatedCode = annotatedCodeRaw ?: ""
                 
                 results.add(MethodHealthResult(
                     fqn = regionId,
@@ -1596,8 +1660,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                     codeContext = regionCode,
                     summary = summary,
                     actualModel = actualModel,
-                    annotatedCode = regionCode, // Include region code for preview
-                    originalCode = regionCode
+                    annotatedCode = annotatedCode,
+                    originalCode = originalCode
                 ))
             }
             

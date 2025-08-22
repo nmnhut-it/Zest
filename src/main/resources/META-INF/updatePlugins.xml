@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.891">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.892">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,48 +9,40 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
-            <h3>Version 1.9.890 - Major Feature Update 🚀</h3>
-            <h4>✨ New Features</h4>
+            <h3>Version 1.9.892 - Code Health Review Enhancement 🔍</h3>
+            <h4>🛡️ Code Health Review Improvements</h4>
             <ul>
-                <li><b>Block Rewrite (Ctrl+Space)</b> - Smart method rewriting with context-aware prompts</li>
-                <li><b>Git UI Integration</b> - Beautiful Git interface in browser panel with AI-powered commit messages</li>
-                <li><b>Custom Prompts (Shift+1-9)</b> - Save and reuse your favorite prompts in Block Rewrite</li>
-                <li><b>Enhanced Configuration Manager</b> - New tabbed interface with 5 organized sections</li>
-                <li><b>Project Rules Support</b> - Define project-specific coding standards in .zest/rules.md</li>
+                <li><b>Enhanced Code Preview</b> - Fixed code preview issues in Code Health Review dialog</li>
+                <li><b>Better LLM Prompts</b> - Improved prompts with Vietnamese mixed with English for better analysis accuracy</li>
+                <li><b>Comprehensive Analysis</b> - Now includes originalCode and annotatedCode fields in all analysis types (Java methods, JS/TS regions, whole files)</li>
+                <li><b>Debug Logging</b> - Added detailed debug information to track LLM response quality</li>
+                <li><b>OOP Metrics System</b> - Migrated to clean object-oriented architecture using polymorphism instead of switch statements</li>
             </ul>
             
-            <h4>🛡️ Code Guardian Improvements</h4>
+            <h4>📊 Metrics & Analytics</h4>
             <ul>
-                <li>Auto-trigger after Git commits for code files</li>
-                <li>Better integration with Git UI</li>
-                <li>Improved daily report format</li>
+                <li><b>User Authentication</b> - Added actual username from ConfigurationManager to all metrics</li>
+                <li><b>Strongly-Typed Data</b> - Replaced Map&lt;String, Any&gt; with strongly-typed CodeHealthAnalysisData</li>
+                <li><b>Clean Architecture</b> - Removed deprecated code and wrapper methods for cleaner codebase</li>
+                <li><b>Endpoint Strategy Pattern</b> - Implemented endpoint-specific request handling with MetricsEndpoint enum</li>
             </ul>
             
             <h4>🎨 UI/UX Enhancements</h4>
             <ul>
-                <li>Progress indicators in status bar for Block Rewrite</li>
-                <li>File diff viewer integration in Git UI</li>
-                <li>Drag & drop file support in chat</li>
-                <li>DevTools support (F12) for debugging</li>
+                <li><b>Better Error Messages</b> - More informative debug information when code preview is unavailable</li>
+                <li><b>Syntax Highlighting</b> - Enhanced code highlighting for LLM-generated review comments with severity indicators</li>
+                <li><b>Debug Information</b> - Console output shows exactly what LLM returns for troubleshooting</li>
             </ul>
             
             <h4>🔧 Technical Improvements</h4>
             <ul>
-                <li>Better JCEF browser stability</li>
-                <li>Improved inline completion context detection</li>
-                <li>Optimized memory usage for large projects</li>
-                <li>Enhanced error handling and recovery</li>
+                <li><b>Removed Fallback Masking</b> - Better visibility into LLM response quality by removing automatic fallbacks</li>
+                <li><b>Polymorphic Serialization</b> - Each metadata type handles its own JSON serialization via toJsonObject() method</li>
+                <li><b>Type Safety</b> - Eliminated unsafe Map usage in favor of compile-time checked data classes</li>
+                <li><b>Consistent Prompting</b> - All analysis types (Java, JS/TS, whole file, method group) now use consistent prompt structure</li>
             </ul>
             
-            <h4>🐛 Bug Fixes</h4>
-            <ul>
-                <li>Fixed inline completion overlap issues</li>
-                <li>Resolved Git UI refresh problems</li>
-                <li>Fixed custom prompts saving mechanism</li>
-                <li>Various stability improvements</li>
-            </ul>
-            
-            <p><em>Thank you for using Zest! We're constantly working to make your coding experience better. 💚</em></p>
+            <p><em>Major architecture improvements for better maintainability and more accurate code analysis. 🚀</em></p>
         ]]></change-notes>
         <vendor>Zingplay Game Studio</vendor>
     </plugin>

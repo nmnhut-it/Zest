@@ -273,12 +273,29 @@ class CodeHealthIssueDetailDialog(
     }
     
     private fun loadMethodCode(): String? {
+        println("[CodeHealthIssueDetailDialog] Debug - Loading code for ${method.fqn}:")
+        println("  annotatedCode length: ${method.annotatedCode.length}")
+        println("  originalCode length: ${method.originalCode.length}")
+        println("  codeContext length: ${method.codeContext.length}")
+        
         // Use LLM-provided annotated code if available, otherwise fall back to original code
         return when {
-            method.annotatedCode.isNotBlank() -> method.annotatedCode
-            method.originalCode.isNotBlank() -> method.originalCode
-            method.codeContext.isNotBlank() -> method.codeContext
-            else -> "// Code preview not available\n// The code analysis was performed but no code content was provided"
+            method.annotatedCode.isNotBlank() -> {
+                println("  Using annotatedCode")
+                method.annotatedCode
+            }
+            method.originalCode.isNotBlank() -> {
+                println("  Using originalCode")
+                method.originalCode
+            }
+            method.codeContext.isNotBlank() -> {
+                println("  Using codeContext as fallback")
+                method.codeContext
+            }
+            else -> {
+                println("  No code available - this indicates LLM didn't provide originalCode/annotatedCode")
+                "// Code preview debug info:\n// LLM analysis was performed but no code fields were returned\n// annotatedCode: ${if (method.annotatedCode.isEmpty()) "empty" else "has ${method.annotatedCode.length} chars"}\n// originalCode: ${if (method.originalCode.isEmpty()) "empty" else "has ${method.originalCode.length} chars"}\n// codeContext: ${if (method.codeContext.isEmpty()) "empty" else "has ${method.codeContext.length} chars"}"
+            }
         }
     }
     

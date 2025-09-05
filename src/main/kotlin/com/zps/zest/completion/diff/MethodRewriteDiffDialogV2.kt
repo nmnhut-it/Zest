@@ -4,6 +4,7 @@ import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
@@ -18,7 +19,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
-import com.zps.zest.completion.util.IndentationNormalizer
 import java.awt.*
 import java.awt.event.ActionEvent
 import javax.swing.*
@@ -87,12 +87,6 @@ class MethodRewriteDiffDialogV2(
             append(fullFileContent.substring(methodEndOffset))
         }
         
-        // Normalize indentation for the full files
-        val (normalizedOriginal, normalizedModified) = IndentationNormalizer.normalizeForDiff(
-            originalFullFile,
-            modifiedFullFile
-        )
-        
         // Create virtual files with proper file type for syntax highlighting
         val virtualFile = editor.virtualFile
         val originalFileName = virtualFile?.name ?: "${methodName}_original.${fileType.defaultExtension}"
@@ -101,12 +95,12 @@ class MethodRewriteDiffDialogV2(
         val originalFile = LightVirtualFile(
             originalFileName,
             fileType,
-            normalizedOriginal
+            originalFullFile
         )
         val modifiedFile = LightVirtualFile(
             modifiedFileName,
             fileType,
-            normalizedModified
+            modifiedFullFile
         )
         
         // Create diff contents from virtual files
@@ -114,7 +108,7 @@ class MethodRewriteDiffDialogV2(
         val leftContent = diffContentFactory.create(project, originalFile)
         val rightContent = diffContentFactory.create(project, modifiedFile)
         
-        // Create diff request
+        // Create diff request with whitespace comparison policy
         val diffRequest = SimpleDiffRequest(
             "Method Rewrite Comparison",
             leftContent,
@@ -122,6 +116,9 @@ class MethodRewriteDiffDialogV2(
             "Original Method",
             "AI Improved Method"
         )
+        
+        // Apply whitespace-ignoring comparison policy
+        diffRequest.putUserData(DiffUserDataKeys.DO_NOT_IGNORE_WHITESPACES, false)
         
         // Create diff panel
         val diffPanel = DiffManager.getInstance().createRequestPanel(project, disposable, null)

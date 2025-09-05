@@ -24,9 +24,11 @@ public class InlineCompletionRAG {
     private static final int MAX_RESULTS = 5;
     private static final double MIN_SIMILARITY_SCORE = 0.7;
     private static final long EMBEDDING_TIMEOUT_MS = 50; // 50ms timeout for embeddings
+    private static final long FALLBACK_TIMEOUT_MS = 10; // Very short timeout when blocking is disabled
     
     private final Project project;
     private final EmbeddingService embeddingService;
+    private final com.zps.zest.ConfigurationManager config;
     
     // Fast cache for recently used results
     private final Map<String, CachedResult> resultCache;
@@ -37,6 +39,7 @@ public class InlineCompletionRAG {
     
     public InlineCompletionRAG(Project project) {
         this.project = project;
+        this.config = com.zps.zest.ConfigurationManager.getInstance(project);
         this.embeddingService = project.getService(EmbeddingService.class);
         this.resultCache = new ConcurrentHashMap<>();
         this.executorService = Executors.newCachedThreadPool();
@@ -63,7 +66,112 @@ public class InlineCompletionRAG {
     }
     
     /**
-     * Retrieve relevant code chunks for completion context
+     * Callback interface for non-blocking retrieval
+     */
+    public interface RetrievalCallback {
+        void onSuccess(List<RetrievedChunk> chunks);
+        void onFailure(Exception e);
+        
+        // Optional cancellation check - return true to cancel operation
+        default boolean isCancelled() {
+            return false;
+        }
+    }
+    
+    /**
+     * Cancellable retrieval operation
+     */
+    public static class CancellableRetrieval {
+        private volatile boolean cancelled = false;
+        private final CompletableFuture<List<RetrievedChunk>> future;
+        
+        public CancellableRetrieval(CompletableFuture<List<RetrievedChunk>> future) {
+            this.future = future;
+        }
+        
+        public void cancel() {
+            cancelled = true;
+            future.cancel(true);
+        }
+        
+        public boolean isCancelled() {
+            return cancelled || future.isCancelled();
+        }
+        
+        public CompletableFuture<List<RetrievedChunk>> getFuture() {
+            return future;
+        }
+    }
+    
+    /**
+     * Cancellable non-blocking retrieval - returns operation handle for cancellation
+     */
+    public CancellableRetrieval retrieveRelevantChunksCancellable(String query, int maxResults, RetrievalCallback callback) {
+        // Check if cancellation is enabled
+        if (!config.isRAGRequestCancellationEnabled()) {
+            // Fall back to regular async retrieval
+            retrieveRelevantChunksAsync(query, maxResults, callback);
+            return new CancellableRetrieval(CompletableFuture.completedFuture(Collections.emptyList()));
+        }
+        
+        CompletableFuture<List<RetrievedChunk>> future = CompletableFuture.supplyAsync(() -> {
+            try {
+                // Check cancellation before starting
+                if (callback.isCancelled()) {
+                    return Collections.<RetrievedChunk>emptyList();
+                }
+                
+                List<RetrievedChunk> results = retrieveRelevantChunks(query, maxResults);
+                
+                // Check cancellation before callback
+                if (!callback.isCancelled()) {
+                    callback.onSuccess(results);
+                }
+                
+                return results;
+            } catch (Exception e) {
+                if (!callback.isCancelled()) {
+                    callback.onFailure(e);
+                }
+                return Collections.emptyList();
+            }
+        }, executorService);
+        
+        return new CancellableRetrieval(future);
+    }
+    
+    /**
+     * Non-blocking retrieval with callback - preferred method for UI operations
+     */
+    public void retrieveRelevantChunksAsync(String query, int maxResults, RetrievalCallback callback) {
+        // Check if RAG blocking is disabled
+        if (config.isLLMRAGBlockingDisabled()) {
+            // Return immediately with cached results only
+            String cacheKey = generateCacheKey(query);
+            CachedResult cached = resultCache.get(cacheKey);
+            if (cached != null && !cached.isExpired()) {
+                callback.onSuccess(cached.getResults());
+            } else {
+                // Use keyword fallback immediately
+                List<RetrievedChunk> fallback = retrieveByKeywords(query, maxResults);
+                callback.onSuccess(fallback);
+            }
+            return;
+        }
+        
+        // Run retrieval in background thread
+        executorService.submit(() -> {
+            try {
+                List<RetrievedChunk> results = retrieveRelevantChunks(query, maxResults);
+                callback.onSuccess(results);
+            } catch (Exception e) {
+                callback.onFailure(e);
+            }
+        });
+    }
+    
+    /**
+     * Retrieve relevant code chunks for completion context (blocking - use async version for UI)
      */
     public List<RetrievedChunk> retrieveRelevantChunks(String query, int maxResults) {
         // Check cache first
@@ -87,8 +195,10 @@ public class InlineCompletionRAG {
                     CompletableFuture<ZestLangChain4jService.RetrievalResult> retrievalFuture = 
                         service.retrieveContext(query, maxResults, MIN_SIMILARITY_SCORE);
                     
+                    // Use configurable timeout
+                    long timeoutMs = getEffectiveTimeoutMs();
                     ZestLangChain4jService.RetrievalResult result = retrievalFuture.get(
-                        EMBEDDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                        timeoutMs, TimeUnit.MILLISECONDS);
                     
                     return convertRetrievalResult(result);
                 } catch (Exception e) {
@@ -98,7 +208,8 @@ public class InlineCompletionRAG {
             }, executorService);
             
             // Apply timeout for fast response
-            List<RetrievedChunk> results = future.get(EMBEDDING_TIMEOUT_MS * 2, TimeUnit.MILLISECONDS);
+            long timeoutMs = getEffectiveTimeoutMs();
+            List<RetrievedChunk> results = future.get(timeoutMs * 2, TimeUnit.MILLISECONDS);
             
             if (!results.isEmpty()) {
                 cacheResult(query, results);
@@ -111,6 +222,9 @@ public class InlineCompletionRAG {
         } catch (TimeoutException e) {
             LOG.debug("Search timeout, using fallback");
             return retrieveByKeywords(query, maxResults);
+        } catch (java.util.concurrent.CancellationException e) {
+            LOG.debug("Request was cancelled");
+            return Collections.emptyList();
         } catch (Exception e) {
             LOG.warn("Retrieval failed, using fallback", e);
             return retrieveByKeywords(query, maxResults);
@@ -226,6 +340,19 @@ public class InlineCompletionRAG {
         }
         
         return (double) matches / keywords.size();
+    }
+    
+    /**
+     * Calculate effective timeout based on configuration
+     */
+    private long getEffectiveTimeoutMs() {
+        if (config.isLLMRAGBlockingDisabled()) {
+            return FALLBACK_TIMEOUT_MS; // Very short timeout
+        } else if (config.isLLMRAGTimeoutsMinimized()) {
+            return config.getRAGMaxTimeoutMs(); // Configurable minimum timeout
+        } else {
+            return EMBEDDING_TIMEOUT_MS; // Original timeout
+        }
     }
     
     private List<TextSegment> getAllSegments() {

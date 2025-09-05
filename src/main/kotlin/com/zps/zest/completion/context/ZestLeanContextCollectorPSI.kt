@@ -191,7 +191,13 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
                 println("Using cached VCS context (non-blocking)")
                 cachedGitContext
             } else {
-                println("No cached VCS context available (non-blocking)")
+                val config = ConfigurationManager.getInstance(project)
+                // Only attempt blocking operations if not disabled
+                if (!config.isContextCollectorBlockingDisabled()) {
+                    println("No cached VCS context available (non-blocking)")
+                } else {
+                    println("VCS context collection disabled due to blocking configuration")
+                }
                 null
             }
         } catch (e: Exception) {
@@ -321,8 +327,9 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
         
 //        println("ZestLeanContextCollectorPSI: No preemptive analysis available, falling back to on-demand")
         
-        // Only do async analysis for Java files
-        if (immediateContext.language != "java") {
+        // Only do async analysis for Java files and if blocking is not disabled
+        val config = ConfigurationManager.getInstance(project)
+        if (immediateContext.language != "java" || config.isContextCollectorBlockingDisabled()) {
             ApplicationManager.getApplication().invokeLater {
                 onComplete(immediateContext)
             }

@@ -401,6 +401,150 @@ public class ConfigurationManager {
         }
         return globalSettings.enableRelevanceCache;
     }
+    
+    /**
+     * Checks if context collector blocking is disabled
+     * @return true if all blocking delays should be disabled
+     */
+    public boolean isContextCollectorBlockingDisabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for disableContextCollectorBlocking");
+            return false;
+        }
+        return globalSettings.disableContextCollectorBlocking;
+    }
+    
+    /**
+     * Sets whether context collector blocking should be disabled
+     * @param disabled true to disable all blocking delays
+     */
+    public void setContextCollectorBlockingDisabled(boolean disabled) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set disableContextCollectorBlocking - globalSettings is null");
+            return;
+        }
+        globalSettings.disableContextCollectorBlocking = disabled;
+    }
+    
+    /**
+     * Checks if context collector delays should be minimized to 1ms
+     * @return true if delays should be reduced to 1ms
+     */
+    public boolean isContextCollectorDelaysMinimized() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for minimizeContextCollectorDelays");
+            return false;
+        }
+        return globalSettings.minimizeContextCollectorDelays;
+    }
+    
+    /**
+     * Sets whether context collector delays should be minimized to 1ms
+     * @param minimized true to reduce delays to 1ms
+     */
+    public void setContextCollectorDelaysMinimized(boolean minimized) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set minimizeContextCollectorDelays - globalSettings is null");
+            return;
+        }
+        globalSettings.minimizeContextCollectorDelays = minimized;
+    }
+    
+    /**
+     * Checks if LLM RAG blocking requests are disabled
+     * @return true if all LLM RAG requests should be non-blocking
+     */
+    public boolean isLLMRAGBlockingDisabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for disableLLMRAGBlocking");
+            return false;
+        }
+        return globalSettings.disableLLMRAGBlocking;
+    }
+    
+    /**
+     * Sets whether LLM RAG blocking requests should be disabled
+     * @param disabled true to make all LLM RAG requests non-blocking
+     */
+    public void setLLMRAGBlockingDisabled(boolean disabled) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set disableLLMRAGBlocking - globalSettings is null");
+            return;
+        }
+        globalSettings.disableLLMRAGBlocking = disabled;
+    }
+    
+    /**
+     * Checks if LLM RAG timeouts should be minimized
+     * @return true if RAG timeouts should be reduced to minimum values
+     */
+    public boolean isLLMRAGTimeoutsMinimized() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for minimizeLLMRAGTimeouts");
+            return false;
+        }
+        return globalSettings.minimizeLLMRAGTimeouts;
+    }
+    
+    /**
+     * Sets whether LLM RAG timeouts should be minimized
+     * @param minimized true to reduce RAG timeouts to minimum values
+     */
+    public void setLLMRAGTimeoutsMinimized(boolean minimized) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set minimizeLLMRAGTimeouts - globalSettings is null");
+            return;
+        }
+        globalSettings.minimizeLLMRAGTimeouts = minimized;
+    }
+    
+    /**
+     * Gets the maximum timeout for RAG requests when timeouts are minimized
+     * @return timeout in milliseconds
+     */
+    public int getRAGMaxTimeoutMs() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for ragMaxTimeoutMs");
+            return 100;
+        }
+        return globalSettings.ragMaxTimeoutMs;
+    }
+    
+    /**
+     * Sets the maximum timeout for RAG requests when timeouts are minimized
+     * @param timeoutMs timeout in milliseconds
+     */
+    public void setRAGMaxTimeoutMs(int timeoutMs) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set ragMaxTimeoutMs - globalSettings is null");
+            return;
+        }
+        globalSettings.ragMaxTimeoutMs = Math.max(1, Math.min(timeoutMs, 5000)); // Clamp between 1ms and 5s
+    }
+    
+    /**
+     * Checks if RAG request cancellation is enabled
+     * @return true if RAG requests can be cancelled
+     */
+    public boolean isRAGRequestCancellationEnabled() {
+        if (globalSettings == null) {
+            LOG.warn("GlobalSettings is null, returning default value for enableRAGRequestCancellation");
+            return true;
+        }
+        return globalSettings.enableRAGRequestCancellation;
+    }
+    
+    /**
+     * Sets whether RAG request cancellation is enabled
+     * @param enabled true to allow cancelling RAG requests
+     */
+    public void setRAGRequestCancellationEnabled(boolean enabled) {
+        if (globalSettings == null) {
+            LOG.error("Cannot set enableRAGRequestCancellation - globalSettings is null");
+            return;
+        }
+        globalSettings.enableRAGRequestCancellation = enabled;
+    }
 
     /**
      * @deprecated Use IntelliJ settings directly

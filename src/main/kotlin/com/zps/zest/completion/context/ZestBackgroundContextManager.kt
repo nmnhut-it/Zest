@@ -40,6 +40,8 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
     private val fileContextTtlMs = 300_000L // 5 minutes
     private val maxCachedFiles = 50 // LRU eviction threshold
     
+    private val config by lazy { com.zps.zest.ConfigurationManager.getInstance(project) }
+    
     init {
         logger.info("Initializing ZestBackgroundContextManager for project: ${project.name}")
     }
@@ -154,7 +156,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
     fun scheduleGitRefresh() {
         if (isStarted.get()) {
             scope.launch {
-                delay(1000) // Small delay to batch multiple changes
+                delay(getScheduleDelayMs()) // Small delay to batch multiple changes
                 forceGitRefresh()
             }
         }
@@ -186,12 +188,12 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
     private fun startGitContextRefresh() {
         gitRefreshJob = scope.launch {
             // Initial collection
-            delay(2000) // Wait for project to fully load
+            delay(getInitialDelayMs()) // Wait for project to fully load
             forceGitRefresh()
             
             // Periodic refresh
             while (isActive) {
-                delay(gitContextTtlMs)
+                delay(getRefreshIntervalMs())
                 try {
                     val cached = cacheMutex.withLock { cachedGitContext }
                     if (cached?.isExpired() != false) {
@@ -214,7 +216,7 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
                     // Enforce cache size limits
                     enforceFileCacheLimit()
                     
-                    delay(60_000) // Clean up every minute
+                    delay(getCleanupIntervalMs()) // Clean up every minute
                 } catch (e: Exception) {
                     logger.warn("Error during file context monitoring", e)
                 }
@@ -320,6 +322,40 @@ class ZestBackgroundContextManager(private val project: Project) : Disposable {
         val lastModified: Long
     )
     
+    // Helper methods for configurable delays
+    
+    private fun getScheduleDelayMs(): Long {
+        return when {
+            config.isContextCollectorBlockingDisabled() -> 0L
+            config.isContextCollectorDelaysMinimized() -> 1L
+            else -> 1000L // Original delay
+        }
+    }
+    
+    private fun getInitialDelayMs(): Long {
+        return when {
+            config.isContextCollectorBlockingDisabled() -> 0L
+            config.isContextCollectorDelaysMinimized() -> 1L
+            else -> 2000L // Original delay
+        }
+    }
+    
+    private fun getRefreshIntervalMs(): Long {
+        return when {
+            config.isContextCollectorBlockingDisabled() -> 100L // Very short polling for immediate updates
+            config.isContextCollectorDelaysMinimized() -> 1L
+            else -> gitContextTtlMs // Original TTL (30 seconds)
+        }
+    }
+    
+    private fun getCleanupIntervalMs(): Long {
+        return when {
+            config.isContextCollectorBlockingDisabled() -> 1000L // Clean up every second instead of every minute
+            config.isContextCollectorDelaysMinimized() -> 1L
+            else -> 60_000L // Original delay (1 minute)
+        }
+    }
+
     companion object {
         private const val MAX_BACKGROUND_TASKS = 2
     }

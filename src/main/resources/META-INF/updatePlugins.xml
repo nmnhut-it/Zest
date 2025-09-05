@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.893">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.894">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,40 +9,33 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
-            <h3>Version 1.9.893 - Code Health Review Enhancement 🔍</h3>
-            <h4>🛡️ Code Health Review Improvements</h4>
+            <h3>Version 1.9.894 - Context Collector Performance Optimization ⚡</h3>
+            <h4>⚡ Context Collector Performance</h4>
             <ul>
-                <li><b>Enhanced Code Preview</b> - Fixed code preview issues in Code Health Review dialog</li>
-                <li><b>Better LLM Prompts</b> - Improved prompts with Vietnamese mixed with English for better analysis accuracy</li>
-                <li><b>Comprehensive Analysis</b> - Now includes originalCode and annotatedCode fields in all analysis types (Java methods, JS/TS regions, whole files)</li>
-                <li><b>Debug Logging</b> - Added detailed debug information to track LLM response quality</li>
-                <li><b>OOP Metrics System</b> - Migrated to clean object-oriented architecture using polymorphism instead of switch statements</li>
+                <li><b>Configurable Blocking Delays</b> - Added settings to disable or minimize all blocking delays in context collection</li>
+                <li><b>Non-Blocking Priority</b> - Enhanced context collection to prioritize cached, non-blocking approaches</li>
+                <li><b>Performance Settings</b> - New configuration options: disableContextCollectorBlocking and minimizeContextCollectorDelays</li>
+                <li><b>Optimized Background Processing</b> - All delay timers now respect performance configuration (1ms minimum or disabled)</li>
+                <li><b>Reduced Async Analysis Overhead</b> - Expensive async analysis is skipped when blocking is disabled</li>
             </ul>
             
-            <h4>📊 Metrics & Analytics</h4>
+            <h4>🔧 Configuration Improvements</h4>
             <ul>
-                <li><b>User Authentication</b> - Added actual username from ConfigurationManager to all metrics</li>
-                <li><b>Strongly-Typed Data</b> - Replaced Map&lt;String, Any&gt; with strongly-typed CodeHealthAnalysisData</li>
-                <li><b>Clean Architecture</b> - Removed deprecated code and wrapper methods for cleaner codebase</li>
-                <li><b>Endpoint Strategy Pattern</b> - Implemented endpoint-specific request handling with MetricsEndpoint enum</li>
+                <li><b>ZestGlobalSettings Enhanced</b> - Added two new boolean settings for context collector performance control</li>
+                <li><b>ConfigurationManager Extended</b> - New getter/setter methods with proper null safety and logging</li>
+                <li><b>ZestBackgroundContextManager Optimized</b> - All hardcoded delays replaced with configurable helper methods</li>
+                <li><b>Context Collection Flow</b> - Enhanced to respect blocking configuration and prefer cached data</li>
             </ul>
             
-            <h4>🎨 UI/UX Enhancements</h4>
+            <h4>🚀 Performance Benefits</h4>
             <ul>
-                <li><b>Better Error Messages</b> - More informative debug information when code preview is unavailable</li>
-                <li><b>Syntax Highlighting</b> - Enhanced code highlighting for LLM-generated review comments with severity indicators</li>
-                <li><b>Debug Information</b> - Console output shows exactly what LLM returns for troubleshooting</li>
+                <li><b>Near-Instant Context</b> - Context collection can now operate with minimal delays (1ms) or no blocking at all</li>
+                <li><b>Responsive UI</b> - Significantly improved plugin responsiveness during code completion and analysis</li>
+                <li><b>Smart Caching</b> - Better utilization of cached VCS and file context without unnecessary waits</li>
+                <li><b>Configurable Trade-offs</b> - Users can choose between performance and comprehensive context collection</li>
             </ul>
             
-            <h4>🔧 Technical Improvements</h4>
-            <ul>
-                <li><b>Removed Fallback Masking</b> - Better visibility into LLM response quality by removing automatic fallbacks</li>
-                <li><b>Polymorphic Serialization</b> - Each metadata type handles its own JSON serialization via toJsonObject() method</li>
-                <li><b>Type Safety</b> - Eliminated unsafe Map usage in favor of compile-time checked data classes</li>
-                <li><b>Consistent Prompting</b> - All analysis types (Java, JS/TS, whole file, method group) now use consistent prompt structure</li>
-            </ul>
-            
-            <p><em>Major architecture improvements for better maintainability and more accurate code analysis. 🚀</em></p>
+            <p><em>Major performance optimization that makes the context collector nearly instant while maintaining functionality. ⚡</em></p>
         ]]></change-notes>
         <vendor>Zingplay Game Studio</vendor>
     </plugin>

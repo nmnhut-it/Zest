@@ -57,6 +57,10 @@ public final class LLMService implements Disposable {
     private static final long RETRY_DELAY_MS = 1000;
     private static final int DEFAULT_MAX_TOKENS = 8148;
     
+    // Performance optimization constants
+    private static final int FAST_CONNECTION_TIMEOUT_MS = 5_000;  // 5 seconds for UI operations
+    private static final int FAST_READ_TIMEOUT_MS = 10_000;       // 10 seconds for UI operations
+    
     // Connection pool configuration (new)
     private static final int THREAD_POOL_SIZE = 5;
 
@@ -253,8 +257,9 @@ public final class LLMService implements Disposable {
     public String queryWithParams(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         try {
             if (useOptimizedClient) {
-                // Use async implementation and wait for result
-                return queryWithParamsAsync(params, enumUsage).get(params.getTimeoutMs(), TimeUnit.MILLISECONDS);
+                // Use async implementation and wait for result with effective timeout
+                long effectiveTimeout = getEffectiveTimeout(params.getTimeoutMs());
+                return queryWithParamsAsync(params, enumUsage).get(effectiveTimeout, TimeUnit.MILLISECONDS);
             } else {
                 // Use original implementation
                 return queryWithRetry(params, enumUsage);
@@ -830,6 +835,44 @@ public final class LLMService implements Disposable {
         }, executorService);
     }
     
+    /**
+     * Calculate effective timeout based on UI blocking prevention settings
+     */
+    private long getEffectiveTimeout(long requestedTimeoutMs) {
+        if (config.isLLMRAGBlockingDisabled()) {
+            // Return very short timeout to prevent UI blocking
+            return Math.min(config.getRAGMaxTimeoutMs(), 1000L); // Max 1 second
+        } else if (config.isLLMRAGTimeoutsMinimized()) {
+            // Use configured minimum timeout
+            return Math.min(requestedTimeoutMs, config.getRAGMaxTimeoutMs());
+        } else {
+            // Use requested timeout
+            return requestedTimeoutMs;
+        }
+    }
+    
+    /**
+     * Get effective connection timeout based on UI blocking settings
+     */
+    private int getEffectiveConnectionTimeout() {
+        if (config.isLLMRAGBlockingDisabled() || config.isLLMRAGTimeoutsMinimized()) {
+            return FAST_CONNECTION_TIMEOUT_MS;
+        } else {
+            return CONNECTION_TIMEOUT_MS;
+        }
+    }
+    
+    /**
+     * Get effective read timeout based on UI blocking settings
+     */
+    private int getEffectiveReadTimeout() {
+        if (config.isLLMRAGBlockingDisabled() || config.isLLMRAGTimeoutsMinimized()) {
+            return FAST_READ_TIMEOUT_MS;
+        } else {
+            return READ_TIMEOUT_MS;
+        }
+    }
+
     @Override
     public void dispose() {
         // Shutdown executor service (new)

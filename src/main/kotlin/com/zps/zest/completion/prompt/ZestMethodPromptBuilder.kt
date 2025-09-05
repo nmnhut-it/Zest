@@ -1,8 +1,10 @@
 package com.zps.zest.completion.prompt
 
 import com.intellij.openapi.project.Project
-import com.zps.zest.completion.context.ZestCocos2dxContextCollector
-import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.completion.MethodContext
+import com.zps.zest.completion.MethodPosition
+import com.zps.zest.completion.Cocos2dxContextType
+import com.zps.zest.completion.SurroundingMethod
 import com.zps.zest.rules.ZestRulesLoader
 import com.zps.zest.completion.experience.ZestExperienceTracker
 import com.zps.zest.langchain4j.ZestLangChain4jService
@@ -14,50 +16,8 @@ class ZestMethodPromptBuilder(private val project: Project? = null) {
     
     private val rulesLoader: ZestRulesLoader? = project?.let { ZestRulesLoader(it) }
     private val experienceTracker: ZestExperienceTracker? = project?.let { ZestExperienceTracker.getInstance(it) }
-    private val ragService: ZestLangChain4jService? = project?.getService(ZestLangChain4jService::class.java)
     
-    /**
-     * Retrieve relevant context from RAG service
-     */
-    private fun retrieveRAGContext(methodContext: ZestMethodContextCollector.MethodContext): String {
-        if (ragService == null) return ""
-        
-        try {
-            // Create query from method context
-            val query = buildRAGQuery(methodContext)
-            
-            // Retrieve context synchronously (fast focused search)
-            val retrievalResult = ragService.retrieveContext(query, 3, 0.7)
-                .get(30, java.util.concurrent.TimeUnit.SECONDS)
-            
-            if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
-                val contextItems = retrievalResult.items.take(3) // Limit to top 3 results
-                return """
-**RELEVANT CODEBASE CONTEXT:**
-${contextItems.joinToString("\n\n") { "- ${it.content}" }}
-                """.trimIndent()
-            }
-        } catch (e: Exception) {
-            // Silently fail - don't let RAG failures break the prompt building
-            println("RAG context retrieval failed: ${e.message}")
-        }
-        
-        return ""
-    }
     
-    /**
-     * Build a query for RAG based on method context
-     * Uses the whole method content to find similar patterns and usage examples
-     */
-    private fun buildRAGQuery(methodContext: ZestMethodContextCollector.MethodContext): String {
-        // Use the complete method content as query - it contains:
-        // - Variable names and types
-        // - API calls and method invocations  
-        // - Import statements and class references
-        // - Logic patterns and control structures
-        // - Comments and documentation
-        return methodContext.methodContent
-    }
     
     /**
      * Load custom rules and prepend them to the prompt if available
@@ -93,10 +53,9 @@ ${patterns.joinToString("\n") { "- $it" }}
     /**
      * Build an enhanced prompt for rewriting a specific method with full class context
      */
-    fun buildMethodRewritePrompt(context: ZestMethodContextCollector.MethodContext): String {
+    fun buildMethodRewritePrompt(context: MethodContext): String {
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
-        val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
 You are a code modification assistant. Execute the requested task on this method while preserving all unrelated code.
@@ -115,7 +74,6 @@ ${buildClassContextSection(context, classInfo)}
 
 ${if (context.relatedClasses.isNotEmpty()) buildRelatedClassesSection(context.relatedClasses) else ""}
 
-${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
 **Method to Modify:**
 ```${context.language.lowercase()}
@@ -165,7 +123,7 @@ Provide the COMPLETE method including the method signature. Start with the metho
     /**
      * Analyze class context to determine how to present it
      */
-    private fun analyzeClassContext(context: ZestMethodContextCollector.MethodContext): ClassContextInfo {
+    private fun analyzeClassContext(context: MethodContext): ClassContextInfo {
         val classContent = context.classContext
         val lineCount = classContent.lines().size
         val isShort = lineCount <= MAX_SHORT_CLASS_LINES
@@ -182,7 +140,7 @@ Provide the COMPLETE method including the method signature. Start with the metho
     /**
      * Build the class context section of the prompt
      */
-    private fun buildClassContextSection(context: ZestMethodContextCollector.MethodContext, classInfo: ClassContextInfo): String {
+    private fun buildClassContextSection(context: MethodContext, classInfo: ClassContextInfo): String {
         return if (classInfo.isShort && context.classContext.isNotBlank()) {
             // Show full class for short classes
             """
@@ -345,7 +303,7 @@ ${classInfo.classSignature}
     /**
      * Infer the role/purpose of the method based on its name and context
      */
-    private fun inferMethodRole(context: ZestMethodContextCollector.MethodContext): String {
+    private fun inferMethodRole(context: MethodContext): String {
         val methodName = context.methodName.lowercase()
         
         return when {
@@ -374,12 +332,11 @@ ${classInfo.classSignature}
      * Build a prompt for a custom rewrite request with enhanced class context
      */
     fun buildCustomMethodPrompt(
-        context: ZestMethodContextCollector.MethodContext,
+        context: MethodContext,
         customInstruction: String
     ): String {
         val classInfo = analyzeClassContext(context)
         val cocosGuidance = buildCocos2dxGuidance(context)
-        val ragContext = retrieveRAGContext(context)
         
         val basePrompt = """
 You are a precise code modification assistant. Your ONLY job is to execute the EXACT task requested.
@@ -404,7 +361,6 @@ ${context.methodContent}
 - Signature: `${context.methodSignature}`
 - Class: ${context.containingClass ?: "unknown"}
 
-${if (ragContext.isNotEmpty()) "$ragContext\n\n" else ""}
 
 ${buildSurroundingMethodsContext(context)}
 
@@ -432,7 +388,7 @@ Provide the COMPLETE modified method including the method signature. Start with 
     /**
      * Build context information about surrounding methods
      */
-    private fun buildSurroundingMethodsContext(context: ZestMethodContextCollector.MethodContext): String {
+    private fun buildSurroundingMethodsContext(context: MethodContext): String {
         if (context.surroundingMethods.isEmpty()) {
             return "**Context:** This method stands alone in the class."
         }
@@ -441,7 +397,7 @@ Provide the COMPLETE modified method including the method signature. Start with 
         contextBuilder.appendLine("**Surrounding Methods for Context:**")
         
         context.surroundingMethods.forEach { method ->
-            val position = if (method.position == ZestMethodContextCollector.MethodPosition.BEFORE) "Before" else "After"
+            val position = if (method.position == MethodPosition.BEFORE) "Before" else "After"
             contextBuilder.appendLine("$position: `${method.signature}`")
         }
         
@@ -451,7 +407,7 @@ Provide the COMPLETE modified method including the method signature. Start with 
     /**
      * Build Cocos2d-x specific guidance section
      */
-    private fun buildCocos2dxGuidance(context: ZestMethodContextCollector.MethodContext): String {
+    private fun buildCocos2dxGuidance(context: MethodContext): String {
         if (!context.isCocos2dx) return ""
         
         return """
@@ -478,44 +434,16 @@ ${context.cocosCompletionHints.joinToString("\n") { "- $it" }}
     /**
      * Build Cocos2d-x specific improvement guidelines
      */
-    private fun buildCocos2dxSpecificGuidelines(context: ZestMethodContextCollector.MethodContext): String {
+    private fun buildCocos2dxSpecificGuidelines(context: MethodContext): String {
         if (!context.isCocos2dx) return ""
         
         val guidelines = StringBuilder()
         guidelines.appendLine("7. **Cocos2d-x Framework Guidelines:**")
         
-        when (context.cocosContextType) {
-            ZestCocos2dxContextCollector.Cocos2dxContextType.NODE_CREATION -> {
-                guidelines.appendLine("   - Use direct constructors: cc.Sprite(), cc.Node(), cc.Layer()")
-                guidelines.appendLine("   - Avoid .create() methods in favor of direct constructor calls")
-                guidelines.appendLine("   - Set properties using modern syntax: node.x = value")
-            }
-            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_DEFINITION -> {
-                guidelines.appendLine("   - Use cc.Scene.extend({...}) pattern for scene inheritance")
-                guidelines.appendLine("   - Include proper lifecycle methods: ctor, onEnter, onExit")
-                guidelines.appendLine("   - Call this._super() in lifecycle methods when appropriate")
-            }
-            ZestCocos2dxContextCollector.Cocos2dxContextType.SCENE_LIFECYCLE_METHOD -> {
-                guidelines.appendLine("   - Follow cocos2d-x lifecycle patterns")
-                guidelines.appendLine("   - Use this._super() to call parent implementation")
-                guidelines.appendLine("   - Handle resource cleanup in onExit methods")
-            }
-            ZestCocos2dxContextCollector.Cocos2dxContextType.ACTION_CREATION -> {
-                guidelines.appendLine("   - Use direct constructors: cc.MoveTo(), cc.ScaleTo(), cc.RotateTo()")
-                guidelines.appendLine("   - Prefer cc.Sequence() and cc.Spawn() for action combinations")
-                guidelines.appendLine("   - Use runAction() to execute actions on nodes")
-            }
-            ZestCocos2dxContextCollector.Cocos2dxContextType.EVENT_LISTENER_SETUP -> {
-                guidelines.appendLine("   - Use cc.EventListener patterns for event handling")
-                guidelines.appendLine("   - Properly register and unregister event listeners")
-                guidelines.appendLine("   - Handle touch and keyboard events with appropriate callbacks")
-            }
-            else -> {
-                guidelines.appendLine("   - Follow cocos2d-x-js old version syntax patterns")
-                guidelines.appendLine("   - Use direct constructor calls over .create() methods")
-                guidelines.appendLine("   - Maintain consistency with cocos2d-x naming conventions")
-            }
-        }
+        // Simplified default Cocos2d-x guidelines
+        guidelines.appendLine("   - Follow cocos2d-x-js old version syntax patterns")
+        guidelines.appendLine("   - Use direct constructor calls over .create() methods")
+        guidelines.appendLine("   - Maintain consistency with cocos2d-x naming conventions")
         
         guidelines.appendLine("   - Ensure compatibility with cocos2d-x ${context.cocosFrameworkVersion ?: "framework"}")
         guidelines.appendLine("   - Follow the established patterns in your cocos2d-x project")
@@ -527,7 +455,7 @@ ${context.cocosCompletionHints.joinToString("\n") { "- $it" }}
      * Build a focused prompt for specific improvement types
      */
     fun buildFocusedImprovementPrompt(
-        context: ZestMethodContextCollector.MethodContext,
+        context: MethodContext,
         improvementType: ImprovementType
     ): String {
         val classInfo = analyzeClassContext(context)
@@ -599,7 +527,7 @@ ${buildCocos2dxSpecificGuidelines(context)}
     /**
      * Build a quick refactoring prompt for simple improvements
      */
-    fun buildQuickRefactorPrompt(context: ZestMethodContextCollector.MethodContext): String {
+    fun buildQuickRefactorPrompt(context: MethodContext): String {
         return """
 Quickly refactor this ${context.language} method for better readability:
 
@@ -616,7 +544,7 @@ Return only the improved method:
     /**
      * Build a modernization prompt to update code to current standards
      */
-    fun buildModernizationPrompt(context: ZestMethodContextCollector.MethodContext): String {
+    fun buildModernizationPrompt(context: MethodContext): String {
         val modernizationHints = when (context.language.lowercase()) {
             "java" -> "Use modern Java features: streams, optional, var keyword, records, pattern matching"
             "kotlin" -> "Use Kotlin idioms: extension functions, data classes, sealed classes, coroutines"

@@ -18,7 +18,7 @@ import com.intellij.psi.PsiTryStatement
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
-import com.zps.zest.completion.context.ZestLeanContextCollector
+import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.google.gson.Gson
@@ -48,7 +48,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             project.getService(CodeHealthAnalyzer::class.java)
     }
 
-    private val contextCollector = ZestLeanContextCollector(project)
+    private val contextCollector = ZestLeanContextCollectorPSI(project)
     private val llmService: LLMService = project.service()
     private val langChainService: ZestLangChain4jService = project.service()
     private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)

@@ -8,7 +8,8 @@
       "Bash(rm:*)",
       "Bash(export:*)",
       "WebFetch(domain:docs.langchain4j.dev)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(timeout 30s ./gradlew compileKotlin:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

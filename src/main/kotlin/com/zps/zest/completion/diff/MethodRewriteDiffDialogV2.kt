@@ -78,22 +78,35 @@ class MethodRewriteDiffDialogV2(
     override fun createCenterPanel(): JComponent {
         val panel = JBPanel<JBPanel<*>>(BorderLayout())
         
-        // Normalize indentation
+        // Create full file content with method replaced for proper syntax highlighting
+        val fullFileContent = editor.document.text
+        val originalFullFile = fullFileContent // Original file as-is
+        val modifiedFullFile = buildString {
+            append(fullFileContent.substring(0, methodStartOffset))
+            append(modifiedContent)
+            append(fullFileContent.substring(methodEndOffset))
+        }
+        
+        // Normalize indentation for the full files
         val (normalizedOriginal, normalizedModified) = IndentationNormalizer.normalizeForDiff(
-            originalContent,
-            modifiedContent
+            originalFullFile,
+            modifiedFullFile
         )
         
         // Create virtual files with proper file type for syntax highlighting
+        val virtualFile = editor.virtualFile
+        val originalFileName = virtualFile?.name ?: "${methodName}_original.${fileType.defaultExtension}"
+        val modifiedFileName = virtualFile?.name ?: "${methodName}_modified.${fileType.defaultExtension}"
+        
         val originalFile = LightVirtualFile(
-            "${methodName}_original.${fileType.defaultExtension}",
+            originalFileName,
             fileType,
-            addContext(normalizedOriginal, true)
+            normalizedOriginal
         )
         val modifiedFile = LightVirtualFile(
-            "${methodName}_modified.${fileType.defaultExtension}",
+            modifiedFileName,
             fileType,
-            addContext(normalizedModified, false)
+            normalizedModified
         )
         
         // Create diff contents from virtual files
@@ -185,37 +198,6 @@ class MethodRewriteDiffDialogV2(
         return panel
     }
     
-    private fun addContext(methodContent: String, isOriginal: Boolean): String {
-        // Get context from editor
-        val document = editor.document
-        val fullText = document.text
-        
-        val startLine = document.getLineNumber(methodStartOffset)
-        val endLine = document.getLineNumber(methodEndOffset)
-        
-        val contextStartLine = maxOf(0, startLine - 100)
-        val contextEndLine = minOf(document.lineCount - 1, endLine + 100)
-        
-        val contextStartOffset = document.getLineStartOffset(contextStartLine)
-        val contextEndOffset = document.getLineEndOffset(contextEndLine)
-        
-        val beforeContext = fullText.substring(contextStartOffset, methodStartOffset)
-        val afterContext = fullText.substring(methodEndOffset, contextEndOffset)
-        
-        return buildString {
-            if (contextStartLine > 0) {
-                appendLine("// ... ${contextStartLine} lines before ...")
-                appendLine()
-            }
-            append(beforeContext)
-            append(methodContent)
-            append(afterContext)
-            if (contextEndLine < document.lineCount - 1) {
-                appendLine()
-                append("// ... ${document.lineCount - 1 - contextEndLine} lines after ...")
-            }
-        }
-    }
     
     override fun createActions(): Array<Action> {
         return emptyArray() // We'll create custom buttons in createSouthPanel

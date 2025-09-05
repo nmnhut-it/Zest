@@ -2,16 +2,14 @@ package com.zps.zest.codehealth
 
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
-import com.zps.zest.completion.context.ZestCocos2dxContextCollector
-import com.zps.zest.completion.context.ZestLeanContextCollector
+import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 
 /**
  * Helper class for handling JavaScript and TypeScript context in Code Health
  */
 class JsTsContextHelper(private val project: Project) {
     
-    private val cocosCollector = ZestCocos2dxContextCollector(project)
-    private val leanCollector = ZestLeanContextCollector(project)
+    private val leanCollector = ZestLeanContextCollectorPSI(project)
     
     enum class FrameworkType {
         COCOS2DX,

@@ -4,7 +4,7 @@ import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.zps.zest.completion.async.PreemptiveAsyncAnalyzerService
+import com.zps.zest.completion.context.FileContextPrePopulationService
 
 /**
  * Simplified startup activity for Zest completion services
@@ -23,9 +23,9 @@ class ZestCompletionStartupActivity : ProjectActivity {
                 return
             }
             
-            // Initialize the preemptive analyzer service
-            project.serviceOrNull<PreemptiveAsyncAnalyzerService>()?.let {
-                logger.info("Preemptive async analyzer service initialized")
+            // Initialize the file context pre-population service
+            project.serviceOrNull<FileContextPrePopulationService>()?.let {
+                logger.info("File context pre-population service initialized")
             }
             
             // Initialize the completion service only if enabled

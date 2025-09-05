@@ -748,4 +748,136 @@ public class ClassAnalyzer {
 
         return classImpls;
     }
+    
+    /**
+     * Pre-analyze entire file structure for context cache pre-population.
+     * This method extracts all methods, classes, and their relationships for caching.
+     */
+    public static FileAnalysisResult analyzeFileStructure(PsiJavaFile javaFile) {
+        return ApplicationManager.getApplication().runReadAction((Computable<FileAnalysisResult>) () -> {
+            try {
+                Set<String> allMethods = new HashSet<>();
+                Set<String> allClasses = new HashSet<>();
+                Map<String, String> methodBodies = new java.util.HashMap<>();
+                Map<String, String> classContents = new java.util.HashMap<>();
+                
+                // Analyze all classes in the file
+                for (PsiClass psiClass : javaFile.getClasses()) {
+                    String className = psiClass.getName();
+                    if (className != null) {
+                        allClasses.add(className);
+                        
+                        // Store class structure (without method bodies for cache efficiency)
+                        String classStructure = getClassSignatureOnly(psiClass);
+                        classContents.put(className, classStructure);
+                        
+                        // Analyze all methods in the class
+                        for (PsiMethod method : psiClass.getMethods()) {
+                            String methodName = method.getName();
+                            allMethods.add(methodName);
+                            
+                            // Store method signature and simplified body
+                            String methodSignature = getMethodSignature(method);
+                            methodBodies.put(methodName, methodSignature);
+                        }
+                    }
+                }
+                
+                return new FileAnalysisResult(allMethods, allClasses, methodBodies, classContents);
+                
+            } catch (Exception e) {
+                return new FileAnalysisResult(new HashSet<>(), new HashSet<>(), new java.util.HashMap<>(), new java.util.HashMap<>());
+            }
+        });
+    }
+    
+    /**
+     * Get class signature without method bodies for efficient caching
+     */
+    private static String getClassSignatureOnly(PsiClass psiClass) {
+        StringBuilder signature = new StringBuilder();
+        
+        // Class declaration
+        if (psiClass.getModifierList() != null) {
+            signature.append(psiClass.getModifierList().getText()).append(" ");
+        }
+        signature.append("class ").append(psiClass.getName());
+        
+        // Extends/implements
+        if (psiClass.getExtendsList() != null && psiClass.getExtendsList().getReferencedTypes().length > 0) {
+            signature.append(" extends ").append(psiClass.getExtendsList().getText());
+        }
+        if (psiClass.getImplementsList() != null && psiClass.getImplementsList().getReferencedTypes().length > 0) {
+            signature.append(" implements ").append(psiClass.getImplementsList().getText());
+        }
+        
+        signature.append(" {\n");
+        
+        // Field declarations only
+        for (PsiField field : psiClass.getFields()) {
+            signature.append("    ").append(field.getText()).append("\n");
+        }
+        
+        // Method signatures only (no bodies)
+        for (PsiMethod method : psiClass.getMethods()) {
+            signature.append("    ").append(getMethodSignature(method)).append("\n");
+        }
+        
+        signature.append("}");
+        return signature.toString();
+    }
+    
+    /**
+     * Get method signature without body
+     */
+    private static String getMethodSignature(PsiMethod method) {
+        StringBuilder signature = new StringBuilder();
+        
+        // Modifiers
+        if (method.getModifierList().getText() != null) {
+            signature.append(method.getModifierList().getText()).append(" ");
+        }
+        
+        // Return type
+        if (method.getReturnType() != null) {
+            signature.append(method.getReturnType().getPresentableText()).append(" ");
+        }
+        
+        // Method name and parameters
+        signature.append(method.getName()).append("(");
+        PsiParameter[] parameters = method.getParameterList().getParameters();
+        for (int i = 0; i < parameters.length; i++) {
+            if (i > 0) signature.append(", ");
+            signature.append(parameters[i].getType().getPresentableText())
+                   .append(" ")
+                   .append(parameters[i].getName());
+        }
+        signature.append(")");
+        
+        // Exceptions
+        if (method.getThrowsList().getReferencedTypes().length > 0) {
+            signature.append(" throws ").append(method.getThrowsList().getText());
+        }
+        
+        signature.append(" { /* body */ }");
+        return signature.toString();
+    }
+    
+    /**
+     * Result of file-level analysis for cache pre-population
+     */
+    public static class FileAnalysisResult {
+        public final Set<String> allMethods;
+        public final Set<String> allClasses;
+        public final Map<String, String> methodBodies;
+        public final Map<String, String> classContents;
+        
+        public FileAnalysisResult(Set<String> allMethods, Set<String> allClasses, 
+                                Map<String, String> methodBodies, Map<String, String> classContents) {
+            this.allMethods = allMethods;
+            this.allClasses = allClasses;
+            this.methodBodies = methodBodies;
+            this.classContents = classContents;
+        }
+    }
 }

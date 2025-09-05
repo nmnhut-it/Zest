@@ -6,11 +6,7 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.search.GlobalSearchScope
 import com.zps.zest.ClassAnalyzer
-import com.zps.zest.ConfigurationManager
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
-import com.zps.zest.completion.context.ZestCompleteGitContext
-import com.zps.zest.completion.rag.InlineCompletionRAG
-import com.zps.zest.completion.ast.ASTPatternMatcher
 
 /**
  * Builds prompts for lean completion strategy with full file context
@@ -56,10 +52,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
                 "hasUsedClasses" to context.usedClasses.isNotEmpty(),
                 "hasRelatedClasses" to context.relatedClassContents.isNotEmpty(),
                 "hasSyntaxInstructions" to !context.syntaxInstructions.isNullOrBlank(),
-                "hasVcsContext" to (context.uncommittedChanges != null),
-                "hasRagChunks" to context.ragChunks.isNotEmpty(),
                 "hasAstPatterns" to context.astPatternMatches.isNotEmpty(),
-                "modifiedFilesCount" to (context.uncommittedChanges?.allModifiedFiles?.size ?: 0),
                 "contextType" to context.contextType.name,
                 "offset" to context.cursorOffset
             )
@@ -72,8 +65,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
     private fun buildEnhancedUserPrompt(context: ZestLeanContextCollectorPSI.LeanContext): String {
         val contextInfo = buildContextInfo(context)
         val relatedClassesSection = buildRelatedClassesSection(context)
-        val vcsSection = buildVcsContextSection(context)
-        val ragSection = buildRagSection(context)
+        val vcsSection = "";
         val astPatternSection = buildAstPatternSection(context)
         
         // Extract the line containing the cursor for AI to repeat
@@ -113,11 +105,6 @@ class ZestLeanPromptBuilder(private val project: Project) {
                 append(relatedClassesSection)
             }
             
-            // Add RAG-retrieved context
-            if (ragSection.isNotBlank()) {
-                append("\n## Similar Code Context (RAG)\n")
-                append(ragSection)
-            }
             
             // Add AST pattern matches
             if (astPatternSection.isNotBlank()) {
@@ -149,108 +136,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
         // Fallback: return a portion around cursor if tag not found
         return "Unable to extract line with cursor"
     }
-    
-    /**
-     * Build VCS context section showing top 3 most relevant uncommitted changes
-     */
-    private fun buildVcsContextSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
-        val gitInfo = context.uncommittedChanges ?: return ""
-        
-        if (gitInfo.allModifiedFiles.isEmpty()) {
-            return ""
-        }
-        
-        val sb = StringBuilder()
-        sb.append("**Uncommitted changes in workspace** _(may or may not be related to current task)_\n\n")
-        
-        // Calculate relevance scores for all modified files
-        val rankedFiles = rankFilesByRelevance(
-            currentFile = context.fileName,
-            modifiedFiles = gitInfo.allModifiedFiles,
-            actualDiffs = gitInfo.actualDiffs
-        )
-        
-        // Take top 3 most relevant files
-        val topFiles = rankedFiles.take(3)
-        
-        // Show summary of all changes
-        sb.append("### Modified Files\n")
-        sb.append("_Showing ${topFiles.size} of ${gitInfo.allModifiedFiles.size} files (ranked by path similarity):_\n\n")
-        topFiles.forEach { (file, score) ->
-            val status = when (file.status) {
-                "M" -> "🔄 Modified"
-                "A" -> "➕ Added"
-                "D" -> "➖ Deleted"
-                else -> file.status
-            }
-            sb.append("- **$status:** `${file.path}`")
-            if (file.summary != null) {
-                sb.append(" — _${file.summary}_")
-            }
-            sb.append("\n")
-        }
-        
-        sb.append("\n> **Note:** These changes provide context about ongoing work but may not directly relate to the completion needed.\n")
-        
-        // Show truncated diffs for top files
-        if (topFiles.any { (file, _) -> gitInfo.actualDiffs.any { it.filePath == file.path } }) {
-            sb.append("\n### Change Details\n")
-            
-            topFiles.forEach { (file, _) ->
-                val diff = gitInfo.actualDiffs.find { it.filePath == file.path }
-                if (diff != null && diff.diffContent.isNotBlank()) {
-                    sb.append("\n#### `${file.path}`\n")
-                    sb.append("```diff\n")
-                    sb.append(truncateDiff(diff.diffContent, 10))
-                    sb.append("\n```\n")
-                }
-            }
-        }
-        
-        return sb.toString()
-    }
-    
-    /**
-     * Rank files by relevance to current file using cosine similarity
-     */
-    private fun rankFilesByRelevance(
-        currentFile: String,
-        modifiedFiles: List<ZestCompleteGitContext.ModifiedFile>,
-        actualDiffs: List<ZestCompleteGitContext.FileDiff>
-    ): List<Pair<ZestCompleteGitContext.ModifiedFile, Double>> {
-        
-        return modifiedFiles.map { file ->
-            val relevanceScore = calculateFileRelevance(currentFile, file.path)
-            file to relevanceScore
-        }.sortedByDescending { it.second }
-    }
-    
-    /**
-     * Calculate relevance score between current file and a modified file
-     */
-    private fun calculateFileRelevance(currentFile: String, modifiedFile: String): Double {
-        // Extract file components
-        val currentParts = extractFileComponents(currentFile)
-        val modifiedParts = extractFileComponents(modifiedFile)
-        
-        var score = 0.0
-        
-        // Same directory gets high score
-        if (currentParts.directory == modifiedParts.directory) {
-            score += 0.5
-        }
-        
-        // Similar package/path structure
-        val pathSimilarity = calculatePathSimilarity(currentParts.directory, modifiedParts.directory)
-        score += pathSimilarity * 0.3
-        
-        // Similar file names (using existing string similarity)
-        val nameSimilarity = calculateStringSimilarity(currentParts.baseName, modifiedParts.baseName)
-        score += nameSimilarity * 0.2
-        
-        return score
-    }
-    
+
     /**
      * Extract file path components for comparison
      */
@@ -265,66 +151,7 @@ class ZestLeanPromptBuilder(private val project: Project) {
         
         return FileComponents(directory, baseName, extension)
     }
-    
-    /**
-     * Calculate similarity between two file paths
-     */
-    private fun calculatePathSimilarity(path1: String, path2: String): Double {
-        val parts1 = path1.split('/')
-        val parts2 = path2.split('/')
-        
-        var commonParts = 0
-        val minLength = minOf(parts1.size, parts2.size)
-        
-        for (i in 0 until minLength) {
-            if (parts1[i] == parts2[i]) {
-                commonParts++
-            }
-        }
-        
-        return if (minLength > 0) commonParts.toDouble() / minLength else 0.0
-    }
-    
-    /**
-     * Truncate diff content to specified number of lines
-     */
-    private fun truncateDiff(diffContent: String, maxLines: Int): String {
-        val lines = diffContent.lines()
-        return if (lines.size <= maxLines) {
-            diffContent
-        } else {
-            lines.take(maxLines).joinToString("\n") + "\n... (diff truncated, ${lines.size - maxLines} more lines)"
-        }
-    }
-    
-    /**
-     * Calculate string similarity using n-grams (from existing code)
-     */
-    private fun calculateStringSimilarity(s1: String, s2: String): Double {
-        if (s1.isEmpty() || s2.isEmpty()) return 0.0
-        
-        val ngrams1 = extractNgrams(s1.lowercase(), 2)
-        val ngrams2 = extractNgrams(s2.lowercase(), 2)
-        
-        if (ngrams1.isEmpty() || ngrams2.isEmpty()) return 0.0
-        
-        val intersection = ngrams1.intersect(ngrams2).size
-        val union = (ngrams1 + ngrams2).distinct().size
-        
-        return if (union > 0) intersection.toDouble() / union else 0.0
-    }
-    
-    /**
-     * Extract n-grams from text
-     */
-    private fun extractNgrams(text: String, n: Int): Set<String> {
-        if (text.length < n) return setOf(text)
-        
-        return (0..text.length - n).map { i ->
-            text.substring(i, i + n)
-        }.toSet()
-    }
-    
+
     /**
      * Data class for file components
      */
@@ -462,78 +289,12 @@ class ZestLeanPromptBuilder(private val project: Project) {
                 qualifiedName.startsWith("kotlin.")
     }
     
-    /**
-     * Build RAG section from retrieved chunks
-     */
-    private fun buildRagSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
-        if (context.ragChunks.isEmpty()) {
-            return ""
-        }
-        
-        val config = ConfigurationManager.getInstance(project)
-        val maxRagSize = config.maxRagContextSize
-        
-        val sb = StringBuilder()
-        sb.append("Retrieved relevant code chunks:\n\n")
-        
-        var totalSize = 0
-        val chunksToInclude = mutableListOf<InlineCompletionRAG.RetrievedChunk>()
-        
-        // Only include chunks that fit within size limit
-        for (chunk in context.ragChunks) {
-            if (totalSize + chunk.content.length <= maxRagSize) {
-                chunksToInclude.add(chunk)
-                totalSize += chunk.content.length
-            } else {
-                break
-            }
-        }
-        
-        chunksToInclude.forEachIndexed { index, chunk ->
-            sb.append("### ${index + 1}. ")
-            
-            // Add file path if available
-            val filePath = chunk.filePath
-            if (filePath != null) {
-                sb.append("From `$filePath`")
-            }
-            
-            // Add method name if available
-            val methodName = chunk.methodName
-            if (methodName != null) {
-                sb.append(" - Method: `$methodName`")
-            }
-            
-            sb.append(" (score: ${String.format("%.2f", chunk.score)})\n")
-            sb.append("```${context.language.lowercase()}\n")
-            sb.append(truncateCode(chunk.content, 300))
-            sb.append("\n```\n\n")
-        }
-        
-        return sb.toString()
-    }
     
     /**
      * Build AST pattern section from matches
      */
     private fun buildAstPatternSection(context: ZestLeanContextCollectorPSI.LeanContext): String {
-        if (context.astPatternMatches.isEmpty()) {
-            return ""
-        }
-        
-        val sb = StringBuilder()
-        sb.append("Similar structural patterns found:\n\n")
-        
-        context.astPatternMatches.take(2).forEachIndexed { index, match ->
-            sb.append("### ${index + 1}. Pattern Match")
-            sb.append(" (similarity: ${String.format("%.2f", match.similarity)})\n")
-            sb.append("Lines ${match.startLine}-${match.endLine}:\n")
-            sb.append("```${context.language.lowercase()}\n")
-            sb.append(truncateCode(match.code, 200))
-            sb.append("\n```\n\n")
-        }
-        
-        return sb.toString()
+        return "";
     }
     
     /**

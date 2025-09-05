@@ -2,7 +2,6 @@ package com.zps.zest.completion.context
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
-import com.zps.zest.completion.rag.InlineCompletionRAG
 import com.zps.zest.completion.ast.ASTPatternMatcher
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -84,35 +83,15 @@ class LeanContextCache(private val project: Project) {
     )
     
     // Cache for different operation types
-    private val ragCache = ConcurrentHashMap<String, CacheEntry<List<InlineCompletionRAG.RetrievedChunk>>>()
     private val astPatternCache = ConcurrentHashMap<String, CacheEntry<ASTPatternMatcher.ASTPattern?>>()
     private val contextCache = ConcurrentHashMap<String, CacheEntry<ZestLeanContextCollectorPSI.LeanContext>>()
     private val psiAnalysisCache = ConcurrentHashMap<String, CacheEntry<PsiAnalysisCache>>()
     
     // Cache TTL (30 seconds for fast operations, 5 minutes for expensive ones)
-    private val RAG_CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(30)
     private val AST_PATTERN_CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(30)
     private val CONTEXT_CACHE_TTL_MS = TimeUnit.MINUTES.toMillis(2)
     private val PSI_ANALYSIS_CACHE_TTL_MS = TimeUnit.MINUTES.toMillis(5)
     
-    /**
-     * Cache RAG retrieval results by query
-     */
-    fun getCachedRagChunks(query: String): List<InlineCompletionRAG.RetrievedChunk>? {
-        val entry = ragCache[query]
-        return if (entry != null && !isExpired(entry.timestamp, RAG_CACHE_TTL_MS)) {
-            println("Cache HIT for RAG query: '${query.take(50)}...'")
-            entry.value
-        } else {
-            ragCache.remove(query)
-            null
-        }
-    }
-    
-    fun cacheRagChunks(query: String, chunks: List<InlineCompletionRAG.RetrievedChunk>) {
-        ragCache[query] = CacheEntry(chunks)
-        println("Cached RAG results for query: '${query.take(50)}...' (${chunks.size} chunks)")
-    }
     
     /**
      * Cache AST pattern extraction by file path + modification time + offset range
@@ -190,12 +169,11 @@ class LeanContextCache(private val project: Project) {
     fun cleanup() {
         val now = System.currentTimeMillis()
         
-        ragCache.entries.removeIf { now - it.value.timestamp > RAG_CACHE_TTL_MS }
         astPatternCache.entries.removeIf { now - it.value.timestamp > AST_PATTERN_CACHE_TTL_MS }
         contextCache.entries.removeIf { now - it.value.timestamp > CONTEXT_CACHE_TTL_MS }
         psiAnalysisCache.entries.removeIf { now - it.value.timestamp > PSI_ANALYSIS_CACHE_TTL_MS }
         
-        println("Cache cleanup: ${ragCache.size} RAG, ${astPatternCache.size} AST, ${contextCache.size} context, ${psiAnalysisCache.size} PSI entries")
+        println("Cache cleanup: ${astPatternCache.size} AST, ${contextCache.size} context, ${psiAnalysisCache.size} PSI entries")
     }
     
     /**
@@ -235,7 +213,6 @@ class LeanContextCache(private val project: Project) {
      * Clear all caches
      */
     fun clearAll() {
-        ragCache.clear()
         astPatternCache.clear()
         contextCache.clear()
         psiAnalysisCache.clear()
@@ -247,7 +224,6 @@ class LeanContextCache(private val project: Project) {
      */
     fun getStats(): Map<String, Int> {
         return mapOf(
-            "ragEntries" to ragCache.size,
             "astPatternEntries" to astPatternCache.size,
             "contextEntries" to contextCache.size,
             "psiAnalysisEntries" to psiAnalysisCache.size

@@ -10,6 +10,7 @@ import com.intellij.notification.NotificationType
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.completion.context.ZestSimpleContextCollector
+import com.zps.zest.completion.context.FileContextPrePopulationService
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.CompletionMetadata
 import com.zps.zest.completion.data.ZestInlineCompletionItem
@@ -24,7 +25,9 @@ import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
 import com.zps.zest.langchain4j.util.LLMService
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.*
+import kotlin.coroutines.resume
 
 /**
  * Completion provider with multiple strategies (A/B testing)
@@ -40,6 +43,9 @@ class ZestCompletionProvider(private val project: Project) {
     // Add metrics service
     private val metricsService by lazy { ZestInlineCompletionMetricsService.getInstance(project) }
     private val cachingMetrics by lazy { PromptCachingMetrics.getInstance(project) }
+    
+    // Pre-population service for cache warming
+    private val prePopulationService by lazy { project.getService(FileContextPrePopulationService::class.java) }
 
     // Notification group for debug
     private val notificationGroup = NotificationGroupManager.getInstance()
@@ -201,31 +207,25 @@ class ZestCompletionProvider(private val project: Project) {
         return try {
             logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
 
-            // Get current editor and document text on EDT
+            // Get current editor and document text on EDT (non-blocking)
             log("Getting editor and document text...", "Simple", 1)
-            val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                    log("Editor found: ${ed != null}", "Simple", 1)
-                    if (ed != null) {
-                        val text = ed.document.text
-                        log("Document text length: ${text.length}", "Simple", 1)
-                        editorFuture.complete(Pair(ed, text))
-                    } else {
-                        editorFuture.complete(Pair(null, ""))
+            val (editor, documentText) = suspendCancellableCoroutine { continuation ->
+                ApplicationManager.getApplication().invokeLater {
+                    try {
+                        val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                        log("Editor found: ${ed != null}", "Simple", 1)
+                        if (ed != null) {
+                            val text = ed.document.text
+                            log("Document text length: ${text.length}", "Simple", 1)
+                            continuation.resume(Pair(ed, text))
+                        } else {
+                            continuation.resume(Pair(null, ""))
+                        }
+                    } catch (e: Exception) {
+                        log("ERROR getting editor: ${e.message}", "Simple")
+                        continuation.resume(Pair(null, ""))
                     }
-                } catch (e: Exception) {
-                    log("ERROR getting editor: ${e.message}", "Simple")
-                    editorFuture.complete(Pair(null, ""))
                 }
-            }
-
-            val (editor, documentText) = try {
-                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
-            } catch (e: Exception) {
-                log("ERROR waiting for editor: ${e.message}", "Simple")
-                Pair(null, "")
             }
 
             if (editor == null) {
@@ -417,26 +417,20 @@ class ZestCompletionProvider(private val project: Project) {
         return try {
             logger.debug("Requesting lean completion for ${context.fileName} at offset ${context.offset}")
 
-            // Get current editor and full document text on EDT
-            val editorFuture = java.util.concurrent.CompletableFuture<Pair<Editor?, String>>()
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                    if (ed != null) {
-                        editorFuture.complete(Pair(ed, ed.document.text))
-                    } else {
-                        editorFuture.complete(Pair(null, ""))
+            // Get current editor and full document text on EDT (non-blocking)
+            val (editor, documentText) = suspendCancellableCoroutine { continuation ->
+                ApplicationManager.getApplication().invokeLater {
+                    try {
+                        val ed = FileEditorManager.getInstance(project).selectedTextEditor
+                        if (ed != null) {
+                            continuation.resume(Pair(ed, ed.document.text))
+                        } else {
+                            continuation.resume(Pair(null, ""))
+                        }
+                    } catch (e: Exception) {
+                        continuation.resume(Pair(null, ""))
                     }
-
-                } catch (e: Exception) {
-                    editorFuture.complete(Pair(null, ""))
                 }
-            }
-
-            val (editor, documentText) = try {
-                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
-            } catch (e: Exception) {
-                Pair(null, "")
             }
 
             if (editor == null) {
@@ -444,31 +438,32 @@ class ZestCompletionProvider(private val project: Project) {
                 return null
             }
 
-            // Use async collection with preemptive analysis
+            // Use async collection with preemptive analysis (non-blocking)
             val leanContextStartTime = System.currentTimeMillis()
             log("Starting lean context collection...", "Lean")
             
-            // Collect context with dependency analysis (will use preemptive cache if available)
-            val contextDeferred = kotlinx.coroutines.CompletableDeferred<ZestLeanContextCollectorPSI.LeanContext?>()
-            
-            // Call directly - collectWithDependencyAnalysis already handles invokeLater internally
-            leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
-                log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
-                log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
-                log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
-                if (!contextDeferred.isCompleted) {
-                    contextDeferred.complete(ctx)
+            // Collect context with dependency analysis using suspendCancellableCoroutine (non-blocking)
+            val leanContext = suspendCancellableCoroutine { continuation ->
+                var isCompleted = false
+                
+                // Call the async context collection method
+                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
+                    if (!isCompleted) {
+                        isCompleted = true
+                        log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
+                        log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
+                        log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
+                        continuation.resume(ctx)
+                    }
                 }
-            }
-            
-            // Wait for context with timeout
-            val leanContext = try {
-                withTimeoutOrNull(5000) {  // 5 seconds max wait (increased from 2)
-                    contextDeferred.await()
+                
+                // Set up cancellation callback
+                continuation.invokeOnCancellation {
+                    if (!isCompleted) {
+                        isCompleted = true
+                        log("Context collection cancelled", "Lean")
+                    }
                 }
-            } catch (e: Exception) {
-                log("Exception waiting for context: ${e.message}", "Lean")
-                null
             }
             
             if (leanContext == null) {
@@ -674,23 +669,17 @@ class ZestCompletionProvider(private val project: Project) {
 
             val startTime = System.currentTimeMillis()
 
-            // Get current editor on EDT
-            val editorFuture = java.util.concurrent.CompletableFuture<Editor?>()
-            ApplicationManager.getApplication().invokeLater {
+            // Get current editor on EDT (using invokeLater for method rewrite)
+            var selectedEditor: Editor? = null
+            ApplicationManager.getApplication().invokeAndWait {
                 try {
-                    val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                    editorFuture.complete(ed)
+                    selectedEditor = FileEditorManager.getInstance(project).selectedTextEditor
                 } catch (e: Exception) {
-                    editorFuture.complete(null)
+                    selectedEditor = null
                 }
             }
 
-            val editor = try {
-                editorFuture.get(2, java.util.concurrent.TimeUnit.SECONDS)
-            } catch (e: Exception) {
-                null
-            }
-
+            val editor = selectedEditor
             if (editor == null) {
                 logger.debug("No active editor found for method rewrite")
                 return null

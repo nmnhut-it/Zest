@@ -7,9 +7,10 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.*
 import com.intellij.psi.codeStyle.CodeStyleManager
-import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.intellij.psi.util.PsiTreeUtil
+import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.prompt.ZestMethodPromptBuilder
 import com.zps.zest.completion.parser.ZestMethodResponseParser
 import com.zps.zest.completion.actions.ZestTriggerQuickAction
@@ -17,8 +18,6 @@ import com.zps.zest.langchain4j.util.LLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
-import com.zps.zest.gdiff.GDiff
-import com.zps.zest.gdiff.EnhancedGDiff
 import com.zps.zest.completion.metrics.ZestQuickActionMetricsService
 import com.zps.zest.completion.experience.ZestExperienceTracker
 import kotlinx.coroutines.*
@@ -51,11 +50,32 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         }
     }
 
-    private val methodContextCollector = ZestMethodContextCollector(project)
+    // Simple method finder to replace deleted ZestMethodContextCollector
+    private fun findMethodAtOffset(editor: Editor, offset: Int): MethodContext? {
+        return ApplicationManager.getApplication().runReadAction<MethodContext?> {
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@runReadAction null
+            val element = psiFile.findElementAt(offset) ?: return@runReadAction null
+            val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
+            
+            val methodText = method.text ?: ""
+            val fileName = psiFile.virtualFile?.name ?: "unknown"
+            val language = if (fileName.endsWith(".java")) "java" else "javascript"
+            
+            MethodContext(
+                methodName = method.name,
+                methodStartOffset = method.textRange.startOffset,
+                methodEndOffset = method.textRange.endOffset,
+                methodContent = methodText,
+                language = language,
+                fileName = fileName,
+                isCocos2dx = false,
+                relatedClasses = emptyMap()
+            )
+        }
+    }
+    
     private val promptBuilder = ZestMethodPromptBuilder(project)
     private val responseParser = ZestMethodResponseParser()
-    private val gdiff = GDiff()
-    private val enhancedGDiff = EnhancedGDiff()
     private val methodDiffRenderer = ZestMethodDiffRenderer()
     private val experienceTracker by lazy { ZestExperienceTracker.getInstance(project) }
 
@@ -65,10 +85,8 @@ class ZestQuickActionService(private val project: Project) : Disposable {
 
     // State management
     private var currentRewriteJob: Job? = null
-    private var currentMethodContext: ZestMethodContextCollector.MethodContext? = null
+    private var currentMethodContext: MethodContext? = null
     private var currentRewrittenMethod: String? = null
-    private var currentDiffResult: GDiff.DiffResult? = null
-    private var currentEnhancedDiffResult: EnhancedGDiff.EnhancedDiffResult? = null
     private var currentRewriteId: String? = null
 
     /**
@@ -78,7 +96,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
      */
     fun rewriteCurrentMethodWithStatusCallback(
         editor: Editor,
-        methodContext: ZestMethodContextCollector.MethodContext,
+        methodContext: MethodContext,
         customInstruction: String? = null,
         smartDialog: ZestTriggerQuickAction.SmartRewriteDialog? = null,
         statusCallback: ((String) -> Unit)? = null
@@ -146,15 +164,15 @@ class ZestQuickActionService(private val project: Project) : Disposable {
 
             try {
                 // Find the method containing the cursor with async analysis
-                var enhancedMethodContext: ZestMethodContextCollector.MethodContext? = null
+                var enhancedMethodContext: MethodContext? = null
                 val contextReady = CompletableDeferred<Boolean>()
 
                 ApplicationManager.getApplication().invokeLater {
-                    methodContextCollector.findMethodWithAsyncAnalysis(editor, offset) { context ->
-                        enhancedMethodContext = context
-                        if (!contextReady.isCompleted) {
-                            contextReady.complete(true)
-                        }
+                    // Simple method finder to replace deleted collector
+                    val context = findMethodAtOffset(editor, offset)
+                    enhancedMethodContext = context
+                    if (!contextReady.isCompleted) {
+                        contextReady.complete(true)
                     }
                 }
 
@@ -247,7 +265,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
      */
     private suspend fun performMethodRewriteWithCallback(
         editor: Editor,
-        methodContext: ZestMethodContextCollector.MethodContext,
+        methodContext: MethodContext,
         customInstruction: String?,
         requestId: Int,
         rewriteId: String?,  // Unique ID for metrics tracking
@@ -263,96 +281,22 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 return
             }
 
-            // Retrieve RAG context first
-            val retrievingContextMsg = "Retrieving relevant context from codebase..."
-            statusCallback?.invoke("📚 $retrievingContextMsg")
-            smartDialog?.updateProgress(1, retrievingContextMsg) // STAGE_RETRIEVING_CONTEXT = 1
+            // Analyze method context
+            val analyzeContextMsg = "Analyzing method context..."
+            statusCallback?.invoke("🔍 $analyzeContextMsg")
+            smartDialog?.updateProgress(1, analyzeContextMsg) // STAGE_RETRIEVING_CONTEXT = 1
             
-            // Actually perform RAG retrieval and show results to user
-            val contextItems = mutableListOf<String>()
-            var filesSearched = 0
+            // Show method information (without RAG)
+            val contextItems = listOf(
+                "Method: ${methodContext.methodSignature}",
+                "Class: ${methodContext.containingClass ?: "unknown"}", 
+                "File: ${methodContext.fileName}",
+                "Language: ${methodContext.language}"
+            )
             
-            try {
-                // Get LangChain4j service for RAG
-                val ragService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService::class.java)
-                if (ragService != null) {
-                    // Use method content as query for RAG retrieval
-                    val query = methodContext.methodContent
-                    val currentFileName = methodContext.fileName
-                    
-                    // Create progress listener to show detailed progress
-                    val progressListener = object : com.zps.zest.langchain4j.RetrievalProgressListener {
-                        override fun onStageUpdate(stage: String, message: String) {
-                            when (stage) {
-                                "COMPRESS" -> {
-                                    statusCallback?.invoke("🔍 $message")
-                                    smartDialog?.updateProgress(1, message)
-                                }
-                                "SEARCH" -> {
-                                    statusCallback?.invoke("📚 $message")
-                                    smartDialog?.updateProgress(1, message)
-                                }
-                                "BOOST" -> {
-                                    statusCallback?.invoke("⚡ $message")
-                                    smartDialog?.updateProgress(1, message)
-                                }
-                                "COMPLETE" -> {
-                                    statusCallback?.invoke("✅ $message")
-                                    smartDialog?.updateProgress(1, message)
-                                }
-                                "ERROR" -> {
-                                    statusCallback?.invoke("❌ $message")
-                                }
-                            }
-                        }
-                        
-                        override fun onKeywordsExtracted(keywords: List<String>) {
-                            val keywordStr = keywords.take(5).joinToString(", ")
-                            statusCallback?.invoke("🔑 Keywords: $keywordStr")
-                            smartDialog?.updateProgress(1, "Extracted keywords: $keywordStr")
-                        }
-                        
-                        override fun onSearchComplete(candidatesFound: Int, filteredCount: Int) {
-                            val msg = "Found $candidatesFound candidates, filtered to $filteredCount"
-                            statusCallback?.invoke("📊 $msg")
-                            smartDialog?.updateProgress(1, msg)
-                        }
-                        
-                        override fun onComplete(resultsCount: Int, totalTimeMs: Long) {
-                            val msg = "Completed in ${totalTimeMs}ms: $resultsCount results"
-                            statusCallback?.invoke("🎯 $msg")
-                        }
-                    }
-                    
-                    // Determine user intent for RAG context
-                    val userIntent = customInstruction ?: "Help me understand and improve this code"
-                    
-                    val retrievalResult = ragService.retrieveContextWithProgress(query, userIntent, 5, 0.7, currentFileName, progressListener)
-                        .get(30, java.util.concurrent.TimeUnit.SECONDS)
-                    
-                    if (retrievalResult.isSuccess && retrievalResult.items.isNotEmpty()) {
-                        filesSearched = retrievalResult.items.size
-                        contextItems.addAll(retrievalResult.items.take(3).map { item ->
-                            val source = if (item.filePath != null) " (${item.filePath}:${item.lineNumber ?: "?"})" else ""
-                            "${item.title}$source: ${item.content.take(150)}${if (item.content.length > 150) "..." else ""}"
-                        })
-                        
-                        // Show RAG results in dialog
-                        smartDialog?.addContextDetails(contextItems, filesSearched)
-                    } else {
-                        contextItems.add("No relevant context found in codebase")
-                        smartDialog?.addContextDetails(contextItems, 0)
-                    }
-                } else {
-                    contextItems.add("RAG service not available")
-                    smartDialog?.addContextDetails(contextItems, 0)
-                }
-            } catch (e: Exception) {
-                contextItems.add("RAG retrieval failed: ${e.message}")
-                smartDialog?.addContextDetails(contextItems, 0)
-            }
+            smartDialog?.addContextDetails(contextItems, 0)
             
-            // Build prompt with RAG context
+            // Build AI prompt
             val buildingPromptMsg = "Building AI prompt with context..."
             statusCallback?.invoke("🧠 $buildingPromptMsg")
             smartDialog?.updateProgress(2, buildingPromptMsg) // STAGE_BUILDING_PROMPT = 2
@@ -460,23 +404,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 throw Exception("Generated method is invalid: ${parseResult.issues.joinToString(", ")}")
             }
 
-            // Calculate diff
-            val analyzingMsg = "Analyzing changes..."
-            statusCallback?.invoke("🔍 $analyzingMsg")
-            smartDialog?.updateProgress(5, analyzingMsg) // STAGE_ANALYZING_CHANGES = 5
-
-            val enhancedDiffResult = calculateLanguageSpecificDiff(
-                originalCode = methodContext.methodContent,
-                rewrittenCode = parseResult.rewrittenMethod,
-                language = methodContext.language
-            )
-            currentEnhancedDiffResult = enhancedDiffResult
-
-            val diffResult = calculatePreciseChanges(
-                originalCode = methodContext.methodContent,
-                rewrittenCode = parseResult.rewrittenMethod
-            )
-            currentDiffResult = diffResult
+            // Store the rewritten method
             currentRewrittenMethod = parseResult.rewrittenMethod
             
             // Add analysis details to dialog
@@ -496,12 +424,11 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 return
             }
 
-            // Track rewrite viewed
+            // Track rewrite viewed (simplified without diff stats)
             rewriteId?.let {
-                val diffStats = diffResult.getStatistics()
                 metricsService.trackRewriteViewed(
                     rewriteId = it,
-                    diffChanges = diffStats.totalChanges,
+                    diffChanges = 1, // Simple placeholder since we're not calculating diff stats
                     confidence = parseResult.confidence
                 )
             }
@@ -515,10 +442,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 showLanguageAwareDiff(
                     editor = editor,
                     methodContext = methodContext,
-                    enhancedDiffResult = enhancedDiffResult,
-                    legacyDiffResult = diffResult,
                     rewrittenMethod = parseResult.rewrittenMethod,
-                    parseResult = parseResult,
                     rewriteId = rewriteId
                 )
             }
@@ -559,226 +483,30 @@ class ZestQuickActionService(private val project: Project) : Disposable {
     }
 
 
-    /**
-     * Calculate language-specific semantic changes using EnhancedGDiff with optimal configuration
-     */
-    private fun calculateLanguageSpecificDiff(
-        originalCode: String,
-        rewrittenCode: String,
-        language: String
-    ): EnhancedGDiff.EnhancedDiffResult {
-        logger.info("Calculating language-specific diff for $language")
 
-        // Strip trailing closing characters for cleaner diff
-        val (originalStripped, originalClosing) = stripTrailingClosingChars(originalCode)
-        val (rewrittenStripped, rewrittenClosing) = stripTrailingClosingChars(rewrittenCode)
-
-        // Configure EnhancedGDiff for optimal language-specific analysis
-        val diffConfig = EnhancedGDiff.EnhancedDiffConfig(
-            textConfig = GDiff.DiffConfig(
-                ignoreWhitespace = shouldIgnoreWhitespaceForLanguage(language),
-                ignoreCase = false,
-                contextLines = getOptimalContextLinesForLanguage(language)
-            ),
-            preferAST = isASTPreferredForLanguage(language),
-            language = language,
-            useHybridApproach = true
-        )
-
-        // Perform diff on stripped content
-        val strippedResult = enhancedGDiff.diffStrings(originalStripped, rewrittenStripped, diffConfig)
-
-        // Reconstruct full result with closing characters added back
-        return reconstructDiffWithClosingChars(strippedResult, originalClosing, rewrittenClosing)
-    }
 
     /**
-     * Calculate precise changes using GDiff (legacy method)
-     */
-    private fun calculatePreciseChanges(
-        originalCode: String,
-        rewrittenCode: String
-    ): GDiff.DiffResult {
-        val (originalStripped, originalClosing) = stripTrailingClosingChars(originalCode)
-        val (rewrittenStripped, rewrittenClosing) = stripTrailingClosingChars(rewrittenCode)
-
-        val strippedResult = gdiff.diffStrings(
-            source = originalStripped,
-            target = rewrittenStripped,
-            config = GDiff.DiffConfig(
-                ignoreWhitespace = false,
-                ignoreCase = false,
-                contextLines = 3
-            )
-        )
-
-        return reconstructLegacyDiffWithClosingChars(
-            strippedResult, originalStripped, rewrittenStripped, originalClosing, rewrittenClosing
-        )
-    }
-
-    /**
-     * Show language-aware diff with enhanced rendering
+     * Show diff using IntelliJ's built-in diff dialog
      */
     private fun showLanguageAwareDiff(
         editor: Editor,
-        methodContext: ZestMethodContextCollector.MethodContext,
-        enhancedDiffResult: EnhancedGDiff.EnhancedDiffResult,
-        legacyDiffResult: GDiff.DiffResult,
+        methodContext: MethodContext,
         rewrittenMethod: String,
-        parseResult: ZestMethodResponseParser.MethodRewriteResult,
         rewriteId: String? = null
     ) {
         ApplicationManager.getApplication().assertIsDispatchThread()
 
-        // Start the diff renderer
+        // Start the diff renderer - this will directly show the IntelliJ diff dialog
         methodDiffRenderer.startMethodRewrite(
             editor = editor,
             methodContext = methodContext,
+            originalContent = methodContext.methodContent,
+            rewrittenContent = rewrittenMethod,
             onAccept = { acceptMethodRewriteInternal(editor, rewriteId) },
             onReject = { cancelCurrentRewrite(rewriteId) }
         )
-
-        // Show processing state briefly, then show diff
-        methodDiffRenderer.showProcessing()
-
-        ApplicationManager.getApplication().executeOnPooledThread {
-            Thread.sleep(300) // Brief processing indication
-            ApplicationManager.getApplication().invokeLater {
-                methodDiffRenderer.showDiff(legacyDiffResult, rewrittenMethod)
-
-                // Show notification with diff summary
-                val diffSummary = createLanguageAwareDiffSummary(
-                    enhancedDiffResult, legacyDiffResult, parseResult, methodContext.language
-                )
-
-                val title = if (methodContext.isCocos2dx) {
-                    "🎮 Cocos2d-x Method Rewrite Ready - ${methodContext.language.uppercase()}"
-                } else {
-                    "Method Rewrite Ready - ${methodContext.language.uppercase()}"
-                }
-
-//                ZestNotifications.showInfo(
-//                    project,
-//                    title,
-//                    buildCocos2dxAwareDiffSummary(diffSummary, methodContext)
-//                )
-            }
-        }
     }
 
-    // Helper methods (language-specific configurations)
-    private fun shouldIgnoreWhitespaceForLanguage(language: String): Boolean {
-        return when (language.lowercase()) {
-            "python", "yaml", "yml" -> false
-            else -> true
-        }
-    }
-
-    private fun getOptimalContextLinesForLanguage(language: String): Int {
-        return when (language.lowercase()) {
-            "java" -> 5
-            "javascript", "js" -> 3
-            "kotlin" -> 4
-            else -> 3
-        }
-    }
-
-    private fun isASTPreferredForLanguage(language: String): Boolean {
-        return when (language.lowercase()) {
-            "java", "javascript", "js", "kotlin" -> true
-            else -> false
-        }
-    }
-
-    // Helper methods for string manipulation and diff reconstruction
-    private fun stripTrailingClosingChars(code: String): Pair<String, String> {
-        var stripped = code.trimEnd()
-        val closingChars = StringBuilder()
-        val originalEndsWithNewline = code.endsWith("\n")
-
-        while (stripped.isNotEmpty()) {
-            val lastChar = stripped.last()
-            if (lastChar in "}]);" || lastChar.isWhitespace()) {
-                closingChars.insert(0, lastChar)
-                stripped = stripped.dropLast(1)
-            } else {
-                break
-            }
-        }
-
-        if (originalEndsWithNewline && !closingChars.toString().endsWith("\n")) {
-            closingChars.append("\n")
-        }
-
-        return Pair(stripped, closingChars.toString())
-    }
-
-    private fun reconstructDiffWithClosingChars(
-        strippedResult: EnhancedGDiff.EnhancedDiffResult,
-        originalClosing: String,
-        rewrittenClosing: String
-    ): EnhancedGDiff.EnhancedDiffResult {
-        // Implementation for reconstructing enhanced diff with closing chars
-        return strippedResult // Simplified for brevity
-    }
-
-    private fun reconstructLegacyDiffWithClosingChars(
-        strippedResult: GDiff.DiffResult,
-        originalStripped: String,
-        rewrittenStripped: String,
-        originalClosing: String,
-        rewrittenClosing: String
-    ): GDiff.DiffResult {
-        // Implementation for reconstructing legacy diff with closing chars
-        return strippedResult // Simplified for brevity
-    }
-
-    /**
-     * Create language-aware diff summary
-     */
-    private fun createLanguageAwareDiffSummary(
-        enhancedDiffResult: EnhancedGDiff.EnhancedDiffResult,
-        legacyDiffResult: GDiff.DiffResult,
-        parseResult: ZestMethodResponseParser.MethodRewriteResult,
-        language: String
-    ): String {
-        return buildString {
-            appendLine("🔧 ${language.uppercase()} Method Analysis:")
-
-            if (enhancedDiffResult.astDiff != null) {
-                val summary = enhancedDiffResult.getSummary()
-                appendLine("• Diff Strategy: ${summary.strategy}")
-                appendLine("• Semantic Changes: ${summary.semanticChanges}")
-                if (summary.hasLogicChanges) {
-                    appendLine("⚠️ Contains logic changes - review carefully")
-                }
-            } else {
-                val textStats = legacyDiffResult.getStatistics()
-                appendLine("• Text-based analysis")
-                appendLine("• Changes: ${textStats.totalChanges}")
-            }
-
-            appendLine()
-            appendLine("Confidence: ${(parseResult.confidence * 100).toInt()}% | Press TAB to accept, ESC to reject")
-        }
-    }
-
-    private fun buildCocos2dxAwareDiffSummary(
-        baseSummary: String,
-        methodContext: ZestMethodContextCollector.MethodContext
-    ): String {
-        if (!methodContext.isCocos2dx) return baseSummary
-
-        return buildString {
-            appendLine("🎮 COCOS2D-X PROJECT DETECTED")
-            appendLine()
-            methodContext.cocosFrameworkVersion?.let { appendLine("🔧 Framework: Cocos2d-x $it") }
-            methodContext.cocosContextType?.let { appendLine("📍 Context: ${it.name.lowercase().replace('_', ' ')}") }
-            appendLine()
-            append(baseSummary)
-        }
-    }
 
     /**
      * Accept the method rewrite
@@ -797,7 +525,6 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                 "Applying method changes..."
             )
 
-            methodDiffRenderer.acceptChanges()
 
             WriteCommandAction.runWriteCommandAction(project) {
                 val document = editor.document
@@ -846,7 +573,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
      */
     private fun replaceFullMethod(
         document: com.intellij.openapi.editor.Document,
-        methodContext: ZestMethodContextCollector.MethodContext,
+        methodContext: MethodContext,
         rewrittenMethod: String
     ) {
         document.replaceString(
@@ -909,8 +636,6 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         currentRewriteJob = null
         currentMethodContext = null
         currentRewrittenMethod = null
-        currentDiffResult = null
-        currentEnhancedDiffResult = null
         currentRewriteId = null
     }
 
@@ -948,8 +673,6 @@ class ZestQuickActionService(private val project: Project) : Disposable {
         currentRewriteJob = null
         currentMethodContext = null
         currentRewrittenMethod = null
-        currentDiffResult = null
-        currentEnhancedDiffResult = null
         currentRewriteId = null
     }
 

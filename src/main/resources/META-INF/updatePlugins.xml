@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.894">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.895">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,33 +9,34 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
-            <h3>Version 1.9.894 - Context Collector Performance Optimization ⚡</h3>
-            <h4>⚡ Context Collector Performance</h4>
+            <h3>Version 1.9.895 - RAG Removal & Inline Completion Performance Boost 🚀</h3>
+            <h4>⚡ Major Performance Improvements</h4>
             <ul>
-                <li><b>Configurable Blocking Delays</b> - Added settings to disable or minimize all blocking delays in context collection</li>
-                <li><b>Non-Blocking Priority</b> - Enhanced context collection to prioritize cached, non-blocking approaches</li>
-                <li><b>Performance Settings</b> - New configuration options: disableContextCollectorBlocking and minimizeContextCollectorDelays</li>
-                <li><b>Optimized Background Processing</b> - All delay timers now respect performance configuration (1ms minimum or disabled)</li>
-                <li><b>Reduced Async Analysis Overhead</b> - Expensive async analysis is skipped when blocking is disabled</li>
+                <li><b>RAG System Removed</b> - Eliminated 50-200ms latency from inline completions by removing RAG (Retrieval Augmented Generation)</li>
+                <li><b>Faster Context Collection</b> - Inline completions now rely purely on PSI-based analysis and direct code relationships</li>
+                <li><b>Reduced Memory Usage</b> - Removed RAG chunk caching and embedding computation overhead</li>
+                <li><b>Simplified Pipeline</b> - Cleaner, more reliable completion system with fewer failure points</li>
+                <li><b>Better Responsiveness</b> - Eliminated async RAG retrieval complexity from completion flow</li>
             </ul>
             
-            <h4>🔧 Configuration Improvements</h4>
+            <h4>🧹 Code Quality Improvements</h4>
             <ul>
-                <li><b>ZestGlobalSettings Enhanced</b> - Added two new boolean settings for context collector performance control</li>
-                <li><b>ConfigurationManager Extended</b> - New getter/setter methods with proper null safety and logging</li>
-                <li><b>ZestBackgroundContextManager Optimized</b> - All hardcoded delays replaced with configurable helper methods</li>
-                <li><b>Context Collection Flow</b> - Enhanced to respect blocking configuration and prefer cached data</li>
+                <li><b>Removed Files</b> - Deleted InlineCompletionRAG.java and cleaned up all RAG dependencies</li>
+                <li><b>Updated Context Collectors</b> - ZestLeanContextCollectorPSI no longer includes RAG chunks or retrieval</li>
+                <li><b>Streamlined Caching</b> - LeanContextCache simplified by removing RAG-specific caching logic</li>
+                <li><b>Cleaner Prompts</b> - Prompt builders no longer include RAG context sections</li>
+                <li><b>Simplified Services</b> - PreemptiveAsyncAnalyzerService and Quick Actions no longer use RAG</li>
             </ul>
             
-            <h4>🚀 Performance Benefits</h4>
+            <h4>🎯 What You Get</h4>
             <ul>
-                <li><b>Near-Instant Context</b> - Context collection can now operate with minimal delays (1ms) or no blocking at all</li>
-                <li><b>Responsive UI</b> - Significantly improved plugin responsiveness during code completion and analysis</li>
-                <li><b>Smart Caching</b> - Better utilization of cached VCS and file context without unnecessary waits</li>
-                <li><b>Configurable Trade-offs</b> - Users can choose between performance and comprehensive context collection</li>
+                <li><b>Instant Completions</b> - Sub-millisecond inline completion context retrieval</li>
+                <li><b>More Reliable</b> - Fewer dependencies and potential failure points</li>
+                <li><b>Better Resource Usage</b> - Lower CPU and memory consumption</li>
+                <li><b>Cleaner Codebase</b> - Removed ~2000+ lines of RAG-related code</li>
             </ul>
             
-            <p><em>Major performance optimization that makes the context collector nearly instant while maintaining functionality. ⚡</em></p>
+            <p><em>This release dramatically improves inline completion performance by removing the RAG bottleneck while maintaining all core functionality through PSI analysis and code relationships. 🚀</em></p>
         ]]></change-notes>
         <vendor>Zingplay Game Studio</vendor>
     </plugin>

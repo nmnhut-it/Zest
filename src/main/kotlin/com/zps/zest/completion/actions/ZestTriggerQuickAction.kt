@@ -23,11 +23,12 @@ import javax.swing.JProgressBar
 import javax.swing.Timer
 import kotlin.math.min
 import com.zps.zest.completion.ZestQuickActionService
-import com.zps.zest.completion.context.ZestMethodContextCollector
+import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
+import com.intellij.psi.util.PsiTreeUtil
 import java.awt.*
 import java.awt.event.KeyEvent
 import java.awt.event.KeyListener
@@ -64,9 +65,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
         val offset = editor.caretModel.primaryCaret.offset
 
-        // Find method at cursor position
-        val contextCollector = ZestMethodContextCollector(project)
-        val methodContext = contextCollector.findMethodAtCursor(editor, offset)
+        // Find method at cursor position using simple method finder
+        val methodContext = findMethodAtOffset(editor, offset, project)
 
         if (methodContext == null) {
             Messages.showWarningDialog(
@@ -87,7 +87,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
     private fun showPromptSelectionDialog(
         project: Project,
         editor: com.intellij.openapi.editor.Editor,
-        methodContext: ZestMethodContextCollector.MethodContext,
+        methodContext: MethodContext,
         methodRewriteService: ZestQuickActionService
     ) {
         // Create dialog first so we can reference it in the callback
@@ -159,7 +159,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
      */
     class SmartRewriteDialog(
         private val project: Project,
-        private val methodContext: ZestMethodContextCollector.MethodContext,
+        private val methodContext: MethodContext,
         private val onInstructionSelected: ((String) -> Unit)? = null
     ) : DialogWrapper(project) {
 
@@ -1253,7 +1253,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
     private fun triggerTestGenerationForMethod(
         project: Project,
         editor: com.intellij.openapi.editor.Editor,
-        methodContext: ZestMethodContextCollector.MethodContext
+        methodContext: MethodContext
     ) {
         logger.info("=== STARTING TEST GENERATION FOR METHOD: ${methodContext.methodName} ===")
         try {
@@ -1321,7 +1321,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
     private fun explainCodeForMethod(
         project: Project,
         editor: com.intellij.openapi.editor.Editor,
-        methodContext: ZestMethodContextCollector.MethodContext
+        methodContext: MethodContext
     ) {
         logger.info("=== STARTING CODE EXPLANATION FOR METHOD: ${methodContext.methodName} ===")
         try {
@@ -1452,5 +1452,33 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 "Code Explanation Error"
             )
         }
+    }
+}
+
+/**
+ * Simple method finder to replace deleted ZestMethodContextCollector
+ */
+private fun findMethodAtOffset(editor: Editor, offset: Int, project: Project): MethodContext? {
+    return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction<MethodContext?> {
+        val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@runReadAction null
+        val element = psiFile.findElementAt(offset) ?: return@runReadAction null
+        val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
+        
+        val methodText = method.text ?: ""
+        val fileName = psiFile.virtualFile?.name ?: "unknown"
+        val language = if (fileName.endsWith(".java")) "java" else "javascript"
+        
+        MethodContext(
+            methodName = method.name,
+            methodStartOffset = method.textRange.startOffset,
+            methodEndOffset = method.textRange.endOffset,
+            methodContent = methodText,
+            language = language,
+            fileName = fileName,
+            isCocos2dx = false,
+            relatedClasses = emptyMap(),
+            methodSignature = method.name,
+            containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)?.name
+        )
     }
 }

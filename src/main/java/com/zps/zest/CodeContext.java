@@ -50,7 +50,7 @@ public class CodeContext {
 
     // Single method test generation fields
     private boolean singleMethodMode = false;
-    private com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext;
+    private com.zps.zest.completion.MethodContext targetMethodContext;
 
     // Legacy compatibility fields (deprecated but kept for backward compatibility)
     @Deprecated
@@ -232,10 +232,10 @@ public class CodeContext {
     public boolean isSingleMethodMode() { return singleMethodMode; }
     public void setSingleMethodMode(boolean singleMethodMode) { this.singleMethodMode = singleMethodMode; }
 
-    public com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext getTargetMethodContext() { 
+    public com.zps.zest.completion.MethodContext getTargetMethodContext() { 
         return targetMethodContext; 
     }
-    public void setTargetMethodContext(com.zps.zest.completion.context.ZestMethodContextCollector.MethodContext targetMethodContext) { 
+    public void setTargetMethodContext(com.zps.zest.completion.MethodContext targetMethodContext) { 
         this.targetMethodContext = targetMethodContext;
     }
 

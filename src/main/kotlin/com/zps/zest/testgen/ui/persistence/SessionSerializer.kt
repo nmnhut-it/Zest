@@ -242,6 +242,7 @@ class SessionSerializer {
                     timestamp = file.timestamp
                 )
             }
+
             
             // Restore test plan
             val testPlanData = serializableSession.testPlan?.let { plan ->

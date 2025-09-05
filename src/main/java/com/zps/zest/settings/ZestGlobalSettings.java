@@ -56,6 +56,10 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public int ragMaxTimeoutMs = 100;                        // Maximum timeout for RAG requests when minimized (default 100ms)
     public boolean enableRAGRequestCancellation = true;      // Allow cancelling RAG requests when UI operations are dismissed
     
+    // Local Embedding Settings
+    public boolean preferLocalEmbeddings = true;            // Prefer local Ollama embedding server when available
+    public String localEmbeddingUrl = "http://localhost:11435/api/embeddings"; // Local embedding server URL
+    
     // Default system prompts as static constants
     public static final String DEFAULT_SYSTEM_PROMPT = "You are a concise technical assistant. Keep responses brief and to the point.\n" +
             "\n" +

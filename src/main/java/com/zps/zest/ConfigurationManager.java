@@ -200,6 +200,10 @@ public class ConfigurationManager {
         globalSettings.username = username;
     }
 
+    public ZestGlobalSettings getGlobalSettings() {
+        return globalSettings;
+    }
+
     // Removed unused RAG and MCP methods
     
     public boolean isProxyServerEnabled() {

@@ -103,7 +103,7 @@ class ZestSimpleResponseParser {
         response: String,
         documentText: String,
         cursorOffset: Int,
-        strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
+        strategy: ZestCompletionProvider.CompletionStrategy = ZestCompletionProvider.CompletionStrategy.LEAN
     ): String {
         if (response.isBlank()) return ""
         

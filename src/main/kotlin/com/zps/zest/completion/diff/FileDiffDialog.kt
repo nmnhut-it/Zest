@@ -4,6 +4,7 @@ import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
@@ -105,6 +106,9 @@ class FileDiffDialog(
             "Original",
             "Modified"
         )
+        
+        // Apply diff preferences - whitespace ignoring
+        diffRequest.putUserData(DiffUserDataKeys.DO_NOT_IGNORE_WHITESPACES, false)
         
         // Create diff panel
         val diffPanel = DiffManager.getInstance().createRequestPanel(project, disposable, null)

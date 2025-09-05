@@ -73,7 +73,7 @@
                                implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" 
                                order="last"/>
         <statusBarWidgetFactory id="CodeHealthStatusBarWidget" 
-                               implementation="com.zps.zest.codehealth.ui.CodeHealthStatusBarWidgetFactory" 
+                               implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" 
                                order="last"/>
 
         

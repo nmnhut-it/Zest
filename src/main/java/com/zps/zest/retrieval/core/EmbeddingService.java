@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -294,25 +295,48 @@ public final class EmbeddingService {
      * Get the embedding endpoint URL based on LLMService configuration
      */
     private String getEmbeddingEndpoint() {
+        // First, try local Ollama embedding server
+        if (isLocalOllamaAvailable()) {
+            String localUrl = config.getGlobalSettings().localEmbeddingUrl;
+            LOG.info("Using local Ollama embedding server: " + localUrl);
+            return localUrl;
+        }
+        
         // Get base URL from configuration
         String baseUrl = config.getApiUrl();
         
-        // Special handling for ZingPlay endpoints - always use litellm for embeddings
+        // Special handling for ZingPlay endpoints - use litellm during office hours, regular endpoint otherwise
         if (baseUrl.contains("chat.zingplay.com") || baseUrl.contains("openwebui.zingplay.com")) {
-            LOG.info("Detected ZingPlay endpoint, redirecting to litellm for embeddings");
-            return "https://litellm.zingplay.com/v1/embeddings";
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm for embeddings");
+                return "https://litellm.zingplay.com/v1/embeddings";
+            } else {
+                LOG.info("Outside office hours: using regular endpoint for embeddings");
+                // Use the regular OpenAI-compatible endpoint
+            }
         }
         
-        // Special handling for talk.zingplay.com - use litellm-internal
+        // Special handling for talk.zingplay.com - use litellm-internal during office hours, regular endpoint otherwise
         if (baseUrl.contains("talk.zingplay.com")) {
-            LOG.info("Detected talk.zingplay endpoint, redirecting to litellm-internal for embeddings");
-            return "https://litellm-internal.zingplay.com/v1/embeddings";
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm-internal for embeddings");
+                return "https://litellm-internal.zingplay.com/v1/embeddings";
+            } else {
+                LOG.info("Outside office hours: using regular endpoint for embeddings");
+                // Use the regular OpenAI-compatible endpoint
+            }
         }
         
-        // Extract base URL without the path
+        // Extract base URL and construct embedding endpoint
         try {
             URI uri = URI.create(baseUrl);
             String host = uri.getScheme() + "://" + uri.getAuthority();
+            String path = uri.getPath();
+            
+            // For ZingPlay endpoints with /api path, preserve it
+            if (path != null && path.startsWith("/api")) {
+                return host + "/api/v1/embeddings";
+            }
             
             // Use the OpenAI-compatible /v1/embeddings endpoint
             return host + "/v1/embeddings";
@@ -323,7 +347,7 @@ public final class EmbeddingService {
             if (baseUrl.contains("/v1/chat/completions")) {
                 return baseUrl.replace("/v1/chat/completions", "/v1/embeddings");
             } else if (baseUrl.contains("/api/chat/completions")) {
-                return baseUrl.replace("/api/chat/completions", "/v1/embeddings");
+                return baseUrl.replace("/api/chat/completions", "/api/v1/embeddings");
             }
             
             // Default to appending /v1/embeddings
@@ -335,6 +359,50 @@ public final class EmbeddingService {
     }
     
     /**
+     * Convert OpenAI format request body to Ollama format
+     * OpenAI: {"model": "text-embedding-ada-002", "input": ["text1", "text2"]}
+     * Ollama: {"model": "all-minilm", "prompt": "text1"}
+     */
+    private String convertToOllamaFormat(@NotNull String openaiRequestBody) {
+        try {
+            JsonObject openaiRequest = JsonParser.parseString(openaiRequestBody).getAsJsonObject();
+            
+            if (openaiRequest.has("input")) {
+                String textToEmbed = null;
+                
+                // Handle both string and array input formats
+                if (openaiRequest.get("input").isJsonArray()) {
+                    // Array format: {"input": ["text1", "text2"]}
+                    JsonArray inputArray = openaiRequest.getAsJsonArray("input");
+                    if (inputArray.size() > 0) {
+                        textToEmbed = inputArray.get(0).getAsString();
+                    }
+                } else {
+                    // String format: {"input": "text"}
+                    textToEmbed = openaiRequest.get("input").getAsString();
+                }
+                
+                if (textToEmbed != null && !textToEmbed.isEmpty()) {
+                    JsonObject ollamaRequest = new JsonObject();
+                    ollamaRequest.addProperty("model", "all-minilm");
+                    ollamaRequest.addProperty("prompt", textToEmbed);
+                    
+                    LOG.debug("Converted to Ollama format: model=all-minilm, prompt length=" + textToEmbed.length());
+                    return GSON.toJson(ollamaRequest);
+                }
+            }
+            
+            // Fallback to original format if conversion fails
+            LOG.warn("Could not convert to Ollama format, using original");
+            return openaiRequestBody;
+            
+        } catch (Exception e) {
+            LOG.warn("Error converting to Ollama format: " + e.getMessage());
+            return openaiRequestBody;
+        }
+    }
+    
+    /**
      * Make direct HTTP request to embedding endpoint
      */
     private String makeDirectEmbeddingRequest(@NotNull String endpoint, @NotNull String requestBody) throws IOException {
@@ -342,15 +410,24 @@ public final class EmbeddingService {
             // Log the endpoint being used
             LOG.info("Making embedding request to: " + endpoint);
             
+            // Handle Ollama format conversion if needed
+            if (endpoint.equals(config.getGlobalSettings().localEmbeddingUrl)) {
+                requestBody = convertToOllamaFormat(requestBody);
+                LOG.debug("Converted request body for Ollama format");
+            }
+            
             // Get API token from configuration
             String apiToken = config.getAuthTokenNoPrompt();
             
-            // Handle special endpoints with custom tokens
-            if (endpoint.contains("litellm.zingplay.com")) {
-                apiToken = "sk-0c1l7KCScBLmcYDN-Oszmg"; // Use embedding service token
-            } else if (endpoint.contains("litellm-internal.zingplay.com")) {
-                apiToken = "sk-0c1l7KCScBLmcYDN-Oszmg"; // Use embedding service token
+            // Handle special LiteLLM endpoints with custom tokens (only during office hours)
+            if (endpoint.contains("litellm.zingplay.com") || endpoint.contains("litellm-internal.zingplay.com")) {
+                apiToken = "sk-0c1l7KCScBLmcYDN-Oszmg"; // Use embedding service token for LiteLLM
             }
+            // For local Ollama, no auth token needed
+            else if (endpoint.equals(config.getGlobalSettings().localEmbeddingUrl)) {
+                apiToken = null;
+            }
+            // For regular endpoints (chat/talk/openwebui), use the configured auth token from ConfigurationManager
             
             // Build HTTP request
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -399,21 +476,38 @@ public final class EmbeddingService {
     private float[] parseEmbeddingResponse(@NotNull String response) {
         try {
             JsonObject jsonResponse = JsonParser.parseString(response).getAsJsonObject();
-            JsonArray dataArray = jsonResponse.getAsJsonArray("data");
             
-            if (dataArray.size() == 0) {
-                throw new RuntimeException("No embedding data in response");
+            // Try Ollama format first ({"embedding": [0.1, 0.2, ...]})
+            if (jsonResponse.has("embedding")) {
+                JsonArray embeddingArray = jsonResponse.getAsJsonArray("embedding");
+                float[] embedding = new float[embeddingArray.size()];
+                for (int i = 0; i < embeddingArray.size(); i++) {
+                    embedding[i] = embeddingArray.get(i).getAsFloat();
+                }
+                LOG.debug("Parsed Ollama format embedding with " + embedding.length + " dimensions");
+                return embedding;
             }
             
-            JsonObject firstEmbedding = dataArray.get(0).getAsJsonObject();
-            JsonArray embeddingArray = firstEmbedding.getAsJsonArray("embedding");
-            
-            float[] embedding = new float[embeddingArray.size()];
-            for (int i = 0; i < embeddingArray.size(); i++) {
-                embedding[i] = embeddingArray.get(i).getAsFloat();
+            // Try OpenAI format ({"data": [{"embedding": [0.1, 0.2, ...]}]})
+            if (jsonResponse.has("data")) {
+                JsonArray dataArray = jsonResponse.getAsJsonArray("data");
+                if (dataArray.size() == 0) {
+                    throw new RuntimeException("No embedding data in response");
+                }
+                
+                JsonObject firstEmbedding = dataArray.get(0).getAsJsonObject();
+                JsonArray embeddingArray = firstEmbedding.getAsJsonArray("embedding");
+                
+                float[] embedding = new float[embeddingArray.size()];
+                for (int i = 0; i < embeddingArray.size(); i++) {
+                    embedding[i] = embeddingArray.get(i).getAsFloat();
+                }
+                LOG.debug("Parsed OpenAI format embedding with " + embedding.length + " dimensions");
+                return embedding;
             }
             
-            return embedding;
+            throw new RuntimeException("Unknown embedding response format");
+            
         } catch (Exception e) {
             LOG.error("Failed to parse embedding response: " + response, e);
             throw new RuntimeException("Failed to parse embedding response", e);
@@ -444,6 +538,58 @@ public final class EmbeddingService {
         } catch (Exception e) {
             LOG.error("Failed to parse batch embedding response: " + response, e);
             throw new RuntimeException("Failed to parse batch embedding response", e);
+        }
+    }
+    
+    /**
+     * Check if current time is within office hours (8:30 - 17:30)
+     */
+    private boolean isWithinOfficeHours() {
+        LocalTime now = LocalTime.now();
+        LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
+        LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
+        
+        boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
+        LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
+        
+        return withinHours;
+    }
+    
+    /**
+     * Check if local Ollama embedding server is available and preferred
+     */
+    private boolean isLocalOllamaAvailable() {
+        // Check if local embeddings are preferred in settings
+        if (!config.getGlobalSettings().preferLocalEmbeddings) {
+            LOG.debug("Local embeddings disabled in settings");
+            return false;
+        }
+        
+        try {
+            // Extract URL for health check (replace /api/embeddings with /api/version)
+            String healthUrl = config.getGlobalSettings().localEmbeddingUrl
+                .replace("/api/embeddings", "/api/version");
+            
+            // Quick health check to Ollama's version endpoint
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(healthUrl))
+                .timeout(Duration.ofSeconds(2))
+                .GET()
+                .build();
+                
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            boolean available = response.statusCode() == 200;
+            if (available) {
+                LOG.debug("Local Ollama embedding server detected and available");
+            } else {
+                LOG.debug("Local Ollama embedding server not available (status: " + response.statusCode() + ")");
+            }
+            
+            return available;
+        } catch (Exception e) {
+            LOG.debug("Local Ollama embedding server not available: " + e.getMessage());
+            return false;
         }
     }
     

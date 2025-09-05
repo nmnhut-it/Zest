@@ -41,6 +41,11 @@ public enum TestGenerationState {
     MERGING_TESTS("Merging Tests", "Combining tests into complete test class"),
     
     /**
+     * Fixing compilation errors in generated test code
+     */
+    FIXING_TESTS("Fixing Tests", "Analyzing and fixing compilation errors"),
+    
+    /**
      * Generation completed successfully
      */
     COMPLETED("Completed", "Test generation completed successfully"),
@@ -96,7 +101,7 @@ public enum TestGenerationState {
      * Check if this state can be skipped (manual intervention)
      */
     public boolean isSkippable() {
-        return this == GATHERING_CONTEXT || this == PLANNING_TESTS || this == GENERATING_TESTS;
+        return this == GATHERING_CONTEXT || this == PLANNING_TESTS || this == GENERATING_TESTS || this == FIXING_TESTS;
     }
     
     /**
@@ -117,6 +122,8 @@ public enum TestGenerationState {
             case GENERATING_TESTS:
                 return MERGING_TESTS;
             case MERGING_TESTS:
+                return FIXING_TESTS;
+            case FIXING_TESTS:
                 return COMPLETED;
             default:
                 return this; // Terminal states stay the same
@@ -140,10 +147,12 @@ public enum TestGenerationState {
                 return AWAITING_USER_SELECTION;
             case MERGING_TESTS:
                 return GENERATING_TESTS;
+            case FIXING_TESTS:
+                return MERGING_TESTS;
             case COMPLETED:
             case FAILED:
             case CANCELLED:
-                return MERGING_TESTS;
+                return FIXING_TESTS;
             default:
                 return IDLE;
         }

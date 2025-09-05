@@ -133,8 +133,8 @@ class StateMachineTestGenerationEditor(
                 updateControlButtons()
                 logEvent("✓ Completed: ${event.summary}")
                 
-                // Auto-show preview dialog when merging completes
-                if (event.completedState == TestGenerationState.MERGING_TESTS) {
+                // Auto-show preview dialog when fixing completes
+                if (event.completedState == TestGenerationState.FIXING_TESTS) {
                     showFinalResult()
                 }
             }
@@ -646,6 +646,16 @@ class StateMachineTestGenerationEditor(
                     cancelButton.isVisible = true
                 }
                 
+                state == TestGenerationState.FIXING_TESTS -> {
+                    primaryActionButton.apply {
+                        text = "🔧 Fix Compilation Errors"
+                        background = Color(255, 152, 0) // Orange  
+                        isEnabled = true
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = true
+                }
+                
                 state == TestGenerationState.COMPLETED -> {
                     primaryActionButton.apply {
                         text = "💾 Save Test File"
@@ -942,6 +952,10 @@ class StateMachineTestGenerationEditor(
             state == TestGenerationState.AWAITING_USER_SELECTION -> {
                 // Generate selected tests
                 generateSelectedTests()
+            }
+            state == TestGenerationState.FIXING_TESTS -> {
+                // Manually trigger test fixing
+                continueExecution()
             }
             state == TestGenerationState.COMPLETED -> {
                 // Save test file

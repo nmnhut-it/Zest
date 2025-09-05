@@ -107,7 +107,8 @@ public class TestMergingHandler extends AbstractStateHandler {
                 mergerUsed);
             LOG.info(summary);
             
-            return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
+            // Explicitly transition to FIXING_TESTS state
+            return StateResult.success(mergedTestClass, summary, TestGenerationState.FIXING_TESTS);
             
         } catch (Exception e) {
             LOG.error("Test merging failed", e);

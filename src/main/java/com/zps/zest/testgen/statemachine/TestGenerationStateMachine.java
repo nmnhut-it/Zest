@@ -149,6 +149,11 @@ public class TestGenerationStateMachine {
                     || newState == TestGenerationState.FAILED 
                     || newState == TestGenerationState.CANCELLED;
             case MERGING_TESTS:
+                return newState == TestGenerationState.FIXING_TESTS
+                    || newState == TestGenerationState.COMPLETED 
+                    || newState == TestGenerationState.FAILED 
+                    || newState == TestGenerationState.CANCELLED;
+            case FIXING_TESTS:
                 return newState == TestGenerationState.COMPLETED 
                     || newState == TestGenerationState.FAILED 
                     || newState == TestGenerationState.CANCELLED;

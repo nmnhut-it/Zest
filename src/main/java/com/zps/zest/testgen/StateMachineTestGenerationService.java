@@ -343,6 +343,11 @@ public final class StateMachineTestGenerationService {
         stateMachine.registerStateHandler(TestGenerationState.GENERATING_TESTS, 
             new TestGenerationHandler(streamingCallback, uiEventListener));
         stateMachine.registerStateHandler(TestGenerationState.MERGING_TESTS, new TestMergingHandler(streamingCallback));
+        stateMachine.registerStateHandler(TestGenerationState.FIXING_TESTS, 
+            new TestFixingHandler(project, 
+                project.getService(com.zps.zest.langchain4j.ZestLangChain4jService.class),
+                project.getService(com.zps.zest.langchain4j.util.LLMService.class),
+                streamingCallback));
         
         LOG.debug("State handlers registered for session: " + stateMachine.getSessionId());
     }

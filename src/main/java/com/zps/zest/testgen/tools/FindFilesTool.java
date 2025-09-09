@@ -144,6 +144,14 @@ public class FindFilesTool {
             return normalized; // Already a proper glob pattern
         }
         
+        // For patterns with path separators (like "config/file.lua"), make them recursive
+        if (normalized.contains("/") || normalized.contains("\\")) {
+            // If it's a specific file path, make it findable anywhere in project
+            if (normalized.contains(".") && !normalized.startsWith("**/")) {
+                return "**/" + normalized; // config/leaderboard.lua → **/config/leaderboard.lua
+            }
+        }
+        
         // For simple patterns without path separators, make them recursive
         if (!normalized.contains("/") && !normalized.contains("\\")) {
             if (normalized.contains(".")) {

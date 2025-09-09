@@ -79,7 +79,7 @@ SEARCH ONLY FOR REFERENCED FILES:
 SEARCH STRATEGY:
 1. **searchCode for file references**: Look for specific file paths mentioned in string literals
    * searchCode('"config/') → find config file references
-   * searchCode('\.lua"') → find script references  
+   * searchCode('\\.lua"') → find script references
    * searchCode('getResourceAsStream') → find resource loading patterns
 
 2. **findFiles for exact references**: ONLY search for files found in Step 1

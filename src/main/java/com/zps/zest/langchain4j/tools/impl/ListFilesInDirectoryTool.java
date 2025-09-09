@@ -104,6 +104,12 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
         includeAll.addProperty("default", false);
         properties.add("includeAll", includeAll);
         
+        JsonObject maxDepth = new JsonObject();
+        maxDepth.addProperty("type", "integer");
+        maxDepth.addProperty("description", "Maximum recursion depth (0=current dir, 1=immediate subdirs, etc.)");
+        maxDepth.addProperty("default", 1);
+        properties.add("maxDepth", maxDepth);
+        
         schema.add("properties", properties);
         JsonArray required = new JsonArray();
         required.add("directory");
@@ -118,6 +124,7 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
         boolean recursive = parameters.has("recursive") && parameters.get("recursive").getAsBoolean();
         String pattern = getOptionalString(parameters, "pattern", null);
         boolean includeAll = parameters.has("includeAll") && parameters.get("includeAll").getAsBoolean();
+        int maxDepth = parameters.has("maxDepth") ? parameters.get("maxDepth").getAsInt() : 1;
         
         try {
             VirtualFile baseDir = project.getBaseDir();
@@ -141,7 +148,7 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
             }
             
             List<FileInfo> files = new ArrayList<>();
-            collectFiles(targetDir, files, recursive, pattern, "", includeAll);
+            collectFiles(targetDir, files, recursive, pattern, "", includeAll, 0, maxDepth);
             
             StringBuilder content = new StringBuilder();
             JsonObject metadata = createMetadata();
@@ -191,8 +198,8 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
                     });
                     
                     for (FileInfo file : dirFiles) {
-                        // Build absolute path for each file
-                        String fileAbsolutePath = absoluteDirPath + java.io.File.separator + file.name;
+                        // Build absolute path for each file with normalized separators
+                        String fileAbsolutePath = absoluteDirPath + "/" + file.name;
                         content.append("- ").append(fileAbsolutePath);
                         if (file.isDirectory) {
                             content.append("/");
@@ -231,7 +238,7 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
     }
     
     private void collectFiles(VirtualFile dir, List<FileInfo> files, boolean recursive, 
-                            String pattern, String relativePath, boolean includeAll) {
+                            String pattern, String relativePath, boolean includeAll, int currentDepth, int maxDepth) {
         VirtualFile[] children = dir.getChildren();
         
         for (VirtualFile child : children) {
@@ -250,9 +257,9 @@ public class ListFilesInDirectoryTool extends BaseCodeExplorationTool {
                     files.add(new FileInfo(childName, childRelativePath, 0, true));
                 }
                 
-                if (recursive) {
+                if (recursive && currentDepth < maxDepth) {
                     String newPath = relativePath.isEmpty() ? childName : relativePath + "/" + childName;
-                    collectFiles(child, files, true, pattern, newPath, includeAll);
+                    collectFiles(child, files, true, pattern, newPath, includeAll, currentDepth + 1, maxDepth);
                 }
             } else {
                 // Check if it's a code file or includeAll is true

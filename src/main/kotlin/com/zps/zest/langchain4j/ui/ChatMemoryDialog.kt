@@ -464,12 +464,22 @@ class ChatMemoryDialog(
     }
     
     private fun getMessageBackgroundColor(message: ChatMessage): Color {
-        return when (message) {
-            is SystemMessage -> Color(255, 250, 240) // Light orange
-            is UserMessage -> Color(240, 248, 255)   // Light blue
-            is AiMessage -> Color(248, 255, 248)     // Light green
-            is ToolExecutionResultMessage -> Color(250, 250, 250) // Light gray
-            else -> UIUtil.getPanelBackground()
+        return if (UIUtil.isUnderDarcula()) {
+            when (message) {
+                is SystemMessage -> Color(60, 45, 30)    // Dark orange
+                is UserMessage -> Color(30, 40, 55)      // Dark blue
+                is AiMessage -> Color(30, 55, 30)        // Dark green
+                is ToolExecutionResultMessage -> Color(45, 45, 45) // Dark gray
+                else -> UIUtil.getPanelBackground()
+            }
+        } else {
+            when (message) {
+                is SystemMessage -> Color(255, 250, 240) // Light orange
+                is UserMessage -> Color(240, 248, 255)   // Light blue
+                is AiMessage -> Color(248, 255, 248)     // Light green
+                is ToolExecutionResultMessage -> Color(250, 250, 250) // Light gray
+                else -> UIUtil.getPanelBackground()
+            }
         }
     }
     

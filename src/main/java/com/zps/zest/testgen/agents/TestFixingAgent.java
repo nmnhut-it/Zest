@@ -179,4 +179,9 @@ public class TestFixingAgent extends StreamingBaseAgent {
             return "Error analyzing content: " + e.getMessage();
         }
     }
+    
+    @NotNull
+    public MessageWindowChatMemory getChatMemory() {
+        return chatMemory;
+    }
 }

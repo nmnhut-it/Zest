@@ -51,9 +51,15 @@ public class TestPlanningHandler extends AbstractStateHandler {
             TestContext context = (TestContext) getSessionData(stateMachine, "context");
             
             // Initialize coordinator agent
-            ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-            CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService);
+            // Get existing coordinatorAgent from session data (created at session start)
+            CoordinatorAgent coordinatorAgent = (CoordinatorAgent) getSessionData(stateMachine, "coordinatorAgent");
+            if (coordinatorAgent == null) {
+                // Fallback: create if not found (shouldn't happen)
+                ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
+                LLMService llmService = getProject(stateMachine).getService(LLMService.class);
+                coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService);
+                setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent);
+            }
             
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
             
@@ -100,7 +106,7 @@ public class TestPlanningHandler extends AbstractStateHandler {
                 return StateResult.failure("No test scenarios were generated", true);
             }
             
-            // Store test plan in session data
+            // Store test plan in session data (coordinatorAgent already stored at session start)
             setSessionData(stateMachine, "testPlan", testPlan);
             setSessionData(stateMachine, "workflowPhase", "planning");
             

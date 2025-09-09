@@ -445,7 +445,8 @@ Stop when you can test the code without making assumptions about external resour
 
         @Tool("""
             Search for code patterns, method calls, or text across the project using grep-like functionality with regex support.
-            CANNOT be used to search for files by their names.
+            CANNOT be used to search for files by their names. 
+            IMPORTANT: DO NOt use this if you want to read a file instead of finding file references. 
             
             This tool provides powerful text-based search capabilities similar to grep/ripgrep with intelligent file filtering.
             Supports both literal text matching and regex patterns for complex searches.

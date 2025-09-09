@@ -62,3 +62,10 @@ zest-plugin.properties
 
 # Ignore all files in this directory
 /.kotlin
+
+# API Keys and sensitive configuration
+*.env
+.env*
+openai-key.txt
+api-keys.txt
+config/secrets.properties

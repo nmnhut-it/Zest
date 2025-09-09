@@ -77,6 +77,14 @@ public final class StateMachineTestGenerationService {
         // Store initial request in session data
         stateMachine.setSessionData("request", request);
         
+        // Create and store agents upfront so UI can access them immediately
+        com.zps.zest.langchain4j.ZestLangChain4jService langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService.class);
+        com.zps.zest.langchain4j.util.LLMService llmService = project.getService(com.zps.zest.langchain4j.util.LLMService.class);
+        
+        // Create coordinatorAgent for planning phase
+        com.zps.zest.testgen.agents.CoordinatorAgent coordinatorAgent = new com.zps.zest.testgen.agents.CoordinatorAgent(project, langChainService, llmService);
+        stateMachine.setSessionData("coordinatorAgent", coordinatorAgent);
+        
         // Store active state machine
         activeStateMachines.put(sessionId, stateMachine);
         

@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.util.EnvLoader;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
@@ -131,18 +132,36 @@ public class ZestChatLanguageModel implements ChatModel {
     private OpenAiChatModel createOpenAiModel(@NotNull Project project) {
         ConfigurationManager config = ConfigurationManager.getInstance(project);
 
-        // Get API configuration
-        String apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
-        if (apiUrl.contains("chat.zingplay"))
-            apiUrl = "https://chat.zingplay.com/api";
-        if (apiUrl.contains("talk.zingplay"))
-            apiUrl = "https://talk.zingplay.com/api";
-        if (apiUrl.contains("openwebui.zingplay"))
-            apiUrl = "https://openwebui.zingplay.com/api";
-        String apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
-        String modelName = "local-model"; // Use code model setting
-//        String modelName = "gpt-4.1"; // Use code model setting
-//        String modelName = "gpt-4.1-mini"; // Use code model setting
+        // Load environment variables from .env file
+        if (project.getBasePath() != null) {
+            EnvLoader.loadEnv(project.getBasePath());
+        }
+
+        // Check for OpenAI configuration in .env file first
+        String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY");
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4.1");
+        String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
+
+        String apiUrl, apiKey, modelName;
+        
+        if (envApiKey != null && !envApiKey.isEmpty()) {
+            // Use OpenAI configuration from .env
+            apiUrl = envBaseUrl;
+            apiKey = envApiKey;
+            modelName = envModel;
+            LOG.info("Using OpenAI configuration from .env file - Model: " + modelName);
+        } else {
+            // Fallback to existing configuration
+            apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+            if (apiUrl.contains("chat.zingplay"))
+                apiUrl = "https://chat.zingplay.com/api";
+            if (apiUrl.contains("talk.zingplay"))
+                apiUrl = "https://talk.zingplay.com/api";
+            if (apiUrl.contains("openwebui.zingplay"))
+                apiUrl = "https://openwebui.zingplay.com/api";
+            apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
+            modelName = "local-model"; // Use local model as fallback
+        }
 
 //        // Default values if not configured
 //        if (apiUrl == null || apiUrl.isEmpty()) {
@@ -199,19 +218,24 @@ public class ZestChatLanguageModel implements ChatModel {
         metadata.put("service", "ZestChatLanguageModel");
 
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
-        return executeWithPluginClassLoader(() ->
-            OpenAiChatModel.builder()
+        return executeWithPluginClassLoader(() -> {
+            OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
                 .baseUrl(finalApiUrl)
                 .apiKey(finalApiKey)
                 .modelName(finalModelName)
                 .parallelToolCalls(true)
                 .user(username != null && !username.isEmpty() ? username : null)
-                .metadata(metadata)
                 .logRequests(true)
                 .logResponses(true)
-                .timeout(Duration.ofSeconds(120))
-                .build()
-        );
+                .timeout(Duration.ofSeconds(120));
+                
+            // Only add metadata if NOT using GPT-4.1 (OpenAI doesn't allow metadata without store)
+            if (!finalModelName.equals("gpt-4.1")) {
+                builder.metadata(metadata);
+            }
+            
+            return builder.build();
+        });
     }
 
 

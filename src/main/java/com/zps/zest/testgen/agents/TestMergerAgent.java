@@ -38,6 +38,7 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 public class TestMergerAgent extends StreamingBaseAgent {
     private final TestMergingTools mergingTools;
     private final TestMergingAssistant assistant;
+    private final MessageWindowChatMemory chatMemory;
     
     public TestMergerAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -45,11 +46,12 @@ public class TestMergerAgent extends StreamingBaseAgent {
         super(project, langChainService, llmService, "TestMergerAgent");
         this.mergingTools = new TestMergingTools(project);
         
+        this.chatMemory = MessageWindowChatMemory.withMaxMessages(200);
         this.assistant = AgenticServices
                 .agentBuilder(TestMergingAssistant.class)
                 .chatModel(getChatModelWithStreaming())
                 .maxSequentialToolsInvocations(100)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(200))
+                .chatMemory(chatMemory)
                 .tools(mergingTools)
                 .build();
     }
@@ -515,5 +517,10 @@ public class TestMergerAgent extends StreamingBaseAgent {
         public String getPathReasoning() {
             return pathReasoning;
         }
+    }
+    
+    @NotNull
+    public MessageWindowChatMemory getChatMemory() {
+        return chatMemory;
     }
 }

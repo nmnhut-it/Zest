@@ -357,19 +357,7 @@ Stop when you can test the code without making assumptions about external resour
         public String analyzeClass(String filePathOrClassName) {
             notifyTool("analyzeClass", filePathOrClassName);
             String result = analyzeClassTool.analyzeClass(filePathOrClassName);
-            
-            // Create and send ContextDisplayData object directly to UI
-            if (contextAgent != null) {
-                ContextDisplayData contextData = createContextDisplayData(filePathOrClassName, result);
-                contextAgent.sendContextFileAnalyzed(contextData);
-                
-                // Also use the logToolResult method for enhanced logging
-                String summary = result.length() > 200 ? result.substring(0, 200) + "..." : result;
-                contextAgent.logToolResult("analyzeClass", summary, "Class: " + filePathOrClassName);
-            }
-            
-            notifyContextUpdate();
-            return result;
+            return processToolResult("analyzeClass", filePathOrClassName, result);
         }
 
         @Tool("List all files and subdirectories in a specified directory")
@@ -473,57 +461,110 @@ Stop when you can test the code without making assumptions about external resour
             var toolResult = readFileTool.execute(params);
             String result = toolResult.isSuccess() ? toolResult.getContent() : toolResult.getContent();
             
-            // Store in readFiles map
-            readFiles.put(filePath, result);
+            // Store in readFiles map (use normalized path)
+            String normalizedPath = normalizeFilePath(filePath);
+            readFiles.put(normalizedPath, result);
             
-            // Send file read results to context tab through StreamingBaseAgent methods
+            return processToolResult("readFile", filePath, result);
+        }
+        
+        /**
+         * Normalize any input (FQN, file path, class name) to canonical file path.
+         */
+        private String normalizeFilePath(String input) {
+            if (input == null || input.trim().isEmpty()) return input;
+            
+            // If it's a tool name, don't process it - this shouldn't happen
+            if (input.equals("analyzeClass") || input.equals("readFile") || input.equals("searchCode")) {
+                LOG.warn("Tool name passed as file path: " + input);
+                return input;
+            }
+            
+            // If it's already a valid file path (contains slashes), normalize separators
+            if (input.contains("/") || input.contains("\\")) {
+                return input.replace('\\', '/');
+            }
+            
+            // If it's a FQN (com.example.MyClass), try to convert to file path
+            if (input.contains(".") && !input.endsWith(".java") && !input.endsWith(".kt")) {
+                // Try to find the actual file for this class
+                try {
+                    String classPath = input.replace('.', '/') + ".java";
+                    return classPath;
+                } catch (Exception e) {
+                    // Fallback to original input
+                    return input;
+                }
+            }
+            
+            return input;
+        }
+        
+        /**
+         * Validate if content is meaningful (not empty, not just error messages).
+         */
+        private boolean hasValidContent(String content) {
+            if (content == null || content.trim().isEmpty()) return false;
+            
+            // Check for common error patterns
+            String lower = content.toLowerCase();
+            if (lower.contains("not found") || 
+                lower.contains("error") ||
+                lower.contains("failed") ||
+                content.startsWith("❌")) {
+                return false;
+            }
+            
+            // Check if it's just whitespace or very minimal content
+            String trimmed = content.trim();
+            return trimmed.length() > 10; // Require at least some meaningful content
+        }
+
+        private ContextDisplayData createContextDisplayData(String inputPath, String analysisResult) {
+            // Normalize path to prevent duplicates
+            String normalizedPath = normalizeFilePath(inputPath);
+            
+            // Extract clean file name
+            String fileName = normalizedPath.substring(
+                Math.max(normalizedPath.lastIndexOf('/'), normalizedPath.lastIndexOf('\\')) + 1
+            );
+            
+            // Validate content and set appropriate status
+            boolean isValid = hasValidContent(analysisResult);
+            ContextDisplayData.AnalysisStatus status = isValid ? 
+                ContextDisplayData.AnalysisStatus.COMPLETED : 
+                ContextDisplayData.AnalysisStatus.ERROR;
+            
+            // Create concise summary
+            String summary = isValid ? 
+                (analysisResult.length() > 100 ? analysisResult.substring(0, 100) + "..." : analysisResult) :
+                "No valid content";
+            
+            return new ContextDisplayData(
+                normalizedPath,  // Use normalized path as key
+                fileName,
+                status,
+                summary,
+                isValid ? analysisResult : null, // Only set fullAnalysis if content is valid
+                extractClasses(analysisResult),
+                extractMethods(analysisResult),
+                Collections.emptyList(),
+                System.currentTimeMillis()
+            );
+        }
+        
+        /**
+         * Common logic for processing tool results and updating UI.
+         */
+        private String processToolResult(String toolName, String input, String result) {
+            // Create context data with normalized path and send to UI
             if (contextAgent != null && result != null && !result.isEmpty()) {
-                ContextDisplayData contextData = createContextDisplayData(filePath, result);
+                ContextDisplayData contextData = createContextDisplayData(input, result);
                 contextAgent.sendContextFileAnalyzed(contextData);
-                
-                // Also use the logToolResult method for enhanced logging
-                String summary = result.length() > 200 ? result.substring(0, 200) + "..." : result;
-                contextAgent.logToolResult("readFile", summary, "File: " + filePath);
             }
             
             notifyContextUpdate();
             return result;
-        }
-        
-        private ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {
-            // Extract file name
-            String fileName = filePath;
-            int lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-            if (lastSlash >= 0) {
-                fileName = filePath.substring(lastSlash + 1);
-            }
-            
-            // Extract summary (first paragraph or first 200 chars)
-            String summary = analysisResult;
-            if (summary.length() > 200) {
-                int firstNewline = summary.indexOf('\n');
-                if (firstNewline > 0 && firstNewline < 200) {
-                    summary = summary.substring(0, firstNewline);
-                } else {
-                    summary = summary.substring(0, 200) + "...";
-                }
-            }
-            
-            // Extract classes and methods from analysis
-            List<String> classes = extractClasses(analysisResult);
-            List<String> methods = extractMethods(analysisResult);
-            
-            return new ContextDisplayData(
-                filePath,
-                fileName,
-                ContextDisplayData.AnalysisStatus.COMPLETED,
-                summary,
-                analysisResult, // full analysis
-                classes,
-                methods,
-                Collections.emptyList(), // dependencies
-                System.currentTimeMillis()
-            );
         }
         
         private List<String> extractClasses(String analysis) {

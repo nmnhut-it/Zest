@@ -256,10 +256,8 @@ public abstract class StreamingBaseAgent {
         message.append("\n");
         sendToUI(message.toString());
         
-        // Send context information to structured UI if available
-        if (contextHint != null) {
-            sendContextInfo(toolName, contextHint);
-        }
+        // Note: Removed sendContextInfo() call as tools already send proper context data
+        // via sendContextFileAnalyzed() - this was creating duplicate tool name entries
     }
     
     /**

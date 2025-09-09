@@ -139,7 +139,7 @@ public class ZestChatLanguageModel implements ChatModel {
 
         // Check for OpenAI configuration in .env file first
         String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY");
-        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4.1");
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4o");
         String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
 
         String apiUrl, apiKey, modelName;
@@ -229,7 +229,7 @@ public class ZestChatLanguageModel implements ChatModel {
                 .logResponses(true)
                 .timeout(Duration.ofSeconds(120));
                 
-            // Only add metadata if NOT using GPT-4.1 (OpenAI doesn't allow metadata without store)
+            // Add metadata for all models (GPT-4o supports metadata)
             if (!finalModelName.equals("gpt-4.1")) {
                 builder.metadata(metadata);
             }

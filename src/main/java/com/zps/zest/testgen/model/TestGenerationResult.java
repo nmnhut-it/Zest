@@ -37,6 +37,9 @@ public class TestGenerationResult {
     private final TestPlan testPlan;
     private final ContextAgent.ContextGatheringTools contextTools;
     
+    // Complete test class code (for simplified generation)
+    private final String completeTestClass;
+    
     public TestGenerationResult(@NotNull String packageName,
                                @NotNull String className,
                                @NotNull String framework,
@@ -49,6 +52,24 @@ public class TestGenerationResult {
                                @NotNull List<GeneratedTestMethod> testMethods,
                                @NotNull TestPlan testPlan,
                                @Nullable ContextAgent.ContextGatheringTools contextTools) {
+        this(packageName, className, framework, imports, fieldDeclarations, 
+             beforeAllCode, afterAllCode, beforeEachCode, afterEachCode, 
+             testMethods, testPlan, contextTools, null);
+    }
+    
+    public TestGenerationResult(@NotNull String packageName,
+                               @NotNull String className,
+                               @NotNull String framework,
+                               @NotNull List<String> imports,
+                               @NotNull List<String> fieldDeclarations,
+                               @Nullable String beforeAllCode,
+                               @Nullable String afterAllCode,
+                               @Nullable String beforeEachCode,
+                               @Nullable String afterEachCode,
+                               @NotNull List<GeneratedTestMethod> testMethods,
+                               @NotNull TestPlan testPlan,
+                               @Nullable ContextAgent.ContextGatheringTools contextTools,
+                               @Nullable String completeTestClass) {
         this.packageName = packageName;
         this.className = className;
         this.framework = framework;
@@ -61,6 +82,7 @@ public class TestGenerationResult {
         this.testMethods = new ArrayList<>(testMethods);
         this.testPlan = testPlan;
         this.contextTools = contextTools;
+        this.completeTestClass = completeTestClass;
     }
     
     // Getters for all fields
@@ -163,6 +185,14 @@ public class TestGenerationResult {
     @NotNull
     public String getFileName() {
         return className + ".java";
+    }
+    
+    /**
+     * Get the complete test class code (for simplified generation)
+     */
+    @Nullable
+    public String getCompleteTestClass() {
+        return completeTestClass;
     }
     
     /**

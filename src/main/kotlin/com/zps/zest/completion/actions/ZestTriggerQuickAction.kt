@@ -569,7 +569,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         /**
          * Format prompt information as Markdown
          */
-        fun addPromptDetails(prompt: String, tokenCount: Int = 0, modelName: String = "gpt-4.1-mini") {
+        fun addPromptDetails(prompt: String, tokenCount: Int = 0, modelName: String = "gpt-4o-mini") {
             val promptMarkdown = buildString {
                 append("### Final Prompt Details:\n")
                 append("**Model:** $modelName  \n")

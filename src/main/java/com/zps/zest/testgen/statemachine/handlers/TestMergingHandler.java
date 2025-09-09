@@ -1,7 +1,6 @@
 package com.zps.zest.testgen.statemachine.handlers;
 
-import com.zps.zest.testgen.agents.PSITestMergerAgent;
-import com.zps.zest.testgen.agents.TestMergerAgent;
+import com.zps.zest.testgen.agents.AITestMergerAgent;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
@@ -15,11 +14,9 @@ import java.util.function.Consumer;
 
 /**
  * Handles the test merging phase of test generation.
- * Combines generated test methods into a complete test class.
+ * Uses AI-based merging to create complete, merged test classes.
  */
 public class TestMergingHandler extends AbstractStateHandler {
-    
-    // Always try PSI first, then fallback to LLM automatically
     
     private final Consumer<String> streamingCallback;
     
@@ -49,38 +46,19 @@ public class TestMergingHandler extends AbstractStateHandler {
             
             // Send initial streaming update
             if (streamingCallback != null) {
-                streamingCallback.accept("🔗 Merging generated tests into final test class...\n");
+                streamingCallback.accept("🤖 AI-based test merging starting...\n");
             }
             
-            MergedTestClass mergedTestClass = null;
-            String mergerUsed = "PSI";
+            // Use AI-based merging for complete test class generation
+            logToolActivity(stateMachine, "AITestMerger", "Starting AI-based test merging");
             
-            // Always try PSI merger first (it's fast)
-            try {
-                logToolActivity(stateMachine, "PSITestMerger", "Attempting fast PSI-based merge");
-                mergedTestClass = executePSIMerging(stateMachine, result, contextTools);
-                logToolActivity(stateMachine, "PSITestMerger", "✅ PSI merge successful");
-            } catch (Exception psiException) {
-                // PSI failed, try LLM merger as fallback
-                LOG.warn("PSI merger failed, attempting LLM-based merger", psiException);
-                logToolActivity(stateMachine, "TestMerger", 
-                    "⚠️ PSI merger failed: " + psiException.getMessage() + " - trying LLM merger");
-                
-                try {
-                    mergedTestClass = executeLLMMerging(stateMachine, result, contextTools);
-                    mergerUsed = "LLM (PSI fallback)";
-                    logToolActivity(stateMachine, "TestMergerAgent", "✅ LLM merge successful");
-                } catch (Exception llmException) {
-                    // Both failed - this is still recoverable (user can retry)
-                    LOG.error("Both PSI and LLM mergers failed", llmException);
-                    return StateResult.failure(
-                        new Exception("Both mergers failed. PSI: " + psiException.getMessage() + 
-                                     ", LLM: " + llmException.getMessage()),
-                        true,  // recoverable = true (allows retry without FAILED state)
-                        "Test merging failed with both PSI and LLM approaches"
-                    );
-                }
-            }
+            ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
+            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
+            AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, llmService);
+            
+            CompletableFuture<MergedTestClass> mergeFuture = aiMerger.mergeTests(result, contextTools);
+            
+            MergedTestClass mergedTestClass = waitForMerging(stateMachine, mergeFuture, "AI merging");
             
             if (mergedTestClass == null) {
                 return StateResult.failure(
@@ -93,7 +71,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Store merged result in session data
             setSessionData(stateMachine, "mergedTestClass", mergedTestClass);
             setSessionData(stateMachine, "workflowPhase", "merging");
-            setSessionData(stateMachine, "mergerUsed", mergerUsed);  // Track which merger succeeded
+            setSessionData(stateMachine, "mergerUsed", "AI");  // Using AI-based merging
             
             // Update session with final result
             TestGenerationSession session = (TestGenerationSession) getSessionData(stateMachine, "session");
@@ -102,58 +80,21 @@ public class TestMergingHandler extends AbstractStateHandler {
                 session.setStatus(TestGenerationSession.Status.COMPLETED);
             }
             
-            String summary = String.format("Test merging completed: %s with %d methods (using %s)", 
+            String summary = String.format("AI test merging completed: %s with %d methods", 
                 mergedTestClass.getClassName(), 
-                mergedTestClass.getMethodCount(),
-                mergerUsed);
+                mergedTestClass.getMethodCount());
             LOG.info(summary);
             
             // Explicitly transition to FIXING_TESTS state
             return StateResult.success(mergedTestClass, summary, TestGenerationState.FIXING_TESTS);
             
         } catch (Exception e) {
-            LOG.error("Test merging failed", e);
+            LOG.error("AI test merging failed", e);
             
-            // Always mark as recoverable to avoid FAILED state - user can retry
+            // Mark as recoverable to allow retry
             return StateResult.failure(e, true, 
-                "Failed to merge tests: " + e.getMessage());
+                "Failed to merge tests with AI: " + e.getMessage());
         }
-    }
-    
-    /**
-     * Execute PSI-based merging (faster, no LLM calls)
-     */
-    private MergedTestClass executePSIMerging(@NotNull TestGenerationStateMachine stateMachine,
-                                            @NotNull TestGenerationResult result,
-                                            @NotNull com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
-        
-        logToolActivity(stateMachine, "PSITestMerger", "Using PSI-based merger (fast)");
-        
-        PSITestMergerAgent psiMerger = new PSITestMergerAgent(getProject(stateMachine));
-        
-        CompletableFuture<MergedTestClass> mergeFuture = psiMerger.mergeTests(result, contextTools);
-        
-        // Wait for PSI merging to complete (should be fast)
-        return waitForMerging(stateMachine, mergeFuture, "PSI merging");
-    }
-    
-    /**
-     * Execute LLM-based merging (slower but handles conflicts better)
-     */
-    private MergedTestClass executeLLMMerging(@NotNull TestGenerationStateMachine stateMachine,
-                                            @NotNull TestGenerationResult result,
-                                            @NotNull com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
-        
-        logToolActivity(stateMachine, "TestMergerAgent", "Using LLM-based merger (with conflict resolution)");
-        
-        ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-        LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-        TestMergerAgent llmMerger = new TestMergerAgent(getProject(stateMachine), langChainService, llmService);
-        
-        CompletableFuture<MergedTestClass> mergeFuture = llmMerger.mergeTests(result, contextTools);
-        
-        // Wait for LLM merging to complete
-        return waitForMerging(stateMachine, mergeFuture, "LLM merging");
     }
     
     /**
@@ -164,8 +105,8 @@ public class TestMergingHandler extends AbstractStateHandler {
                                          @NotNull String mergerType) throws Exception {
         
         int progressPercent = 30;
-        // Determine timeout based on merger type
-        int maxWaitSeconds = mergerType.contains("PSI") ? 30 : 120; // PSI is much faster
+        // Set timeout for AI merging
+        int maxWaitSeconds = 120; // AI merging may take some time
         int waitedSeconds = 0;
         
         while (!future.isDone() && waitedSeconds < maxWaitSeconds) {
@@ -191,42 +132,6 @@ public class TestMergingHandler extends AbstractStateHandler {
         
         logToolActivity(stateMachine, "TestMerger", mergerType + " completed");
         return future.join();
-    }
-    
-    /**
-     * Determine if an error during test merging is recoverable
-     * NOTE: This method is now unused since we always return recoverable=true
-     * to avoid FAILED state transitions and use automatic fallback instead.
-     */
-    private boolean isRecoverableError(@NotNull Exception e) {
-        // This method is kept for compatibility but not used
-        // We now handle PSI failures by automatically falling back to LLM merger
-        
-        // JSON parsing errors from LLM responses are recoverable (switch to PSI merger)
-        if (e.getCause() instanceof com.google.gson.JsonSyntaxException) {
-            return true;
-        }
-        
-        // Network timeouts and connection issues are recoverable
-        if (e.getMessage() != null && 
-            (e.getMessage().contains("timeout") || 
-             e.getMessage().contains("connection") ||
-             e.getMessage().contains("network"))) {
-            return true;
-        }
-        
-        // LangChain4j-related errors are usually recoverable
-        if (e.getClass().getName().contains("langchain4j")) {
-            return true;
-        }
-        
-        // Thread interruption (cancellation) is not recoverable
-        if (e instanceof InterruptedException) {
-            return false;
-        }
-        
-        // Default to recoverable for most exceptions
-        return true;
     }
     
     @Override

@@ -138,6 +138,12 @@ tasks {
     // Add this to ensure resources are properly packaged
     processResources {
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        
+        // Include ripgrep binaries in the JAR
+        from("src/main/resources/bin") {
+            into("bin")
+            include("**/*")
+        }
     }
 
     // Configure the test task for IntelliJ platform tests

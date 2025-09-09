@@ -62,14 +62,55 @@ public class ContextAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
 You are a context gatherer for test generation. The class analyzer captures all static dependencies. Your goal is to understand the code under test without any assumption
 
-CONVERSATION APPROACH:
-1. Review the analysis and identify what additional context is needed. List out what your want to explore first.
-2. Use appropriate tools to gather that context (max 5 tools per response). Always start with file listing or find file. You have a budget of maximum 5 tool calls, so use it wisely.
-3. Do not assume file path. Search for file path before you want to read it, unless you are absolutely sure about the path. 
-Do not read a file because you think it might exist - you need to prove that it is indeed used or is related to the code under tes. 
-4. Do not read whole code file if you have its signature, and that is enough to write tests. 
-Before you read a file, give clear reason, and make sure you have not make the call to read it yet. 
-5. After gathering context, or reading more than 5 files, stop and use takeNote() to record key findings
+CRITICAL RULE: ONLY search for files SPECIFICALLY REFERENCED in the analyzed code that are NOT already in the static context analysis.
+
+TARGETED APPROACH:
+1. **Scan the provided static analysis** for string literals, file paths, and resource references
+2. **ONLY search for files explicitly mentioned** in the code - no random exploration
+3. **Skip files already captured** in the static dependency graph
+4. **Focus on external resources** that the static analyzer cannot detect
+
+SEARCH ONLY FOR REFERENCED FILES:
+- **String literals** found in code: "config/database.yml", "templates/email.html", "scripts/setup.lua"
+- **Dynamic file loading** patterns: Files.readString(), getResourceAsStream(), Properties.load()
+- **Configuration references** that are loaded at runtime
+- **Scripts/templates** called dynamically by the code
+
+SEARCH STRATEGY:
+1. **searchCode for file references**: Look for specific file paths mentioned in string literals
+   * searchCode('"config/') → find config file references
+   * searchCode('\.lua"') → find script references  
+   * searchCode('getResourceAsStream') → find resource loading patterns
+
+2. **findFiles for exact references**: ONLY search for files found in Step 1
+   * If code mentions "config/leaderboard.lua" → findFiles("config/leaderboard.lua")
+   * If code loads ".properties" → findFiles("**/*.properties") 
+   * NEVER search for files not mentioned in the code
+
+3. **listFiles sparingly**: ONLY if specific directory referenced in code
+   * If code mentions "config/" directory → listFiles("config/")
+   * ONLY for directories with confirmed file references
+
+STRICT FILTERING:
+✅ Code contains 'Files.readString(Path.of("config/leaderboard.lua"))' → search for this exact file
+✅ Code contains 'getResourceAsStream("templates/")' → explore templates directory
+❌ Code doesn't mention .yml files → DON'T search for *.yml
+❌ No resource loading in code → DON'T explore resources/
+❌ No script references → DON'T look for .lua files
+
+Remember: You are NOT doing general project exploration. You are ONLY finding external files that the code explicitly references but static analysis missed.
+  
+EXPLORATION PRIORITIES:
+1. Files referenced by string literals in the analyzed code
+2. Configuration directories (config/, resources/, etc.)
+3. Test directories related to the class under test
+4. Script/template directories if code loads dynamic content
+
+AVOID:
+- Broad searches like "listFiles('.')" or "findFiles('*.java')" 
+- Exploring irrelevant directories (build/, .git/, node_modules/)
+- Recursive listing of large directory trees
+- General project exploration without specific purpose
 
 YOUR TASK: Find non-static context needed to understand the code under test:
 - External APIs, services or script called dynamically
@@ -368,10 +409,32 @@ Stop when you can test the code without making assumptions about external resour
             return processToolResult("analyzeClass", filePathOrClassName, result);
         }
 
-        @Tool("List all files and subdirectories in a specified directory")
-        public String listFiles(String directoryPath) {
-            notifyTool("listFiles", directoryPath);
-            return listFilesTool.listFiles(directoryPath);
+        @Tool("""
+            List files and subdirectories in a directory with controlled recursion depth.
+            
+            Parameters:
+            - directoryPath: The directory to list (e.g., "config/", "src/main/resources")
+            - recursiveLevel: How deep to explore:
+              * 0 = current directory only (non-recursive) - use for large dirs like src/
+              * 1 = current + immediate subdirectories - use for most exploration
+              * 2 = two levels deep - use for config/templates structures  
+              * 3+ = deeper exploration - use only when absolutely necessary
+            
+            Examples:
+            - listFiles("config/", 0) → lists only files directly in config/
+            - listFiles("config/", 2) → explores config/ and 2 levels deep
+            - listFiles("src/main/resources", 1) → resources/ and immediate subdirs
+            - listFiles("scripts/", 1) → scripts/ and immediate subdirs
+            
+            Strategy Guidelines:
+            - Level 0 for large directories (src/, build/, target/)
+            - Level 1-2 for config/resource directories  
+            - Level 3+ only for deeply nested structures
+            - Always specify level explicitly - forces strategic thinking
+            """)
+        public String listFiles(String directoryPath, int recursiveLevel) {
+            notifyTool("listFiles", directoryPath + " (level=" + recursiveLevel + ")");
+            return listFilesTool.listFiles(directoryPath, recursiveLevel);
         }
 
         @Tool("Find files matching a pattern in the project")

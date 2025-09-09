@@ -45,28 +45,33 @@ public class ListFilesTool {
         - listFiles("/absolute/path/to/dir")
         """)
     public String listFiles(String directoryPath) {
+        return listFiles(directoryPath, 2); // Default to level 1 recursion
+    }
+    
+    public String listFiles(String directoryPath, int recursiveLevel) {
         return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
             try {
                 // First try using the CodeExplorationTool if available
                 CodeExplorationTool listTool = toolRegistry.getTool("list_files");
                 if (listTool != null) {
                     JsonObject params = new JsonObject();
-                    params.addProperty("directoryPath", normalizeDirectoryPath(directoryPath));
-                    params.addProperty("recursive", false);
+                    params.addProperty("directory", normalizeDirectoryPath(directoryPath));
+                    params.addProperty("recursive", recursiveLevel > 0);
+                    params.addProperty("maxDepth", recursiveLevel);
 
                     CodeExplorationTool.ToolResult result = listTool.execute(params);
                     if (result.isSuccess()) {
-                        return formatListingResult(directoryPath, result.getContent());
+                        return formatListingResult(directoryPath, result.getContent(), recursiveLevel);
                     }
                 }
 
-                // Fallback to direct file system access
-                return listFilesDirectly(directoryPath);
+                // Fallback to direct file system access with depth control
+                return listFilesDirectly(directoryPath, recursiveLevel);
                 
             } catch (Exception e) {
-                return String.format("Error listing directory '%s': %s\n" +
+                return String.format("Error listing directory '%s' (level %d): %s\n" +
                                    "Please check the path and ensure it exists within the project.",
-                                   directoryPath, e.getMessage());
+                                   directoryPath, recursiveLevel, e.getMessage());
             }
         });
     }

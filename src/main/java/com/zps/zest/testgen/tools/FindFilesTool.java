@@ -60,7 +60,7 @@ public class FindFilesTool {
                 CodeExplorationTool findTool = toolRegistry.getTool("find_file");
                 if (findTool != null) {
                     JsonObject params = new JsonObject();
-                    params.addProperty("fileName", pattern);
+                    params.addProperty("pattern", normalizePattern(pattern));
 
                     CodeExplorationTool.ToolResult result = findTool.execute(params);
                     if (result.isSuccess()) {
@@ -120,6 +120,42 @@ public class FindFilesTool {
     }
 
     /**
+     * Normalize pattern for better search results.
+     */
+    private String normalizePattern(String pattern) {
+        if (pattern == null || pattern.trim().isEmpty()) {
+            return "*"; // Default to all files
+        }
+        
+        String normalized = pattern.trim();
+        
+        // Fix common malformed patterns
+        if (normalized.equals("**.yml*")) {
+            normalized = "**/*.yml"; // Fix malformed suggestion
+        }
+        
+        // Convert simple extensions to proper glob patterns
+        if (normalized.startsWith(".") && !normalized.contains("*")) {
+            normalized = "*" + normalized; // .yml → *.yml
+        }
+        
+        // Ensure recursive patterns are properly formatted
+        if (normalized.startsWith("**/") || normalized.contains("**/")) {
+            return normalized; // Already a proper glob pattern
+        }
+        
+        // For simple patterns without path separators, make them recursive
+        if (!normalized.contains("/") && !normalized.contains("\\")) {
+            if (normalized.contains(".")) {
+                // File with extension - make it findable anywhere
+                return "**/" + normalized;
+            }
+        }
+        
+        return normalized;
+    }
+
+    /**
      * Converts a wildcard pattern to a regex pattern.
      */
     private String convertToSearchPattern(String pattern) {
@@ -160,10 +196,16 @@ public class FindFilesTool {
         if (files.isEmpty()) {
             return String.format("No files found matching pattern: '%s'\n" +
                                "Suggestions:\n" +
-                               "- Try using wildcards: *%s*\n" +
+                               "- For extensions: **/*.yml (recursive) or *.yml (current dir)\n" +
+                               "- For partial names: **/*%s* (recursive search)\n" +
+                               "- For exact names: %s or **/%s\n" +
                                "- Check if the file exists in the project\n" +
-                               "- Ensure the project is properly indexed",
-                               pattern, pattern);
+                               "- Ensure the project is properly indexed\n" +
+                               "\nNote: Pattern was normalized to: '%s'",
+                               pattern, 
+                               pattern.startsWith(".") ? pattern : pattern,
+                               pattern, pattern, 
+                               normalizePattern(pattern));
         }
 
         StringBuilder result = new StringBuilder();

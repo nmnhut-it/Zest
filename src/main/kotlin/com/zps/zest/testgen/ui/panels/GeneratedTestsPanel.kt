@@ -7,7 +7,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.dialogs.TestCodeViewerDialog
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
-import com.zps.zest.langchain4j.ui.ChatMemoryPanel
+import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -25,7 +25,8 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     private val statusLabel = JBLabel("No tests generated yet")
     private val progressBar = JProgressBar()
     private val testsMap = mutableMapOf<String, GeneratedTestDisplayData>()
-    private var chatMemoryPanel: ChatMemoryPanel? = null
+    private var testWriterMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
+    private var testWriterAgentName: String = "TestWriter Agent"
     
     init {
         setupUI()
@@ -71,18 +72,7 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
             EmptyBorder(0, 10, 10, 10),
             BorderFactory.createLineBorder(UIUtil.getBoundsColor())
         )
-        
-        // Create split panel: tests list (top) + chat memory (bottom)
-        val splitter = com.intellij.ui.JBSplitter(true, 0.7f)
-        splitter.firstComponent = scrollPane
-        
-        // Placeholder for chat memory
-        val chatPlaceholder = JPanel(BorderLayout())
-        chatPlaceholder.background = UIUtil.getPanelBackground()
-        chatPlaceholder.add(JBLabel("TestWriter chat memory will appear here", SwingConstants.CENTER))
-        splitter.secondComponent = chatPlaceholder
-        
-        add(splitter, BorderLayout.CENTER)
+        add(scrollPane, BorderLayout.CENTER)
         
         // Bottom panel with progress and actions
         val bottomPanel = JPanel(BorderLayout())
@@ -107,6 +97,11 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         val exportButton = JButton("Export All Tests")
         exportButton.addActionListener { exportAllTests() }
         actionsPanel.add(exportButton)
+        
+        val chatButton = JButton("💬 Writer Chat")
+        chatButton.addActionListener { openTestWriterChatDialog() }
+        chatButton.toolTipText = "View TestWriter agent chat memory"
+        actionsPanel.add(chatButton)
         
         bottomPanel.add(actionsPanel, BorderLayout.EAST)
         
@@ -314,53 +309,18 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     }
     
     /**
-     * Set chat memory for the test writer agent and update the display
+     * Set chat memory for the test writer agent
      */
     fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?, agentName: String = "TestWriter Agent") {
-        SwingUtilities.invokeLater {
-            // Dispose existing chat panel
-            chatMemoryPanel?.dispose()
-            
-            // Create new chat memory panel
-            chatMemoryPanel = if (chatMemory != null) {
-                ChatMemoryPanel(project, chatMemory, "$agentName Memory")
-            } else {
-                null
-            }
-            
-            // Update the split panel's second component
-            val splitter = findComponentOfType(this, com.intellij.ui.JBSplitter::class.java)
-            splitter?.let { split ->
-                if (chatMemoryPanel != null) {
-                    split.secondComponent = chatMemoryPanel
-                } else {
-                    val placeholder = JPanel(BorderLayout())
-                    placeholder.background = UIUtil.getPanelBackground()
-                    placeholder.add(JBLabel("No active $agentName chat memory", SwingConstants.CENTER))
-                    split.secondComponent = placeholder
-                }
-                split.revalidate()
-                split.repaint()
-            }
-        }
+        this.testWriterMemory = chatMemory
+        this.testWriterAgentName = agentName
     }
     
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> findComponentOfType(container: Container, type: Class<T>): T? {
-        if (type.isInstance(container)) {
-            return container as T
-        }
-        
-        for (i in 0 until container.componentCount) {
-            val component = container.getComponent(i)
-            if (component is Container) {
-                val found = findComponentOfType(component, type)
-                if (found != null) {
-                    return found
-                }
-            }
-        }
-        
-        return null
+    /**
+     * Open test writer chat memory dialog
+     */
+    private fun openTestWriterChatDialog() {
+        val dialog = ChatMemoryDialog(project, testWriterMemory, testWriterAgentName)
+        dialog.show()
     }
 }

@@ -7,7 +7,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.dialogs.ContextAnalysisDialog
 import com.zps.zest.testgen.ui.model.ContextDisplayData
-import com.zps.zest.langchain4j.ui.ChatMemoryPanel
+import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
@@ -29,7 +29,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
     private val tree = JTree(treeModel)
     private val fileDataMap = mutableMapOf<String, ContextDisplayData>()
     private val statusLabel = JBLabel("No files analyzed yet")
-    private var chatMemoryPanel: ChatMemoryPanel? = null
+    private var contextAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     
     init {
         setupUI()
@@ -115,18 +115,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         
         val scrollPane = JBScrollPane(tree)
         scrollPane.border = BorderFactory.createLineBorder(UIUtil.getBoundsColor())
-        
-        // Create split panel: context tree (top) + chat memory (bottom)
-        val splitter = com.intellij.ui.JBSplitter(true, 0.6f)
-        splitter.firstComponent = scrollPane
-        
-        // Create placeholder for chat memory panel
-        val chatPlaceholder = JPanel(BorderLayout())
-        chatPlaceholder.background = UIUtil.getPanelBackground()
-        chatPlaceholder.add(JBLabel("Chat memory will appear here when agent is active", SwingConstants.CENTER))
-        splitter.secondComponent = chatPlaceholder
-        
-        add(splitter, BorderLayout.CENTER)
+        add(scrollPane, BorderLayout.CENTER)
         
         // Bottom panel with summary
         val bottomPanel = JPanel(FlowLayout(FlowLayout.LEFT))
@@ -136,6 +125,11 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         val refreshButton = JButton("Refresh")
         refreshButton.addActionListener { refreshDisplay() }
         bottomPanel.add(refreshButton)
+        
+        val chatButton = JButton("💬 Context Chat")
+        chatButton.addActionListener { openChatMemoryDialog() }
+        chatButton.toolTipText = "View ContextAgent chat memory and conversations"
+        bottomPanel.add(chatButton)
         
         add(bottomPanel, BorderLayout.SOUTH)
     }
@@ -183,59 +177,18 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
     }
     
     /**
-     * Set chat memory for the context agent and update the display
+     * Set chat memory for the context agent
      */
     fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?) {
-        SwingUtilities.invokeLater {
-            // Dispose existing chat panel
-            chatMemoryPanel?.dispose()
-            
-            // Create new chat memory panel
-            chatMemoryPanel = if (chatMemory != null) {
-                ChatMemoryPanel(project, chatMemory, "ContextAgent Memory")
-            } else {
-                null
-            }
-            
-            // Update the split panel's second component
-            val splitter = findSplitter()
-            splitter?.let { split ->
-                if (chatMemoryPanel != null) {
-                    split.secondComponent = chatMemoryPanel
-                } else {
-                    val placeholder = JPanel(BorderLayout())
-                    placeholder.background = UIUtil.getPanelBackground()
-                    placeholder.add(JBLabel("No active ContextAgent chat memory", SwingConstants.CENTER))
-                    split.secondComponent = placeholder
-                }
-                split.revalidate()
-                split.repaint()
-            }
-        }
+        this.contextAgentMemory = chatMemory
     }
     
-    private fun findSplitter(): com.intellij.ui.JBSplitter? {
-        // Find the splitter component in the layout
-        return findComponentOfType(this, com.intellij.ui.JBSplitter::class.java)
-    }
-    
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> findComponentOfType(container: Container, type: Class<T>): T? {
-        if (type.isInstance(container)) {
-            return container as T
-        }
-        
-        for (i in 0 until container.componentCount) {
-            val component = container.getComponent(i)
-            if (component is Container) {
-                val found = findComponentOfType(component, type)
-                if (found != null) {
-                    return found
-                }
-            }
-        }
-        
-        return null
+    /**
+     * Open chat memory dialog for ContextAgent
+     */
+    private fun openChatMemoryDialog() {
+        val dialog = ChatMemoryDialog(project, contextAgentMemory, "ContextAgent")
+        dialog.show()
     }
     
     /**

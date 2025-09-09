@@ -8,6 +8,7 @@ import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.dialogs.ScenarioDetailDialog
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData
+import com.zps.zest.langchain4j.ui.ChatMemoryPanel
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -26,6 +27,7 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     private val headerLabel = JBLabel("No test plan available")
     private val summaryLabel = JBLabel("")
     private var selectionListener: ((Set<String>) -> Unit)? = null
+    private var chatMemoryPanel: ChatMemoryPanel? = null
     
     // Selection mode fields
     private var isSelectionMode = false
@@ -78,7 +80,18 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         val scrollPane = JBScrollPane(scenariosPanel)
         scrollPane.border = BorderFactory.createEmptyBorder()
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-        add(scrollPane, BorderLayout.CENTER)
+        
+        // Create split panel: scenarios (top) + chat memory (bottom)
+        val splitter = com.intellij.ui.JBSplitter(true, 0.7f)
+        splitter.firstComponent = scrollPane
+        
+        // Placeholder for chat memory
+        val chatPlaceholder = JPanel(BorderLayout())
+        chatPlaceholder.background = UIUtil.getPanelBackground()
+        chatPlaceholder.add(JBLabel("Agent chat memory will appear here", SwingConstants.CENTER))
+        splitter.secondComponent = chatPlaceholder
+        
+        add(splitter, BorderLayout.CENTER)
         
         // No confirmation panel needed - using main editor button
     }
@@ -328,5 +341,56 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     fun getTestPlanData(): TestPlanDisplayData? {
         return currentPlan?.copy(selectedScenarios = getSelectedScenarioIds())
+    }
+    
+    /**
+     * Set chat memory for the planning agent and update the display
+     */
+    fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?, agentName: String = "Planning Agent") {
+        SwingUtilities.invokeLater {
+            // Dispose existing chat panel
+            chatMemoryPanel?.dispose()
+            
+            // Create new chat memory panel
+            chatMemoryPanel = if (chatMemory != null) {
+                ChatMemoryPanel(project, chatMemory, "$agentName Memory")
+            } else {
+                null
+            }
+            
+            // Update the split panel's second component
+            val splitter = findComponentOfType(this, com.intellij.ui.JBSplitter::class.java)
+            splitter?.let { split ->
+                if (chatMemoryPanel != null) {
+                    split.secondComponent = chatMemoryPanel
+                } else {
+                    val placeholder = JPanel(BorderLayout())
+                    placeholder.background = UIUtil.getPanelBackground()
+                    placeholder.add(JBLabel("No active $agentName chat memory", SwingConstants.CENTER))
+                    split.secondComponent = placeholder
+                }
+                split.revalidate()
+                split.repaint()
+            }
+        }
+    }
+    
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> findComponentOfType(container: Container, type: Class<T>): T? {
+        if (type.isInstance(container)) {
+            return container as T
+        }
+        
+        for (i in 0 until container.componentCount) {
+            val component = container.getComponent(i)
+            if (component is Container) {
+                val found = findComponentOfType(component, type)
+                if (found != null) {
+                    return found
+                }
+            }
+        }
+        
+        return null
     }
 }

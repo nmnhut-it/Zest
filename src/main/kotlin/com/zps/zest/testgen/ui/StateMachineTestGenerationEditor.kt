@@ -76,6 +76,9 @@ class StateMachineTestGenerationEditor(
                 updateStateDisplay(event.newState)
                 updateControlButtons()
                 
+                // Update agent chat memories when state changes
+                currentSessionId?.let { updateAgentChatMemories(it) }
+                
                 val autoFlowStatus = if (currentStateMachine?.isAutoFlowEnabled == true) " [auto-flow]" else ""
                 logEvent("State: ${event.oldState} → ${event.newState}$autoFlowStatus" + 
                         if (event.reason != null) " (${event.reason})" else "")
@@ -515,6 +518,7 @@ class StateMachineTestGenerationEditor(
                 currentStateMachine = stateMachine
                 updateStateDisplay(stateMachine.currentState)
                 updateControlButtons()
+                updateAgentChatMemories(stateMachine.sessionId)
                 logEvent("Session started: ${stateMachine.sessionId}")
             }
         }.exceptionally { throwable ->
@@ -909,6 +913,31 @@ class StateMachineTestGenerationEditor(
         val timestamp = java.time.LocalTime.now().toString().substring(0, 8)
         logArea.append("[$timestamp] $message\n")
         logArea.caretPosition = logArea.document.length
+    }
+    
+    /**
+     * Update chat memory displays for all agent tabs
+     */
+    private fun updateAgentChatMemories(sessionId: String) {
+        try {
+            val stateMachine = testGenService.getStateMachine(sessionId)
+            
+            // Get ContextAgent memory
+            val contextAgent = stateMachine?.sessionData?.get("contextAgent") as? com.zps.zest.testgen.agents.ContextAgent
+            contextDisplayPanel.setChatMemory(contextAgent?.getChatMemory())
+            
+            // Get TestWriterAgent memory  
+            val testWriterAgent = stateMachine?.sessionData?.get("testWriterAgent") as? com.zps.zest.testgen.agents.TestWriterAgent
+            generatedTestsPanel.setChatMemory(testWriterAgent?.getChatMemory(), "TestWriter")
+            
+            // For Test Plan tab, could show any planning agent memory
+            testPlanDisplayPanel.setChatMemory(null, "Planning") // No specific planning agent yet
+            
+            logEvent("🔄 Updated chat memory displays for all agents")
+            
+        } catch (e: Exception) {
+            logEvent("⚠️ Could not update agent chat memories: ${e.message}")
+        }
     }
     
     private fun startBlinkingActionPrompt() {

@@ -57,6 +57,9 @@ public class TestGenerationHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             TestWriterAgent testWriterAgent = new TestWriterAgent(getProject(stateMachine), langChainService, llmService);
             
+            // Store the TestWriterAgent in session data for UI access
+            stateMachine.setSessionData("testWriterAgent", testWriterAgent);
+            
             logToolActivity(stateMachine, "TestWriterAgent", "Preparing test generation");
             
             // Send initial streaming update

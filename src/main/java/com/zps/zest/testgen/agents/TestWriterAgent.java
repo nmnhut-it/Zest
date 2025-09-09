@@ -46,6 +46,7 @@ import javax.swing.SwingUtilities;
 public class TestWriterAgent extends StreamingBaseAgent {
     private final TestWritingTools writingTools;
     private final TestWritingAssistant assistant;
+    private final MessageWindowChatMemory chatMemory;
     
     public TestWriterAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -54,11 +55,12 @@ public class TestWriterAgent extends StreamingBaseAgent {
         this.writingTools = new TestWritingTools(langChainService, this);
         
         // Build the agent with streaming support
+        this.chatMemory = MessageWindowChatMemory.withMaxMessages(200);
         this.assistant = AgenticServices
                 .agentBuilder(TestWritingAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
                 .maxSequentialToolsInvocations(100) // Allow many tool calls for all test methods
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(200))
+                .chatMemory(chatMemory)
                 .tools(writingTools)
                 .build();
     }
@@ -231,6 +233,14 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 throw new RuntimeException("Test generation failed: " + e.getMessage(), e);
             }
         });
+    }
+    
+    /**
+     * Get the chat memory for UI integration
+     */
+    @NotNull
+    public MessageWindowChatMemory getChatMemory() {
+        return chatMemory;
     }
     
     /**

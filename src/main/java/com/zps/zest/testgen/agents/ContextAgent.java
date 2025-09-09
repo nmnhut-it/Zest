@@ -166,6 +166,14 @@ Stop when you can test the code without making assumptions about external resour
     public ContextGatheringTools getContextTools() {
         return contextTools;
     }
+    
+    /**
+     * Get the chat memory for UI integration
+     */
+    @NotNull
+    public MessageWindowChatMemory getChatMemory() {
+        return chatMemory;
+    }
 
     /**
      * Build the initial context request with pre-analyzed class info to save tokens.

@@ -52,6 +52,9 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             ContextAgent contextAgent = new ContextAgent(getProject(stateMachine), langChainService, llmService);
             
+            // Store the ContextAgent in session data for UI access
+            stateMachine.setSessionData("contextAgent", contextAgent);
+            
             // Set up UI event listener for real-time context tab updates
             if (uiEventListener != null) {
                 contextAgent.setEventListener(uiEventListener);

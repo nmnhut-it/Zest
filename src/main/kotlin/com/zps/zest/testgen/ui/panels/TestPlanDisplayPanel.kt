@@ -147,11 +147,11 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     private fun addScenarioRow(scenario: ScenarioDisplayData, selected: Boolean) {
         val rowPanel = JPanel(BorderLayout())
-        rowPanel.maximumSize = Dimension(Integer.MAX_VALUE, 40)
+        rowPanel.maximumSize = Dimension(Integer.MAX_VALUE, 60)
         rowPanel.background = UIUtil.getPanelBackground()
         rowPanel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, UIUtil.getBoundsColor()),
-            EmptyBorder(10, 5, 10, 5)
+            EmptyBorder(12, 8, 12, 8)
         )
         
         // Left: Checkbox with scenario name

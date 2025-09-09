@@ -2,6 +2,7 @@ package com.zps.zest.completion
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.diagnostic.Logger
@@ -15,6 +16,9 @@ import com.zps.zest.completion.prompt.ZestMethodPromptBuilder
 import com.zps.zest.completion.parser.ZestMethodResponseParser
 import com.zps.zest.completion.actions.ZestTriggerQuickAction
 import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.ZestLangChain4jService
+import com.zps.zest.testgen.agents.ContextAgent
+import com.zps.zest.testgen.model.TestGenerationRequest
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
@@ -49,29 +53,151 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             throw IllegalStateException("LLMService not available", e)
         }
     }
+    
+    // Context collection using sophisticated ContextAgent
+    private val contextAgent by lazy {
+        try {
+            val langChainService = project.getService(ZestLangChain4jService::class.java)
+            ContextAgent(project, langChainService, llmService)
+        } catch (e: Exception) {
+            logger.warn("Failed to initialize ContextAgent, falling back to minimal context", e)
+            null
+        }
+    }
 
-    // Simple method finder to replace deleted ZestMethodContextCollector
-    private fun findMethodAtOffset(editor: Editor, offset: Int): MethodContext? {
-        return ApplicationManager.getApplication().runReadAction<MethodContext?> {
-            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@runReadAction null
-            val element = psiFile.findElementAt(offset) ?: return@runReadAction null
-            val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
+    // Rich context collection using ContextAgent tools for comprehensive analysis
+    private suspend fun collectMethodContextWithAgent(
+        editor: Editor, 
+        offset: Int,
+        smartDialog: ZestTriggerQuickAction.SmartRewriteDialog? = null
+    ): MethodContext? {
+        // First get basic method info with non-blocking PSI read
+        val basicMethodInfo = readAction {
+            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@readAction null
+            val element = psiFile.findElementAt(offset) ?: return@readAction null
+            val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@readAction null
+            val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
             
-            val methodText = method.text ?: ""
-            val fileName = psiFile.virtualFile?.name ?: "unknown"
-            val language = if (fileName.endsWith(".java")) "java" else "javascript"
-            
-            MethodContext(
-                methodName = method.name,
-                methodStartOffset = method.textRange.startOffset,
-                methodEndOffset = method.textRange.endOffset,
-                methodContent = methodText,
-                language = language,
-                fileName = fileName,
-                isCocos2dx = false,
-                relatedClasses = emptyMap()
+            Triple(
+                method,
+                containingClass,
+                psiFile.virtualFile?.path ?: "unknown"
+            )
+        } ?: return null
+        
+        val (method, containingClass, filePath) = basicMethodInfo
+        val methodText = method.text ?: ""
+        val fileName = if (filePath.endsWith(".java")) "java" else "javascript"
+        
+        // Use ContextAgent tools directly for rich context collection
+        val (relatedClasses, classContent) = contextAgent?.let { agent ->
+            try {
+                smartDialog?.updateProgress(1, "🔍 Analyzing class structure and dependencies...")
+                
+                // Use ContextAgent tools directly
+                val tools = agent.contextTools
+                tools.reset()
+                
+                // Analyze the containing class
+                val classAnalysis = tools.analyzeClass(filePath)
+                logger.debug("Class analysis result: ${classAnalysis.take(200)}...")
+                
+                // Get related files and classes  
+                val relatedClassesMap = (tools.gatheredData["analyzedClasses"] as? Map<String, String>) ?: emptyMap()
+                
+                // Update dialog with actual context items
+                val contextItems = listOf(
+                    "Analyzed class: ${containingClass?.qualifiedName ?: "unknown"}",
+                    "Related classes found: ${relatedClassesMap.size}",
+                    "Class analysis: ${classAnalysis.lines().size} lines",
+                    "Method: ${method.name} in ${containingClass?.name ?: "unknown"}"
+                )
+                smartDialog?.addContextDetails(contextItems, relatedClassesMap.size)
+                
+                Pair(relatedClassesMap, classAnalysis)
+                
+            } catch (e: Exception) {
+                logger.warn("ContextAgent tools failed, using basic context", e)
+                Pair(emptyMap<String, String>(), "")
+            }
+        } ?: Pair(emptyMap(), "")
+        
+        // Build enhanced MethodContext with rich data
+        return MethodContext(
+            methodName = method.name,
+            methodStartOffset = method.textRange.startOffset,
+            methodEndOffset = method.textRange.endOffset,
+            methodContent = methodText,
+            language = fileName,
+            fileName = filePath,
+            isCocos2dx = false,
+            relatedClasses = relatedClasses,
+            containingClass = containingClass?.qualifiedName,
+            classContext = classContent,
+            surroundingMethods = extractSurroundingMethods(containingClass)
+        )
+    }
+    
+    // Helper to extract surrounding methods from class PSI
+    private fun extractSurroundingMethods(containingClass: PsiClass?): List<SurroundingMethod> {
+        if (containingClass == null) return emptyList()
+        
+        return containingClass.methods.map { psiMethod ->
+            SurroundingMethod(
+                position = MethodPosition.BEFORE, // Could determine actual position relative to target method
+                signature = "${psiMethod.name}(${psiMethod.parameterList.parameters.joinToString { it.type.presentableText }})"
             )
         }
+    }
+    
+    // Build rich context display items for the dialog
+    private fun buildContextDisplayItems(methodContext: MethodContext): List<String> {
+        val items = mutableListOf<String>()
+        
+        // Method information
+        items.add("🎯 **Target Method**: `${methodContext.methodSignature}` in ${methodContext.fileName}")
+        
+        // Class context
+        if (methodContext.containingClass != null) {
+            items.add("📦 **Containing Class**: ${methodContext.containingClass}")
+        }
+        
+        // Class content preview
+        if (methodContext.classContext.isNotEmpty()) {
+            val preview = methodContext.classContext.lines().take(5).joinToString("\n")
+            items.add("🏗️ **Class Structure**:\n```java\n$preview\n${if (methodContext.classContext.lines().size > 5) "... (${methodContext.classContext.lines().size - 5} more lines)" else ""}\n```")
+        }
+        
+        // Related classes
+        if (methodContext.relatedClasses.isNotEmpty()) {
+            items.add("🔗 **Related Classes Found**: ${methodContext.relatedClasses.size}")
+            methodContext.relatedClasses.keys.take(3).forEach { className ->
+                items.add("   • $className")
+            }
+            if (methodContext.relatedClasses.size > 3) {
+                items.add("   • ... ${methodContext.relatedClasses.size - 3} more")
+            }
+        }
+        
+        // Surrounding methods
+        if (methodContext.surroundingMethods.isNotEmpty()) {
+            items.add("🧩 **Context Methods**: ${methodContext.surroundingMethods.size} surrounding methods")
+            methodContext.surroundingMethods.take(3).forEach { method ->
+                items.add("   • `${method.signature}`")
+            }
+        }
+        
+        // Framework detection
+        if (methodContext.isCocos2dx) {
+            items.add("🎮 **Framework**: Cocos2d-x detected - using specialized syntax patterns")
+        }
+        
+        // Fallback if no rich context collected
+        if (items.size <= 2) {
+            items.add("ℹ️ **Basic Context**: Method-level analysis only (ContextAgent unavailable)")
+        }
+        
+        return items
     }
     
     private val promptBuilder = ZestMethodPromptBuilder(project)
@@ -163,25 +289,8 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             activeRewriteId = requestId
 
             try {
-                // Find the method containing the cursor with async analysis
-                var enhancedMethodContext: MethodContext? = null
-                val contextReady = CompletableDeferred<Boolean>()
-
-                ApplicationManager.getApplication().invokeLater {
-                    // Simple method finder to replace deleted collector
-                    val context = findMethodAtOffset(editor, offset)
-                    enhancedMethodContext = context
-                    if (!contextReady.isCompleted) {
-                        contextReady.complete(true)
-                    }
-                }
-
-                // Wait for initial context (immediate) or timeout
-                withTimeoutOrNull(100) {
-                    contextReady.await()
-                }
-
-                val methodContext = enhancedMethodContext
+                // Collect comprehensive method context using ContextAgent
+                val methodContext = collectMethodContextWithAgent(editor, offset, null)
                 if (methodContext == null) {
                     withContext(Dispatchers.Main) {
                         ZestNotifications.showWarning(
@@ -286,15 +395,9 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             statusCallback?.invoke("🔍 $analyzeContextMsg")
             smartDialog?.updateProgress(1, analyzeContextMsg) // STAGE_RETRIEVING_CONTEXT = 1
             
-            // Show method information (without RAG)
-            val contextItems = listOf(
-                "Method: ${methodContext.methodSignature}",
-                "Class: ${methodContext.containingClass ?: "unknown"}", 
-                "File: ${methodContext.fileName}",
-                "Language: ${methodContext.language}"
-            )
-            
-            smartDialog?.addContextDetails(contextItems, 0)
+            // Show comprehensive context information collected by ContextAgent
+            val contextItems = buildContextDisplayItems(methodContext)
+            smartDialog?.addContextDetails(contextItems, methodContext.relatedClasses.size)
             
             // Build AI prompt
             val buildingPromptMsg = "Building AI prompt with context..."

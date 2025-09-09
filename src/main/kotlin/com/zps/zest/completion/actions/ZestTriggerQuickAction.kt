@@ -26,6 +26,9 @@ import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
+import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.browser.utils.ChatboxUtilities
+import com.zps.zest.ZestNotifications
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
@@ -207,14 +210,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
         // Context-aware options
         private val builtInOptions = generateContextOptions()
-        private val customPrompts = run {
-            val loader = ZestCustomPromptsLoader.getInstance(project)
-            // Force update to new defaults to remove old duplicated prompts
-            loader.forceUpdateToNewDefaults()
-            loader.loadCustomPrompts().also { prompts ->
-                println("[DEBUG] Loaded ${prompts.size} custom prompts: ${prompts.map { "${it.shortcut}: ${it.title}" }}")
-            }
-        }
+        private var customPrompts = loadCustomPrompts()
+        private val llmService = LLMService(project)
         private val builtInLabels = mutableListOf<JLabel>()
         private val customLabels = mutableListOf<JLabel>()
 
@@ -727,21 +724,30 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 val usedSlots = existingPrompts.map { it.shortcut }.toSet()
                 val nextSlot = (1..9).firstOrNull { it !in usedSlots }
                 
-                if (nextSlot != null) {
-                    // Generate a title from the instruction (first few words)
-                    val title = generateTitleFromInstruction(instruction)
-                    
-                    // Save the custom prompt
-                    val success = customPromptsLoader.saveCustomPrompt(nextSlot, title, instruction)
-                    if (success) {
-                        logger.info("Saved custom prompt to slot $nextSlot: $title")
-                    }
+                // Generate LLM-enhanced title
+                val title = generateEnhancedTitle(instruction)
+                
+                val (slotNumber, actionDescription) = if (nextSlot != null) {
+                    Pair(nextSlot, "Saved")
                 } else {
-                    // All slots occupied, replace the last one (slot 9)
-                    val title = generateTitleFromInstruction(instruction)
-                    val success = customPromptsLoader.saveCustomPrompt(9, title, instruction)
-                    if (success) {
-                        logger.info("Replaced custom prompt in slot 9: $title")
+                    Pair(9, "Replaced")
+                }
+                
+                // Save the custom prompt
+                val success = customPromptsLoader.saveCustomPrompt(slotNumber, title, instruction)
+                if (success) {
+                    logger.info("$actionDescription custom prompt in slot $slotNumber: $title")
+                    
+                    // Reload custom prompts to make them immediately available
+                    reloadCustomPrompts()
+                    
+                    // Show notification to user
+                    ApplicationManager.getApplication().invokeLater {
+                        ZestNotifications.showInfo(
+                            project,
+                            "Custom Prompt Saved",
+                            "$actionDescription as Shift+$slotNumber shortcut: \"$title\""
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -750,7 +756,86 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         }
         
         /**
-         * Generate a short title from the instruction
+         * Load custom prompts from the loader
+         */
+        private fun loadCustomPrompts(): List<ZestCustomPromptsLoader.CustomPrompt> {
+            return try {
+                val loader = ZestCustomPromptsLoader.getInstance(project)
+                // Force update to new defaults to remove old duplicated prompts
+                loader.forceUpdateToNewDefaults()
+                loader.loadCustomPrompts().also { prompts ->
+                    println("[DEBUG] Loaded ${prompts.size} custom prompts: ${prompts.map { "${it.shortcut}: ${it.title}" }}")
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to load custom prompts", e)
+                emptyList()
+            }
+        }
+
+        /**
+         * Reload custom prompts and update UI
+         */
+        private fun reloadCustomPrompts() {
+            customPrompts = loadCustomPrompts()
+            
+            // Force refresh the entire dialog to show new custom prompts
+            refreshDialog()
+            
+            println("[DEBUG] Reloaded ${customPrompts.size} custom prompts")
+        }
+
+        /**
+         * Generate an LLM-enhanced title from the instruction
+         */
+        private fun generateEnhancedTitle(instruction: String): String {
+            return try {
+                val titlePrompt = """
+                    Generate a very short 3-4 word title for this coding task instruction:
+                    
+                    "$instruction"
+                    
+                    Requirements:
+                    - 3-4 words maximum
+                    - Descriptive and clear
+                    - No quotes or special characters
+                    - Title case (e.g., "Add Error Handling")
+                    
+                    Title:
+                """.trimIndent()
+                
+                val queryParams = LLMService.LLMQueryParams(titlePrompt)
+                    .useLiteCodeModel()
+                    .withMaxTokens(20)
+                    .withTemperature(0.3)
+                    .withTimeout(5000) // 5 second timeout for fast title generation
+                
+                val result = llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
+                
+                if (result != null && result.trim().isNotEmpty()) {
+                    // Clean and format the result
+                    val cleanTitle = result.trim()
+                        .replace("\"", "")
+                        .replace("Title:", "")
+                        .trim()
+                        .take(30) // Limit length
+                    
+                    if (cleanTitle.isNotEmpty()) {
+                        println("[DEBUG] Generated LLM title: '$cleanTitle' for instruction: '${instruction.take(50)}'")
+                        return cleanTitle
+                    }
+                }
+                
+                // Fallback to basic title generation
+                generateTitleFromInstruction(instruction)
+                
+            } catch (e: Exception) {
+                logger.warn("Failed to generate LLM title, using fallback", e)
+                generateTitleFromInstruction(instruction)
+            }
+        }
+
+        /**
+         * Generate a short title from the instruction (fallback method)
          */
         private fun generateTitleFromInstruction(instruction: String): String {
             val words = instruction.split("\\s+".toRegex()).take(4)
@@ -803,6 +888,41 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     label.font = label.font.deriveFont(Font.PLAIN)
                 }
                 label.foreground = defaultTextColor
+            }
+        }
+
+        /**
+         * Handle OK/Apply button click
+         */
+        override fun doOKAction() {
+            if (isCustomMode) {
+                // User is in custom text mode
+                val customInstruction = customTextArea.text.trim()
+                if (customInstruction.isNotEmpty()) {
+                    // Auto-save the custom instruction as a prompt
+                    saveAsCustomPrompt(customInstruction)
+                    
+                    // Execute the instruction
+                    executeSelectionAndClose(customInstruction)
+                } else {
+                    // No custom text entered, do nothing
+                    super.doOKAction()
+                }
+            } else {
+                // User is in selection mode - execute the currently selected option
+                if (currentSelection < builtInOptions.size) {
+                    val instruction = builtInOptions[currentSelection].instruction
+                    // For special actions (test generation and code explanation), close dialog immediately
+                    if (instruction == "__WRITE_TEST__" || instruction == "__EXPLAIN_CODE__") {
+                        close(OK_EXIT_CODE)
+                        onInstructionSelected?.invoke(instruction)
+                    } else {
+                        // For regular rewrites, switch to progress view
+                        executeSelectionAndClose(instruction)
+                    }
+                } else {
+                    super.doOKAction()
+                }
             }
         }
 

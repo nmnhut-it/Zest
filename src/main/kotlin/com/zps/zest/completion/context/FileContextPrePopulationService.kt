@@ -62,6 +62,13 @@ class FileContextPrePopulationService(private val project: Project) {
     init {
         setupFileListeners()
         startBackgroundProcessor()
+        
+        // Aggressively analyze all currently open files on startup
+        scope.launch {
+            delay(2000) // Wait for IDE to settle
+            analyzeAllOpenFiles()
+        }
+        
         logger.info("FileContextPrePopulationService initialized for project: ${project.name}")
     }
     
@@ -76,7 +83,14 @@ class FileContextPrePopulationService(private val project: Project) {
             override fun selectionChanged(event: FileEditorManagerEvent) {
                 event.newFile?.let { virtualFile ->
                     if (isJavaFile(virtualFile)) {
-                        scheduleFileAnalysis(virtualFile, priority = 100) // High priority for active files
+                        // Immediate high-priority analysis for active files
+                        scope.launch {
+                            logger.debug("File activated: ${virtualFile.path} - starting immediate context analysis")
+                            performImmediateFileAnalysis(virtualFile)
+                        }
+                        
+                        // Also schedule for background queue in case immediate analysis fails
+                        scheduleFileAnalysis(virtualFile, priority = 100)
                         activeFiles[virtualFile.path] = System.currentTimeMillis()
                     }
                 }
@@ -130,6 +144,166 @@ class FileContextPrePopulationService(private val project: Project) {
     }
     
     /**
+     * Perform immediate comprehensive analysis for newly opened/activated files
+     * This front-loads the expensive file-scoped context collection
+     */
+    private suspend fun performImmediateFileAnalysis(virtualFile: VirtualFile) {
+        val filePath = virtualFile.path
+        
+        try {
+            // Skip if we've already analyzed this recently
+            val lastAnalysis = processingFiles[filePath]
+            if (lastAnalysis != null && (System.currentTimeMillis() - lastAnalysis) < 30_000) {
+                logger.debug("Skipping immediate analysis - recently processed: $filePath")
+                return
+            }
+            
+            logger.info("Starting immediate file-scoped analysis: $filePath")
+            val startTime = System.currentTimeMillis()
+            
+            // Get editor for the file (EDT operation)
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor
+            
+            if (editor != null) {
+                // Collect comprehensive file-scoped context at multiple strategic positions
+                // This gives us full coverage without waiting for user cursor movements
+                analyzeComprehensiveFileContext(editor, virtualFile)
+                
+                // Pre-analyze all open files for cross-file dependencies
+                analyzeRelatedOpenFiles(virtualFile)
+                
+                val elapsedTime = System.currentTimeMillis() - startTime
+                logger.info("Completed immediate file analysis in ${elapsedTime}ms: $filePath")
+                
+            } else {
+                logger.debug("No editor available for immediate analysis: $filePath")
+            }
+            
+        } catch (e: Exception) {
+            logger.warn("Failed immediate file analysis: $filePath", e)
+        }
+    }
+    
+    /**
+     * Comprehensive file context analysis - collect context at strategic positions
+     */
+    private suspend fun analyzeComprehensiveFileContext(editor: Editor, virtualFile: VirtualFile) {
+        val document = editor.document
+        val text = document.text
+        val lines = text.lines()
+        
+        // Find all strategic positions where completions are likely needed
+        val analysisPoints = findStrategicAnalysisPoints(text)
+        logger.debug("Found ${analysisPoints.size} strategic analysis points in ${virtualFile.path}")
+        
+        // Collect context at each strategic point
+        analysisPoints.take(10).forEach { offset -> // Limit to prevent excessive analysis
+            try {
+                // Use async context collection to prevent freezes
+                scope.launch {
+                    contextCollector.collectFullFileContext(editor, offset)
+                    // Results are automatically cached by the collector
+                }
+            } catch (e: Exception) {
+                logger.debug("Failed to analyze point at offset $offset: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Find strategic positions for comprehensive context analysis
+     * These are points where users are most likely to request completions
+     */
+    private fun findStrategicAnalysisPoints(text: String): List<Int> {
+        val points = mutableListOf<Int>()
+        val lines = text.lines()
+        
+        var currentOffset = 0
+        lines.forEachIndexed { lineIndex, line ->
+            val trimmed = line.trim()
+            
+            // Strategic completion points:
+            when {
+                // 1. Start of method bodies (after opening brace)
+                trimmed.matches(Regex(".*\\{\\s*")) -> {
+                    points.add(currentOffset + line.indexOf('{') + 1)
+                }
+                // 2. Empty lines inside methods/classes
+                trimmed.isEmpty() && isInsideMethod(lineIndex, lines) -> {
+                    points.add(currentOffset)
+                }
+                // 3. After method calls (semicolon positions)
+                trimmed.endsWith(';') -> {
+                    points.add(currentOffset + line.length)
+                }
+                // 4. After field declarations
+                trimmed.matches(Regex(".*\\s+(\\w+\\s+)*\\w+\\s*;\\s*")) -> {
+                    points.add(currentOffset + line.length)
+                }
+                // 5. After import statements (for new import suggestions)
+                trimmed.startsWith("import ") && trimmed.endsWith(';') -> {
+                    points.add(currentOffset + line.length)
+                }
+            }
+            
+            currentOffset += line.length + 1 // +1 for newline
+        }
+        
+        return points.distinct().sorted()
+    }
+    
+    /**
+     * Simple heuristic to detect if a line is inside a method body
+     */
+    private fun isInsideMethod(lineIndex: Int, lines: List<String>): Boolean {
+        var braceCount = 0
+        var foundMethodStart = false
+        
+        // Look backwards from current line
+        for (i in lineIndex downTo 0) {
+            val line = lines[i].trim()
+            
+            // Count braces
+            braceCount += line.count { it == '}' }
+            braceCount -= line.count { it == '{' }
+            
+            // Look for method signatures
+            if (line.matches(Regex(".*\\)\\s*\\{.*"))) {
+                foundMethodStart = true
+                break
+            }
+            
+            // If we've closed all braces, we're not in a method
+            if (braceCount > 0) break
+        }
+        
+        return foundMethodStart && braceCount <= 0
+    }
+    
+    /**
+     * Analyze related files that are currently open to build cross-file context
+     */
+    private suspend fun analyzeRelatedOpenFiles(currentFile: VirtualFile) {
+        try {
+            val openFiles = FileEditorManager.getInstance(project).openFiles
+                .filter { it != currentFile && isJavaFile(it) }
+                .take(5) // Limit to avoid overwhelming
+            
+            logger.debug("Analyzing ${openFiles.size} related open files for cross-file context")
+            
+            openFiles.forEach { relatedFile ->
+                // Schedule background analysis for related files if not recently done
+                val lastProcessed = processingFiles[relatedFile.path]
+                if (lastProcessed == null || (System.currentTimeMillis() - lastProcessed) > 60_000) {
+                    scheduleFileAnalysis(relatedFile, priority = 70) // Medium priority
+                }
+            }
+        } catch (e: Exception) {
+            logger.debug("Failed to analyze related open files: ${e.message}")
+        }
+    }
+    
+    /**
      * Start background processor for file analysis queue
      */
     private fun startBackgroundProcessor() {
@@ -164,13 +338,11 @@ class FileContextPrePopulationService(private val project: Project) {
         try {
             logger.debug("Pre-populating context cache for: $filePath")
             
-            // Get editor for the file
-            val editor = withContext(Dispatchers.Main) {
-                FileEditorManager.getInstance(project).openFiles
-                    .firstOrNull { it.path == filePath }
-                    ?.let { FileEditorManager.getInstance(project).getSelectedEditor(it) }
-                    ?.let { FileEditorManager.getInstance(project).selectedTextEditor }
-            }
+            // Get editor for the file (EDT operation)
+            val editor = FileEditorManager.getInstance(project).openFiles
+                .firstOrNull { it.path == filePath }
+                ?.let { FileEditorManager.getInstance(project).getSelectedEditor(it) }
+                ?.let { FileEditorManager.getInstance(project).selectedTextEditor }
             
             if (editor != null) {
                 // Pre-analyze multiple positions in the file for common completion points
@@ -217,7 +389,7 @@ class FileContextPrePopulationService(private val project: Project) {
      * Analyze file structure without editor (for closed files)
      */
     private suspend fun analyzeFileStructure(virtualFile: VirtualFile) {
-        withContext(Dispatchers.Main) {
+        ApplicationManager.getApplication().invokeLater {
             ApplicationManager.getApplication().runReadAction {
                 val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
                 if (psiFile is PsiJavaFile) {
@@ -289,6 +461,45 @@ class FileContextPrePopulationService(private val project: Project) {
         if (isJavaFile(virtualFile)) {
             cache.invalidateFileCache(virtualFile.path)
             scheduleFileAnalysis(virtualFile, priority = 100)
+        }
+    }
+    
+    /**
+     * Aggressively analyze all currently open files for comprehensive context caching
+     * This front-loads context collection to minimize completion delays
+     */
+    private suspend fun analyzeAllOpenFiles() {
+        try {
+            val openFiles = FileEditorManager.getInstance(project).openFiles
+                .filter { isJavaFile(it) }
+            
+            logger.info("Starting aggressive analysis of ${openFiles.size} open files for context pre-population")
+            val startTime = System.currentTimeMillis()
+            
+            // Analyze each open file with high priority
+            openFiles.forEachIndexed { index, virtualFile ->
+                try {
+                    logger.debug("Analyzing open file ${index + 1}/${openFiles.size}: ${virtualFile.path}")
+                    
+                    // Immediate analysis for comprehensive context
+                    performImmediateFileAnalysis(virtualFile)
+                    
+                    // Small delay to prevent overwhelming the system
+                    if (index < openFiles.size - 1) {
+                        delay(100) // 100ms between files
+                    }
+                    
+                } catch (e: Exception) {
+                    logger.warn("Failed to analyze open file: ${virtualFile.path}", e)
+                }
+            }
+            
+            val elapsedTime = System.currentTimeMillis() - startTime
+            logger.info("Completed aggressive analysis of ${openFiles.size} files in ${elapsedTime}ms")
+            logger.info("Context cache is now pre-populated for immediate completions")
+            
+        } catch (e: Exception) {
+            logger.error("Failed aggressive file analysis", e)
         }
     }
     

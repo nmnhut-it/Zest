@@ -117,6 +117,11 @@ public class ReadFileTool {
                 String canonicalPath = virtualFile.getPath();
                 readFiles.put(canonicalPath, content);
 
+                // Check for empty content
+                if (content == null || content.trim().isEmpty()) {
+                    return formatEmptyFileContent(virtualFile, content);
+                }
+
                 // Format the response
                 return formatFileContent(virtualFile, content);
                 
@@ -126,6 +131,47 @@ public class ReadFileTool {
                                    filePath, e.getMessage());
             }
         });
+    }
+
+    /**
+     * Formats empty file content with appropriate messaging.
+     */
+    private String formatEmptyFileContent(VirtualFile file, String content) {
+        StringBuilder result = new StringBuilder();
+        
+        // File header
+        result.append("📄 File: ").append(file.getName()).append("\n");
+        result.append("📁 Path: ").append(file.getPath()).append("\n");
+        result.append("📏 Size: ").append(formatFileSize(file.getLength()));
+        result.append(" | Lines: ").append(countLines(content != null ? content : "")).append("\n");
+        result.append("─".repeat(70)).append("\n\n");
+
+        // Empty file messaging
+        if (file.getLength() == 0) {
+            result.append("📋 File Status: Empty File (0 bytes)\n\n");
+            result.append("This file contains no content. It may be:\n");
+            result.append("- A newly created file\n");
+            result.append("- A placeholder file\n");
+            result.append("- A file that was cleared of content\n\n");
+            result.append("✅ Empty file detected and stored for test generation context.");
+        } else {
+            result.append("📋 File Status: Content appears empty or contains only whitespace\n\n");
+            result.append("This file has ").append(file.getLength()).append(" bytes but no visible content. It may contain:\n");
+            result.append("- Only whitespace characters (spaces, tabs, newlines)\n");
+            result.append("- Non-printable characters\n");
+            result.append("- Content in an unsupported encoding\n\n");
+            
+            if (content != null && !content.isEmpty()) {
+                result.append("Raw content preview (first 200 chars):\n");
+                result.append("```\n");
+                result.append(escapeControlChars(content.substring(0, Math.min(200, content.length()))));
+                result.append("\n```\n\n");
+            }
+            
+            result.append("✅ File content stored for test generation context (may need encoding review).");
+        }
+        
+        return result.toString();
     }
 
     /**
@@ -143,13 +189,14 @@ public class ReadFileTool {
 
         // Content or preview
         if (content.length() > 2000) {
-            // Show preview for large files
-            result.append("Content (preview - first 1000 chars):\n");
+            // Show meaningful preview for large files
+            String preview = getMeaningfulPreview(content, 1000);
+            result.append("Content (preview - showing meaningful content):\n");
             result.append("```").append(getFileExtension(file)).append("\n");
-            result.append(content.substring(0, Math.min(1000, content.length())));
+            result.append(preview);
             if (content.length() > 1000) {
                 result.append("\n...\n[Content truncated - ");
-                result.append(content.length() - 1000).append(" more characters]");
+                result.append(content.length() - preview.length()).append(" more characters]");
             }
             result.append("\n```\n\n");
             result.append("✅ Full content has been stored for test generation context.");
@@ -163,6 +210,89 @@ public class ReadFileTool {
         }
 
         return result.toString();
+    }
+
+    /**
+     * Gets a meaningful preview of content, skipping empty lines and comments at the start.
+     */
+    private String getMeaningfulPreview(String content, int maxLength) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        
+        String[] lines = content.split("\n");
+        StringBuilder preview = new StringBuilder();
+        boolean foundMeaningfulContent = false;
+        int currentLength = 0;
+        
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            
+            // Skip completely empty lines at the start
+            if (!foundMeaningfulContent && trimmedLine.isEmpty()) {
+                continue;
+            }
+            
+            // Skip comment-only lines at the start (common patterns)
+            if (!foundMeaningfulContent && isCommentLine(trimmedLine)) {
+                continue;
+            }
+            
+            // We found meaningful content, include everything from here
+            foundMeaningfulContent = true;
+            
+            // Check if adding this line would exceed max length
+            int lineLength = line.length() + 1; // +1 for newline
+            if (currentLength + lineLength > maxLength && preview.length() > 0) {
+                break;
+            }
+            
+            if (preview.length() > 0) {
+                preview.append("\n");
+                currentLength++;
+            }
+            preview.append(line);
+            currentLength += line.length();
+        }
+        
+        // Fallback: if no meaningful content found, just take the first maxLength chars
+        if (!foundMeaningfulContent || preview.length() == 0) {
+            return content.substring(0, Math.min(maxLength, content.length()));
+        }
+        
+        return preview.toString();
+    }
+    
+    /**
+     * Checks if a line is primarily a comment line.
+     */
+    private boolean isCommentLine(String trimmedLine) {
+        if (trimmedLine.isEmpty()) return false;
+        
+        // Common comment patterns
+        return trimmedLine.startsWith("//") ||          // Java, C++, JS
+               trimmedLine.startsWith("#") ||           // Python, Bash, etc.
+               trimmedLine.startsWith("/*") ||          // Java, C++ block comment start
+               trimmedLine.startsWith("*") ||           // Java, C++ block comment middle
+               trimmedLine.startsWith("<!--") ||        // HTML, XML
+               trimmedLine.startsWith("--") ||          // SQL, Haskell
+               trimmedLine.startsWith("%") ||           // LaTeX, Matlab
+               (trimmedLine.startsWith("\"\"\"") && trimmedLine.length() > 3); // Python docstring
+    }
+
+    /**
+     * Escapes control characters for better display in text output.
+     */
+    private String escapeControlChars(String input) {
+        if (input == null) return "";
+        
+        return input
+            .replace("\t", "\\t")
+            .replace("\r", "\\r")
+            .replace("\n", "\\n")
+            .replace("\b", "\\b")
+            .replace("\f", "\\f")
+            .replaceAll("[\\p{Cntrl}&&[^\t\n\r]]", "?"); // Replace other control chars with ?
     }
 
     /**

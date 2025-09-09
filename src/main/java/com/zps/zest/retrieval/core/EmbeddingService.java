@@ -25,6 +25,8 @@ import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Embedding service that extends LLMService to provide vector embeddings
@@ -42,6 +44,12 @@ public final class EmbeddingService {
     private final Object cacheLock = new Object();
     private final HttpClient httpClient;
     
+    // Rate limiting components
+    private final Semaphore requestSemaphore = new Semaphore(3); // Max 3 concurrent requests
+    private final AtomicLong lastRequestTime = new AtomicLong(0);
+    private final long MIN_REQUEST_INTERVAL_MS = 200; // Minimum 200ms between requests
+    private final int MAX_RETRIES = 2; // Maximum number of retries for failed requests
+    
     // Configuration constants
     private static final String DEFAULT_EMBEDDING_MODEL = "Qwen3-Embedding-0.6B";
     private static final int DEFAULT_EMBEDDING_DIMENSIONS = 768; // Qwen3-Embedding-0.6B dimensions
@@ -55,10 +63,10 @@ public final class EmbeddingService {
         this.config = ConfigurationManager.getInstance(project);
         this.embeddingCache = new ConcurrentHashMap<>();
         
-        // Initialize HTTP client for embedding requests
+        // Initialize HTTP client for embedding requests with rate limiting optimizations
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
-            .version(HttpClient.Version.HTTP_2)
+            .version(HttpClient.Version.HTTP_1_1) // Use HTTP/1.1 to avoid GOAWAY issues with HTTP/2
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
         
@@ -403,10 +411,38 @@ public final class EmbeddingService {
     }
     
     /**
+     * Apply rate limiting before making requests
+     */
+    private void applyRateLimit() throws InterruptedException {
+        // Ensure minimum time interval between requests
+        long currentTime = System.currentTimeMillis();
+        long timeSinceLastRequest = currentTime - lastRequestTime.get();
+        
+        if (timeSinceLastRequest < MIN_REQUEST_INTERVAL_MS) {
+            long sleepTime = MIN_REQUEST_INTERVAL_MS - timeSinceLastRequest;
+            LOG.debug("Rate limiting: sleeping for " + sleepTime + "ms");
+            Thread.sleep(sleepTime);
+        }
+        
+        lastRequestTime.set(System.currentTimeMillis());
+    }
+
+    /**
      * Make direct HTTP request to embedding endpoint
      */
     private String makeDirectEmbeddingRequest(@NotNull String endpoint, @NotNull String requestBody) throws IOException {
+        // Acquire semaphore permit for concurrent request limiting
         try {
+            requestSemaphore.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Request interrupted while waiting for rate limit", e);
+        }
+        
+        try {
+            // Apply rate limiting
+            applyRateLimit();
+            
             // Log the endpoint being used
             LOG.info("Making embedding request to: " + endpoint);
             
@@ -447,8 +483,8 @@ public final class EmbeddingService {
             LOG.debug("Request method: " + request.method());
             LOG.debug("Request URI: " + request.uri());
             
-            // Send request and get response
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            // Send request with retry logic
+            HttpResponse<String> response = sendRequestWithRetry(request);
             
             // Check response status
             if (response.statusCode() != 200) {
@@ -467,7 +503,57 @@ public final class EmbeddingService {
         } catch (Exception e) {
             LOG.error("Failed to make embedding request to " + endpoint, e);
             throw new IOException("Failed to make embedding request", e);
+        } finally {
+            // Always release the semaphore permit
+            requestSemaphore.release();
         }
+    }
+    
+    /**
+     * Send HTTP request with retry logic for handling GOAWAY and other transient errors
+     */
+    private HttpResponse<String> sendRequestWithRetry(HttpRequest request) throws IOException, InterruptedException {
+        IOException lastException = null;
+        
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                if (attempt > 0) {
+                    // Exponential backoff: 1s, 2s, 4s, etc.
+                    long backoffMs = (long) Math.pow(2, attempt - 1) * 1000;
+                    LOG.info("Retrying embedding request (attempt " + (attempt + 1) + "/" + (MAX_RETRIES + 1) + ") after " + backoffMs + "ms");
+                    Thread.sleep(backoffMs);
+                }
+                
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                
+                if (attempt > 0) {
+                    LOG.info("Embedding request succeeded on retry attempt " + (attempt + 1));
+                }
+                
+                return response;
+                
+            } catch (IOException e) {
+                lastException = e;
+                String errorMsg = e.getMessage().toLowerCase();
+                
+                // Check if this is a retryable error (GOAWAY, connection reset, timeout, etc.)
+                boolean isRetryable = errorMsg.contains("goaway") || 
+                                    errorMsg.contains("connection reset") ||
+                                    errorMsg.contains("connection refused") ||
+                                    errorMsg.contains("timeout") ||
+                                    errorMsg.contains("stream closed");
+                
+                if (!isRetryable || attempt >= MAX_RETRIES) {
+                    LOG.error("Embedding request failed permanently: " + e.getMessage());
+                    throw e;
+                }
+                
+                LOG.warn("Retryable error on embedding request (attempt " + (attempt + 1) + "/" + (MAX_RETRIES + 1) + "): " + e.getMessage());
+            }
+        }
+        
+        // This should never be reached due to the logic above, but just in case
+        throw lastException != null ? lastException : new IOException("All retry attempts failed");
     }
     
     /**

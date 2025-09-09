@@ -442,35 +442,11 @@ class ZestCompletionProvider(private val project: Project) {
             val leanContextStartTime = System.currentTimeMillis()
             log("Starting lean context collection...", "Lean")
             
-            // Collect context with dependency analysis using suspendCancellableCoroutine (non-blocking)
-            val leanContext = suspendCancellableCoroutine { continuation ->
-                var isCompleted = false
-                
-                // Call the async context collection method
-                leanContextCollector.collectWithDependencyAnalysis(editor, context.offset) { ctx ->
-                    if (!isCompleted) {
-                        isCompleted = true
-                        log("Got context with ${ctx.relatedClassContents.size} related classes", "Lean")
-                        log("  Called methods: ${ctx.calledMethods.take(5).joinToString(", ")}", "Lean")
-                        log("  Used classes: ${ctx.usedClasses.take(5).joinToString(", ")}", "Lean")
-                        continuation.resume(ctx)
-                    }
-                }
-                
-                // Set up cancellation callback
-                continuation.invokeOnCancellation {
-                    if (!isCompleted) {
-                        isCompleted = true
-                        log("Context collection cancelled", "Lean")
-                    }
-                }
-            }
-            
-            if (leanContext == null) {
-                log("No context available, returning null", "Lean")
-                return null
-            }
-
+            // Clean async context collection - no callback hell, prevents UI freezes
+            val leanContext = leanContextCollector.collectWithDependencyAnalysis(editor, context.offset)
+            log("Got context with ${leanContext.relatedClassContents.size} related classes", "Lean")
+            log("  Called methods: ${leanContext.calledMethods.take(5).joinToString(", ")}", "Lean")
+            log("  Used classes: ${leanContext.usedClasses.take(5).joinToString(", ")}", "Lean")
             // Track context collection time once after collection is complete
             val leanContextTime = System.currentTimeMillis() - leanContextStartTime
             metricsService.trackContextCollectionTime(completionId, leanContextTime)
@@ -536,8 +512,8 @@ class ZestCompletionProvider(private val project: Project) {
                             .withSystemPrompt(systemPrompt)
                             .useLiteCodeModel()  // Use full model for reasoning
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                            .withTemperature(0.5); // Slightly higher for creative reasoning
-//                            .withStopSequences(getLeanStopSequences())
+                            .withTemperature(0.5) // Slightly higher for creative reasoning
+                            .withStopSequences(getLeanStopSequences()) // Enable stop sequences including </code>
                     
                     // Track the actual model being used
                     actualModel = queryParams.getModel()

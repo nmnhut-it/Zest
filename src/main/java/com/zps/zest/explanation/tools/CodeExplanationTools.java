@@ -33,7 +33,7 @@ public class CodeExplanationTools {
     
     // Individual tool instances
     private final KeywordExtractionTool keywordExtractionTool;
-    private final GrepCodeTool grepCodeTool;
+    private final RipgrepCodeTool ripgrepCodeTool;
     private final ReadFileTool readFileTool;
     private final TakeExplanationNoteTool takeNoteTool;
 
@@ -49,7 +49,7 @@ public class CodeExplanationTools {
         // Initialize tools with shared data
         ZestLangChain4jService langChainService = project.getService(ZestLangChain4jService.class);
         this.keywordExtractionTool = new KeywordExtractionTool(project, langChainService, extractedKeywords);
-        this.grepCodeTool = new GrepCodeTool(project, relatedFiles, usagePatterns);
+        this.ripgrepCodeTool = new RipgrepCodeTool(project, relatedFiles, usagePatterns);
         this.readFileTool = new ReadFileTool(project, readFiles);
         this.takeNoteTool = new TakeExplanationNoteTool(explanationNotes);
     }
@@ -148,7 +148,7 @@ public class CodeExplanationTools {
         String params = String.format("query: '%s', files: %s", query, 
             filePattern != null ? filePattern : "all files");
         notifyTool("searchCode", params);
-        String result = grepCodeTool.searchCode(query, filePattern, excludePattern);
+        String result = ripgrepCodeTool.searchCode(query, filePattern, excludePattern);
         
         // Parse the search result to extract file paths and usage patterns
         try {

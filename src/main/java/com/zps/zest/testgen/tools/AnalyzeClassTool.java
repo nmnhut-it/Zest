@@ -3,15 +3,11 @@ package com.zps.zest.testgen.tools;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.PsiShortNamesCache;
 import com.zps.zest.ClassAnalyzer;
+import com.zps.zest.testgen.util.ClassResolutionUtil;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 
@@ -41,23 +37,26 @@ public class AnalyzeClassTool {
         - Direct dependencies on other classes
         
         Parameters:
-        - filePathOrClassName: Either a full file path (e.g., "/path/to/MyClass.java") 
-                              or a simple class name (e.g., "MyClass") to search in the project.
-                              The tool will attempt to locate the class using both approaches.
+        - filePathOrClassName: Can be one of:
+          * Fully qualified name: "com.example.service.UserService" (preferred for precision)
+          * Full file path: "/src/main/java/com/example/UserService.java"
+          * Simple class name: "UserService" (may find multiple matches)
+          
+        The tool tries multiple resolution strategies in order of specificity.
         
         Returns: Detailed analysis of the class structure or an error message if the class cannot be found.
         
         Example usage:
-        - analyzeClass("/src/main/java/com/example/UserService.java")
-        - analyzeClass("UserService")
+        - analyzeClass("com.example.service.UserService") (FQN - most reliable)
+        - analyzeClass("/src/main/java/com/example/UserService.java") (file path)  
+        - analyzeClass("UserService") (simple name - fallback)
         """)
     public String analyzeClass(String filePathOrClassName) {
         return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
             try {
-                PsiFile psiFile = findClassFile(filePathOrClassName);
+                PsiFile psiFile = ClassResolutionUtil.findClassFile(project, filePathOrClassName);
                 if (psiFile == null) {
-                    return "File or class not found: " + filePathOrClassName + 
-                           "\nTry providing the full path or ensure the class name is correct.";
+                    return ClassResolutionUtil.generateNotFoundMessage(filePathOrClassName);
                 }
 
                 if (!(psiFile instanceof PsiJavaFile)) {
@@ -90,53 +89,4 @@ public class AnalyzeClassTool {
         });
     }
 
-    /**
-     * Attempts to find a PsiFile by file path or class name.
-     * Tries multiple strategies to locate the file.
-     */
-    private PsiFile findClassFile(String filePathOrClassName) {
-        // First try as a direct file path
-        VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByPath(filePathOrClassName);
-        if (virtualFile != null && virtualFile.exists()) {
-            return PsiManager.getInstance(project).findFile(virtualFile);
-        }
-
-        // Try relative to project base path
-        String basePath = project.getBasePath();
-        if (basePath != null) {
-            virtualFile = LocalFileSystem.getInstance().findFileByPath(basePath + "/" + filePathOrClassName);
-            if (virtualFile != null && virtualFile.exists()) {
-                return PsiManager.getInstance(project).findFile(virtualFile);
-            }
-        }
-
-        // Try to find by class name using IntelliJ's class index
-        String className = extractClassName(filePathOrClassName);
-        PsiClass[] classesByName = PsiShortNamesCache.getInstance(project)
-                .getClassesByName(className, GlobalSearchScope.allScope(project));
-        
-        if (classesByName.length > 0) {
-            return classesByName[0].getContainingFile();
-        }
-
-        return null;
-    }
-
-    /**
-     * Extracts the class name from a path or returns the input if it's already a class name.
-     */
-    private String extractClassName(String filePathOrClassName) {
-        // Remove .java extension if present
-        String name = filePathOrClassName.replace(".java", "");
-        
-        // Extract just the class name from a path
-        if (name.contains("/")) {
-            name = name.substring(name.lastIndexOf("/") + 1);
-        }
-        if (name.contains("\\")) {
-            name = name.substring(name.lastIndexOf("\\") + 1);
-        }
-        
-        return name;
-    }
 }

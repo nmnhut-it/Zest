@@ -82,6 +82,12 @@ dependencies {
 
     // Gson for JSON serialization (used by custom LangChain4j codec)
     implementation("com.google.code.gson:gson:2.10.1")
+    
+    // Enhanced file pattern matching with proper glob support
+    implementation("org.apache.commons:commons-io:1.3.2")
+    
+    // JSON processing for ripgrep output parsing
+    implementation("com.google.code.gson:gson:2.10.1") // Already available
 }
 
 intellijPlatform {

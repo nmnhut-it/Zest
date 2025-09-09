@@ -44,11 +44,13 @@ class ContextAnalysisDialog(
         // Tabbed pane with different views
         val tabbedPane = JBTabbedPane()
         
-        // Full Analysis tab
-        if (!data.fullAnalysis.isNullOrBlank()) {
-            val analysisPanel = createAnalysisPanel(data.fullAnalysis)
-            tabbedPane.addTab("Full Analysis", analysisPanel)
+        // Full Analysis tab - always show, with better empty content handling
+        val analysisPanel = if (!data.fullAnalysis.isNullOrBlank()) {
+            createAnalysisPanel(data.fullAnalysis)
+        } else {
+            createEmptyAnalysisPanel()
         }
+        tabbedPane.addTab("Full Analysis", analysisPanel)
         
         // Classes tab
         if (data.classes.isNotEmpty()) {
@@ -92,8 +94,23 @@ class ContextAnalysisDialog(
         infoPanel.add(pathLabel)
         
         val statusLabel = JBLabel("Status: ${data.getStatusIcon()} ${data.getStatusText()}")
-        statusLabel.foreground = UIUtil.getContextHelpForeground()
+        statusLabel.foreground = when (data.status) {
+            ContextDisplayData.AnalysisStatus.COMPLETED -> UIUtil.getContextHelpForeground()
+            ContextDisplayData.AnalysisStatus.ERROR -> JBUI.CurrentTheme.NotificationError.foregroundColor()
+            ContextDisplayData.AnalysisStatus.ANALYZING -> JBUI.CurrentTheme.NotificationInfo.foregroundColor()
+            else -> UIUtil.getContextHelpForeground()
+        }
         infoPanel.add(statusLabel)
+        
+        // Add content availability indicator
+        val contentStatusLabel = if (!data.fullAnalysis.isNullOrBlank()) {
+            JBLabel("Content: ✅ Available (${data.fullAnalysis.length} characters)")
+        } else {
+            JBLabel("Content: ⚠️ No analysis content available")
+        }
+        contentStatusLabel.foreground = UIUtil.getContextHelpForeground()
+        contentStatusLabel.font = contentStatusLabel.font.deriveFont(11f)
+        infoPanel.add(contentStatusLabel)
         
         if (!data.summary.isBlank()) {
             val summaryLabel = JBLabel("Summary: ${data.summary}")
@@ -145,6 +162,62 @@ class ContextAnalysisDialog(
         disposables.add {
             editorFactory.releaseEditor(editor)
         }
+        
+        return panel
+    }
+    
+    private fun createEmptyAnalysisPanel(): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.border = EmptyBorder(20, 20, 20, 20)
+        
+        // Empty state content
+        val contentPanel = JPanel()
+        contentPanel.layout = BoxLayout(contentPanel, BoxLayout.Y_AXIS)
+        contentPanel.isOpaque = false
+        
+        // Empty state icon and message
+        val emptyIcon = JBLabel("📋", SwingConstants.CENTER)
+        emptyIcon.font = emptyIcon.font.deriveFont(48f)
+        emptyIcon.alignmentX = Component.CENTER_ALIGNMENT
+        contentPanel.add(emptyIcon)
+        
+        contentPanel.add(Box.createVerticalStrut(20))
+        
+        val messageLabel = JBLabel("No Analysis Content Available", SwingConstants.CENTER)
+        messageLabel.font = messageLabel.font.deriveFont(Font.BOLD, 16f)
+        messageLabel.alignmentX = Component.CENTER_ALIGNMENT
+        contentPanel.add(messageLabel)
+        
+        contentPanel.add(Box.createVerticalStrut(10))
+        
+        val explanationPanel = JPanel()
+        explanationPanel.layout = BoxLayout(explanationPanel, BoxLayout.Y_AXIS)
+        explanationPanel.isOpaque = false
+        
+        val reasonLabel = JBLabel("This may occur when:", SwingConstants.CENTER)
+        reasonLabel.foreground = UIUtil.getContextHelpForeground()
+        reasonLabel.alignmentX = Component.CENTER_ALIGNMENT
+        explanationPanel.add(reasonLabel)
+        
+        val reasons = listOf(
+            "• The file is empty or contains only whitespace",
+            "• The analysis tool encountered an error",
+            "• The file content could not be processed",
+            "• The file is a binary or unsupported format"
+        )
+        
+        reasons.forEach { reason ->
+            val reasonItem = JBLabel(reason, SwingConstants.CENTER)
+            reasonItem.foreground = UIUtil.getContextHelpForeground()
+            reasonItem.font = reasonItem.font.deriveFont(12f)
+            reasonItem.alignmentX = Component.CENTER_ALIGNMENT
+            explanationPanel.add(reasonItem)
+        }
+        
+        contentPanel.add(explanationPanel)
+        
+        // Center the content
+        panel.add(contentPanel, BorderLayout.CENTER)
         
         return panel
     }

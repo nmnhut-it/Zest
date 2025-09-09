@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.time.LocalTime;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
@@ -348,23 +349,35 @@ public final class LLMService implements Disposable {
             LLMQueryParams params, 
             ChatboxUtilities.EnumUsage enumUsage) {
         if (enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION) {
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-                authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
-            }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-                authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm for inline completion");
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                    authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                    authToken = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+            } else {
+                LOG.info("Outside office hours: using original configured URL for inline completion");
+                // Keep original apiUrl and authToken from configuration
             }
         }
         if (enumUsage == ChatboxUtilities.EnumUsage.CODE_HEALTH) {
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-                authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
-            }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-                authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm for code health");
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                    authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                    authToken = "sk-CtVX7wBXLs9ddhqlScUwSA";
+                }
+            } else {
+                LOG.info("Outside office hours: using original configured URL for code health");
+                // Keep original apiUrl and authToken from configuration
             }
         }
         long startTime = System.currentTimeMillis();
@@ -429,27 +442,38 @@ public final class LLMService implements Disposable {
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
         if (enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION) {
-
-            String neuAuth = "sk-0c1l7KCScBLmcYDN-Oszmg";
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-                authToken = neuAuth;
-            }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-                authToken = neuAuth;
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm for inline completion (executeQuery)");
+                String neuAuth = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                    authToken = neuAuth;
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                    authToken = neuAuth;
+                }
+            } else {
+                LOG.info("Outside office hours: using original configured URL for inline completion (executeQuery)");
+                // Keep original apiUrl and authToken from configuration
             }
         }
 
         if (enumUsage == ChatboxUtilities.EnumUsage.CODE_HEALTH) {
-            String neuAuth = "sk-CtVX7wBXLs9ddhqlScUwSA";
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
-                authToken = neuAuth;
-            }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
-                authToken = neuAuth;
+            if (isWithinOfficeHours()) {
+                LOG.info("Office hours: redirecting to litellm for code health (executeQuery)");
+                String neuAuth = "sk-CtVX7wBXLs9ddhqlScUwSA";
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1/chat/completions";
+                    authToken = neuAuth;
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1/chat/completions";
+                    authToken = neuAuth;
+                }
+            } else {
+                LOG.info("Outside office hours: using original configured URL for code health (executeQuery)");
+                // Keep original apiUrl and authToken from configuration
             }
         }
 
@@ -565,7 +589,7 @@ public final class LLMService implements Disposable {
             for (String stop : params.getStopSequences()) {
                 stopArray.add(stop);
             }
-//            paramsObj.add("stop", stopArray);
+            paramsObj.add("stop", stopArray);
         }
 
         root.add("params", paramsObj);
@@ -589,6 +613,15 @@ public final class LLMService implements Disposable {
         messages.add(message);
         
         root.add("messages", messages);
+
+        // Add stop sequences at root level for OpenAI API compatibility
+        if (!params.getStopSequences().isEmpty()) {
+            com.google.gson.JsonArray stopArray = new com.google.gson.JsonArray();
+            for (String stop : params.getStopSequences()) {
+                stopArray.add(stop);
+            }
+            root.add("stop", stopArray);
+        }
 
         // Add empty arrays/objects for compatibility
         root.add("tool_servers", new com.google.gson.JsonArray());
@@ -1106,5 +1139,20 @@ public final class LLMService implements Disposable {
             return String.format("ConnectionStats[requests=%d, avgLatency=%dms, minLatency=%dms, maxLatency=%dms]",
                 getTotalRequests(), getAverageLatency(), getMinLatency(), getMaxLatency());
         }
+    }
+
+    /**
+     * Check if current time is within office hours (8:30 - 17:30)
+     * Copied from EmbeddingService for consistency
+     */
+    private boolean isWithinOfficeHours() {
+        LocalTime now = LocalTime.now();
+        LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
+        LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
+        
+        boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
+        LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
+        
+        return withinHours;
     }
 }

@@ -134,11 +134,11 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             requestCompletion(editor, offset, manually)
         }
         
-        // Configure trigger settings
+        // Configure trigger settings - reduced delays due to pre-populated context
         triggerManager.setConfiguration(
             autoTriggerEnabled = autoTriggerEnabled,
-            primaryDelayMs = 300L,
-            secondaryDelayMs = 800L
+            primaryDelayMs = 50L,  // Reduced from 300ms - context is pre-cached
+            secondaryDelayMs = 150L // Reduced from 800ms - only cursor context needed
         )
     }
     
@@ -330,8 +330,8 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         loadConfiguration()
         triggerManager.setConfiguration(
             autoTriggerEnabled = autoTriggerEnabled,
-            primaryDelayMs = 300L,
-            secondaryDelayMs = 800L
+            primaryDelayMs = 50L,  // Reduced from 300ms - context is pre-cached
+            secondaryDelayMs = 150L // Reduced from 800ms - only cursor context needed
         )
         
         if (!inlineCompletionEnabled) {

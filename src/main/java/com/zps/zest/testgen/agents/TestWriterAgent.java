@@ -120,11 +120,15 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Multiple batches are better than one huge batch for better error recovery
         
         PROJECT-SPECIFIC DEPENDENCIES:
+        - Always try to read maven, gradle or intelij project configuration files to learn about project dependencies. 
         - ONLY use testing frameworks and libraries that are detected in the project's build configuration
         - If JUnit 5 is detected, use JUnit 5 annotations and assertions
-        - If Mockito is available, prefer it for mocking
+        - If JUnit 4 is detected, use JUnit 4 annotations and assertions
         - If Spring Boot Test is available, use Spring testing annotations (@SpringBootTest, @MockBean, etc.)
-        - If Testcontainers is available, prefer it over mocking for database/external service tests
+        - If Mockito is available, prefer it for mocking. ONLY mock project-specific code. DO NOT mock third-party services like databases. Leave it to test containers
+        - If no mocking framework is available, try to avoid mocking, or if is utterly important to mock an object, provide a comment and leave it to user to give a mocked version of that object
+        - If Testcontainers is available, prefer it over mocking for database/external service tests. 
+        If Testcontainers is not available but there are database-related testings, then recommend user to add such dependencies. DO NOT MOCK DATABASES. 
         - If AssertJ is available, use AssertJ assertions instead of JUnit assertions for better readability
         - DO NOT add dependencies that are not already in the project
         

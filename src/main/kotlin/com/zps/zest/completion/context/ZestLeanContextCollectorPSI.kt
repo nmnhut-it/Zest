@@ -1,9 +1,11 @@
 package com.zps.zest.completion.context
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import java.util.concurrent.atomic.AtomicInteger
@@ -73,14 +75,14 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
 
     /**
      * Collects full file context using PSI for Java files.
-     * This method must be called from a read action.
+     * Non-blocking coroutine version that prevents UI freezes.
      */
-    fun collectFullFileContext(editor: Editor, offset: Int): LeanContext {
-        return ApplicationManager.getApplication().runReadAction<LeanContext> {
+    suspend fun collectFullFileContext(editor: Editor, offset: Int): LeanContext {
+        return readAction {
             collectFullFileContextInternal(editor, offset)
         }
     }
-
+    
     private fun collectFullFileContextInternal(editor: Editor, offset: Int): LeanContext {
         val document = editor.document
         val text = document.text
@@ -133,43 +135,25 @@ class ZestLeanContextCollectorPSI(private val project: Project) {
     }
 
     /**
-     * Collect context with dependency analysis - non-blocking version
+     * Clean async context collection - no callback hell, prevents UI freezes
      */
-    fun collectWithDependencyAnalysis(
-        editor: Editor,
-        offset: Int,
-        onComplete: (LeanContext) -> Unit
-    ) {
+    suspend fun collectWithDependencyAnalysis(editor: Editor, offset: Int): LeanContext {
         // Check if system is under high load
         if (isSystemUnderHighLoad()) {
-            val context = collectFullFileContext(editor, offset)
-            ApplicationManager.getApplication().invokeLater {
-                onComplete(context)
-            }
-            return
+            return collectFullFileContext(editor, offset)
         }
         
         // Begin request tracking
         beginRequest()
         
-        try {
-            // Get immediate context
-            val context = collectFullFileContext(editor, offset)
-            
-            // For now, just return the basic context - can be enhanced later
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    onComplete(context)
-                } finally {
-                    endRequest()
-                }
-            }
+        return try {
+            // Get context with non-blocking read action
+            collectFullFileContext(editor, offset)
         } catch (e: Exception) {
+            // Fallback - return basic context
+            collectFullFileContext(editor, offset)
+        } finally {
             endRequest()
-            val fallbackContext = collectFullFileContext(editor, offset)
-            ApplicationManager.getApplication().invokeLater {
-                onComplete(fallbackContext)
-            }
         }
     }
 

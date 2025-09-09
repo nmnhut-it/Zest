@@ -3,7 +3,12 @@ package com.zps.zest.testgen.agents;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
-import com.zps.zest.testgen.tools.*;
+import com.zps.zest.testgen.tools.AnalyzeClassTool;
+import com.zps.zest.testgen.tools.FindFilesTool;
+import com.zps.zest.testgen.tools.ListFilesTool;
+import com.zps.zest.testgen.tools.TakeNoteTool;
+import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
+import com.zps.zest.explanation.tools.RipgrepCodeTool;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.TestContext;
 import com.zps.zest.testgen.model.TestGenerationRequest;
@@ -156,6 +161,13 @@ Stop when you can test the code without making assumptions about external resour
     }
 
     /**
+     * Get the context gathering tools for direct access
+     */
+    public ContextGatheringTools getContextTools() {
+        return contextTools;
+    }
+
+    /**
      * Build the initial context request with pre-analyzed class info to save tokens.
      */
     private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
@@ -266,9 +278,13 @@ Stop when you can test the code without making assumptions about external resour
         private final AnalyzeClassTool analyzeClassTool;
         private final ListFilesTool listFilesTool;
         private final FindFilesTool findFilesTool;
-        private final SearchCodeTool searchCodeTool;
         private final TakeNoteTool takeNoteTool;
         private final ReadFileTool readFileTool;
+        private final RipgrepCodeTool ripgrepCodeTool;
+        
+        // For GrepCodeTool shared data
+        private final Set<String> relatedFiles = new HashSet<>();
+        private final List<String> usagePatterns = new ArrayList<>();
 
         public ContextGatheringTools(@NotNull Project project, @NotNull CodeExplorationToolRegistry toolRegistry) {
             this(project, toolRegistry, null, null);
@@ -293,15 +309,17 @@ Stop when you can test the code without making assumptions about external resour
             this.analyzeClassTool = new AnalyzeClassTool(project, analyzedClasses);
             this.listFilesTool = new ListFilesTool(project, toolRegistry);
             this.findFilesTool = new FindFilesTool(project, toolRegistry);
-            this.searchCodeTool = new SearchCodeTool(project, toolRegistry);
             this.takeNoteTool = new TakeNoteTool(contextNotes);
-            this.readFileTool = new ReadFileTool(project, readFiles);
+            this.readFileTool = new ReadFileTool(project);
+            this.ripgrepCodeTool = new RipgrepCodeTool(project, relatedFiles, usagePatterns);
         }
 
         public void reset() {
             analyzedClasses.clear();
             contextNotes.clear();
             readFiles.clear();
+            relatedFiles.clear();
+            usagePatterns.clear();
             takeNoteTool.clearNotes();
         }
 
@@ -366,10 +384,74 @@ Stop when you can test the code without making assumptions about external resour
             return findFilesTool.findFiles(pattern);
         }
 
-        @Tool("Search for code patterns, method calls, or text across the project")
+        @Tool("""
+            Search for code patterns, method calls, or text across the project using grep-like functionality with regex support.
+            
+            This tool provides powerful text-based search capabilities similar to grep/ripgrep with intelligent file filtering.
+            Supports both literal text matching and regex patterns for complex searches.
+            
+            Common usage patterns:
+            - Method calls: "getUserById(", ".save(", "validateInput"
+            - Class references: "UserService", "implements Serializable", "extends BaseClass"
+            - Annotations: "@Test", "@Autowired", "@Component", "@Override"
+            - String literals: "config.properties", "SELECT * FROM", "error.message"
+            - Code patterns: "throw new", "try {", "catch (", "finally"
+            - Comments: "TODO", "FIXME", "deprecated", "bug"
+            - Import statements: "import java.util", "import com.example"
+            - Variable declarations: "private final", "public static", "List<String>"
+            - Exception handling: "catch (Exception", "throws IOException"
+            - Database queries: "SELECT", "INSERT INTO", "UPDATE SET"
+            - Configuration keys: "server.port", "database.url", "api.key"
+            
+            Examples:
+            - searchCode("@Test") → Find all test methods
+            - searchCode("UserService") → Find all references to UserService class
+            - searchCode("throw new IllegalArgumentException") → Find exception throwing patterns
+            - searchCode("config\\.properties") → Find config file references (regex)
+            - searchCode("TODO.*important") → Find important TODO comments (regex)
+            - searchCode("private.*String.*name") → Find private String fields named 'name' (regex)
+            
+            Tips:
+            - Use regex patterns with backslash escaping: "\\\\." for literal dots
+            - Search is case-insensitive by default
+            - Results show file path, line number, and surrounding context
+            - Limited to 20 results for performance
+            """)
         public String searchCode(String query) {
             notifyTool("searchCode", query);
-            return searchCodeTool.searchCode(query);
+            return ripgrepCodeTool.searchCode(query, null, null);
+        }
+        
+        @Tool("""
+            Advanced search with file pattern filtering and regex support for targeted searches.
+            
+            Use this when you need to:
+            - Limit search to specific file types: "*.java", "*.kt", "*.xml"
+            - Exclude certain files: "!*test*", "!*generated*", "!*.class"
+            - Search in specific directories: "src/main/**", "config/**"
+            - Combine patterns: "*.{java,kt}" for Java and Kotlin files
+            
+            Parameters:
+            - query: Search pattern (literal text or regex)
+            - filePattern: Include files matching this pattern (glob syntax)
+            - excludePattern: Exclude files matching this pattern (glob syntax)
+            
+            Examples:
+            - searchCodeAdvanced("@Entity", "*.java", null) → Find JPA entities only in Java files
+            - searchCodeAdvanced("config", "*.properties", null) → Search only in properties files  
+            - searchCodeAdvanced("SELECT", "*.java", "*test*") → Find SQL in Java files, excluding tests
+            - searchCodeAdvanced("api\\\\.key", "*.yml", null) → Find API key configs in YAML files
+            
+            File pattern syntax:
+            - * matches any characters within a directory name
+            - ** matches any number of directories
+            - ? matches a single character
+            - {a,b} matches either 'a' or 'b'
+            - [abc] matches any character in the set
+            """)
+        public String searchCodeAdvanced(String query, String filePattern, String excludePattern) {
+            notifyTool("searchCodeAdvanced", String.format("query=%s, filePattern=%s, excludePattern=%s", query, filePattern, excludePattern));
+            return ripgrepCodeTool.searchCode(query, filePattern, excludePattern);
         }
 
         @Tool("Record important findings that impact test generation. Keep notes concise but complete.")
@@ -383,7 +465,16 @@ Stop when you can test the code without making assumptions about external resour
         @Tool("Read the complete content of any file in the project")
         public String readFile(String filePath) {
             notifyTool("readFile", filePath);
-            String result = readFileTool.readFile(filePath);
+            
+            // Use ReadFileTool with JsonObject parameter
+            com.google.gson.JsonObject params = new com.google.gson.JsonObject();
+            params.addProperty("filePath", filePath);
+            
+            var toolResult = readFileTool.execute(params);
+            String result = toolResult.isSuccess() ? toolResult.getContent() : toolResult.getContent();
+            
+            // Store in readFiles map
+            readFiles.put(filePath, result);
             
             // Send file read results to context tab through StreamingBaseAgent methods
             if (contextAgent != null && result != null && !result.isEmpty()) {

@@ -26,13 +26,31 @@ class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_
         val rulesLoader = ZestRulesLoader(project)
         
         if (rulesLoader.rulesFileExists()) {
+            // Check if existing rules are minimal and offer to upgrade
+            if (rulesLoader.isCurrentRulesFileMinimal()) {
+                val upgraded = rulesLoader.forceUpgradeToComprehensiveRules()
+                if (upgraded) {
+                    ZestNotifications.showInfo(
+                        project,
+                        "Rules File Upgraded",
+                        "Upgraded your rules file with comprehensive coding standards while preserving your custom rules.\nOpening enhanced rules file for editing."
+                    )
+                } else {
+                    ZestNotifications.showInfo(
+                        project,
+                        "Rules File Exists",
+                        "The rules file exists. Opening it for editing.\nNote: Rules are now stored in .zest/rules.md"
+                    )
+                }
+            } else {
+                ZestNotifications.showInfo(
+                    project,
+                    "Rules File Exists", 
+                    "The rules file exists. Opening it for editing.\nNote: Rules are now stored in .zest/rules.md"
+                )
+            }
             // Open existing file
             openRulesFile(project)
-            ZestNotifications.showInfo(
-                project,
-                "Rules File Exists",
-                "The rules file exists. Opening it for editing.\nNote: Rules are now stored in .zest/rules.md"
-            )
         } else {
             // Create new file
             if (rulesLoader.createDefaultRulesFile()) {
@@ -59,20 +77,29 @@ class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_
         
         if (project != null) {
             val rulesLoader = ZestRulesLoader(project)
-            e.presentation.text = if (rulesLoader.rulesFileExists()) {
-                "Open Zest Rules File"
-            } else {
-                "Create Zest Rules File"
+            e.presentation.text = when {
+                !rulesLoader.rulesFileExists() -> "Create Zest Rules File"
+                rulesLoader.isCurrentRulesFileMinimal() -> "Upgrade Zest Rules File"
+                else -> "Open Zest Rules File"
             }
         }
     }
     
     private fun openRulesFile(project: Project) {
         val projectBasePath = project.basePath ?: return
-        val rulesPath = Paths.get(projectBasePath, ZestRulesLoader.RULES_FILE_NAME)
         
-        VirtualFileManager.getInstance().refreshAndFindFileByNioPath(rulesPath)?.let { file ->
-            FileEditorManager.getInstance(project).openFile(file, true)
+        // Try new location first (.zest/rules.md)
+        val newRulesPath = Paths.get(projectBasePath, ".zest", ZestRulesLoader.NEW_RULES_FILE_NAME)
+        var file = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(newRulesPath)
+        
+        // Fallback to legacy location if new one doesn't exist
+        if (file == null) {
+            val legacyRulesPath = Paths.get(projectBasePath, ZestRulesLoader.RULES_FILE_NAME)
+            file = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(legacyRulesPath)
+        }
+        
+        file?.let {
+            FileEditorManager.getInstance(project).openFile(it, true)
         }
     }
 }

@@ -21,7 +21,12 @@ import java.util.List;
 /**
  * Tool for searching code patterns, usages, and references across the project.
  * Provides semantic code search capabilities beyond simple text matching.
+ * 
+ * @deprecated Use {@link com.zps.zest.explanation.tools.GrepCodeTool} instead.
+ *             GrepCodeTool provides superior grep functionality with regex support,
+ *             file pattern filtering, and better performance.
  */
+@Deprecated
 public class SearchCodeTool {
     private final Project project;
     private final CodeExplorationToolRegistry toolRegistry;
@@ -32,9 +37,15 @@ public class SearchCodeTool {
         this.toolRegistry = toolRegistry;
     }
 
+    /**
+     * @deprecated Use {@link com.zps.zest.explanation.tools.GrepCodeTool#searchCode(String, String, String)} instead.
+     */
+    @Deprecated
     @Tool("""
         Search for code patterns, method calls, class usages, or any text across the project.
         This tool performs intelligent code search that understands code structure.
+        
+        DEPRECATED: Use GrepCodeTool instead for better grep functionality with regex support.
         
         Parameters:
         - query: The search query. Can be:

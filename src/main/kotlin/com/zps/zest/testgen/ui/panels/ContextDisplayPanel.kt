@@ -30,6 +30,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
     private val fileDataMap = mutableMapOf<String, ContextDisplayData>()
     private val statusLabel = JBLabel("No files analyzed yet")
     private var contextAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
+    private var lastKnownMessageCount = -1 // -1 means never initialized
     
     init {
         setupUI()
@@ -128,6 +129,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         
         val chatButton = JButton("💬 Context Chat")
         chatButton.addActionListener { openChatMemoryDialog() }
+        updateChatButton() // Set initial state
         chatButton.toolTipText = "View ContextAgent chat memory and conversations"
         bottomPanel.add(chatButton)
         
@@ -166,6 +168,11 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
             root.removeAllChildren()
             treeModel.reload()
             statusLabel.text = "No files analyzed yet"
+            
+            // Reset chat memory tracking
+            contextAgentMemory = null
+            lastKnownMessageCount = -1
+            updateChatButton()
         }
     }
     
@@ -181,13 +188,57 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
      */
     fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?) {
         this.contextAgentMemory = chatMemory
+        this.lastKnownMessageCount = chatMemory?.messages()?.size ?: 0
+        updateChatButton()
+    }
+    
+    fun getLastKnownMessageCount(): Int {
+        return lastKnownMessageCount
+    }
+    
+    private fun updateChatButton() {
+        val chatButton = findChatButton()
+        if (chatButton != null) {
+            val memory = contextAgentMemory // Local variable for smart cast
+            chatButton.isEnabled = memory != null
+            chatButton.toolTipText = if (memory != null) {
+                val messageCount = try { memory.messages().size } catch (e: Exception) { 0 }
+                "View ContextAgent chat memory ($messageCount messages)"
+            } else {
+                "ContextAgent chat memory not available. Start a test generation session first."
+            }
+        }
+    }
+    
+    private fun findChatButton(): JButton? {
+        // Find the chat button by iterating through components
+        return findButtonRecursive(this, "💬 Context Chat")
+    }
+    
+    private fun findButtonRecursive(container: Container, text: String): JButton? {
+        for (component in container.components) {
+            if (component is JButton && component.text == text) {
+                return component
+            } else if (component is Container) {
+                val found = findButtonRecursive(component, text)
+                if (found != null) return found
+            }
+        }
+        return null
     }
     
     /**
      * Open chat memory dialog for ContextAgent
      */
     private fun openChatMemoryDialog() {
-        val dialog = ChatMemoryDialog(project, contextAgentMemory, "ContextAgent")
+        val memory = contextAgentMemory // Local variable for smart cast
+        println("[DEBUG] Opening chat memory dialog for ContextAgent")
+        println("[DEBUG] contextAgentMemory is ${if (memory != null) "not null" else "null"}")
+        if (memory != null) {
+            println("[DEBUG] Chat memory has ${memory.messages().size} messages")
+        }
+        
+        val dialog = ChatMemoryDialog(project, memory, "ContextAgent")
         dialog.show()
     }
     

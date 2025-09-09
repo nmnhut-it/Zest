@@ -9,11 +9,13 @@ import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
+import com.zps.zest.explanation.tools.RipgrepCodeTool;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -68,8 +70,8 @@ public class FindFilesTool {
                     }
                 }
 
-                // Fallback to IntelliJ's FilenameIndex
-                return findFilesDirectly(pattern);
+                // Fallback to ripgrep-based search for better path pattern support
+                return findFilesWithRipgrep(pattern);
                 
             } catch (Exception e) {
                 return String.format("Error searching for files with pattern '%s': %s\n" +
@@ -244,6 +246,66 @@ public class FindFilesTool {
             result.append("\n⚠️ Results limited to 50 files. Use a more specific pattern to narrow the search.");
         }
 
+        return result.toString();
+    }
+    
+    /**
+     * Use ripgrep to find files by path pattern - much better at glob patterns than FilenameIndex.
+     */
+    private String findFilesWithRipgrep(String pattern) {
+        try {
+            // Create RipgrepCodeTool instance and use its file finding capability
+            RipgrepCodeTool ripgrep = new RipgrepCodeTool(project, new java.util.HashSet<>(), new java.util.ArrayList<>());
+            String fileGlob = normalizePattern(pattern);
+            
+            // Use ripgrep's file listing method
+            return ripgrep.findFiles(fileGlob);
+            
+        } catch (Exception e) {
+            // Fallback to FilenameIndex approach
+            return findFilesDirectly(pattern);
+        }
+    }
+    
+    /**
+     * Parse ripgrep search results to extract file list.
+     */
+    private String parseRipgrepToFileList(String ripgrepOutput, String originalPattern) {
+        if (ripgrepOutput.contains("No results found") || ripgrepOutput.contains("❌")) {
+            return String.format("No files found matching pattern: '%s'\n" +
+                               "Pattern was normalized to: '%s'\n" +
+                               "Note: Ripgrep search completed but no files matched.",
+                               originalPattern, normalizePattern(originalPattern));
+        }
+        
+        // Extract unique file paths from ripgrep output
+        Set<String> filePaths = new java.util.LinkedHashSet<>();
+        String[] lines = ripgrepOutput.split("\n");
+        
+        for (String line : lines) {
+            // Look for file path patterns in ripgrep output (format: "N. 📄 path:line")
+            if (line.matches("\\d+\\. 📄 .*:\\d+")) {
+                String filePart = line.substring(line.indexOf("📄 ") + 2);
+                String filePath = filePart.substring(0, filePart.lastIndexOf(":"));
+                filePaths.add(filePath);
+            }
+        }
+        
+        if (filePaths.isEmpty()) {
+            return String.format("No files found matching pattern: '%s'\n" +
+                               "Pattern was normalized to: '%s'",
+                               originalPattern, normalizePattern(originalPattern));
+        }
+        
+        StringBuilder result = new StringBuilder();
+        result.append(String.format("Found %d file(s) matching pattern: '%s' (via ripgrep)\n", 
+                                   filePaths.size(), originalPattern));
+        result.append("─".repeat(60)).append("\n");
+        
+        filePaths.forEach(path -> {
+            result.append("📄 ").append(path).append("\n");
+        });
+        
         return result.toString();
     }
 

@@ -11,6 +11,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import com.zps.zest.explanation.tools.RipgrepCodeTool;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -387,7 +388,8 @@ public class ReadFileTool {
             }
         }
 
-        return null;
+        // Last resort: Use ripgrep to find the file by pattern
+        return findFileWithRipgrep(pathOrFqn);
     }
 
     /**
@@ -468,6 +470,59 @@ public class ReadFileTool {
             }
         }
 
+        return null;
+    }
+    
+    /**
+     * Use ripgrep as last resort to find file by pattern.
+     */
+    @Nullable 
+    private VirtualFile findFileWithRipgrep(String pathOrFqn) {
+        try {
+            // Create ripgrep instance for file finding
+            RipgrepCodeTool ripgrep = new RipgrepCodeTool(project, new java.util.HashSet<>(), new java.util.ArrayList<>());
+            
+            // Convert path to glob pattern
+            String pattern = pathOrFqn.contains("/") || pathOrFqn.contains("\\") ? 
+                "**/" + pathOrFqn.replace('\\', '/') :  // Path pattern
+                "**/*" + pathOrFqn + "*";              // Name pattern
+            
+            // Use ripgrep to find files matching pattern
+            String ripgrepResult = ripgrep.searchCode(".", pattern, null);
+            
+            // Extract first matching file path
+            return extractFirstFileFromRipgrepResult(ripgrepResult);
+            
+        } catch (Exception e) {
+            // Ripgrep fallback failed
+            return null;
+        }
+    }
+    
+    /**
+     * Extract first VirtualFile from ripgrep search results.
+     */
+    @Nullable
+    private VirtualFile extractFirstFileFromRipgrepResult(String ripgrepOutput) {
+        if (ripgrepOutput.contains("No results found") || ripgrepOutput.contains("❌")) {
+            return null;
+        }
+        
+        String[] lines = ripgrepOutput.split("\n");
+        for (String line : lines) {
+            // Look for file path patterns in ripgrep output (format: "N. 📄 path:line")
+            if (line.matches("\\d+\\. 📄 .*:\\d+")) {
+                String filePart = line.substring(line.indexOf("📄 ") + 2);
+                String filePath = filePart.substring(0, filePart.lastIndexOf(":"));
+                
+                // Convert to VirtualFile
+                VirtualFile file = LocalFileSystem.getInstance().findFileByPath(filePath);
+                if (file != null && file.exists()) {
+                    return file;
+                }
+            }
+        }
+        
         return null;
     }
 

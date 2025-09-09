@@ -44,6 +44,7 @@ class StateMachineTestGenerationEditor(
     private var currentSessionId: String? = null
     private var currentStateMachine: TestGenerationStateMachine? = null
     private var blinkTimer: javax.swing.Timer? = null
+    private var chatMemoryUpdateTimer: javax.swing.Timer? = null
     
     // UI Components
     private lateinit var tabbedPane: JBTabbedPane
@@ -78,6 +79,13 @@ class StateMachineTestGenerationEditor(
                 
                 // Update agent chat memories when state changes
                 currentSessionId?.let { updateAgentChatMemories(it) }
+                
+                // Stop periodic updates if generation finished
+                if (event.newState == TestGenerationState.COMPLETED || 
+                    event.newState == TestGenerationState.FAILED || 
+                    event.newState == TestGenerationState.CANCELLED) {
+                    stopChatMemoryPeriodicUpdates()
+                }
                 
                 val autoFlowStatus = if (currentStateMachine?.isAutoFlowEnabled == true) " [auto-flow]" else ""
                 logEvent("State: ${event.oldState} → ${event.newState}$autoFlowStatus" + 
@@ -506,10 +514,11 @@ class StateMachineTestGenerationEditor(
         // Disable button immediately to prevent double-click
         primaryActionButton.isEnabled = false
         
-        // Clear all panels
+        // Clear all panels and stop any existing timers
         contextDisplayPanel.clear()
         testPlanDisplayPanel.clear()
         generatedTestsPanel.clear()
+        stopChatMemoryPeriodicUpdates() // Stop any existing periodic updates
         streamingHelper.reset()
         
         testGenService.startTestGeneration(request, eventListener, ::processStreamingText).thenAccept { stateMachine ->
@@ -519,6 +528,7 @@ class StateMachineTestGenerationEditor(
                 updateStateDisplay(stateMachine.currentState)
                 updateControlButtons()
                 updateAgentChatMemories(stateMachine.sessionId)
+                startChatMemoryPeriodicUpdates() // Start periodic updates
                 logEvent("Session started: ${stateMachine.sessionId}")
             }
         }.exceptionally { throwable ->
@@ -924,7 +934,20 @@ class StateMachineTestGenerationEditor(
             
             // Get ContextAgent memory
             val contextAgent = stateMachine?.sessionData?.get("contextAgent") as? com.zps.zest.testgen.agents.ContextAgent
-            contextDisplayPanel.setChatMemory(contextAgent?.getChatMemory())
+            val contextMemory = contextAgent?.getChatMemory()
+            val contextMessageCount = contextMemory?.messages()?.size ?: 0
+            
+            // Only log if there are changes or new agents
+            val wasContextAgentNull = contextDisplayPanel.getLastKnownMessageCount() == -1
+            val contextChanged = contextDisplayPanel.getLastKnownMessageCount() != contextMessageCount
+            
+            if (wasContextAgentNull && contextAgent != null) {
+                println("[DEBUG] ContextAgent now available with $contextMessageCount messages")
+            } else if (contextChanged) {
+                println("[DEBUG] ContextAgent messages: ${contextDisplayPanel.getLastKnownMessageCount()} → $contextMessageCount")
+            }
+            
+            contextDisplayPanel.setChatMemory(contextMemory)
             
             // Get TestWriterAgent memory  
             val testWriterAgent = stateMachine?.sessionData?.get("testWriterAgent") as? com.zps.zest.testgen.agents.TestWriterAgent
@@ -933,7 +956,10 @@ class StateMachineTestGenerationEditor(
             // For Test Plan tab, could show any planning agent memory
             testPlanDisplayPanel.setChatMemory(null, "Planning") // No specific planning agent yet
             
-            logEvent("🔄 Updated chat memory displays for all agents")
+            // Only log when there are significant changes
+            if (wasContextAgentNull && contextAgent != null) {
+                logEvent("✅ ContextAgent chat memory now available")
+            }
             
         } catch (e: Exception) {
             logEvent("⚠️ Could not update agent chat memories: ${e.message}")
@@ -960,6 +986,30 @@ class StateMachineTestGenerationEditor(
         blinkTimer?.stop()
         blinkTimer = null
         actionPrompt.isVisible = true
+    }
+    
+    /**
+     * Start periodic updates of chat memories to catch newly created agents
+     */
+    private fun startChatMemoryPeriodicUpdates() {
+        stopChatMemoryPeriodicUpdates() // Stop any existing timer
+        
+        chatMemoryUpdateTimer = javax.swing.Timer(2000) { // Update every 2 seconds
+            currentSessionId?.let { sessionId ->
+                updateAgentChatMemories(sessionId)
+            }
+        }
+        chatMemoryUpdateTimer?.start()
+        println("[DEBUG] Started periodic chat memory updates")
+    }
+    
+    /**
+     * Stop periodic chat memory updates
+     */
+    private fun stopChatMemoryPeriodicUpdates() {
+        chatMemoryUpdateTimer?.stop()
+        chatMemoryUpdateTimer = null
+        println("[DEBUG] Stopped periodic chat memory updates")
     }
     
     private fun clearActionPrompt() {

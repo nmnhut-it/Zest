@@ -215,51 +215,7 @@ public abstract class StreamingBaseAgent {
             SwingUtilities.invokeLater(() -> eventListener.onStatusChanged(status));
         }
     }
-    
-    /**
-     * Send context information from tool calls to UI.
-     * Replaces progress updates with contextual information about tool execution.
-     */
-    protected void sendContextInfo(@NotNull String toolName, @NotNull String contextInfo) {
-        if (eventListener != null) {
-            ContextDisplayData contextData = new ContextDisplayData(
-                toolName + " Context",
-                toolName, 
-                ContextDisplayData.AnalysisStatus.COMPLETED,
-                contextInfo,
-                contextInfo,
-                java.util.Collections.emptyList(),
-                java.util.Collections.emptyList(),
-                java.util.Collections.emptyList(),
-                System.currentTimeMillis()
-            );
-            SwingUtilities.invokeLater(() -> eventListener.onFileAnalyzed(contextData));
-        }
-        
-        // Also send to streaming UI
-        sendToUI("\n📋 Context from " + toolName + ": " + contextInfo + "\n");
-    }
-    
-    /**
-     * Log tool call results with context information instead of progress.
-     */
-    protected void logToolResult(@NotNull String toolName, @NotNull String result, @Nullable String contextHint) {
-        // Send detailed tool result to UI
-        StringBuilder message = new StringBuilder();
-        message.append("\n📊 ").append(toolName).append(" Result:\n");
-        message.append("   ").append(result.length() > 300 ? result.substring(0, 300) + "..." : result);
-        
-        if (contextHint != null && !contextHint.isEmpty()) {
-            message.append("\n   Context: ").append(contextHint);
-        }
-        
-        message.append("\n");
-        sendToUI(message.toString());
-        
-        // Note: Removed sendContextInfo() call as tools already send proper context data
-        // via sendContextFileAnalyzed() - this was creating duplicate tool name entries
-    }
-    
+
     /**
      * Helper method for direct LLM queries (non-agentic).
      * Useful for simple prompt-response interactions.

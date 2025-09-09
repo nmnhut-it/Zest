@@ -50,6 +50,13 @@ public class RipgrepCodeTool {
     }
     
     /**
+     * Find files matching a glob pattern (no content search, just file listing).
+     */
+    public String findFiles(String globPattern) {
+        return findFilesWithRipgrep(globPattern);
+    }
+    
+    /**
      * Search with context lines (like rg -C)
      */
     public String searchCodeWithContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int contextLines) {
@@ -144,10 +151,16 @@ public class RipgrepCodeTool {
                 return null; // No bundled binary
             }
             
-            // Create temp directory
-            Path tempDir = Files.createTempDirectory("zest-ripgrep");
+            // Create persistent directory in AppData instead of temp
+            Path appDataDir = getAppDataDirectory();
             String binaryName = platform.contains("windows") ? "rg-windows-64.exe" : "rg";
-            Path extractedPath = tempDir.resolve(binaryName);
+            Path extractedPath = appDataDir.resolve(binaryName);
+            
+            // Check if already extracted and valid
+            if (Files.exists(extractedPath) && Files.isExecutable(extractedPath)) {
+                ripgrepPath = extractedPath.toString();
+                return ripgrepPath;
+            }
             
             // Extract binary
             Files.copy(bundledBinary, extractedPath, StandardCopyOption.REPLACE_EXISTING);
@@ -171,6 +184,40 @@ public class RipgrepCodeTool {
         }
         
         return null;
+    }
+    
+    /**
+     * Get persistent AppData directory for storing ripgrep binary.
+     */
+    private Path getAppDataDirectory() throws IOException {
+        String os = System.getProperty("os.name").toLowerCase();
+        Path appDataPath;
+        
+        if (os.contains("windows")) {
+            // Windows: %APPDATA%\Zest\tools
+            String appData = System.getenv("APPDATA");
+            if (appData != null) {
+                appDataPath = Paths.get(appData, "Zest", "tools");
+            } else {
+                // Fallback to user home
+                appDataPath = Paths.get(System.getProperty("user.home"), ".zest", "tools");
+            }
+        } else if (os.contains("mac")) {
+            // macOS: ~/Library/Application Support/Zest/tools
+            appDataPath = Paths.get(System.getProperty("user.home"), "Library", "Application Support", "Zest", "tools");
+        } else {
+            // Linux: ~/.local/share/zest/tools
+            String xdgDataHome = System.getenv("XDG_DATA_HOME");
+            if (xdgDataHome != null) {
+                appDataPath = Paths.get(xdgDataHome, "zest", "tools");
+            } else {
+                appDataPath = Paths.get(System.getProperty("user.home"), ".local", "share", "zest", "tools");
+            }
+        }
+        
+        // Create directories if they don't exist
+        Files.createDirectories(appDataPath);
+        return appDataPath;
     }
     
     /**
@@ -429,6 +476,86 @@ public class RipgrepCodeTool {
         } else if (lowerLine.contains(lowerQuery + "(")) {
             usagePatterns.add("Method call: " + line.trim());
         }
+    }
+    
+    /**
+     * Find files using ripgrep's --files flag with glob patterns.
+     */
+    private String findFilesWithRipgrep(String globPattern) {
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return "Error: Could not determine project path";
+            }
+            
+            // Find ripgrep binary
+            String rgPath = findRipgrepBinary();
+            if (rgPath == null) {
+                return "❌ Ripgrep not available for file finding.\nFalling back to basic search...";
+            }
+            
+            // Build ripgrep --files command (no content search, just file listing)
+            List<String> command = new ArrayList<>();
+            command.add(rgPath);
+            command.add("--files");           // List files, don't search content
+            command.add("--glob");
+            command.add(globPattern);
+            command.add(projectPath);
+            
+            // Execute command
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+            }
+            
+            boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return "Error: Ripgrep file listing timed out";
+            }
+            
+            if (process.exitValue() != 0) {
+                return String.format("No files found matching glob pattern: '%s'", globPattern);
+            }
+            
+            return formatFileListResults(output.toString(), globPattern);
+            
+        } catch (Exception e) {
+            return String.format("Error using ripgrep for file finding: %s", e.getMessage());
+        }
+    }
+    
+    /**
+     * Format file listing results from ripgrep --files.
+     */
+    private String formatFileListResults(String output, String pattern) {
+        String[] filePaths = output.trim().split("\n");
+        
+        if (filePaths.length == 0 || (filePaths.length == 1 && filePaths[0].trim().isEmpty())) {
+            return String.format("No files found matching pattern: '%s'", pattern);
+        }
+        
+        StringBuilder result = new StringBuilder();
+        result.append(String.format("🔍 Found %d file(s) matching pattern: '%s' (ripgrep --files)\n", 
+                                   filePaths.length, pattern));
+        result.append("═".repeat(60)).append("\n\n");
+        
+        for (String filePath : filePaths) {
+            if (!filePath.trim().isEmpty()) {
+                String relativePath = getRelativePath(filePath);
+                result.append("📄 ").append(relativePath).append("\n");
+                result.append("   Full path: ").append(filePath).append("\n\n");
+            }
+        }
+        
+        return result.toString();
     }
     
     /**

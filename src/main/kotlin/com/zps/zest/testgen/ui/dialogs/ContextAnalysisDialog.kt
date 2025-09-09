@@ -138,9 +138,10 @@ class ContextAnalysisDialog(
     private fun createAnalysisPanel(analysis: String): JComponent {
         val panel = JPanel(BorderLayout())
         
-        // Create editor for syntax highlighting
+        // Create editor for syntax highlighting with line ending normalization
         val editorFactory = EditorFactory.getInstance()
-        val document = editorFactory.createDocument(analysis)
+        val normalizedContent = normalizeLineEndings(analysis)
+        val document = editorFactory.createDocument(normalizedContent)
         val editor = editorFactory.createViewer(document, project) as EditorEx
         
         // Set up editor settings
@@ -333,6 +334,13 @@ class ContextAnalysisDialog(
     
     override fun createActions(): Array<Action> {
         return arrayOf(okAction)
+    }
+    
+    /**
+     * Normalize line endings to prevent IntelliJ editor issues.
+     */
+    private fun normalizeLineEndings(content: String): String {
+        return content.replace("\r\n", "\n").replace("\r", "\n")
     }
     
     override fun dispose() {

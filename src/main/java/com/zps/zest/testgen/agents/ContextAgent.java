@@ -445,6 +445,7 @@ Stop when you can test the code without making assumptions about external resour
 
         @Tool("""
             Search for code patterns, method calls, or text across the project using grep-like functionality with regex support.
+            CANNOT be used to search for files by their names.
             
             This tool provides powerful text-based search capabilities similar to grep/ripgrep with intelligent file filtering.
             Supports both literal text matching and regex patterns for complex searches.
@@ -536,7 +537,7 @@ Stop when you can test the code without making assumptions about external resour
             String normalizedPath = normalizeFilePath(filePath);
             readFiles.put(normalizedPath, result);
             
-            return processToolResult("readFile", filePath, result);
+            return processToolResult("readFile", filePath, result, toolResult.isSuccess());
         }
         
         /**
@@ -573,25 +574,34 @@ Stop when you can test the code without making assumptions about external resour
         
         /**
          * Validate if content is meaningful (not empty, not just error messages).
+         * Only fails on actual tool error messages, not legitimate file content that mentions errors.
          */
         private boolean hasValidContent(String content) {
             if (content == null || content.trim().isEmpty()) return false;
             
-            // Check for common error patterns
-            String lower = content.toLowerCase();
-            if (lower.contains("not found") || 
-                lower.contains("error") ||
-                lower.contains("failed") ||
-                content.startsWith("❌")) {
+            // Check for specific tool error patterns (not general content that mentions errors)
+            String trimmed = content.trim();
+            
+            // These are actual ReadFileTool error messages, not file content
+            if (trimmed.startsWith("❌") ||
+                trimmed.startsWith("No files found with name:") ||
+                trimmed.startsWith("Multiple files found with name") ||
+                trimmed.startsWith("Error reading file:") ||
+                trimmed.startsWith("File not found:") ||
+                trimmed.startsWith("Permission denied:") ||
+                (trimmed.contains("not found") && trimmed.length() < 100)) { // Short "not found" messages are likely errors
                 return false;
             }
             
-            // Check if it's just whitespace or very minimal content
-            String trimmed = content.trim();
-            return trimmed.length() > 10; // Require at least some meaningful content
+            // Require at least some meaningful content
+            return trimmed.length() > 10;
         }
 
         private ContextDisplayData createContextDisplayData(String inputPath, String analysisResult) {
+            return createContextDisplayData(inputPath, analysisResult, true); // Default to success for backward compatibility
+        }
+        
+        private ContextDisplayData createContextDisplayData(String inputPath, String analysisResult, boolean toolSuccess) {
             // Normalize path to prevent duplicates
             String normalizedPath = normalizeFilePath(inputPath);
             
@@ -600,16 +610,24 @@ Stop when you can test the code without making assumptions about external resour
                 Math.max(normalizedPath.lastIndexOf('/'), normalizedPath.lastIndexOf('\\')) + 1
             );
             
-            // Validate content and set appropriate status
-            boolean isValid = hasValidContent(analysisResult);
-            ContextDisplayData.AnalysisStatus status = isValid ? 
-                ContextDisplayData.AnalysisStatus.COMPLETED : 
-                ContextDisplayData.AnalysisStatus.ERROR;
+            // Set status based on tool success and content validation
+            ContextDisplayData.AnalysisStatus status;
+            String summary;
+            boolean isValid;
             
-            // Create concise summary
-            String summary = isValid ? 
-                (analysisResult.length() > 100 ? analysisResult.substring(0, 100) + "..." : analysisResult) :
-                "No valid content";
+            if (!toolSuccess) {
+                // Tool itself failed, definitely an error
+                status = ContextDisplayData.AnalysisStatus.ERROR;
+                summary = "Tool execution failed";
+                isValid = false;
+            } else {
+                // Tool succeeded, check if content looks good
+                isValid = hasValidContent(analysisResult);
+                status = isValid ? ContextDisplayData.AnalysisStatus.COMPLETED : ContextDisplayData.AnalysisStatus.ERROR;
+                summary = isValid ? 
+                    (analysisResult.length() > 100 ? analysisResult.substring(0, 100) + "..." : analysisResult) :
+                    "No valid content";
+            }
             
             return new ContextDisplayData(
                 normalizedPath,  // Use normalized path as key
@@ -628,9 +646,16 @@ Stop when you can test the code without making assumptions about external resour
          * Common logic for processing tool results and updating UI.
          */
         private String processToolResult(String toolName, String input, String result) {
+            return processToolResult(toolName, input, result, true); // Default to success for backward compatibility
+        }
+        
+        /**
+         * Common logic for processing tool results and updating UI with success status.
+         */
+        private String processToolResult(String toolName, String input, String result, boolean isSuccess) {
             // Create context data with normalized path and send to UI
             if (contextAgent != null && result != null && !result.isEmpty()) {
-                ContextDisplayData contextData = createContextDisplayData(input, result);
+                ContextDisplayData contextData = createContextDisplayData(input, result, isSuccess);
                 contextAgent.sendContextFileAnalyzed(contextData);
             }
             

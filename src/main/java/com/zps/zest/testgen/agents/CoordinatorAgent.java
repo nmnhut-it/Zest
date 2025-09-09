@@ -29,6 +29,7 @@ import javax.swing.SwingUtilities;
 public class CoordinatorAgent extends StreamingBaseAgent {
     private final TestPlanningTools planningTools;
     private final TestPlanningAssistant assistant;
+    private final MessageWindowChatMemory chatMemory;
     
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -37,11 +38,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         this.planningTools = new TestPlanningTools(this);
         
         // Build the agent with streaming support
+        this.chatMemory = MessageWindowChatMemory.withMaxMessages(100);
         this.assistant = AgenticServices
                 .agentBuilder(TestPlanningAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
                 .maxSequentialToolsInvocations(50) // Allow multiple tool calls in one response
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(100))
+                .chatMemory(chatMemory)
                 .tools(planningTools)
                 .build();
     }
@@ -451,5 +453,10 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             
             return plan;
         }
+    }
+    
+    @NotNull
+    public MessageWindowChatMemory getChatMemory() {
+        return chatMemory;
     }
 }

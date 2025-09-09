@@ -953,8 +953,11 @@ class StateMachineTestGenerationEditor(
             val testWriterAgent = stateMachine?.sessionData?.get("testWriterAgent") as? com.zps.zest.testgen.agents.TestWriterAgent
             generatedTestsPanel.setChatMemory(testWriterAgent?.getChatMemory(), "TestWriter")
             
-            // For Test Plan tab, could show any planning agent memory
-            testPlanDisplayPanel.setChatMemory(null, "Planning") // No specific planning agent yet
+            // Get CoordinatorAgent memory for planning
+            val coordinatorAgent = stateMachine?.sessionData?.get("coordinatorAgent") as? com.zps.zest.testgen.agents.CoordinatorAgent
+            println("[DEBUG] CoordinatorAgent: $coordinatorAgent")
+            println("[DEBUG] CoordinatorAgent ChatMemory: ${coordinatorAgent?.getChatMemory()}")
+            testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
             
             // Only log when there are significant changes
             if (wasContextAgentNull && contextAgent != null) {

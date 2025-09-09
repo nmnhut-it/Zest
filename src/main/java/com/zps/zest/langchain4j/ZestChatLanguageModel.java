@@ -17,6 +17,7 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -154,13 +155,20 @@ public class ZestChatLanguageModel implements ChatModel {
 //            modelName = "llama3.2"; // Default model
 //        }
 
-        if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-            apiUrl = "https://litellm.zingplay.com/v1";
-            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
-        }
-        if (apiUrl.contains("talk.zingplay")) {
-            apiUrl = "https://litellm-internal.zingplay.com/v1";
-            apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+        // Apply office hour policy for redirects
+        if (isWithinOfficeHours()) {
+            LOG.info("Office hours: redirecting to litellm for ZestChatLanguageModel");
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1";
+                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1";
+                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
+        } else {
+            LOG.info("Outside office hours: using original configured URL for ZestChatLanguageModel");
+            // Keep original apiUrl and apiKey from configuration
         }
 
 //         Ensure the URL ends with /v1 for OpenAI compatibility
@@ -232,5 +240,20 @@ public class ZestChatLanguageModel implements ChatModel {
     @Override
     public Set<Capability> supportedCapabilities() {
         return executeWithPluginClassLoader(() -> delegateModel.supportedCapabilities());
+    }
+
+    /**
+     * Check if current time is within office hours (8:30 - 17:30)
+     * Copied from LLMService for consistency
+     */
+    private boolean isWithinOfficeHours() {
+        LocalTime now = LocalTime.now();
+        LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
+        LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
+        
+        boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
+        LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
+        
+        return withinHours;
     }
 }

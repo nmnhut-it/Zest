@@ -234,12 +234,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     for (var entry : analyzedClasses.entrySet()) {
                         prompt.append(String.format("Class: %s\n", entry.getKey()));
                         String implementation = entry.getValue();
-                        // Limit implementation length to avoid token limits
-                        if (implementation.length() > 2000) {
-                            prompt.append(implementation.substring(0, 2000)).append("\n... [truncated]\n\n");
-                        } else {
-                            prompt.append(implementation).append("\n\n");
-                        }
+                        // Include full implementation context without truncation
+                        prompt.append(implementation).append("\n\n");
                     }
                 }
                 
@@ -250,12 +246,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     for (var entry : readFiles.entrySet()) {
                         prompt.append(String.format("File: %s\n", entry.getKey()));
                         String content = entry.getValue();
-                        // Limit file content to avoid token limits
-                        if (content.length() > 1000) {
-                            prompt.append(content.substring(0, 1000)).append("\n... [truncated]\n\n");
-                        } else {
-                            prompt.append(content).append("\n\n");
-                        }
+                        // Include full file content context without truncation
+                        prompt.append(content).append("\n\n");
                     }
                 }
         } else {

@@ -42,12 +42,13 @@ public class TestGenerationHandler extends AbstractStateHandler {
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
             // Validate required data
-            if (!hasRequiredData(stateMachine, "testPlan", "context", "selectedScenarios")) {
+            if (!hasRequiredData(stateMachine, "testPlan", "contextTools", "selectedScenarios")) {
                 return StateResult.failure("Missing required data for test generation", false);
             }
             
             TestPlan originalPlan = (TestPlan) getSessionData(stateMachine, "testPlan");
-            TestContext context = (TestContext) getSessionData(stateMachine, "context");
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
+                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
             @SuppressWarnings("unchecked")
             List<TestPlan.TestScenario> selectedScenarios = 
                 (List<TestPlan.TestScenario>) getSessionData(stateMachine, "selectedScenarios");
@@ -83,7 +84,7 @@ public class TestGenerationHandler extends AbstractStateHandler {
             // Execute test generation with enhanced error handling
             CompletableFuture<TestGenerationResult> generationFuture = testWriterAgent.generateTests(
                 filteredPlan,
-                context
+                contextTools
             );
             
             // Wait for generation to complete with progress updates

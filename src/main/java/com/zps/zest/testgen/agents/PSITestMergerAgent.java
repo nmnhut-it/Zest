@@ -65,7 +65,7 @@ public class PSITestMergerAgent {
      */
     @NotNull
     public CompletableFuture<MergedTestClass> mergeTests(@NotNull TestGenerationResult result,
-                                                         @NotNull TestContext context) {
+                                                         @NotNull ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             if (result.getMethodCount() == 0) {
                 throw new RuntimeException("No tests to merge");
@@ -75,7 +75,7 @@ public class PSITestMergerAgent {
             
             // Merge using PSI with structured data
             return WriteCommandAction.runWriteCommandAction(project, (Computable<MergedTestClass>) () -> 
-                buildMergedTestClass(result, context)
+                buildMergedTestClass(result, contextTools)
             );
         });
     }
@@ -125,7 +125,7 @@ public class PSITestMergerAgent {
      * Build the merged test class using text generation to avoid PSI import issues.
      */
     private MergedTestClass buildMergedTestClass(@NotNull TestGenerationResult result,
-                                                 @NotNull TestContext context) {
+                                                 @NotNull ContextAgent.ContextGatheringTools contextTools) {
         // Direct access to all structured data
         String className = result.getClassName();
         String packageName = result.getPackageName();

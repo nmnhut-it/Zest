@@ -1,5 +1,6 @@
 package com.zps.zest.testgen.model;
 
+import com.zps.zest.testgen.agents.ContextAgent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,7 +35,7 @@ public class TestGenerationResult {
     
     // Original test plan and context
     private final TestPlan testPlan;
-    private final TestContext testContext;
+    private final ContextAgent.ContextGatheringTools contextTools;
     
     public TestGenerationResult(@NotNull String packageName,
                                @NotNull String className,
@@ -47,7 +48,7 @@ public class TestGenerationResult {
                                @Nullable String afterEachCode,
                                @NotNull List<GeneratedTestMethod> testMethods,
                                @NotNull TestPlan testPlan,
-                               @Nullable TestContext testContext) {
+                               @Nullable ContextAgent.ContextGatheringTools contextTools) {
         this.packageName = packageName;
         this.className = className;
         this.framework = framework;
@@ -59,7 +60,7 @@ public class TestGenerationResult {
         this.afterEachCode = afterEachCode;
         this.testMethods = new ArrayList<>(testMethods);
         this.testPlan = testPlan;
-        this.testContext = testContext;
+        this.contextTools = contextTools;
     }
     
     // Getters for all fields
@@ -119,8 +120,8 @@ public class TestGenerationResult {
     }
     
     @Nullable
-    public TestContext getTestContext() {
-        return testContext;
+    public ContextAgent.ContextGatheringTools getContextTools() {
+        return contextTools;
     }
     
     // Convenience methods

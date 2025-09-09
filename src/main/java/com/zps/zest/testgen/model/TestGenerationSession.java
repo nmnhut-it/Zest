@@ -1,5 +1,6 @@
 package com.zps.zest.testgen.model;
 
+import com.zps.zest.testgen.agents.ContextAgent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,7 +16,7 @@ public class TestGenerationSession {
     
     private Status status;
     protected TestPlan testPlan;
-    private TestContext context;
+    private ContextAgent.ContextGatheringTools contextTools;
     private TestGenerationResult testGenerationResult;
     private MergedTestClass mergedTestClass; // Complete merged test class
     private final List<String> errors;
@@ -115,12 +116,12 @@ public class TestGenerationSession {
     }
     
     @Nullable
-    public TestContext getContext() {
-        return context;
+    public ContextAgent.ContextGatheringTools getContextTools() {
+        return contextTools;
     }
     
-    public void setContext(@NotNull TestContext context) {
-        this.context = context;
+    public void setContextTools(@NotNull ContextAgent.ContextGatheringTools contextTools) {
+        this.contextTools = contextTools;
     }
     
     @Nullable

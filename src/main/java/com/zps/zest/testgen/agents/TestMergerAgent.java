@@ -101,7 +101,7 @@ public class TestMergerAgent extends StreamingBaseAgent {
     
     @NotNull
     public CompletableFuture<MergedTestClass> mergeTests(@NotNull TestGenerationResult result, 
-                                                         @NotNull TestContext context) {
+                                                         @NotNull ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (result.getMethodCount() == 0) {
@@ -139,7 +139,7 @@ public class TestMergerAgent extends StreamingBaseAgent {
                 mergingTools.reset(metadata, methods);
                 mergingTools.setToolNotifier(this::sendToUI);
                 
-                String mergeRequest = buildMergeRequest(result, context);
+                String mergeRequest = buildMergeRequest(result, contextTools);
                 assistant.mergeTests(mergeRequest);
                 
                 sendToUI("✅ Test class ready\n");
@@ -167,7 +167,7 @@ public class TestMergerAgent extends StreamingBaseAgent {
     }
     
     
-    private String buildMergeRequest(TestGenerationResult result, TestContext context) {
+    private String buildMergeRequest(TestGenerationResult result, ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder request = new StringBuilder();
         request.append("Create a complete test class with the following components:\n\n");
         
@@ -178,9 +178,9 @@ public class TestMergerAgent extends StreamingBaseAgent {
         request.append("Test Methods: ").append(result.getMethodCount()).append("\n\n");
         
         // Add context information if available
-        if (context != null) {
+        if (contextTools != null) {
             request.append("Context Info:\n");
-            request.append("- Framework detected: ").append(context.getFrameworkInfo()).append("\n");
+            request.append("- Framework detected: ").append(contextTools.getFrameworkInfo()).append("\n");
             // Test path not available in context currently
             // request.append("- Existing test path: ").append(context.getTestPath()).append("\n\n");
         }

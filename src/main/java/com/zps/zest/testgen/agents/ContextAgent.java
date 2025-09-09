@@ -10,7 +10,6 @@ import com.zps.zest.testgen.tools.TakeNoteTool;
 import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
 import com.zps.zest.explanation.tools.RipgrepCodeTool;
 import com.zps.zest.langchain4j.util.LLMService;
-import com.zps.zest.testgen.model.TestContext;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.ui.model.ContextDisplayData;
@@ -137,11 +136,11 @@ Stop when you can test the code without making assumptions about external resour
     }
 
     @NotNull
-    public CompletableFuture<TestContext> gatherContext(@NotNull TestGenerationRequest request,
-                                                        @Nullable TestPlan testPlan,
-                                                        @Nullable String sessionId,
-                                                        @Nullable Consumer<Map<String, Object>> contextUpdateCallback) {
-        return CompletableFuture.supplyAsync(() -> {
+    public CompletableFuture<Void> gatherContext(@NotNull TestGenerationRequest request,
+                                                 @Nullable TestPlan testPlan,
+                                                 @Nullable String sessionId,
+                                                 @Nullable Consumer<Map<String, Object>> contextUpdateCallback) {
+        return CompletableFuture.runAsync(() -> {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");
                 
@@ -186,12 +185,12 @@ Stop when you can test the code without making assumptions about external resour
                 // Send the response to UI
 
 
-                // Build TestContext from gathered data
-                TestContext context = buildTestContext(request, testPlan, contextTools.getGatheredData());
+                // Detect framework after all analysis is complete
+                contextTools.detectFramework();
                 
-                LOG.debug("Context gathering complete. Items collected: " + context.getContextItemCount());
+                LOG.debug("Context gathering complete - data and framework info available through tools");
                 
-                return context;
+                // Context data is accessed directly through contextTools
 
             } catch (Exception e) {
                 LOG.error("Failed to gather context", e);
@@ -276,35 +275,6 @@ Stop when you can test the code without making assumptions about external resour
                    .trim();
     }
 
-    /**
-     * Build TestContext from gathered data.
-     */
-    private TestContext buildTestContext(TestGenerationRequest request,
-                                         TestPlan testPlan,
-                                         Map<String, Object> gatheredData) {
-        try {
-            String targetPath = request.getTargetFile().getVirtualFile().getPath();
-            String targetFileName = request.getTargetFile().getName();
-            
-            // Use the static factory method from TestContext
-            return TestContext.fromGatheredData(gatheredData, targetPath, targetFileName);
-            
-        } catch (Exception e) {
-            LOG.error("Failed to build test context", e);
-            // Return a minimal context on error
-            return new TestContext(
-                    new ArrayList<>(),
-                    List.of(request.getTargetFile().getName()),
-                    Map.of(),
-                    new ArrayList<>(),
-                    "JUnit 5",
-                    Map.of("error", e.getMessage()),
-                    null,
-                    null,
-                    new HashSet<>()
-            );
-        }
-    }
 
     /**
      * Tools container with proper @Tool annotations for LangChain4j.
@@ -322,6 +292,7 @@ Stop when you can test the code without making assumptions about external resour
         private final Map<String, String> analyzedClasses = new HashMap<>();
         private final List<String> contextNotes = new ArrayList<>();
         private final Map<String, String> readFiles = new HashMap<>();
+        private String frameworkInfo = "JUnit 5"; // Default framework, will be detected during analysis
         
         // Individual tool instances
         private final AnalyzeClassTool analyzeClassTool;
@@ -370,6 +341,7 @@ Stop when you can test the code without making assumptions about external resour
             relatedFiles.clear();
             usagePatterns.clear();
             takeNoteTool.clearNotes();
+            frameworkInfo = "JUnit 5"; // Reset to default
         }
 
         public void setSessionId(String sessionId) {
@@ -399,6 +371,30 @@ Stop when you can test the code without making assumptions about external resour
         
         public Map<String, String> getReadFiles() {
             return new HashMap<>(readFiles);
+        }
+        
+        public String getFrameworkInfo() {
+            return frameworkInfo;
+        }
+        
+        /**
+         * Detect testing framework from analyzed classes and build files
+         */
+        public void detectFramework() {
+            String allContent = String.join("\n", analyzedClasses.values()) + 
+                               String.join("\n", readFiles.values());
+            
+            if (allContent.contains("org.junit.jupiter") || allContent.contains("@Test") && allContent.contains("jupiter")) {
+                frameworkInfo = "JUnit 5";
+            } else if (allContent.contains("org.junit.Test") || allContent.contains("junit:junit")) {
+                frameworkInfo = "JUnit 4"; 
+            } else if (allContent.contains("testng") || allContent.contains("org.testng")) {
+                frameworkInfo = "TestNG";
+            } else if (allContent.contains("spring-boot-starter-test") || allContent.contains("@SpringBootTest")) {
+                frameworkInfo = "Spring Boot Test";
+            } else {
+                frameworkInfo = "JUnit 5"; // Default fallback
+            }
         }
 
         private void notifyTool(String toolName, String params) {

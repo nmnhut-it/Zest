@@ -1,7 +1,6 @@
 package com.zps.zest.testgen.statemachine.handlers;
 
 import com.zps.zest.testgen.agents.CoordinatorAgent;
-import com.zps.zest.testgen.model.TestContext;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.statemachine.AbstractStateHandler;
@@ -43,24 +42,19 @@ public class TestPlanningHandler extends AbstractStateHandler {
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
             // Validate required data
-            if (!hasRequiredData(stateMachine, "request", "context")) {
-                return StateResult.failure("Missing required data: request or context", false);
+            if (!hasRequiredData(stateMachine, "request", "contextTools")) {
+                return StateResult.failure("Missing required data: request or contextTools", false);
             }
             
             TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
-            TestContext context = (TestContext) getSessionData(stateMachine, "context");
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
+                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
             
             // Create coordinator agent with contextTools reference
             // Note: We create a new CoordinatorAgent here because the one created at session start doesn't have contextTools
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             
-            // Get contextAgent from session data to access its tools
-            com.zps.zest.testgen.agents.ContextAgent contextAgent = 
-                (com.zps.zest.testgen.agents.ContextAgent) getSessionData(stateMachine, "contextAgent");
-            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
-                contextAgent != null ? contextAgent.getContextTools() : null;
-                
             CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService, contextTools);
             setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent); // Update session data with new instance
             
@@ -94,7 +88,6 @@ public class TestPlanningHandler extends AbstractStateHandler {
             // Execute test planning with error handling
             CompletableFuture<TestPlan> planFuture = coordinatorAgent.planTests(
                 request,
-                context,
                 planUpdateCallback
             );
             

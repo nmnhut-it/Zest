@@ -11,7 +11,6 @@ import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiManager;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
-import com.zps.zest.testgen.model.TestContext;
 import com.zps.zest.testgen.tools.TestFixingTools;
 import com.zps.zest.testgen.util.PSIErrorCollector;
 import dev.langchain4j.agentic.AgenticServices;
@@ -111,7 +110,7 @@ public class TestFixingAgent extends StreamingBaseAgent {
      * @return CompletableFuture with the fixed content
      */
     @NotNull
-    public CompletableFuture<String> fixTestContent(@NotNull TestContext context, @NotNull String fileName, @NotNull String fileContent) {
+    public CompletableFuture<String> fixTestContent(@NotNull String fileName, @NotNull String fileContent) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.info("Starting in-memory test content fixing for: " + fileName);
@@ -138,7 +137,7 @@ public class TestFixingAgent extends StreamingBaseAgent {
                 String result = assistant.fixCompilationErrors(
                     fileName,
                     compilationErrors,
-                    context.toString(),
+                    "Test fixing context", // Simple context info since TestFixingAgent has minimal context needs
                     fileContent
                 );
                 

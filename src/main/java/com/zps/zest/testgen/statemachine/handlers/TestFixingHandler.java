@@ -48,13 +48,13 @@ public class TestFixingHandler extends AbstractStateHandler {
             LOG.info("TestFixingHandler.executeState() called for session: " + stateMachine.getSessionId());
             
             // Validate required data
-            if (!hasRequiredData(stateMachine, "mergedTestClass", "context")) {
+            if (!hasRequiredData(stateMachine, "mergedTestClass")) {
                 LOG.error("Missing required data for test fixing");
                 return StateResult.failure("Missing required data for test fixing", false);
             }
             
             MergedTestClass mergedTest = (MergedTestClass) getSessionData(stateMachine, "mergedTestClass");
-            TestContext context = (TestContext) getSessionData(stateMachine, "context");
+            // TestFixingAgent has minimal context needs, no contextTools required
             
             logToolActivity(stateMachine, "TestFixing", "Starting compilation error fixing");
             
@@ -78,7 +78,7 @@ public class TestFixingHandler extends AbstractStateHandler {
             logToolActivity(stateMachine, "TestFixing", "Analyzing test content for compilation errors: " + fileName);
             
             // Execute fixing asynchronously with in-memory content
-            CompletableFuture<String> fixingFuture = fixingAgent.fixTestContent(context, fileName, fileContent);
+            CompletableFuture<String> fixingFuture = fixingAgent.fixTestContent(fileName, fileContent);
             
             // Wait for completion
             String fixingResult = fixingFuture.get();

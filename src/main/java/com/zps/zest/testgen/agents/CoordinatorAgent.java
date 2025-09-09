@@ -82,13 +82,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         String planTests(String request);
     }
     
-    /**
-     * Plan tests for the given request (without context)
-     */
-    @NotNull
-    public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request) {
-        return planTests(request, null);
-    }
     
     /**
      * Set callback for test plan updates
@@ -102,14 +95,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
      * Generates all scenarios in one response - no loops needed.
      */
     @NotNull
-    public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request,
-                                                  @Nullable TestContext context) {
-        return planTests(request, context, null);
+    public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request) {
+        return planTests(request, null);
     }
     
     @NotNull
     public CompletableFuture<TestPlan> planTests(@NotNull TestGenerationRequest request,
-                                                  @Nullable TestContext context,
                                                   @Nullable Consumer<TestPlan> planUpdateCallback) {
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -131,7 +122,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
 
                 // Build the planning request
-                String planRequest = buildPlanningRequest(request, context);
+                String planRequest = buildPlanningRequest(request);
                 
                 // Send the request to UI
                 sendToUI("📋 Request:\n" + planRequest + "\n\n");
@@ -176,7 +167,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     /**
      * Build the planning request with all necessary information.
      */
-    private String buildPlanningRequest(TestGenerationRequest request, TestContext context) {
+    private String buildPlanningRequest(TestGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Create a comprehensive test plan for the following code.\n\n");
         
@@ -192,39 +183,16 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         
         // Skip adding raw code here since it's already included in analyzed class implementations below
         
-        // Add context if available
-        if (context != null) {
-            prompt.append("\nContext Analysis (use this to determine test type):\n");
-            prompt.append("• Framework: ").append(context.getFrameworkInfo()).append("\n");
-            prompt.append("• Dependencies found: ").append(context.getDependencies().size()).append("\n");
-            prompt.append("• Test patterns found: ").append(context.getExistingTestPatterns().size()).append("\n");
-            
-            // Analyze dependencies to guide test type decision
-            prompt.append("\nDependency Analysis for Test Type Decision:\n");
-            boolean hasExternalDeps = false;
-            
-            for (var entry : context.getDependencies().entrySet()) {
-                String depKey = entry.getKey().toLowerCase();
-                String depValue = entry.getValue().toLowerCase();
-                String depInfo = (depKey + " " + depValue).toLowerCase();
-                
-                if (depInfo.contains("database") || depInfo.contains("jdbc") || depInfo.contains("jpa") || 
-                    depInfo.contains("repository") || depInfo.contains("file") || depInfo.contains("http") ||
-                    depInfo.contains("kafka") || depInfo.contains("redis") || depInfo.contains("elasticsearch")) {
-                    hasExternalDeps = true;
-                    prompt.append("• External dependency detected: ").append(entry.getKey()).append(" = ").append(entry.getValue()).append("\n");
-                }
-            }
-            
-            if (hasExternalDeps) {
-                prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
-                prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
-            } else {
-                prompt.append("→ GUIDANCE: Most scenarios should be UNIT type (no external dependencies detected)\n");
-            }
-            
-            // Include full context analysis using direct tool access
-            if (contextTools != null) {
+        // Add basic framework info
+        prompt.append("\nFramework Information:\n");
+        if (contextTools != null) {
+            prompt.append("• Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n");
+        } else {
+            prompt.append("• Testing Framework: JUnit 5 (default)\n");
+        }
+        
+        // Include full context analysis using direct tool access
+        if (contextTools != null) {
                 // Add detailed context notes
                 List<String> contextNotes = contextTools.getContextNotes();
                 if (!contextNotes.isEmpty()) {
@@ -236,9 +204,32 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     }
                 }
                 
-                // Add analyzed class implementations
+                // Add dependency analysis based on analyzed classes
                 Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
                 if (!analyzedClasses.isEmpty()) {
+                    prompt.append("\n=== DEPENDENCY ANALYSIS FOR TEST TYPE DECISIONS ===\n");
+                    boolean hasExternalDeps = false;
+                    
+                    // Analyze all class implementations for external dependencies
+                    for (var entry : analyzedClasses.entrySet()) {
+                        String implementation = entry.getValue().toLowerCase();
+                        if (implementation.contains("database") || implementation.contains("jdbc") || implementation.contains("jpa") || 
+                            implementation.contains("repository") || implementation.contains("@entity") || implementation.contains("@table") ||
+                            implementation.contains("files.") || implementation.contains("path.") || implementation.contains("inputstream") ||
+                            implementation.contains("http") || implementation.contains("resttemplate") || implementation.contains("webclient") ||
+                            implementation.contains("kafka") || implementation.contains("redis") || implementation.contains("elasticsearch")) {
+                            hasExternalDeps = true;
+                            prompt.append("• External dependency detected in ").append(entry.getKey()).append("\n");
+                        }
+                    }
+                    
+                    if (hasExternalDeps) {
+                        prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
+                        prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
+                    } else {
+                        prompt.append("→ GUIDANCE: Most scenarios should be UNIT type (no external dependencies detected)\n");
+                    }
+                    
                     prompt.append("\n=== ANALYZED CLASS IMPLEMENTATIONS ===\n");
                     for (var entry : analyzedClasses.entrySet()) {
                         prompt.append(String.format("Class: %s\n", entry.getKey()));
@@ -268,7 +259,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     }
                 }
         } else {
-            prompt.append("\nNo context analysis available - analyze the code to determine if scenarios need UNIT or INTEGRATION types\n");
+            prompt.append("\nNo context analysis available - analyze the provided code to determine if scenarios need UNIT or INTEGRATION types\n");
         }
         
         prompt.append("\nGenerate 8-15 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");

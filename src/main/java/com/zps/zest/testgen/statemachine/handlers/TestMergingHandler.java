@@ -37,12 +37,13 @@ public class TestMergingHandler extends AbstractStateHandler {
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
             // Validate required data
-            if (!hasRequiredData(stateMachine, "testGenerationResult", "context")) {
+            if (!hasRequiredData(stateMachine, "testGenerationResult", "contextTools")) {
                 return StateResult.failure("Missing required data for test merging", false);
             }
             
             TestGenerationResult result = (TestGenerationResult) getSessionData(stateMachine, "testGenerationResult");
-            TestContext context = (TestContext) getSessionData(stateMachine, "context");
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
+                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
             
             logToolActivity(stateMachine, "TestMerger", "Preparing test merging");
             
@@ -57,7 +58,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Always try PSI merger first (it's fast)
             try {
                 logToolActivity(stateMachine, "PSITestMerger", "Attempting fast PSI-based merge");
-                mergedTestClass = executePSIMerging(stateMachine, result, context);
+                mergedTestClass = executePSIMerging(stateMachine, result, contextTools);
                 logToolActivity(stateMachine, "PSITestMerger", "✅ PSI merge successful");
             } catch (Exception psiException) {
                 // PSI failed, try LLM merger as fallback
@@ -66,7 +67,7 @@ public class TestMergingHandler extends AbstractStateHandler {
                     "⚠️ PSI merger failed: " + psiException.getMessage() + " - trying LLM merger");
                 
                 try {
-                    mergedTestClass = executeLLMMerging(stateMachine, result, context);
+                    mergedTestClass = executeLLMMerging(stateMachine, result, contextTools);
                     mergerUsed = "LLM (PSI fallback)";
                     logToolActivity(stateMachine, "TestMergerAgent", "✅ LLM merge successful");
                 } catch (Exception llmException) {
@@ -124,13 +125,13 @@ public class TestMergingHandler extends AbstractStateHandler {
      */
     private MergedTestClass executePSIMerging(@NotNull TestGenerationStateMachine stateMachine,
                                             @NotNull TestGenerationResult result,
-                                            @NotNull TestContext context) throws Exception {
+                                            @NotNull com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
         
         logToolActivity(stateMachine, "PSITestMerger", "Using PSI-based merger (fast)");
         
         PSITestMergerAgent psiMerger = new PSITestMergerAgent(getProject(stateMachine));
         
-        CompletableFuture<MergedTestClass> mergeFuture = psiMerger.mergeTests(result, context);
+        CompletableFuture<MergedTestClass> mergeFuture = psiMerger.mergeTests(result, contextTools);
         
         // Wait for PSI merging to complete (should be fast)
         return waitForMerging(stateMachine, mergeFuture, "PSI merging");
@@ -141,7 +142,7 @@ public class TestMergingHandler extends AbstractStateHandler {
      */
     private MergedTestClass executeLLMMerging(@NotNull TestGenerationStateMachine stateMachine,
                                             @NotNull TestGenerationResult result,
-                                            @NotNull TestContext context) throws Exception {
+                                            @NotNull com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
         
         logToolActivity(stateMachine, "TestMergerAgent", "Using LLM-based merger (with conflict resolution)");
         
@@ -149,7 +150,7 @@ public class TestMergingHandler extends AbstractStateHandler {
         LLMService llmService = getProject(stateMachine).getService(LLMService.class);
         TestMergerAgent llmMerger = new TestMergerAgent(getProject(stateMachine), langChainService, llmService);
         
-        CompletableFuture<MergedTestClass> mergeFuture = llmMerger.mergeTests(result, context);
+        CompletableFuture<MergedTestClass> mergeFuture = llmMerger.mergeTests(result, contextTools);
         
         // Wait for LLM merging to complete
         return waitForMerging(stateMachine, mergeFuture, "LLM merging");

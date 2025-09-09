@@ -206,7 +206,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
      * Creates complete test class in one response - no loops needed.
      */
     @NotNull
-    public CompletableFuture<TestGenerationResult> generateTests(@NotNull TestPlan testPlan, @NotNull TestContext context) {
+    public CompletableFuture<TestGenerationResult> generateTests(@NotNull TestPlan testPlan, 
+                                                                @NotNull ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Generating tests for: " + testPlan.getTargetClass());
@@ -221,7 +222,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 writingTools.setToolNotifier(this::sendToUI);
                 
                 // Build the test writing request
-                String testRequest = buildTestWritingRequest(testPlan, context);
+                String testRequest = buildTestWritingRequest(testPlan, contextTools);
                 
                 // Send the request to UI
                 sendToUI("📋 Request:\n" + testRequest + "\n\n");
@@ -229,7 +230,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 sendToUI("-".repeat(40) + "\n");
 
                 // Try test generation with retry logic for tool calling failures
-                TestGenerationResult result = generateTestsWithRetry(testRequest, testPlan, context);
+                TestGenerationResult result = generateTestsWithRetry(testRequest, testPlan, contextTools);
                 
                 // Summary
                 sendToUI("\n📊 Test Generation Summary:\n");
@@ -264,7 +265,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
     /**
      * Generate tests with retry logic for tool calling failures
      */
-    private TestGenerationResult generateTestsWithRetry(String testRequest, TestPlan testPlan, TestContext context) {
+    private TestGenerationResult generateTestsWithRetry(String testRequest, TestPlan testPlan, 
+                                                       ContextAgent.ContextGatheringTools contextTools) {
         int maxRetries = 3;
         Exception lastException = null;
         
@@ -276,7 +278,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 String response = assistant.generateTest(testRequest);
                 
                 // Try to build result from the response
-                return buildResultWithRecovery(testPlan, context, response);
+                return buildResultWithRecovery(testPlan, contextTools, response);
                 
             } catch (Exception e) {
                 lastException = e;
@@ -303,10 +305,10 @@ public class TestWriterAgent extends StreamingBaseAgent {
     /**
      * Build test result with recovery if AI failed to call tools properly.
      */
-    private TestGenerationResult buildResultWithRecovery(TestPlan testPlan, TestContext context, String response) {
+    private TestGenerationResult buildResultWithRecovery(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools, String response) {
         try {
             // Try to build normal result from tool calls
-            TestGenerationResult result = writingTools.buildTestGenerationResult(testPlan, context);
+            TestGenerationResult result = writingTools.buildTestGenerationResult(testPlan, contextTools);
             
             // Check if we have minimal required data
             if (isValidResult(result)) {
@@ -315,12 +317,12 @@ public class TestWriterAgent extends StreamingBaseAgent {
             
             // Tools weren't called properly - attempt recovery
             sendToUI("\n⚠️ AI failed to call tools properly, attempting recovery...\n");
-            return recoverFromFailedToolCalls(testPlan, context, response);
+            return recoverFromFailedToolCalls(testPlan, contextTools, response);
             
         } catch (Exception e) {
             sendToUI("\n❌ Tool result building failed: " + e.getMessage() + "\n");
             sendToUI("🔧 Attempting recovery from AI response...\n");
-            return recoverFromFailedToolCalls(testPlan, context, response);
+            return recoverFromFailedToolCalls(testPlan, contextTools, response);
         }
     }
     
@@ -338,7 +340,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
      * Recover test generation when AI fails to use tools properly.
      * Parses the raw response and extracts test code manually.
      */
-    private TestGenerationResult recoverFromFailedToolCalls(TestPlan testPlan, TestContext context, String response) {
+    private TestGenerationResult recoverFromFailedToolCalls(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools, String response) {
         sendToUI("🔄 Parsing AI response manually...\n");
         
         // Extract basic metadata
@@ -372,7 +374,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
             "", // afterEachCode
             methods,
             testPlan,
-            context
+            contextTools
         );
         
         sendToUI("✅ Recovery completed!\n");
@@ -594,7 +596,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
     /**
      * Build the test writing request with all necessary information.
      */
-    private String buildTestWritingRequest(TestPlan testPlan, TestContext context) {
+    private String buildTestWritingRequest(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Generate a complete test class for the following test plan.\n\n");
         
@@ -614,7 +616,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         prompt.append("TARGET CLASS INFO:\n");
         prompt.append("• Target Class: ").append(testPlan.getTargetClass()).append("\n");
         prompt.append("• Target Method(s): ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
-        prompt.append("• Framework: ").append(context.getFrameworkInfo()).append("\n\n");
+        prompt.append("• Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
         
         // Test scenarios to implement
 //        prompt.append("Test Scenarios to implement (" + testPlan.getTestScenarios().size() + " total):\n");
@@ -627,13 +629,9 @@ public class TestWriterAgent extends StreamingBaseAgent {
 //            prompt.append("   • Expected: ").append(scenario.getExpectedOutcome()).append("\n");
 //        }
         
-        // Add context for code generation - FULL CONTEXT, NO TRUNCATION
+        // Add context for code generation using direct tool access
         prompt.append("\n\nCode Context:\n");
-        String contextInfo = context.buildTestWriterContext(
-            testPlan.getTargetClass(), 
-            testPlan.getTargetMethods(),
-            testPlan.getTestScenarios()
-        );
+        String contextInfo = buildTestWriterContext(contextTools, testPlan);
         
         // Include full context - no truncation
         prompt.append(contextInfo);
@@ -645,10 +643,54 @@ public class TestWriterAgent extends StreamingBaseAgent {
         prompt.append("2. Pure business logic → Unit tests (no mocking needed)\n");
         prompt.append("3. Database/external services → Integration tests with testcontainers\n");
         prompt.append("4. Each test method must be fully implemented with proper assertions\n");
-        prompt.append("5. Follow the framework conventions (" + context.getFrameworkInfo() + ")\n");
+        prompt.append("5. Follow the framework conventions (" + contextTools.getFrameworkInfo() + ")\n");
         prompt.append("6. Strictly adhere to dependency-aware testing best practices.\n");
 
         return prompt.toString();
+    }
+    
+    /**
+     * Build test writer context using direct tool access
+     */
+    private String buildTestWriterContext(ContextAgent.ContextGatheringTools contextTools, TestPlan testPlan) {
+        StringBuilder info = new StringBuilder();
+        
+        info.append("Test Generation Context:\n");
+        info.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
+        info.append("Target Methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
+        info.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
+        
+        // Add context notes with insights
+        List<String> contextNotes = contextTools.getContextNotes();
+        if (!contextNotes.isEmpty()) {
+            info.append("=== CONTEXT INSIGHTS ===\n");
+            for (String note : contextNotes) {
+                info.append("• ").append(note).append("\n");
+            }
+            info.append("\n");
+        }
+        
+        // Add analyzed class implementations
+        Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
+        if (!analyzedClasses.isEmpty()) {
+            info.append("=== ALL ANALYZED CLASSES ===\n");
+            for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
+                info.append("From ").append(entry.getKey()).append(":\n");
+                info.append(entry.getValue()).append("\n\n");
+            }
+        }
+        
+        // Add related files
+        Map<String, String> readFiles = contextTools.getReadFiles();
+        if (!readFiles.isEmpty()) {
+            info.append("=== RELATED FILES ===\n");
+            for (Map.Entry<String, String> entry : readFiles.entrySet()) {
+                info.append("File: ").append(entry.getKey()).append("\n");
+                info.append("```\n").append(entry.getValue()).append("\n```\n\n");
+            }
+        }
+        
+        return info.toString();
     }
     
     /**
@@ -1408,7 +1450,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
          * Build complete test generation result from accumulated data.
          * Returns TestGenerationResult with all structured metadata.
          */
-        public TestGenerationResult buildTestGenerationResult(TestPlan testPlan, TestContext context) {
+        public TestGenerationResult buildTestGenerationResult(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools) {
             TestClassMetadata metadata = metadataBuilder.build();
             
             return new TestGenerationResult(
@@ -1423,7 +1465,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 metadata.getAfterEachCode(),
                 new ArrayList<>(testMethods),
                 testPlan,
-                context
+                contextTools
             );
         }
         

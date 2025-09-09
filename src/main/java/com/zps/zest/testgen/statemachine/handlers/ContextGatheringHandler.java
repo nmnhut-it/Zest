@@ -1,7 +1,6 @@
 package com.zps.zest.testgen.statemachine.handlers;
 
 import com.zps.zest.testgen.agents.ContextAgent;
-import com.zps.zest.testgen.model.TestContext;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
@@ -97,7 +96,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             }
             
             // Execute context gathering with error handling
-            CompletableFuture<TestContext> contextFuture = contextAgent.gatherContext(
+            CompletableFuture<Void> contextFuture = contextAgent.gatherContext(
                 request,
                 null, // No test plan at this stage
                 stateMachine.getSessionId(),
@@ -105,20 +104,19 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             );
             
             // Wait for context gathering to complete
-            TestContext context = contextFuture.join();
+            contextFuture.join();
             
-            if (context == null) {
-                return StateResult.failure("Context gathering returned null result", true);
-            }
-            
-            // Store context in session data
-            setSessionData(stateMachine, "context", context);
+            // Store contextTools in session data instead of TestContext
+            setSessionData(stateMachine, "contextTools", contextAgent.getContextTools());
             setSessionData(stateMachine, "workflowPhase", "context");
             
-            String summary = String.format("Context gathered: %d items analyzed", context.getContextItemCount());
+            int totalItems = contextAgent.getContextTools().getAnalyzedClasses().size() + 
+                            contextAgent.getContextTools().getContextNotes().size() + 
+                            contextAgent.getContextTools().getReadFiles().size();
+            String summary = String.format("Context gathered: %d items analyzed", totalItems);
             LOG.info(summary);
             
-            return StateResult.success(context, summary, TestGenerationState.PLANNING_TESTS);
+            return StateResult.success(null, summary, TestGenerationState.PLANNING_TESTS);
             
         } catch (Exception e) {
             LOG.error("Context gathering failed", e);
@@ -223,7 +221,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     uiEventListener.onFileAnalyzed(displayData);
                 }
             }
-        }
+
             
         } catch (Exception e) {
             LOG.warn("Error triggering context UI updates", e);

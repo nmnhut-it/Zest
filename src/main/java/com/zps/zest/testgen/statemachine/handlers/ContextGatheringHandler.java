@@ -62,10 +62,12 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             
             // Set up progress callback for context updates
             Consumer<Map<String, Object>> contextUpdateCallback = contextData -> {
-                if (contextData != null) {
-                    int analyzedClasses = ((Map<?, ?>) contextData.getOrDefault("analyzedClasses", java.util.Collections.emptyMap())).size();
-                    int notes = ((java.util.List<?>) contextData.getOrDefault("contextNotes", java.util.Collections.emptyList())).size();
-                    int files = ((Map<?, ?>) contextData.getOrDefault("readFiles", java.util.Collections.emptyMap())).size();
+                if (contextData != null && contextAgent != null) {
+                    // Use direct tool access instead of hardcoded map lookups
+                    com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextAgent.getContextTools();
+                    int analyzedClasses = contextTools.getAnalyzedClasses().size();
+                    int notes = contextTools.getContextNotes().size();
+                    int files = contextTools.getReadFiles().size();
                     
                     int totalItems = analyzedClasses + notes + files;
                     if (totalItems > 0) {
@@ -81,7 +83,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                         
                         // Trigger UI updates for each analyzed file
                         if (uiEventListener != null) {
-                            triggerContextUIUpdates(contextData);
+                            triggerContextUIUpdates(contextAgent);
                         }
                     }
                 }
@@ -171,17 +173,18 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     }
     
     /**
-     * Trigger UI updates for context gathering
+     * Trigger UI updates for context gathering using direct tool access
      */
-    private void triggerContextUIUpdates(Map<String, Object> contextData) {
+    private void triggerContextUIUpdates(ContextAgent contextAgent) {
         try {
-            // Get analyzed classes and trigger file analyzed events
-            @SuppressWarnings("unchecked")
-            Map<String, Object> analyzedClasses = (Map<String, Object>) contextData.get("analyzedClasses");
-            if (analyzedClasses != null) {
-                for (Map.Entry<String, Object> entry : analyzedClasses.entrySet()) {
+            if (contextAgent != null) {
+                com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextAgent.getContextTools();
+                
+                // Get analyzed classes and trigger file analyzed events
+                Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
+                for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
                     String fileName = entry.getKey();
-                    Object analysis = entry.getValue();
+                    String analysis = entry.getValue();
                     
                     // Create context display data
                     com.zps.zest.testgen.ui.model.ContextDisplayData displayData = 
@@ -190,7 +193,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                             fileName, // fileName  
                             com.zps.zest.testgen.ui.model.ContextDisplayData.AnalysisStatus.COMPLETED,
                             "File analyzed: " + fileName, // summary
-                            analysis.toString(), // fullAnalysis
+                            analysis, // fullAnalysis
                             java.util.Collections.emptyList(), // classes
                             java.util.Collections.emptyList(), // methods
                             java.util.Collections.emptyList(), // dependencies
@@ -200,12 +203,9 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     // Trigger UI update
                     uiEventListener.onFileAnalyzed(displayData);
                 }
-            }
-            
-            // Get context notes and trigger updates
-            @SuppressWarnings("unchecked")
-            java.util.List<String> contextNotes = (java.util.List<String>) contextData.get("contextNotes");
-            if (contextNotes != null) {
+                
+                // Get context notes and trigger updates
+                java.util.List<String> contextNotes = contextTools.getContextNotes();
                 for (String note : contextNotes) {
                     com.zps.zest.testgen.ui.model.ContextDisplayData displayData = 
                         new com.zps.zest.testgen.ui.model.ContextDisplayData(
@@ -223,6 +223,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     uiEventListener.onFileAnalyzed(displayData);
                 }
             }
+        }
             
         } catch (Exception e) {
             LOG.warn("Error triggering context UI updates", e);

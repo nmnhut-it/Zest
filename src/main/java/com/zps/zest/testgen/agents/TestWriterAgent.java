@@ -96,24 +96,24 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - VALIDATE that each test method has a complete body with proper assertions
         
         IMPORT MANAGEMENT:
-        - Step 4 (addMultipleImports): Add framework imports + common testing imports (JUnit, assertions, mocking)
+        - Step 4 (addMultipleImports): Add framework imports + common testing imports (JUnit, assertions, testcontainers if needed)
         - Step 8 (addMultipleTestMethods): requiredImports should ONLY contain imports SPECIFIC to that test method
         - The system will automatically deduplicate imports
-        - Common imports to include in Step 4: org.junit.jupiter.api.Test, static org.junit.jupiter.api.Assertions.*, org.mockito.Mock, etc.
+        - Common imports to include in Step 4: org.junit.jupiter.api.Test, static org.junit.jupiter.api.Assertions.*, org.testcontainers.junit.jupiter.Testcontainers, org.testcontainers.containers.*, etc.
         
         FIELD DECLARATION RULES:
         - Each field must be a complete valid Java field declaration
         - Include access modifiers: private, protected, public
-        - Include annotations if needed: @Mock, @InjectMocks, @Autowired
+        - Include annotations if needed: @Container, @Autowired, @TestInstance
         - End each declaration with semicolon
-        - Example: "@Mock private UserRepository userRepository;"
+        - Example: "@Container static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:13");"
         
         TEST METHOD QUALITY STANDARDS:
         - Each test method must test ONE specific scenario
         - Use descriptive method names: testMethodName_WhenCondition_ThenExpectedResult
         - Include proper setup, execution, and verification (Given-When-Then pattern)
         - Use appropriate assertions: assertEquals, assertTrue, assertThrows, etc.
-        - Mock external dependencies appropriately
+        - Choose test type based on dependencies: unit tests for pure logic, integration tests for external services
         - Clean up resources in teardown if needed
         
         BATCHING STRATEGY:
@@ -121,28 +121,46 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Don't generate just 1 method (use batches), don't generate too many at once (>10)
         - Multiple batches are better than one huge batch for better error recovery
         
-        PROJECT-SPECIFIC DEPENDENCIES:
-        - Always try to read maven, gradle or intelij project configuration files to learn about project dependencies. 
+        TESTING STRATEGY - DEPENDENCY-AWARE APPROACH:
+        - Always analyze the code under test FIRST to determine required testing approach
+        - Read maven, gradle or intellij project configuration files to learn about available dependencies
         - ONLY use testing frameworks and libraries that are detected in the project's build configuration
+        
+        TESTING DECISION LOGIC:
+        1. IF code has NO external dependencies (pure business logic):
+           → Write UNIT TESTS without any mocking - test the actual logic directly
+           
+        2. IF code interacts with databases, message queues, file systems, or external services:
+           → Write INTEGRATION TESTS with Testcontainers
+           → Use @Container annotations for database/service containers
+           → Use @Testcontainers annotation on test class
+           
+        3. IF external API calls that cannot use testcontainers:
+           → ONLY THEN use mocking as absolute last resort
+           → Add TODO comments suggesting refactoring for better testability
+           
+        FRAMEWORK DETECTION:
         - If JUnit 5 is detected, use JUnit 5 annotations and assertions
         - If JUnit 4 is detected, use JUnit 4 annotations and assertions
-        - If Spring Boot Test is available, use Spring testing annotations (@SpringBootTest, @MockBean, etc.)
-        - If Mockito is available, prefer it for mocking. ONLY mock project-specific code. DO NOT mock third-party services like databases. Leave it to test containers
-        - If no mocking framework is available, try to avoid mocking, or if is utterly important to mock an object, provide a comment and leave it to user to give a mocked version of that object
-        - If Testcontainers is available, prefer it over mocking for database/external service tests. 
-        If Testcontainers is not available but there are database-related testings, then recommend user to add such dependencies. DO NOT MOCK DATABASES. 
+        - If Spring Boot Test is available, use Spring testing annotations (@SpringBootTest, @TestConfiguration, etc.)
+        - If Testcontainers is available, use it for all database/external service testing
+        - If Testcontainers is NOT available but database testing is needed, recommend adding testcontainers dependencies
         - If AssertJ is available, use AssertJ assertions instead of JUnit assertions for better readability
         - DO NOT add dependencies that are not already in the project
         
+        CRITICAL: DO NOT MOCK databases, message queues, file systems, or well-supported external services. Use testcontainers instead.
+        
         F.I.R.S.T Principles
                 
-        - Fast: Tests should run quickly
+        - Fast: Tests should run quickly (unit tests for pure logic, optimized integration tests for external deps)
         - Independent: Tests shouldn't depend on each other
         - Repeatable: Same result every time
         - Self-validating: Pass or fail, no manual checking
-        - Timely: Written close to production code. Avoid mocks as much as possible. 
-        If it cannot be unit-tested, go for integration test with test containers and give clear comments with TODO and FIXME on the problems.
-        You can leave comment on how to refactor for better testability if the method or class is not testable (highly coupling)
+        - Timely: Written close to production code. Choose the RIGHT test type:
+          * Pure business logic → Unit tests (no mocks needed)
+          * External dependencies → Integration tests with testcontainers
+          * Unavoidable external APIs → Document with TODO/FIXME and consider refactoring suggestions
+        You can leave comments on how to refactor for better testability if the method or class has high coupling
         
         REMEMBER:
         
@@ -623,10 +641,12 @@ public class TestWriterAgent extends StreamingBaseAgent {
         // Instructions
         prompt.append("\n\nIMPORTANT INSTRUCTIONS:\n");
 
-        prompt.append("1. Each test method must be fully implemented\n");
-        prompt.append("2. Use appropriate assertions and mocking, but try avoid mocking as much as possible. Use test containers for databases and third-party services if possible. \n");
-        prompt.append("3. Follow the framework conventions (" + context.getFrameworkInfo() + ")\n");
-        prompt.append("4. Strictly adhere to testing writing best practices.\n");
+        prompt.append("1. ANALYZE the code dependencies FIRST to choose the right test approach\n");
+        prompt.append("2. Pure business logic → Unit tests (no mocking needed)\n");
+        prompt.append("3. Database/external services → Integration tests with testcontainers\n");
+        prompt.append("4. Each test method must be fully implemented with proper assertions\n");
+        prompt.append("5. Follow the framework conventions (" + context.getFrameworkInfo() + ")\n");
+        prompt.append("6. Strictly adhere to dependency-aware testing best practices.\n");
 
         return prompt.toString();
     }

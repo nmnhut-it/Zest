@@ -212,14 +212,10 @@ public class TestContext {
         if (allContent.contains("@Mock")) patterns.add("Mockito");
         if (allContent.contains("assertEquals")) patterns.add("Assertions");
         
-        // Build metadata
+        // Build minimal metadata (only essential data)
         Map<String, Object> metadata = new java.util.HashMap<>();
         metadata.put("targetFile", targetFileName);
-        metadata.put("gatheredData", gatheredData);
-        // Add read files to metadata for CoordinatorAgent to use
-        if (readFiles != null && !readFiles.isEmpty()) {
-            metadata.put("gatheredFiles", new java.util.HashMap<>(readFiles));
-        }
+        // Note: Context data is now accessed directly through ContextAgent tools, not through metadata
 
         return new TestContext(
                 contextItems,

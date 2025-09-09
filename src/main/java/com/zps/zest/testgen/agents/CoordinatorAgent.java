@@ -18,6 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
@@ -30,11 +31,14 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     private final TestPlanningTools planningTools;
     private final TestPlanningAssistant assistant;
     private final MessageWindowChatMemory chatMemory;
+    private final ContextAgent.ContextGatheringTools contextTools;
     
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
-                          @NotNull LLMService llmService) {
+                          @NotNull LLMService llmService,
+                          @Nullable ContextAgent.ContextGatheringTools contextTools) {
         super(project, langChainService, llmService, "CoordinatorAgent");
+        this.contextTools = contextTools;
         this.planningTools = new TestPlanningTools(this);
         
         // Build the agent with streaming support
@@ -61,11 +65,16 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         
         PROCESS:
         1. Analyze the code and set target class.
-        2. Set recommended test type.
-        3. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
+        2. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
+        3. Each scenario should specify its own type (UNIT or INTEGRATION) based on what it tests
         
-        Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested. 
-        If it cannot be unit-tested, go for integration test with test containers and give clear comments with TODO and FIXME on the problems.
+        Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested.
+        
+        CRITICAL: Each test scenario should have its own test type based on what that specific scenario tests:
+        - Scenarios testing pure business logic (calculations, validations) → Use "UNIT" type
+        - Scenarios testing database interactions, external APIs, file I/O → Use "INTEGRATION" type  
+        - Analyze each scenario individually - one test class can have both unit and integration scenarios
+        - Use the context analysis to determine what each scenario needs to test
 
         You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only, stop when you find it is enough, or you have exceed 10 test cases per selected method.
         """)
@@ -143,8 +152,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 // Summary
                 sendToUI("\n📊 Test Plan Summary:\n");
                 sendToUI("  • Target: " + testPlan.getTargetClass() + "." + String.join(", ", testPlan.getTargetMethods()) + "\n");
-                sendToUI("  • Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
-                sendToUI("  • Scenarios: " + testPlan.getScenarioCount() + "\n");
+                sendToUI("  • Overall Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
+                
+                // Count unit vs integration scenarios
+                long unitScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.UNIT ? 1 : 0).sum();
+                long integrationScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.INTEGRATION ? 1 : 0).sum();
+                
+                sendToUI("  • Scenarios: " + testPlan.getScenarioCount() + " total (" + unitScenarios + " unit, " + integrationScenarios + " integration)\n");
                 notifyComplete();
                 
                 LOG.debug("Test planning complete: " + testPlan.getScenarioCount() + " scenarios");
@@ -176,35 +190,85 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         }
         prompt.append("\n");
         
-        // Add code (selected or full)
-        String code = request.hasSelection() ? request.getSelectedCode() : request.getTargetFile().getText();
-        if (code != null && !code.isEmpty()) {
-            // Limit code length to avoid token limits
-//            if (code.length() > 3000) {
-//                code = code.substring(0, 3000) + "\n... [truncated]";
-//            }
-            prompt.append("\nCode to test:\n```java\n");
-            prompt.append(code);
-            prompt.append("\n```\n");
-        }
+        // Skip adding raw code here since it's already included in analyzed class implementations below
         
         // Add context if available
         if (context != null) {
-            prompt.append("\nContext Information:\n");
+            prompt.append("\nContext Analysis (use this to determine test type):\n");
             prompt.append("• Framework: ").append(context.getFrameworkInfo()).append("\n");
-            prompt.append("• Dependencies: ").append(context.getDependencies().size()).append("\n");
+            prompt.append("• Dependencies found: ").append(context.getDependencies().size()).append("\n");
             prompt.append("• Test patterns found: ").append(context.getExistingTestPatterns().size()).append("\n");
             
-            // Include context notes if available
-            if (context.getAdditionalMetadata() != null) {
-                Object notes = context.getAdditionalMetadata().get("contextNotes");
-                if (notes instanceof List && !((List<?>) notes).isEmpty()) {
-                    prompt.append("\nKey insights:\n");
-                    for (Object note : (List<?>) notes) {
-                        prompt.append("• ").append(note).append("\n");
-                    }
+            // Analyze dependencies to guide test type decision
+            prompt.append("\nDependency Analysis for Test Type Decision:\n");
+            boolean hasExternalDeps = false;
+            
+            for (var entry : context.getDependencies().entrySet()) {
+                String depKey = entry.getKey().toLowerCase();
+                String depValue = entry.getValue().toLowerCase();
+                String depInfo = (depKey + " " + depValue).toLowerCase();
+                
+                if (depInfo.contains("database") || depInfo.contains("jdbc") || depInfo.contains("jpa") || 
+                    depInfo.contains("repository") || depInfo.contains("file") || depInfo.contains("http") ||
+                    depInfo.contains("kafka") || depInfo.contains("redis") || depInfo.contains("elasticsearch")) {
+                    hasExternalDeps = true;
+                    prompt.append("• External dependency detected: ").append(entry.getKey()).append(" = ").append(entry.getValue()).append("\n");
                 }
             }
+            
+            if (hasExternalDeps) {
+                prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
+                prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
+            } else {
+                prompt.append("→ GUIDANCE: Most scenarios should be UNIT type (no external dependencies detected)\n");
+            }
+            
+            // Include full context analysis using direct tool access
+            if (contextTools != null) {
+                // Add detailed context notes
+                List<String> contextNotes = contextTools.getContextNotes();
+                if (!contextNotes.isEmpty()) {
+                    prompt.append("\n=== DETAILED CONTEXT ANALYSIS ===\n");
+                    prompt.append("Context Agent Findings (use this for test planning decisions):\n");
+                    int noteNum = 1;
+                    for (String note : contextNotes) {
+                        prompt.append(String.format("%d. %s\n\n", noteNum++, note));
+                    }
+                }
+                
+                // Add analyzed class implementations
+                Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
+                if (!analyzedClasses.isEmpty()) {
+                    prompt.append("\n=== ANALYZED CLASS IMPLEMENTATIONS ===\n");
+                    for (var entry : analyzedClasses.entrySet()) {
+                        prompt.append(String.format("Class: %s\n", entry.getKey()));
+                        String implementation = entry.getValue();
+                        // Limit implementation length to avoid token limits
+                        if (implementation.length() > 2000) {
+                            prompt.append(implementation.substring(0, 2000)).append("\n... [truncated]\n\n");
+                        } else {
+                            prompt.append(implementation).append("\n\n");
+                        }
+                    }
+                }
+                
+                // Add file contents that were read
+                Map<String, String> readFiles = contextTools.getReadFiles();
+                if (!readFiles.isEmpty()) {
+                    prompt.append("\n=== RELATED FILES READ ===\n");
+                    for (var entry : readFiles.entrySet()) {
+                        prompt.append(String.format("File: %s\n", entry.getKey()));
+                        String content = entry.getValue();
+                        // Limit file content to avoid token limits
+                        if (content.length() > 1000) {
+                            prompt.append(content.substring(0, 1000)).append("\n... [truncated]\n\n");
+                        } else {
+                            prompt.append(content).append("\n\n");
+                        }
+                    }
+                }
+        } else {
+            prompt.append("\nNo context analysis available - analyze the code to determine if scenarios need UNIT or INTEGRATION types\n");
         }
         
         prompt.append("\nGenerate 8-15 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");
@@ -222,7 +286,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         private final CoordinatorAgent coordinatorAgent;
         private String targetClass = "";
         private final List<String> targetMethods = new ArrayList<>();
-        private TestGenerationRequest.TestType recommendedType = TestGenerationRequest.TestType.UNIT_TESTS;
         private final List<TestPlan.TestScenario> scenarios = new ArrayList<>();
         private String reasoning = "";
         private Consumer<String> toolNotifier;
@@ -250,7 +313,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         public void reset() {
             targetClass = "";
             targetMethods.clear();
-            recommendedType = TestGenerationRequest.TestType.UNIT_TESTS;
             scenarios.clear();
             reasoning = "";
         }
@@ -275,18 +337,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Set the recommended test type (UNIT_TESTS or INTEGRATION_TESTS)")
-        public String setRecommendedTestType(String testType) {
-            notifyTool("setRecommendedTestType", testType);
-            try {
-                this.recommendedType = TestGenerationRequest.TestType.valueOf(testType.toUpperCase());
-                return "Recommended test type set to: " + recommendedType.getDescription();
-            } catch (IllegalArgumentException e) {
-                // Default to UNIT_TESTS if invalid
-                this.recommendedType = TestGenerationRequest.TestType.UNIT_TESTS;
-                return "Invalid test type, defaulting to: " + recommendedType.getDescription();
-            }
-        }
 
         @Tool("Add multiple test scenarios to the plan at once")
         public String addTestScenarios(List<ScenarioInput> scenarioInputs) {
@@ -346,7 +396,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     TestPlanDisplayData planData = new TestPlanDisplayData(
                         targetClass.isEmpty() ? "UnknownClass" : targetClass,
                         targetMethods.isEmpty() ? List.of("unknownMethod") : new ArrayList<>(targetMethods),
-                        recommendedType.getDescription(),
+                        "Mixed Test Plan", // Will be determined when plan is complete
                         List.of(scenarioData), // Send just the new scenario
                         "Planning in progress...",
                         scenarios.size(),
@@ -403,14 +453,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 targetMethods.add("unknownMethod");
             }
             
+            // Determine overall test type based on scenario types
+            TestGenerationRequest.TestType overallTestType = determineOverallTestType();
+            
             // Create the test plan
             TestPlan plan = new TestPlan(
                 new ArrayList<>(targetMethods),
                 targetClass,
                 new ArrayList<>(scenarios),
                 new ArrayList<>(), // Dependencies will be filled by context
-                recommendedType,
-                reasoning.isEmpty() ? "Comprehensive test plan with " + scenarios.size() + " scenarios" : reasoning
+                overallTestType,
+                reasoning.isEmpty() ? "Mixed test plan with " + scenarios.size() + " scenarios" : reasoning
             );
             
             // Send complete test plan to UI
@@ -452,6 +505,34 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             }
             
             return plan;
+        }
+        
+        /**
+         * Determine overall test type based on individual scenario types.
+         * If any scenario is INTEGRATION, the overall type is INTEGRATION_TESTS.
+         * If all scenarios are UNIT, the overall type is UNIT_TESTS.
+         */
+        private TestGenerationRequest.TestType determineOverallTestType() {
+            boolean hasIntegrationScenarios = false;
+            boolean hasUnitScenarios = false;
+            
+            for (TestPlan.TestScenario scenario : scenarios) {
+                if (scenario.getType() == TestPlan.TestScenario.Type.INTEGRATION) {
+                    hasIntegrationScenarios = true;
+                } else if (scenario.getType() == TestPlan.TestScenario.Type.UNIT) {
+                    hasUnitScenarios = true;
+                }
+            }
+            
+            // If we have any integration scenarios, mark as integration tests
+            if (hasIntegrationScenarios) {
+                return TestGenerationRequest.TestType.INTEGRATION_TESTS;
+            } else if (hasUnitScenarios) {
+                return TestGenerationRequest.TestType.UNIT_TESTS;
+            } else {
+                // Default to integration tests for safety if no scenarios or unclear types
+                return TestGenerationRequest.TestType.INTEGRATION_TESTS;
+            }
         }
     }
     

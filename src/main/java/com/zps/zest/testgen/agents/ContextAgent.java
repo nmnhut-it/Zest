@@ -387,6 +387,19 @@ Stop when you can test the code without making assumptions about external resour
             data.put("readFiles", new HashMap<>(readFiles));
             return data;
         }
+        
+        // Direct access methods for CoordinatorAgent
+        public List<String> getContextNotes() {
+            return new ArrayList<>(contextNotes);
+        }
+        
+        public Map<String, String> getAnalyzedClasses() {
+            return new HashMap<>(analyzedClasses);
+        }
+        
+        public Map<String, String> getReadFiles() {
+            return new HashMap<>(readFiles);
+        }
 
         private void notifyTool(String toolName, String params) {
             if (toolNotifier != null) {

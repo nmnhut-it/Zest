@@ -81,8 +81,9 @@ public final class StateMachineTestGenerationService {
         com.zps.zest.langchain4j.ZestLangChain4jService langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService.class);
         com.zps.zest.langchain4j.util.LLMService llmService = project.getService(com.zps.zest.langchain4j.util.LLMService.class);
         
-        // Create coordinatorAgent for planning phase
-        com.zps.zest.testgen.agents.CoordinatorAgent coordinatorAgent = new com.zps.zest.testgen.agents.CoordinatorAgent(project, langChainService, llmService);
+        // Create coordinatorAgent for planning phase - will get contextTools reference during planning phase
+        // Note: ContextAgent is created later in ContextGatheringHandler, so CoordinatorAgent gets null contextTools initially
+        com.zps.zest.testgen.agents.CoordinatorAgent coordinatorAgent = new com.zps.zest.testgen.agents.CoordinatorAgent(project, langChainService, llmService, null);
         stateMachine.setSessionData("coordinatorAgent", coordinatorAgent);
         
         // Store active state machine

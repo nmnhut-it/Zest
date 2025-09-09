@@ -50,16 +50,19 @@ public class TestPlanningHandler extends AbstractStateHandler {
             TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
             TestContext context = (TestContext) getSessionData(stateMachine, "context");
             
-            // Initialize coordinator agent
-            // Get existing coordinatorAgent from session data (created at session start)
-            CoordinatorAgent coordinatorAgent = (CoordinatorAgent) getSessionData(stateMachine, "coordinatorAgent");
-            if (coordinatorAgent == null) {
-                // Fallback: create if not found (shouldn't happen)
-                ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-                LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-                coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService);
-                setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent);
-            }
+            // Create coordinator agent with contextTools reference
+            // Note: We create a new CoordinatorAgent here because the one created at session start doesn't have contextTools
+            ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
+            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
+            
+            // Get contextAgent from session data to access its tools
+            com.zps.zest.testgen.agents.ContextAgent contextAgent = 
+                (com.zps.zest.testgen.agents.ContextAgent) getSessionData(stateMachine, "contextAgent");
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
+                contextAgent != null ? contextAgent.getContextTools() : null;
+                
+            CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService, contextTools);
+            setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent); // Update session data with new instance
             
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
             

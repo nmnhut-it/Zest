@@ -9,11 +9,10 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.zps.zest.git.GitCommitContext;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.browser.JavaScriptBridge;
+import com.zps.zest.browser.actions.OpenChatInEditorAction;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.browser.utils.GitCommandExecutor;
 import com.zps.zest.git.GitStatusCollector;
@@ -88,22 +87,46 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             return;
         }
 
-        // Show modal via JavaScript - proper string escaping
+        // Open git UI chat editor and show file selection
         try {
-            String escapedFiles = changedFiles.replace("\\", "\\\\")
-                    .replace("\"", "\\\"")
-                    .replace("\n", "\\n")
-                    .replace("\r", "\\r")
-                    .replace("\t", "\\t");
+            ApplicationManager.getApplication().invokeLater(() -> {
+                // Open chat editor for git commit workflow
+                OpenChatInEditorAction.Companion.openChatInSplitEditor(context.getProject(), "git-commit-session");
+                
+                // Wait for editor to load, then show file selection in git UI
+                javax.swing.Timer timer = new javax.swing.Timer(1500, e -> {
+                    try {
+                        String escapedFiles = changedFiles.replace("\\", "\\\\")
+                                .replace("\"", "\\\"")
+                                .replace("\n", "\\n")
+                                .replace("\r", "\\r")
+                                .replace("\t", "\\t");
 
-            String script = "if (window.showFileSelectionModal) { window.showFileSelectionModal(\"" + escapedFiles + "\"); }";
+                        // Try git UI specific file selection, fallback to generic modal
+                        String script = 
+                            "if (window.showGitFileSelection) { " +
+                            "  window.showGitFileSelection(\"" + escapedFiles + "\"); " +
+                            "} else if (window.showFileSelectionModal) { " +
+                            "  window.showFileSelectionModal(\"" + escapedFiles + "\"); " +
+                            "} else { " +
+                            "  console.log('No file selection handler available'); " +
+                            "  alert('Git file selection not available. Please use git UI directly.'); " +
+                            "}";
 
-            LOG.info("Showing file selection modal for files: " + changedFiles.substring(0, Math.min(100, changedFiles.length())));
-            WebBrowserService.getInstance(context.getProject()).executeJavaScript(script);
+                        WebBrowserService.getInstance(context.getProject()).executeJavaScript(script);
+                        LOG.info("File selection shown in git UI chat editor");
+                        
+                    } catch (Exception ex) {
+                        LOG.error("Error showing file selection in git UI", ex);
+                    }
+                });
+                timer.setRepeats(false);
+                timer.start();
+            });
 
         } catch (Exception e) {
-            LOG.error("Error showing file selection modal", e);
-            Messages.showErrorDialog(context.getProject(), "Failed to show file selection: " + e.getMessage(), "Error");
+            LOG.error("Error opening git UI for file selection", e);
+            Messages.showErrorDialog(context.getProject(), "Failed to open git UI: " + e.getMessage(), "Error");
         }
     }
 
@@ -604,44 +627,91 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     }
 
     /**
-     * Sends the commit message prompt to the chat box using newChat and activates the browser window.
-     *
-     * @param modelName the name of the model to use (e.g., "local-model-mini")
+     * Sends the commit message prompt to the git UI chat editor instead of tool window.
      */
     private boolean sendPromptToChatBox(Project project, String prompt, String modelName) {
-        LOG.info("Sending commit message prompt to chat box using new chat and model: " + modelName);
+        LOG.info("Sending commit message prompt to git UI chat editor with model: " + modelName);
 
-        // Start a new chat with the desired model and prompt
-        ChatboxUtilities.clickNewChatButton(project);
-        // Use browserService.executeJavaScript() before creating the new chat
-        String script = "window.__selected_model_name__ = '" + modelName + "';";
-        WebBrowserService.getInstance(project).executeJavaScript(script);
-        ChatboxUtilities.sendTextAndSubmit(project, prompt, false, null, false, ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE);
-
-        // Activate browser tool window on EDT
-        ApplicationManager.getApplication().invokeLater(() -> {
-            ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ZPS Chat");
-            if (toolWindow != null) {
-                toolWindow.activate(null);
-            }
-        });
-
-        return true;
+        try {
+            // Open the chat editor in split view
+            ApplicationManager.getApplication().invokeLater(() -> {
+                OpenChatInEditorAction.Companion.openChatInSplitEditor(project, "git-commit-session");
+                
+                // Wait briefly for editor to open, then send prompt
+                javax.swing.Timer timer = new javax.swing.Timer(1000, e -> {
+                    try {
+                        // Set the model for git UI
+                        String setModelScript = "if (window.setModel) { window.setModel('" + modelName + "'); }";
+                        WebBrowserService.getInstance(project).executeJavaScript(setModelScript);
+                        
+                        // Send prompt to the chat editor
+                        String sendPromptScript = "if (window.sendMessage || window.submitMessage) { " +
+                            "var textarea = document.querySelector('textarea, .chat-input, #message-input'); " +
+                            "if (textarea) { " +
+                                "textarea.value = " + escapeJavaScriptString(prompt) + "; " +
+                                "var submitBtn = document.querySelector('button[type=\"submit\"], .submit-btn, .send-btn'); " +
+                                "if (submitBtn) submitBtn.click(); " +
+                            "} }";
+                        WebBrowserService.getInstance(project).executeJavaScript(sendPromptScript);
+                        
+                        LOG.info("Prompt sent to chat editor successfully");
+                        
+                    } catch (Exception ex) {
+                        LOG.warn("Failed to send prompt to chat editor", ex);
+                    }
+                });
+                timer.setRepeats(false);
+                timer.start();
+            });
+            
+            return true;
+            
+        } catch (Exception e) {
+            LOG.error("Failed to open chat editor", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Escape string for JavaScript - handles quotes and newlines properly
+     */
+    private String escapeJavaScriptString(String input) {
+        if (input == null) return "null";
+        
+        return "\"" + input
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            + "\"";
     }
 
     /**
-     * Shows a simple status message in the tool window
+     * Shows a status message in the git UI chat editor
      */
     private void showToolWindowMessage(Project project, String message) {
         ApplicationManager.getApplication().invokeLater(() -> {
             try {
-                // Send message to the browser tool window via JavaScript
-                String script = String.format("if (window.showStatusMessage) { window.showStatusMessage('%s'); }",
-                        message.replace("'", "\\'"));
+                // Send status message to the git UI chat editor via JavaScript
+                String script = String.format(
+                    "if (window.showGitStatusMessage || window.addChatMessage) { " +
+                    "  var func = window.showGitStatusMessage || window.addChatMessage; " +
+                    "  func('✅ %s'); " +
+                    "} else if (document.querySelector('.chat-messages, .git-status')) { " +
+                    "  var container = document.querySelector('.chat-messages, .git-status'); " +
+                    "  var msgDiv = document.createElement('div'); " +
+                    "  msgDiv.textContent = '✅ %s'; " +
+                    "  msgDiv.style.color = 'green'; " +
+                    "  msgDiv.style.fontWeight = 'bold'; " +
+                    "  container.appendChild(msgDiv); " +
+                    "}",
+                    message.replace("'", "\\'"), message.replace("'", "\\'")
+                );
                 WebBrowserService.getInstance(project).executeJavaScript(script);
-                LOG.info("Sent status message to tool window: " + message);
+                LOG.info("Sent status message to git UI chat editor: " + message);
             } catch (Exception e) {
-                LOG.warn("Failed to show tool window message: " + message, e);
+                LOG.warn("Failed to show git UI status message: " + message, e);
             }
         });
     }

@@ -1236,6 +1236,9 @@ class CodeHealthAnalyzer(private val project: Project) {
                     ReviewOptimizer.ReviewUnit.ReviewType.WHOLE_FILE -> {
                         analyzeWholeFile(unit, context)
                     }
+                    ReviewOptimizer.ReviewUnit.ReviewType.PARTIAL_FILE -> {
+                        analyzePartialFile(unit, context)
+                    }
                     ReviewOptimizer.ReviewUnit.ReviewType.METHOD_GROUP -> {
                         analyzeMethodGroup(unit, context)
                     }
@@ -1312,6 +1315,72 @@ class CodeHealthAnalyzer(private val project: Project) {
             - originalCode: Copy chính xác method code từ context
             - annotatedCode: Cùng method code nhưng thêm inline review comments
             - PHẢI bao gồm cả hai fields này cho mỗi method
+            
+            Bỏ qua methods không có critical issues.
+            Bỏ qua style, naming, optimizations nhỏ.
+            Sắp xếp issues theo độ nghiêm trọng trong mỗi method.
+        """.trimIndent()
+        
+        return callLLMForFileAnalysis(unit, context, prompt)
+    }
+    
+    /**
+     * Analyze a partial file (chunk)
+     */
+    private fun analyzePartialFile(
+        unit: ReviewOptimizer.ReviewUnit,
+        context: ReviewOptimizer.ReviewContext
+    ): List<MethodHealthResult> {
+        println("[CodeHealthAnalyzer] Analyzing partial file: ${unit.className} (lines ${context.startLine}-${context.endLine})")
+        
+        val prompt = """
+            Phân tích phần này của Java file và tìm tối đa 3 issues mỗi method VISIBLE trong chunk, sắp xếp theo độ nghiêm trọng.
+            
+            File: ${unit.className}
+            Chunk: Lines ${context.startLine}-${context.endLine}
+            Modified methods in full file: ${unit.methods.joinToString(", ")}
+            
+            ${context.toPromptContext()}
+            
+            CHÚ Ý: Chỉ review methods HOÀN CHỈNH có thể thấy trong chunk này.
+            Nếu method bị cắt (không thấy đầu hoặc cuối), SKIP method đó.
+            
+            Đối với mỗi method HOÀN CHỈNH trong chunk:
+            1. Tìm tối đa 3 vấn đề tiềm tàng
+            2. Sắp xếp theo tác động thực tế (critical nhất trước)
+            3. Chỉ bao gồm issues có thể gây vấn đề thực sự
+            4. PHẢI bao gồm originalCode và annotatedCode cho mỗi method
+            
+            Tập trung vào issues có thể:
+            - Gây crashes hoặc mất dữ liệu
+            - Tạo lỗ hổng security
+            - Leak resources hoặc memory
+            - Ảnh hưởng nghiêm trọng đến performance
+            
+            Trả về CHỈ valid JSON (đặt critical issue đầu tiên cho mỗi method):
+            {
+                "methods": [
+                    {
+                        "fqn": "full.class.Name.methodName",
+                        "summary": "Đánh giá ngắn",
+                        "healthScore": 85,
+                        "originalCode": "COPY CHÍNH XÁC toàn bộ method code từ context - không được thay đổi gì",
+                        "annotatedCode": "COPY TOÀN BỘ method code từ context NHƯNG thêm inline comments review với prefix // 🔴 CRITICAL:, // 🟠 WARNING:, // 🟡 SUGGESTION:",
+                        "issues": [
+                            {
+                                "category": "Category",
+                                "severity": 4,
+                                "title": "Tiêu đề issue",
+                                "description": "Vấn đề gì",
+                                "impact": "Hậu quả thực tế",
+                                "suggestedFix": "Cách fix",
+                                "confidence": 0.9,
+                                "priority": 1
+                            }
+                        ]
+                    }
+                ]
+            }
             
             Bỏ qua methods không có critical issues.
             Bỏ qua style, naming, optimizations nhỏ.

@@ -13,6 +13,8 @@ class ReviewOptimizer(private val project: Project) {
     
     companion object {
         const val SMALL_FILE_THRESHOLD = 2000 // lines - increased to review more whole files
+        const val CHUNK_SIZE = 500 // lines per chunk for large files
+        const val CHUNK_OVERLAP = 50 // lines of overlap between chunks for context
     }
     
     data class ReviewUnit(
@@ -21,10 +23,13 @@ class ReviewOptimizer(private val project: Project) {
         val methods: List<String>,
         val filePath: String? = null,
         val lineCount: Int = 0,
-        val language: String = "java" // Add language field
+        val language: String = "java", // Add language field
+        val startLine: Int = 0, // For partial files
+        val endLine: Int = 0 // For partial files
     ) {
         enum class ReviewType {
             WHOLE_FILE,      // Review entire small file
+            PARTIAL_FILE,    // Review part of a large file
             METHOD_GROUP,    // Review group of methods from same class
             JS_TS_REGION    // Review JS/TS region
         }
@@ -32,6 +37,7 @@ class ReviewOptimizer(private val project: Project) {
         fun getIdentifier(): String {
             return when (type) {
                 ReviewType.WHOLE_FILE -> "file:$className"
+                ReviewType.PARTIAL_FILE -> "partial:$className:$startLine-$endLine" // Include line range for uniqueness
                 ReviewType.METHOD_GROUP -> "class:$className:${methods.sorted().joinToString(",")}"
                 ReviewType.JS_TS_REGION -> "region:$className" // For JS/TS, className is the region identifier
             }
@@ -40,6 +46,7 @@ class ReviewOptimizer(private val project: Project) {
         fun getDescription(): String {
             return when (type) {
                 ReviewType.WHOLE_FILE -> "Entire file: $className ($lineCount lines)"
+                ReviewType.PARTIAL_FILE -> "Partial file: $className (lines $startLine-$endLine)"
                 ReviewType.METHOD_GROUP -> "Class $className: ${methods.size} methods (${methods.joinToString(", ")})"
                 ReviewType.JS_TS_REGION -> "JS/TS Region: $className"
             }
@@ -114,14 +121,30 @@ class ReviewOptimizer(private val project: Project) {
                         language = "java"
                     ))
                 } else {
-                    // For large files, group methods
-                    reviewUnits.add(ReviewUnit(
-                        type = ReviewUnit.ReviewType.METHOD_GROUP,
-                        className = className,
-                        methods = methods.map { it.substringAfterLast(".") },
-                        filePath = filePath,
-                        language = "java"
-                    ))
+                    // For large files, create chunks
+                    println("[ReviewOptimizer] Large file detected: $className with $lineCount lines. Creating chunks...")
+                    var currentLine = 0
+                    var chunkNumber = 1
+                    
+                    while (currentLine < lineCount) {
+                        val startLine = if (currentLine == 0) 0 else currentLine - CHUNK_OVERLAP
+                        val endLine = minOf(currentLine + CHUNK_SIZE, lineCount)
+                        
+                        reviewUnits.add(ReviewUnit(
+                            type = ReviewUnit.ReviewType.PARTIAL_FILE,
+                            className = className,
+                            methods = methods.map { it.substringAfterLast(".") }, // Include all methods for context
+                            filePath = filePath,
+                            lineCount = endLine - startLine,
+                            language = "java",
+                            startLine = startLine,
+                            endLine = endLine
+                        ))
+                        
+                        println("[ReviewOptimizer] Created chunk $chunkNumber: lines $startLine-$endLine")
+                        currentLine += CHUNK_SIZE
+                        chunkNumber++
+                    }
                 }
             } else {
                 // Fallback if we can't find the file
@@ -208,6 +231,7 @@ class ReviewOptimizer(private val project: Project) {
     fun prepareReviewContext(unit: ReviewUnit): ReviewContext {
         return when (unit.type) {
             ReviewUnit.ReviewType.WHOLE_FILE -> prepareWholeFileContext(unit)
+            ReviewUnit.ReviewType.PARTIAL_FILE -> preparePartialFileContext(unit)
             ReviewUnit.ReviewType.METHOD_GROUP -> prepareMethodGroupContext(unit)
             ReviewUnit.ReviewType.JS_TS_REGION -> prepareJsTsRegionContext(unit)
         }
@@ -234,6 +258,49 @@ class ReviewOptimizer(private val project: Project) {
                 methodNames = unit.methods,
                 imports = extractImports(psiFile),
                 classContext = extractClassContext(psiClass)
+            )
+        }
+    }
+    
+    private fun preparePartialFileContext(unit: ReviewUnit): ReviewContext {
+        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
+            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
+                .findClass(unit.className, com.intellij.psi.search.GlobalSearchScope.projectScope(project))
+                ?: return@compute ReviewContext.empty(unit.className)
+                
+            val psiFile = psiClass.containingFile
+            
+            // Ensure it's a Java file
+            if (!isJavaFile(psiFile)) {
+                return@compute ReviewContext.empty(unit.className)
+            }
+            
+            // Extract the partial content
+            val fullText = psiFile.text
+            val lines = fullText.lines()
+            
+            // Get the chunk with bounds checking
+            val startIdx = maxOf(0, unit.startLine)
+            val endIdx = minOf(lines.size, unit.endLine)
+            
+            val partialContent = if (startIdx < endIdx) {
+                lines.subList(startIdx, endIdx).joinToString("\n")
+            } else {
+                fullText // Fallback to full text if bounds are invalid
+            }
+            
+            println("[ReviewOptimizer] Extracted partial content for ${unit.className}: lines $startIdx-$endIdx (${partialContent.length} chars)")
+            
+            ReviewContext(
+                className = unit.className,
+                fileContent = partialContent,
+                reviewType = "partial_file",
+                lineCount = endIdx - startIdx,
+                methodNames = unit.methods,
+                imports = extractImports(psiFile),
+                classContext = extractClassContext(psiClass),
+                startLine = unit.startLine,
+                endLine = unit.endLine
             )
         }
     }
@@ -444,7 +511,9 @@ class ReviewOptimizer(private val project: Project) {
         val classContext: ClassContext? = null,
         val surroundingCode: String? = null,
         val language: String = "java", // Add language field
-        val regionContexts: List<JsTsRegionContext> = emptyList() // For JS/TS regions
+        val regionContexts: List<JsTsRegionContext> = emptyList(), // For JS/TS regions
+        val startLine: Int = 0, // For partial files
+        val endLine: Int = 0 // For partial files
     ) {
         companion object {
             fun empty(className: String) = ReviewContext(
@@ -456,6 +525,7 @@ class ReviewOptimizer(private val project: Project) {
         fun toPromptContext(): String {
             return when (reviewType) {
                 "whole_file" -> buildWholeFilePrompt()
+                "partial_file" -> buildPartialFilePrompt()
                 "method_group" -> buildMethodGroupPrompt()
                 "js_ts_region" -> buildJsTsRegionPrompt()
                 else -> "No context available"
@@ -470,6 +540,23 @@ class ReviewOptimizer(private val project: Project) {
                 |Modified methods: ${methodNames.joinToString(", ")}
                 |
                 |File Content:
+                |```java
+                |$fileContent
+                |```
+            """.trimMargin()
+        }
+        
+        private fun buildPartialFilePrompt(): String {
+            return """
+                |Review Type: Partial File (Chunk)
+                |File: $className
+                |Lines: $startLine-$endLine (of total file)
+                |Chunk size: $lineCount lines
+                |Modified methods in file: ${methodNames.joinToString(", ")}
+                |
+                |Note: This is a partial section of a larger file. Focus on methods visible in this chunk.
+                |
+                |File Content (lines $startLine-$endLine):
                 |```java
                 |$fileContent
                 |```
